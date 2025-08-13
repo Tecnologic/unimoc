@@ -146,16 +146,15 @@ initialize(void)
 	Adc5::enableInjectedConversionExternalTrigger(Adc5::ExternalTriggerPolarity::RisingEdge,
 												  Adc5::RegularConversionExternalTrigger::Event7);
 
-    if (!Adc1::setChannelOffset<A1_IA>(Adc1::OffsetSlot::Slot0, 2048)) { return false; }
-    if (!Adc2::setChannelOffset<A2_IB>(Adc2::OffsetSlot::Slot0, 2048)) { return false; }
-    if (!Adc3::setChannelOffset<A3_IC>(Adc3::OffsetSlot::Slot0, 2048)) { return false; }
+    if (!Adc1::enableChannelOffset<A1_IA>(Adc1::OffsetSlot::Slot0, 2048)) { return false; }
+    if (!Adc2::enableChannelOffset<A2_IB>(Adc2::OffsetSlot::Slot0, 2048)) { return false; }
+    if (!Adc3::enableChannelOffset<A3_IC>(Adc3::OffsetSlot::Slot0, 2048)) { return false; }
 
 	Adc1::startInjectedConversionSequence();
     Adc2::startInjectedConversionSequence();
     Adc3::startInjectedConversionSequence();
     Adc4::startInjectedConversionSequence();
     Adc5::startInjectedConversionSequence();
-
 
     return true;  // Return true if initialization is successful
 }

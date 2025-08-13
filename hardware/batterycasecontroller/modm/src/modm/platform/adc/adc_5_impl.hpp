@@ -249,6 +249,14 @@ modm::platform::Adc5::enableRegularConversionExternalTrigger(
 }
 
 void
+modm::platform::Adc5::disableRegularConversionExternalTrigger()
+{
+	// Disable regular conversions external trigger by clearing the bits
+	// for polarity and external trigger source.
+	ADC5->CFGR &= ~(ADC_CFGR_EXTEN_Msk | ADC_CFGR_EXTSEL_Msk);
+}
+
+void
 modm::platform::Adc5::startInjectedConversionSequence()
 {
 	acknowledgeInterruptFlags(InterruptFlag::EndOfInjectedConversion |
@@ -309,6 +317,13 @@ modm::platform::Adc5::enableInjectedConversionExternalTrigger(
 	ADC5->JSQR = (ADC5->JSQR & ~mask) | polarity | externalTrigger;
 }
 
+void
+modm::platform::Adc5::disableInjectedConversionExternalTrigger()
+{
+	// Disable injected conversions external trigger by clearing the bits
+	// for polarity and external trigger source.
+	ADC5->JSQR &= ~(ADC_JSQR_JEXTEN_Msk | ADC_JSQR_JEXTSEL_Msk);
+}
 
 bool
 modm::platform::Adc5::isInjectedConversionFinished()
@@ -363,15 +378,9 @@ modm::platform::Adc5::acknowledgeInterruptFlags(const InterruptFlag_t flags)
 	ADC5->ISR = flags.value;
 }
 
-/**
- * @arg slot for the offset register (0..3)
- * @arg channel channel to which the offset is applied
- * @arg offset offset value to be applied to the channel
- * @return true if configuration is successful, false if the ADC is currently converting
- */
 bool
-modm::platform::Adc5::setChannelOffset(const OffsetSlot slot, const Channel channel, const int16_t offset,
-	const bool saturate, const bool enable)
+modm::platform::Adc5::enableChannelOffset(const OffsetSlot slot, const Channel channel, const int16_t offset,
+	const bool saturate)
 {
 	if ( (ADC5->CR & ADC_CR_JADSTART) || (ADC5->CR & ADC_CR_ADSTART) ) {
 		// ADC is currently converting, cannot set offset
@@ -380,7 +389,7 @@ modm::platform::Adc5::setChannelOffset(const OffsetSlot slot, const Channel chan
 
 	const uint32_t signMask = (offset > 0) ? ADC_OFR1_OFFSETPOS : 0u;
 	const uint32_t saturateMask = saturate ? ADC_OFR1_SATEN : 0u;
-	const uint32_t enableMask = enable ? ADC_OFR1_OFFSET1_EN : 0u;
+	const uint32_t enableMask = ADC_OFR1_OFFSET1_EN;
 	const uint32_t channelMask = (static_cast<uint32_t>(channel) << ADC_OFR1_OFFSET1_CH_Pos) & ADC_OFR1_OFFSET1_CH_Msk;
 	const uint32_t offsetMask = (std::abs(offset) << ADC_OFR1_OFFSET1_Pos) & ADC_OFR1_OFFSET1_Msk;
 
@@ -396,5 +405,26 @@ modm::platform::Adc5::setChannelOffset(const OffsetSlot slot, const Channel chan
 			return false;	// invalid slot
 	}
 
+	return true;
+}
+
+bool
+modm::platform::Adc5::disableChannelOffset(const OffsetSlot slot)
+{
+	if ( (ADC5->CR & ADC_CR_JADSTART) || (ADC5->CR & ADC_CR_ADSTART) ) {
+		// ADC is currently converting, cannot disable offset
+		return false;
+	}
+
+	const uint32_t enableMask = ADC_OFR1_OFFSET1_EN;
+	switch (slot)
+	{
+		case OffsetSlot::Slot0: ADC5->OFR1 &= ~enableMask;	break;
+		case OffsetSlot::Slot1: ADC5->OFR2 &= ~enableMask; break;
+		case OffsetSlot::Slot2: ADC5->OFR3 &= ~enableMask; break;
+		case OffsetSlot::Slot3: ADC5->OFR4 &= ~enableMask; break;
+		default:
+			return false;  // invalid slot
+	}
 	return true;
 }

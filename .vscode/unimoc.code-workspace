@@ -94,7 +94,8 @@
 			"xloctime": "cpp",
 			"xmemory": "cpp",
 			"xstring": "cpp",
-			"*.in": "cpp"
+			"*.in": "cpp",
+			"thread": "cpp"
 		},
 		"cmake.automaticReconfigure": true,
 		"cmake.autoSelectActiveFolder": false,

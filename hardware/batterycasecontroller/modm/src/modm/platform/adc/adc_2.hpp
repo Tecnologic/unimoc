@@ -389,6 +389,11 @@ public:
 		RegularConversionExternalTrigger regularConversionExternalTrigger);
 
 	/**
+	 * Disable regular conversions external trigger.
+	 */
+	static inline void disableRegularConversionExternalTrigger( void );
+
+	/**
 	 * @return If the conversion is finished.
 	 * @pre A conversion should have been started with startConversion()
 	 */
@@ -441,6 +446,11 @@ public:
 		RegularConversionExternalTrigger regularConversionExternalTrigger);
 
 	/**
+	 * Disable injected conversions external trigger.
+	 */
+	static inline void disableInjectedConversionExternalTrigger();
+
+	/**
 	 * @return If the injected conversion sequence is finished.
 	 * @pre An injected conversion should have been started with startInjectedConversionSequence()
 	 */
@@ -490,19 +500,40 @@ public:
 	 * @arg slot for the offset register (0..3)
 	 * @arg channel channel to which the offset is applied
 	 * @arg offset offset value to be applied to the channel
+	 * @arg saturate if true, the adc result value is saturated to the range of the ADC
+	 * @return true if the offset was successfully enabled, false if the slot is invalid
 	 */
 	static inline bool
-	setChannelOffset(OffsetSlot slot, Channel channel, int16_t offset, bool saturate = false, bool enable = true);
+	enableChannelOffset(OffsetSlot slot, Channel channel, int16_t offset, bool saturate = false);
 
 	/**
 	 * @arg slot for the offset register (0..3)
-	 * @return offset value applied to the channel
+	 * @arg saturate if true, the adc result value is saturated to the range of the ADC
+	 * @arg offset value applied to the channel
+	 * @return true if the offset was successfully enabled, false if the slot is invalid
+	 * @note The channel is determined by the GPIO pin type.
 	 */
 	template<class Gpio>
 	static inline bool
-	setChannelOffset(OffsetSlot slot, int16_t offset, bool saturate = false, bool enable = true)
+	enableChannelOffset(OffsetSlot slot, int16_t offset, bool saturate = false)
 	{
-		return setChannelOffset(slot, getPinChannel<Gpio>(), offset, saturate, enable);
+		return enableChannelOffset(slot, getPinChannel<Gpio>(), offset, saturate);
+	}
+
+	/**
+	 * @arg slot for the offset register (0..3)
+	 * @return true if the offset was successfully disabled, false if the slot is invalid
+	 */
+	static inline bool disableChannelOffset(OffsetSlot slot);
+
+	/**
+	 * @arg slot for the offset register (0..3)
+	 * @return true if the offset was successfully disabled, false if the slot is invalid
+	 */
+	template<class Gpio>
+	static inline bool disableChannelOffset(OffsetSlot slot)
+	{
+		return disableChannelOffset(slot);
 	}
 
 	static inline void
