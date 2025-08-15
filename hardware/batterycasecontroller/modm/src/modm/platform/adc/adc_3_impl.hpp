@@ -379,21 +379,20 @@ modm::platform::Adc3::acknowledgeInterruptFlags(const InterruptFlag_t flags)
 }
 
 bool
-modm::platform::Adc3::enableChannelOffset(const OffsetSlot slot, const Channel channel, const int16_t offset,
-	const bool saturate)
+modm::platform::Adc3::enableChannelOffset( const OffsetSlot slot, const Channel channel, const int16_t offset, const bool saturate)
 {
-	if ( (ADC3->CR & ADC_CR_JADSTART) || (ADC3->CR & ADC_CR_ADSTART) ) {
-		// ADC is currently converting, cannot set offset
-		return false;
-	}
-
+	const uint32_t offsetMask = (std::abs(offset) << ADC_OFR1_OFFSET1_Pos) & ADC_OFR1_OFFSET1_Msk;
 	const uint32_t signMask = (offset > 0) ? ADC_OFR1_OFFSETPOS : 0u;
 	const uint32_t saturateMask = saturate ? ADC_OFR1_SATEN : 0u;
 	const uint32_t enableMask = ADC_OFR1_OFFSET1_EN;
 	const uint32_t channelMask = (static_cast<uint32_t>(channel) << ADC_OFR1_OFFSET1_CH_Pos) & ADC_OFR1_OFFSET1_CH_Msk;
-	const uint32_t offsetMask = (std::abs(offset) << ADC_OFR1_OFFSET1_Pos) & ADC_OFR1_OFFSET1_Msk;
+	const uint32_t offsetValue = channelMask | offsetMask | enableMask | saturateMask | signMask;
 
-	const uint32_t offsetValue = channelMask | offsetMask | saturateMask | enableMask | signMask;
+	if ((ADC3->CR & ADC_CR_JADSTART) || (ADC3->CR & ADC_CR_ADSTART))
+	{
+		// ADC is currently converting, cannot set offset
+		return false;
+	}
 
 	switch (slot)
 	{

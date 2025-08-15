@@ -502,33 +502,36 @@ public:
 	 * @arg offset offset value to be applied to the channel
 	 * @arg saturate if true, the adc result value is saturated to the range of the ADC
 	 * @return true if the offset was successfully enabled, false if the slot is invalid
+	 * @note The offset can only be applied when the adc is stopped!
 	 */
 	static inline bool
-	enableChannelOffset(OffsetSlot slot, Channel channel, int16_t offset, bool saturate = false);
+	enableChannelOffset(const OffsetSlot slot, const Channel channel, const int16_t offset, const bool saturate = false);
 
 	/**
 	 * @arg slot for the offset register (0..3)
-	 * @arg saturate if true, the adc result value is saturated to the range of the ADC
 	 * @arg offset value applied to the channel
+	 * @arg saturate if true, the adc result value is saturated to the range of the ADC
 	 * @return true if the offset was successfully enabled, false if the slot is invalid
 	 * @note The channel is determined by the GPIO pin type.
+	 * @note The offset can only be applied when the adc is stopped!
 	 */
 	template<class Gpio>
-	static inline bool
-	enableChannelOffset(OffsetSlot slot, int16_t offset, bool saturate = false)
+	static inline bool enableChannelOffset(const OffsetSlot slot, const int16_t offset, const bool saturate = false)
 	{
 		return enableChannelOffset(slot, getPinChannel<Gpio>(), offset, saturate);
 	}
-
 	/**
 	 * @arg slot for the offset register (0..3)
 	 * @return true if the offset was successfully disabled, false if the slot is invalid
+	 * @note The offset can only be disabled when the adc is stopped!
 	 */
 	static inline bool disableChannelOffset(OffsetSlot slot);
 
 	/**
 	 * @arg slot for the offset register (0..3)
 	 * @return true if the offset was successfully disabled, false if the slot is invalid
+	 * @note The channel is determined by the GPIO pin type.
+	 * @note The offset can only be disabled when the adc is stopped!
 	 */
 	template<class Gpio>
 	static inline bool disableChannelOffset(OffsetSlot slot)
