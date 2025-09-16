@@ -118,5 +118,8 @@
 			"modm/**": true
 		},
 		"C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools",
+		"[jsonc]": {
+			"editor.defaultFormatter": "vscode.json-language-features"
+		},
 	}
 }

@@ -4,7 +4,7 @@
         {
             "name": "Debug STM32G473CBT6",
             "cwd": "${workspaceFolder}",
-            "executable": "build/src/ModmCMakeTest.elf",
+            "executable": "build/batterycasecontroller-debug/hardware/batterycasecontroller/unimoc.elf",
             "request": "launch",
             "type": "cortex-debug",
             "servertype": "jlink",
@@ -14,16 +14,23 @@
                 "modm/openocd.cfg",
             ],
             "rttConfig": {
-            "enabled": true,
-            "address": "auto",
-            "decoders": [
-                {
-                    "label": "",
-                    "port": 0,
-                    "type": "console"
-                }
-            ]
+                "enabled": true,
+                "address": "auto",
+                "decoders": [
+                    {
+                        "label": "",
+                        "port": 0,
+                        "type": "console"
+                    },
+
+                ]
             },
+            "runToEntryPoint": "main",
+            "preLaunchTask": "build batterycasecontroller-debug",
+            "liveWatch": {
+                "enabled": true,
+                "samplesPerSecond": 4
+            }
         }
     ]
 }
