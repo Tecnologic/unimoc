@@ -51,7 +51,7 @@ unsigned SEGGER_RTT_GetBytesInDownBuffer(unsigned BufferIndex) {
 	return r;
 }
 
-#include <modm/ext/printf/printf.h>
+#include <printf/printf.h>
 
 static void output_gadget(char c, void* BufferIndex)
 {

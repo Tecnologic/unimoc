@@ -86,8 +86,8 @@ initialize(void)
 
 
 // Include the necessary headers for RTT logging
-modm::platform::Rtt rtt(0);
-modm::IODeviceObjectWrapper<modm::platform::Rtt, modm::IOBuffer::DiscardIfFull> rtt_device(rtt);
+using LoggerDevice = modm::IODeviceWrapper<Rtt<0>, modm::IOBuffer::DiscardIfFull>;
+static LoggerDevice rtt_device;
 // Set all four logger streams to use RTT
 modm::log::Logger modm::log::debug(rtt_device);
 modm::log::Logger modm::log::info(rtt_device);
