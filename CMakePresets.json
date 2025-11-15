@@ -49,7 +49,10 @@
           "CMAKE_BUILD_TYPE": "Debug",
           "ENABLE_TESTS": "ON",
           "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
-          "HARDWARE_DIRECTORY": "${sourceDir}/hardware/host"
+          "CMAKE_C_COMPILER_WORKS": "ON",
+          "CMAKE_CXX_COMPILER_WORKS": "ON",
+          "HARDWARE_DIRECTORY": "${sourceDir}/hardware/host",
+          "CMAKE_POLICY_DEFAULT_CMP0025": "NEW"
         }
       }
     ],
@@ -77,4 +80,3 @@
       }
     ]
   }
-  

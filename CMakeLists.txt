@@ -37,7 +37,7 @@ if(HARDWARE_DIRECTORY)
   # add hardware files
   add_subdirectory(${HARDWARE_DIRECTORY})
 else()
-  message(WARNING "HARDWARE_DIRECTORY is not set, skipping hardware files.")  
+  message(WARNING "HARDWARE_DIRECTORY is not set, skipping hardware files.")
 endif()
 
 if(ENABLE_TESTS)
