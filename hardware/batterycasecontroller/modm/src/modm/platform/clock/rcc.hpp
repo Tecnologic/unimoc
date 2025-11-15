@@ -78,7 +78,6 @@ public:
 		LowSpeedExternalClock = Lse,
 		LowSpeedExternalCrystal = Lse
 	};
-
 	enum class
 	WatchdogClockSource : uint32_t
 	{

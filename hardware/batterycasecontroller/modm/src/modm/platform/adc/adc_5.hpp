@@ -194,7 +194,7 @@ public:
 	 * refer to the ADC external trigger section on reference manual
 	 * of your controller for more information
 	 */
-	enum class RegularConversionExternalTrigger
+	enum class ExternalTriggerEvent
 	{
 		Event0 = 0x00u,
 		Event1 = 0x01u,
@@ -381,12 +381,12 @@ public:
 	 *
 	 * @param externalTriggerPolarity
 	 * 		Polarity of the external trigger signal.
-	 * @param regularConversionExternalTrigger
+	 * @param externalTriggerEvent
 	 * 		Regular conversion external trigger source.
 	 */
 	static inline void enableRegularConversionExternalTrigger(
 		ExternalTriggerPolarity externalTriggerPolarity,
-		RegularConversionExternalTrigger regularConversionExternalTrigger);
+		ExternalTriggerEvent externalTriggerEvent);
 
 	/**
 	 * Disable regular conversions external trigger.
@@ -438,12 +438,12 @@ public:
 	 *
 	 * @param externalTriggerPolarity
 	 * 		Polarity of the external trigger signal.
-	 * @param regularConversionExternalTrigger
-	 * 		Regular conversion external trigger source.
+	 * @param externalTriggerEvent
+	 * 		External trigger source.
 	 */
 	static inline void enableInjectedConversionExternalTrigger(
 		ExternalTriggerPolarity externalTriggerPolarity,
-		RegularConversionExternalTrigger regularConversionExternalTrigger);
+		ExternalTriggerEvent externalTriggerEvent);
 
 	/**
 	 * Disable injected conversions external trigger.

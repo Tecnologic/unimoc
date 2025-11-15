@@ -9,8 +9,8 @@
     <option name="modm:build:cmake:include_cmakelists">false</option>
     <option name="modm:build:make:include_makefile">false</option>
     <option name="modm:platform:cortex-m:linkerscript.override">hardware/batterycasecontroller/modm/link/linkerscript.ld</option>
-    <option name="modm:platform:rtt:buffer.rx">512</option>
-    <option name="modm:platform:rtt:buffer.tx">512</option>
+    <option name="modm:rtt:buffer.rx">512</option>
+    <option name="modm:rtt:buffer.tx">512</option>
   </options>
 
   <modules>

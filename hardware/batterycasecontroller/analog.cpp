@@ -136,16 +136,16 @@ initialize(void)
     // Set the ADCs to use the same trigger source and edge
     // Rising edge of Timer8 OC4
 	Adc1::enableInjectedConversionExternalTrigger(Adc1::ExternalTriggerPolarity::RisingEdge,
-												  Adc1::RegularConversionExternalTrigger::Event7);
-	Adc2::enableInjectedConversionExternalTrigger(Adc2::ExternalTriggerPolarity::RisingEdge,
-												  Adc2::RegularConversionExternalTrigger::Event7);
-	Adc3::enableInjectedConversionExternalTrigger(Adc3::ExternalTriggerPolarity::RisingEdge,
-												  Adc3::RegularConversionExternalTrigger::Event7);
-	Adc4::enableInjectedConversionExternalTrigger(Adc4::ExternalTriggerPolarity::RisingEdge,
-												  Adc4::RegularConversionExternalTrigger::Event7);
-	Adc5::enableInjectedConversionExternalTrigger(Adc5::ExternalTriggerPolarity::RisingEdge,
-												  Adc5::RegularConversionExternalTrigger::Event7);
+												  Adc1::ExternalTriggerEvent::Event7);
 
+	Adc2::enableInjectedConversionExternalTrigger(Adc2::ExternalTriggerPolarity::RisingEdge,
+												  Adc2::ExternalTriggerEvent::Event7);
+	Adc3::enableInjectedConversionExternalTrigger(Adc3::ExternalTriggerPolarity::RisingEdge,
+												  Adc3::ExternalTriggerEvent::Event7);
+	Adc4::enableInjectedConversionExternalTrigger(Adc4::ExternalTriggerPolarity::RisingEdge,
+												  Adc4::ExternalTriggerEvent::Event7);
+	Adc5::enableInjectedConversionExternalTrigger(Adc5::ExternalTriggerPolarity::RisingEdge,
+												  Adc5::ExternalTriggerEvent::Event7);
     if (!Adc1::enableChannelOffset<A1_IA>(Adc1::OffsetSlot::Slot0, 2048)) { return false; }
     if (!Adc2::enableChannelOffset<A2_IB>(Adc2::OffsetSlot::Slot0, 2048)) { return false; }
     if (!Adc3::enableChannelOffset<A3_IC>(Adc3::OffsetSlot::Slot0, 2048)) { return false; }

@@ -3,10 +3,6 @@
 		{
 			"name": "unimoc",
 			"path": ".."
-		},
-		{
-			"name": "modm",
-			"path": "../../modm"
 		}
 	],
 	"settings": {

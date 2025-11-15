@@ -57,8 +57,16 @@ modm::platform::SysTickTimer::disable()
 }
 
 // ----------------------------------------------------------------------------
+// Allow the ability to override the clock now functions
+#ifndef MODM_CHRONO_MILLI_CLOCK_NOW
+#	define MODM_CHRONO_MILLI_CLOCK_NOW modm::chrono::milli_clock::now
+#endif
+#ifndef MODM_CHRONO_MICRO_CLOCK_NOW
+#	define MODM_CHRONO_MICRO_CLOCK_NOW modm::chrono::micro_clock::now
+#endif
+
 modm::chrono::milli_clock::time_point modm_weak
-modm::chrono::milli_clock::now() noexcept
+MODM_CHRONO_MILLI_CLOCK_NOW() noexcept
 {
 	uint32_t val, ms;
 
@@ -70,15 +78,15 @@ modm::chrono::milli_clock::now() noexcept
 	}
 	while(interrupt);
 	const auto diff = SysTick->LOAD - val;
-	const auto ms_per_Ncycles = platform::SysTickTimer::ms_per_Ncycles;
-	constexpr auto Ncycles = platform::SysTickTimer::Ncycles;
+	const auto ms_per_Ncycles = modm::platform::SysTickTimer::ms_per_Ncycles;
+	constexpr auto Ncycles = modm::platform::SysTickTimer::Ncycles;
 
 	ms += (uint64_t(diff) * uint64_t(ms_per_Ncycles)) >> Ncycles;
-	return time_point{duration{ms}};
+	return modm::chrono::milli_clock::time_point{modm::chrono::milli_clock::duration{ms}};
 }
 
 modm::chrono::micro_clock::time_point modm_weak
-modm::chrono::micro_clock::now() noexcept
+MODM_CHRONO_MICRO_CLOCK_NOW() noexcept
 {
 	uint32_t val, us;
 
@@ -90,10 +98,10 @@ modm::chrono::micro_clock::now() noexcept
 	}
 	while(interrupt);
 	const auto diff = SysTick->LOAD - val;
-	const auto us_per_Ncycles = platform::SysTickTimer::us_per_Ncycles;
-	constexpr auto Ncycles = platform::SysTickTimer::Ncycles;
+	const auto us_per_Ncycles = modm::platform::SysTickTimer::us_per_Ncycles;
+	constexpr auto Ncycles = modm::platform::SysTickTimer::Ncycles;
 
 	// use a 32x32=64bit multiplication
 	us += (uint64_t(diff) * uint64_t(us_per_Ncycles)) >> Ncycles;
-	return time_point{duration{us}};
+	return modm::chrono::micro_clock::time_point{modm::chrono::micro_clock::duration{us}};
 }

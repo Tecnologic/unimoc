@@ -120,11 +120,12 @@ void DMA2_Channel7_IRQHandler(void)				__attribute__((weak, alias("Undefined_Han
 void DMA2_Channel8_IRQHandler(void)				__attribute__((weak, alias("Undefined_Handler")));
 void CORDIC_IRQHandler(void)					__attribute__((weak, alias("Undefined_Handler")));
 void FMAC_IRQHandler(void)						__attribute__((weak, alias("Undefined_Handler")));
+
 // ----------------------------------------------------------------------------
 typedef void (* const FunctionPointer)(void);
 
-// defined in the linkerscript
-extern uint32_t __main_stack_top[];
+extern uint32_t __main_stack_top[]; // from linkerscript
+extern uint32_t _SEGGER_RTT;        // from modm:rtt
 
 // Define the vector table
 modm_section(".vector_rom")
@@ -138,7 +139,7 @@ FunctionPointer vectorsRom[] =
 	BusFault_Handler,						// -11
 	UsageFault_Handler,						// -10
 	Undefined_Handler,						//  -9
-	Undefined_Handler,						//  -8
+	(FunctionPointer)(((uint32_t)&_SEGGER_RTT) + 2ul),
 	Undefined_Handler,						//  -7
 	Undefined_Handler,						//  -6
 	SVC_Handler,							//  -5
@@ -252,6 +253,7 @@ FunctionPointer vectorsRom[] =
 // reserve space for the remapped vector table in RAM
 modm_section(".vector_ram")
 FunctionPointer vectorsRam[sizeof(vectorsRom) / sizeof(FunctionPointer)];
+
 // ----------------------------------------------------------------------------
 // Ignore redeclaration of interrupt handlers in vendor headers
 #pragma GCC diagnostic push
@@ -260,6 +262,7 @@ FunctionPointer vectorsRam[sizeof(vectorsRom) / sizeof(FunctionPointer)];
 // re-#defines of interrupt vector names! Bad vendors!! BAD!!!
 #include <modm/platform/device.hpp>
 #include <modm/architecture/interface/assert.h>
+
 void Undefined_Handler(void)
 {
 	const int32_t irqn = ((int32_t)__get_IPSR()) - 16;

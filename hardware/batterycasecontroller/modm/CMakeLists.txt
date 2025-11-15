@@ -11,6 +11,7 @@
 cmake_minimum_required(VERSION 3.15)
 include(cmake/ModmConfiguration.cmake)
 set_source_files_properties(
+  ext/rtt/SEGGER_RTT_ASM.S
   src/modm/platform/core/reset_handler.sx
   PROPERTIES LANGUAGE CXX
 )
@@ -21,6 +22,9 @@ add_library(modm OBJECT
   ext/gcc/cxxabi.cpp
   ext/gcc/new_delete.cpp
   ext/printf/printf.c
+  ext/rtt/SEGGER_RTT.c
+  ext/rtt/SEGGER_RTT_ASM.S
+  ext/rtt/rtt_modm_port.cpp
   src/modm/architecture/driver/atomic/flag.cpp
   src/modm/io/iostream.cpp
   src/modm/io/iostream_printf.cpp
@@ -43,7 +47,6 @@ add_library(modm OBJECT
   src/modm/platform/core/startup_platform.c
   src/modm/platform/core/vectors.c
   src/modm/platform/gpio/enable.cpp
-  src/modm/platform/rtt/rtt.cpp
   src/modm/platform/timer/timer_8.cpp
 )
 set_source_files_properties(
@@ -73,6 +76,7 @@ target_include_directories(modm SYSTEM
   ext/cmsis/core
   ext/cmsis/device
   ext/gcc
+  ext/rtt
   src
   PRIVATE
 )

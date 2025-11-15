@@ -240,10 +240,10 @@ modm::platform::Adc3::isConversionSequenceFinished()
 void
 modm::platform::Adc3::enableRegularConversionExternalTrigger(
 	ExternalTriggerPolarity externalTriggerPolarity,
-	RegularConversionExternalTrigger regularConversionExternalTrigger)
+	ExternalTriggerEvent externalTriggerEvent)
 {
 	const auto polarity = (static_cast<uint32_t>(externalTriggerPolarity) << ADC_CFGR_EXTEN_Pos);
-	const auto externalTrigger = (static_cast<uint32_t>(regularConversionExternalTrigger) << ADC_CFGR_EXTSEL_Pos);
+	const auto externalTrigger = (static_cast<uint32_t>(externalTriggerEvent) << ADC_CFGR_EXTSEL_Pos);
 	const auto mask = ADC_CFGR_EXTEN_Msk | ADC_CFGR_EXTSEL_Msk;
 	ADC3->CFGR = (ADC3->CFGR & ~mask) | polarity | externalTrigger;
 }
@@ -308,11 +308,10 @@ modm::platform::Adc3::setInjectedConversionSequenceLength(uint8_t length)
 void
 modm::platform::Adc3::enableInjectedConversionExternalTrigger(
 	ExternalTriggerPolarity externalTriggerPolarity,
-	RegularConversionExternalTrigger regularConversionExternalTrigger)
+	ExternalTriggerEvent externalTriggerEvent)
 {
 	const auto polarity = (static_cast<uint32_t>(externalTriggerPolarity) << ADC_JSQR_JEXTEN_Pos);
-	const auto externalTrigger =
-		(static_cast<uint32_t>(regularConversionExternalTrigger) << ADC_JSQR_JEXTSEL_Pos);
+	const auto externalTrigger = (static_cast<uint32_t>(externalTriggerEvent) << ADC_JSQR_JEXTSEL_Pos);
 	const auto mask = ADC_JSQR_JEXTEN_Msk | ADC_JSQR_JEXTSEL_Msk;
 	ADC3->JSQR = (ADC3->JSQR & ~mask) | polarity | externalTrigger;
 }
@@ -388,7 +387,7 @@ modm::platform::Adc3::enableChannelOffset( const OffsetSlot slot, const Channel 
 	const uint32_t channelMask = (static_cast<uint32_t>(channel) << ADC_OFR1_OFFSET1_CH_Pos) & ADC_OFR1_OFFSET1_CH_Msk;
 	const uint32_t offsetValue = channelMask | offsetMask | enableMask | saturateMask | signMask;
 
-	if ((ADC3->CR & ADC_CR_JADSTART) || (ADC3->CR & ADC_CR_ADSTART))
+	if (ADC3->CR & (ADC_CR_ADSTART | ADC_CR_JADSTART))
 	{
 		// ADC is currently converting, cannot set offset
 		return false;
@@ -410,7 +409,8 @@ modm::platform::Adc3::enableChannelOffset( const OffsetSlot slot, const Channel 
 bool
 modm::platform::Adc3::disableChannelOffset(const OffsetSlot slot)
 {
-	if ( (ADC3->CR & ADC_CR_JADSTART) || (ADC3->CR & ADC_CR_ADSTART) ) {
+	if (ADC3->CR & (ADC_CR_ADSTART | ADC_CR_JADSTART))
+	{
 		// ADC is currently converting, cannot disable offset
 		return false;
 	}
@@ -418,7 +418,7 @@ modm::platform::Adc3::disableChannelOffset(const OffsetSlot slot)
 	const uint32_t enableMask = ADC_OFR1_OFFSET1_EN;
 	switch (slot)
 	{
-		case OffsetSlot::Slot0: ADC3->OFR1 &= ~enableMask;	break;
+		case OffsetSlot::Slot0: ADC3->OFR1 &= ~enableMask; break;
 		case OffsetSlot::Slot1: ADC3->OFR2 &= ~enableMask; break;
 		case OffsetSlot::Slot2: ADC3->OFR3 &= ~enableMask; break;
 		case OffsetSlot::Slot3: ADC3->OFR4 &= ~enableMask; break;
