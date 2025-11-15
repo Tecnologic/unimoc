@@ -20,3 +20,10 @@ target_link_libraries(system_test gtest gtest_main)
 target_link_libraries(system_test unimoc_lib)
 # Add test to CMake
 add_test(NAME SystemTest COMMAND system_test)
+
+# Add three phase system test executable
+add_executable(three_phase_system_test three_phase_system_test.cpp)
+target_link_libraries(three_phase_system_test gtest gtest_main)
+target_link_libraries(three_phase_system_test unimoc_lib)
+# Add test to CMake
+add_test(NAME ThreePhaseSystemTest COMMAND three_phase_system_test)
