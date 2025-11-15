@@ -26,8 +26,6 @@
 #include <gtest/gtest.h>
 #include <iostream>
 
-#include "test_system_SinCos.hpp"
-
 int main(int argc, char **argv)
 {
     ::testing::InitGoogleTest(&argc, argv);
