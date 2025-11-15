@@ -13,17 +13,17 @@
 #include <modm/architecture/interface/assert.h>
 
 // ------------------------------------------------------------------------
-modm_weak void _exit(int status)
-{
-	modm_assert(false, "libc.exit",
-			"The libc exit(status) function was called!", status);
-}
+// modm_weak void _exit(int status)
+// {
+// 	modm_assert(false, "libc.exit",
+// 			"The libc exit(status) function was called!", status);
+// }
 
-modm_weak void abort(void)
-{
-	modm_assert(false, "libc.abort",
-			"The libc abort() function was called!");
-}
+// modm_weak void abort(void)
+// {
+// 	modm_assert(false, "libc.abort",
+// 			"The libc abort() function was called!");
+// }
 
 modm_weak int atexit(void (*fn)(void))
 {
