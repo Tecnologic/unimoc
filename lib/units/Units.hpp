@@ -419,14 +419,6 @@ operator/(const Unit<Rep, P1, VoltageTag>& voltage, const Unit<Rep, P2, Inductan
 	return Unit<Rep, std::ratio_divide<P1, P2>, CurrentTag>(voltage.value() / inductance.value());
 }
 
-// Inductance = Voltage / Current
-template<typename Rep, typename P1, typename P2>
-constexpr auto
-operator/(const Unit<Rep, P1, VoltageTag>& voltage, const Unit<Rep, P2, CurrentTag>& current)
-{
-	return Unit<Rep, std::ratio_divide<P1, P2>, InductanceTag>(voltage.value() / current.value());
-}
-
 // Torque, AngularVelocity, Power (Power = Torque * AngularVelocity)
 // Power = Torque * AngularVelocity
 template<typename Rep, typename P1, typename P2>

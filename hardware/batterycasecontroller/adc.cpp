@@ -23,7 +23,7 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "units.h"
+#include "Units.hpp"
 #include "HardwareInterface.hpp"
 #include <modm/platform.hpp>
 
@@ -142,68 +142,4 @@ void initialize()
     Adc5::setInjectedConversionChannel<A5_BRDGT>(3, Adc5::SampleTime::Cycles13);
 }
 
-
-
 } // namespace unimoc::hardware::analog
-
-// int main()
-// {
-//     GpioA3::setOutput();
-//     GpioA4::setOutput();
-
-   
-//     while (true)
-//     {
-//         GpioA3::toggle();
-
-//         Adc1::startInjectedConversionSequence();
-//         while (!Adc1::isInjectedConversionFinished())
-//             ;
-
-//         MODM_LOG_INFO << "ADC1 0 (injected): " << Adc1::getInjectedConversionValue(0) << '\n';
-//         MODM_LOG_INFO << "ADC1 1 (injected): " << Adc1::getInjectedConversionValue(1) << '\n';
-//         MODM_LOG_INFO << "ADC1 2 (injected): " << Adc1::getInjectedConversionValue(2) << '\n';
-//         MODM_LOG_INFO << "ADC1 3 (injected): " << Adc1::getInjectedConversionValue(3) << '\n';
-
-//         Adc2::startInjectedConversionSequence();
-//         while (!Adc2::isInjectedConversionFinished())
-//             ;
-
-//         MODM_LOG_INFO << "ADC2 0 (injected): " << Adc2::getInjectedConversionValue(0) << '\n';
-//         MODM_LOG_INFO << "ADC2 1 (injected): " << Adc2::getInjectedConversionValue(1) << '\n';
-//         MODM_LOG_INFO << "ADC2 2 (injected): " << Adc2::getInjectedConversionValue(2) << '\n';
-//         MODM_LOG_INFO << "ADC2 3 (injected): " << Adc2::getInjectedConversionValue(3) << '\n';
-
-//         Adc3::startInjectedConversionSequence();
-//         while (!Adc3::isInjectedConversionFinished())
-//             ;
-
-//         MODM_LOG_INFO << "ADC3 0 (injected): " << Adc3::getInjectedConversionValue(0) << '\n';
-//         MODM_LOG_INFO << "ADC3 1 (injected): " << Adc3::getInjectedConversionValue(1) << '\n';
-//         MODM_LOG_INFO << "ADC3 2 (injected): " << Adc3::getInjectedConversionValue(2) << '\n';
-//         MODM_LOG_INFO << "ADC3 3 (injected): " << Adc3::getInjectedConversionValue(3) << '\n';
-
-//         Adc4::startInjectedConversionSequence();
-
-//         while (!Adc4::isInjectedConversionFinished())
-//             ;
-
-//         MODM_LOG_INFO << "ADC4 0 (injected): " << Adc4::getInjectedConversionValue(0) << '\n';
-//         MODM_LOG_INFO << "ADC4 1 (injected): " << Adc4::getInjectedConversionValue(1) << '\n';
-//         MODM_LOG_INFO << "ADC4 2 (injected): " << Adc4::getInjectedConversionValue(2) << '\n';
-//         MODM_LOG_INFO << "ADC4 3 (injected): " << Adc4::getInjectedConversionValue(3) << '\n';
-
-//         Adc5::startInjectedConversionSequence();
-//         while (!Adc5::isInjectedConversionFinished())
-//             ;
-
-//         MODM_LOG_INFO << "ADC5 0 (injected): " << Adc5::getInjectedConversionValue(0) << '\n';
-//         MODM_LOG_INFO << "ADC5 1 (injected): " << Adc5::getInjectedConversionValue(1) << '\n';
-//         MODM_LOG_INFO << "ADC5 2 (injected): " << Adc5::getInjectedConversionValue(2) << '\n';
-//         MODM_LOG_INFO << "ADC5 3 (injected): " << Adc5::getInjectedConversionValue(3) << '\n';
-
-//         GpioA4::toggle();
-
-//         modm::delay(0.5s);
-//     }
-// }

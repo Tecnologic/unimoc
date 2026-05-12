@@ -28,6 +28,7 @@
 #define UNIMOC_HARDWARE_INTERFACE_H_
 
 #include "Units.hpp"
+#include <cmath>
 
 /**
  * @namespace unimoc global namespace
@@ -44,7 +45,7 @@ namespace hardware
  */
 namespace analog
 {
-
+void initialize();
 }  // namespace analog
 
 /**
@@ -60,7 +61,7 @@ calculate_sine_cosine(const unit::Unit<Rep, P, unit::AngleTag>& angle)
 {
 	// Assumes angle.value() is in radians, which is true for the Angle alias (Period =
 	// std::ratio<1>)
-	return DimensionlessRatio(std::sinf(angle.value()));
+	return unit::DimensionlessRatio(std::sin(angle.value()));
 }
 
 }  // namespace angle

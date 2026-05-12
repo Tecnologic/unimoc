@@ -23,10 +23,11 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 #include <modm/platform.hpp>
+#include <modm/platform/rtt/rtt.hpp>
 #include <modm/debug.hpp>
 
-modm::platform::Rtt rtt(0);
-modm::IODeviceObjectWrapper<modm::platform::Rtt, modm::IOBuffer::DiscardIfFull> rtt_device(rtt);
+modm::platform::Rtt<0> rtt;
+modm::IODeviceObjectWrapper<modm::platform::Rtt<0>, modm::IOBuffer::DiscardIfFull> rtt_device(rtt);
 // Set all four logger streams to use RTT
 modm::log::Logger modm::log::debug(rtt_device);
 modm::log::Logger modm::log::info(rtt_device);
