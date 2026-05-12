@@ -15,7 +15,7 @@
 #include <modm/architecture/interface/interrupt.hpp>
 // ----------------------------------------------------------------------------
 modm::platform::AdcInterrupt3::Handler
-modm::platform::AdcInterrupt3::handler([](){});
+modm::platform::AdcInterrupt3::handler([]{});
 
 MODM_ISR(ADC3)
 {

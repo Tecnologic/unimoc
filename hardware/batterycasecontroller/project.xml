@@ -8,7 +8,7 @@
     <option name="modm:build:build.path">build</option>
     <option name="modm:build:cmake:include_cmakelists">false</option>
     <option name="modm:build:make:include_makefile">false</option>
-    <option name="modm:platform:rtt:buffer.rx">16</option>
+    <option name="modm:rtt:buffer.rx">64</option>
   </options>
 
   <modules>
@@ -20,7 +20,7 @@
     <module>modm:platform:adc:4</module>
     <module>modm:platform:adc:5</module>
     <module>modm:platform:timer:8</module>
-    <module>modm:platform:rtt</module>
+    <module>modm:rtt</module>
     <module>modm:build:cmake</module>
     <module>modm:debug</module>
   </modules>

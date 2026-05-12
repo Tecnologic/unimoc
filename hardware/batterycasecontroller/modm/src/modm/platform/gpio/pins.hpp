@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2021, Niklas Hauser
+ * Copyright (c) 2021-2026, Niklas Hauser
  * Copyright (c) 2022, Andrey Kunitsyn
  *
  * This file is part of the modm project.

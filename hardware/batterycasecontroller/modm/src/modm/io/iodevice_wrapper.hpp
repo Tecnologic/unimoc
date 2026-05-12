@@ -46,12 +46,9 @@ public:
 	void
 	write(char c) override
 	{
-		bool written;
-		do
-		{
-			written = Device::write(uint8_t(c));
-		}
-		while(behavior == IOBuffer::BlockIfFull and not written);
+		if constexpr (behavior == IOBuffer::BlockIfFull)
+			while (not Device::write(uint8_t(c))) ;
+		else Device::write(uint8_t(c));
 	}
 
 	void
@@ -79,12 +76,9 @@ public:
 	void
 	write(char c) override
 	{
-		bool written;
-		do
-		{
-			written = device.write(uint8_t(c));
-		}
-		while(behavior == IOBuffer::BlockIfFull and not written);
+		if constexpr (behavior == IOBuffer::BlockIfFull)
+			while (not device.write(uint8_t(c))) ;
+		else device.write(uint8_t(c));
 	}
 
 	void

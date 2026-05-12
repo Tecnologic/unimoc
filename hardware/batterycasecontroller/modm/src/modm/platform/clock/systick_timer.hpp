@@ -74,6 +74,8 @@ private:
 	static void
 	enable(uint32_t reload, bool use_processor_clock);
 
+public:
+	/// @cond
 	// FCPU < 8MHz
 	// 536e6/4 < 27-bit, 8e6/4 < 21-bit
 	// 2^32*1e6/536e6 < 23-bit, 2^32*1e6/8e6 = 29-bit
@@ -83,8 +85,7 @@ private:
 	static constexpr uint8_t Ncycles{32};
 	static inline uint32_t ms_per_Ncycles{0};
 	static inline uint32_t us_per_Ncycles{0};
-	friend class modm::chrono::milli_clock;
-	friend class modm::chrono::micro_clock;
+	/// @endcond
 };
 
 }

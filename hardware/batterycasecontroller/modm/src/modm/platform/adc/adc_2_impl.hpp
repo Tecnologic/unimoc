@@ -238,6 +238,25 @@ modm::platform::Adc2::isConversionSequenceFinished()
 }
 
 void
+modm::platform::Adc2::enableRegularConversionExternalTrigger(
+	ExternalTriggerPolarity externalTriggerPolarity,
+	ExternalTriggerEvent externalTriggerEvent)
+{
+	const auto polarity = (static_cast<uint32_t>(externalTriggerPolarity) << ADC_CFGR_EXTEN_Pos);
+	const auto externalTrigger = (static_cast<uint32_t>(externalTriggerEvent) << ADC_CFGR_EXTSEL_Pos);
+	const auto mask = ADC_CFGR_EXTEN_Msk | ADC_CFGR_EXTSEL_Msk;
+	ADC2->CFGR = (ADC2->CFGR & ~mask) | polarity | externalTrigger;
+}
+
+void
+modm::platform::Adc2::disableRegularConversionExternalTrigger()
+{
+	// Disable regular conversions external trigger by clearing the bits
+	// for polarity and external trigger source.
+	ADC2->CFGR &= ~(ADC_CFGR_EXTEN_Msk | ADC_CFGR_EXTSEL_Msk);
+}
+
+void
 modm::platform::Adc2::startInjectedConversionSequence()
 {
 	acknowledgeInterruptFlags(InterruptFlag::EndOfInjectedConversion |
@@ -284,6 +303,25 @@ modm::platform::Adc2::setInjectedConversionSequenceLength(uint8_t length)
 	ADC2->JSQR = (ADC2->JSQR & ~ADC_JSQR_JL)
 		| ((length - 1) << ADC_JSQR_JL_Pos);
 	return true;
+}
+
+void
+modm::platform::Adc2::enableInjectedConversionExternalTrigger(
+	ExternalTriggerPolarity externalTriggerPolarity,
+	ExternalTriggerEvent externalTriggerEvent)
+{
+	const auto polarity = (static_cast<uint32_t>(externalTriggerPolarity) << ADC_JSQR_JEXTEN_Pos);
+	const auto externalTrigger = (static_cast<uint32_t>(externalTriggerEvent) << ADC_JSQR_JEXTSEL_Pos);
+	const auto mask = ADC_JSQR_JEXTEN_Msk | ADC_JSQR_JEXTSEL_Msk;
+	ADC2->JSQR = (ADC2->JSQR & ~mask) | polarity | externalTrigger;
+}
+
+void
+modm::platform::Adc2::disableInjectedConversionExternalTrigger()
+{
+	// Disable injected conversions external trigger by clearing the bits
+	// for polarity and external trigger source.
+	ADC2->JSQR &= ~(ADC_JSQR_JEXTEN_Msk | ADC_JSQR_JEXTSEL_Msk);
 }
 
 bool
@@ -337,4 +375,55 @@ modm::platform::Adc2::acknowledgeInterruptFlags(const InterruptFlag_t flags)
 	// Flags are cleared by writing a one to the flag position.
 	// Writing a zero is ignored.
 	ADC2->ISR = flags.value;
+}
+
+bool
+modm::platform::Adc2::enableChannelOffset( const OffsetSlot slot, const Channel channel, const int16_t offset, const bool saturate)
+{
+	const uint32_t offsetMask = (std::abs(offset) << ADC_OFR1_OFFSET1_Pos) & ADC_OFR1_OFFSET1_Msk;
+	const uint32_t signMask = (offset > 0) ? ADC_OFR1_OFFSETPOS : 0u;
+	const uint32_t saturateMask = saturate ? ADC_OFR1_SATEN : 0u;
+	const uint32_t enableMask = ADC_OFR1_OFFSET1_EN;
+	const uint32_t channelMask = (static_cast<uint32_t>(channel) << ADC_OFR1_OFFSET1_CH_Pos) & ADC_OFR1_OFFSET1_CH_Msk;
+	const uint32_t offsetValue = channelMask | offsetMask | enableMask | saturateMask | signMask;
+
+	if (ADC2->CR & (ADC_CR_ADSTART | ADC_CR_JADSTART))
+	{
+		// ADC is currently converting, cannot set offset
+		return false;
+	}
+
+	switch (slot)
+	{
+		case OffsetSlot::Slot0: ADC2->OFR1 = offsetValue;	break;
+		case OffsetSlot::Slot1: ADC2->OFR2 = offsetValue;	break;
+		case OffsetSlot::Slot2: ADC2->OFR3 = offsetValue;	break;
+		case OffsetSlot::Slot3: ADC2->OFR4 = offsetValue;	break;
+		default:
+			return false;	// invalid slot
+	}
+
+	return true;
+}
+
+bool
+modm::platform::Adc2::disableChannelOffset(const OffsetSlot slot)
+{
+	if (ADC2->CR & (ADC_CR_ADSTART | ADC_CR_JADSTART))
+	{
+		// ADC is currently converting, cannot disable offset
+		return false;
+	}
+
+	const uint32_t enableMask = ADC_OFR1_OFFSET1_EN;
+	switch (slot)
+	{
+		case OffsetSlot::Slot0: ADC2->OFR1 &= ~enableMask; break;
+		case OffsetSlot::Slot1: ADC2->OFR2 &= ~enableMask; break;
+		case OffsetSlot::Slot2: ADC2->OFR3 &= ~enableMask; break;
+		case OffsetSlot::Slot3: ADC2->OFR4 &= ~enableMask; break;
+		default:
+			return false;  // invalid slot
+	}
+	return true;
 }

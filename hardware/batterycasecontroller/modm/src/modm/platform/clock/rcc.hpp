@@ -42,6 +42,7 @@ public:
 	static constexpr uint32_t LsiFrequency = 32'000;
 	static constexpr uint32_t HsiFrequency = 16'000'000;
 	static constexpr uint32_t BootFrequency = 16'000'000;
+	static constexpr uint32_t MaxFrequency = 150'000'000;
 
 	enum class
 	PllSource : uint32_t
@@ -78,7 +79,6 @@ public:
 		LowSpeedExternalClock = Lse,
 		LowSpeedExternalCrystal = Lse
 	};
-
 	enum class
 	WatchdogClockSource : uint32_t
 	{
@@ -202,10 +202,12 @@ public:
 
 	struct PllFactors
 	{
+		static constexpr uint8_t Disabled = 0xff;
 		uint8_t pllM;
 		uint16_t pllN;
-		uint8_t pllR;
-		uint8_t pllQ = 0xff;
+		uint8_t pllR = Disabled;
+		uint8_t pllP = Disabled;
+		uint8_t pllQ = Disabled;
 	};
 	/**
 	 * Enable PLL.
