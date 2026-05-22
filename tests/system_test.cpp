@@ -27,6 +27,8 @@
 #include <iostream>
 
 #include "test_system_SinCos.hpp"
+#include "test_system_NodeIdentity.hpp"
+#include "test_system_NvmSettings.hpp"
 #include "test_control_ExcitationController.hpp"
 #include "test_observer_ExcitationObserver.hpp"
 #include "test_observer_PositionTracker.hpp"
