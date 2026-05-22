@@ -157,7 +157,7 @@ namespace unimoc
             }
 
             // transform dq vector to alpha beta vector.
-            constexpr auto inverse_park(const sin_cos &angle) const noexcept -> StatorReference<T>
+            constexpr auto inverse_park(const sin_cos<T> &angle) const noexcept -> StatorReference<T>
             {
                 return StatorReference<T>{
                     .alpha = d * angle.cos - q * angle.sin,

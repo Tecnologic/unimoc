@@ -29,7 +29,8 @@
 
 #include <array>
 #include <cmath>
-#include <concepts>	
+#include <concepts>
+#include <stdexcept>
 #include "Units.hpp"
 
 /**
@@ -56,26 +57,16 @@ namespace unimoc
         template <std::floating_point T>
         struct SinCos
         {
-            T sin;
-            T cos;
+            T sin{static_cast<T>(0)};
+            T cos{static_cast<T>(0)};
 
-            // function to compute sin and cos values
-            // this function should be implemented by the user
-            // it should return the sin and cos values of the given angle
-            virtual SinCos<T> computeSinCos(const units::unit_t<units::angle::radian, T> angle) = 0;
-
-            // default constructor destructor
+            // default constructor / destructor
             constexpr SinCos() = default;
-            virtual ~SinCos() = default;
+            ~SinCos() = default;
 
-            // constructor with angle
-            constexpr SinCos(const units::unit_t<units::angle::radian, T> angle)
-            {
-                // compute sin and cos values
-                SinCos<T> result = computeSinCos(angle);
-                sin = result.sin;
-                cos = result.cos;
-            }
+            // constructor with angle in radians
+            explicit constexpr SinCos(const T angle)
+                : sin(std::sin(angle)), cos(std::cos(angle)) {}
 
             // length of the vector
             constexpr T length() const noexcept
@@ -84,9 +75,15 @@ namespace unimoc
             }
 
             // normalize the sin and cos values to one
+            // throws std::runtime_error if length is zero
             constexpr auto normToOne(void) const
             {
-                return SinCos<T>(sin / this.length(), cos / this.length());
+                const T len = this->length();
+                if (len == static_cast<T>(0))
+                {
+                    throw std::runtime_error("SinCos::normToOne: zero-length vector");
+                }
+                return SinCos<T>(sin / len, cos / len);
             }
 
             // constructor with sin and cos values

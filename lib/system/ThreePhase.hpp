@@ -28,6 +28,7 @@
 #define UNIMOC_SYSTEM_THREE_PHASE_H_
 
 #include <array>
+#include <cmath>
 
 /**
  * @namespace unimoc global namespace

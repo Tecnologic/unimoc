@@ -28,6 +28,7 @@
 #define UNIMOC_SYSTEM_STATOR_REFERENCE_H_
 
 #include <array>
+#include <cmath>
 
 /**
  * @namespace unimoc global namespace
@@ -131,7 +132,7 @@ namespace unimoc
             }
 
             // transform alpha beta vector to dq vector.
-            constexpr RotorReference<T> park(const sin_cos &angle) const noexcept
+            constexpr RotorReference<T> park(const sin_cos<T> &angle) const noexcept
             {
                 return RotorReference<T>{
                     .d = alpha * angle.cos + beta * angle.sin,
