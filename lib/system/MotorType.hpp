@@ -56,6 +56,26 @@ enum class MotorType : unsigned char
     ///           (AsmFluxController), mechanical observer fed via
     ///           inject_angle_error(), SVPWM, dead-time compensation.
     ASM,
+
+    /// Electrically Excited Synchronous Machine (wound-rotor synchronous motor).
+    ///
+    /// The rotor excitation winding is fed by an external DC current source
+    /// (H-bridge, chopper, or brushless exciter).  The stator-side control path
+    /// is identical to PMSM (back-EMF observer, MTPA, field-weakening, SVPWM),
+    /// but the effective PM flux linkage ψ_PM is no longer constant — it is
+    /// determined by the rotor excitation current I_f via:
+    ///
+    ///   ψ_f = L_m · I_f
+    ///
+    /// Requires: ExcitationController (regulates I_f or ψ_f via PI loop),
+    ///           ExcitationObserver (filters measured I_f and estimates ψ_f),
+    ///           MechanicalObserver, MTPA (using ψ_f_hat instead of fixed ψ_PM),
+    ///           field-weakening, dead-time compensation, SVPWM.
+    ///
+    /// Cyphal interface: setpoint (current or flux) is written by the Cyphal
+    /// subscription callback into ExcitationController::setpoint; the hardware
+    /// driver (PWM/DAC) reads ExcitationController::i_f_ref each cycle.
+    EESM,
 };
 
 }  // namespace system

@@ -50,7 +50,10 @@ endif()
 # add universal code as library
 add_subdirectory(lib)
 
-target_link_libraries(${CMAKE_PROJECT_NAME} PUBLIC unimoc_lib project_options project_warnings)
+# The firmware executable only exists when tests are disabled (src/ is added).
+if(NOT ENABLE_TESTS)
+  target_link_libraries(${CMAKE_PROJECT_NAME} PUBLIC unimoc_lib project_options project_warnings)
+endif()
 
 
 

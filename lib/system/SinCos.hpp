@@ -87,7 +87,7 @@ namespace unimoc
             }
 
             // constructor with sin and cos values
-            constexpr SinCos(const T sin, const T cos) : sin(sin), cos(cos) {  }
+            constexpr SinCos(const T s, const T c) : sin(s), cos(c) {  }
 
             // copy constructor
             constexpr SinCos(const SinCos &other) : sin(other.sin), cos(other.cos) { }
