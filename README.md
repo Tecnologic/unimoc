@@ -89,7 +89,7 @@ lib/
 │   ├── ControlMode.hpp           # ControlMode enum: TORQUE / SPEED / POSITION
 │   ├── CyphalInterface.hpp       # Register names + subject port IDs (full API map)
 │   ├── MotorType.hpp             # MotorType enum: PMSM / ASM / EESM
-│   ├── NodeIdentity.hpp          # Node name, hw/sw version, unique-ID
+│   ├── NodeIdentity.hpp          # Node name + hw/sw version (UID read from hardware)
 │   ├── NvmSettings.hpp           # Aggregate of all NVM-backed parameters
 │   ├── RotorReference.hpp        # dq rotating reference frame
 │   ├── SinCos.hpp                # Unit-circle helper
@@ -131,70 +131,72 @@ Set the node name via Cyphal:
 uavcan.node.description = "unimoc.propulsion.left"
 ```
 
-The `NodeIdentity` struct also carries hardware and software version numbers
-(read-only) and the 16-byte MCU unique-ID used during PnP allocation.
+The `NodeIdentity` struct carries hardware and software version numbers
+(read-only). The 16-byte MCU unique-ID used during PnP allocation is read
+directly from hardware at runtime.
 
 ### Settings via Registers
 
 Every parameter in `NvmSettings` is accessible as a named Cyphal register
-(`uavcan.register.Access` service, `uavcan.register.List` enumeration).
+(`uavcan.register.Access` service, `uavcan.register.List` enumeration), so all
+in-RAM configuration values are traceable with tools like **Cymon**.
 Writing a register updates the in-RAM value and schedules an NVM flush.
 
 Full register name table (`lib/system/CyphalInterface.hpp`):
 
 | Register | Type | Description |
 |---|---|---|
-| `uavcan.node.id` | natural16 | Node ID (0 = PnP) |
-| `uavcan.node.description` | string | Human-readable node name |
-| `unimoc.motor.type` | natural8 | 0=PMSM, 1=ASM, 2=EESM |
-| `unimoc.motor.pole_pairs` | natural8 | Motor pole-pair count |
-| `unimoc.control.mode` | natural8 | Boot control mode (0=TORQUE, 1=SPEED, 2=POSITION) |
-| `unimoc.motor.stator.R` | real32 | Stator resistance [Ω] |
-| `unimoc.motor.stator.L` | real32 | Stator inductance [H] |
-| `unimoc.motor.pmsm.flux_pm` | real32 | PM flux linkage ψ_PM [Wb] |
-| `unimoc.motor.pmsm.L_d` | real32 | d-axis inductance [H] |
-| `unimoc.motor.pmsm.L_q` | real32 | q-axis inductance [H] |
-| `unimoc.motor.asm.R_r` | real32 | ASM rotor resistance [Ω] |
-| `unimoc.motor.asm.R_s` | real32 | ASM stator resistance [Ω] |
-| `unimoc.motor.asm.L_s` | real32 | ASM stator inductance [H] |
-| `unimoc.motor.asm.L_r` | real32 | ASM rotor inductance [H] |
-| `unimoc.motor.asm.L_m` | real32 | ASM mutual inductance [H] |
-| `unimoc.observer.mech.g_i` | real32 | Back-EMF observer current gain [1/s] |
-| `unimoc.observer.mech.g_e` | real32 | Back-EMF observer EMF gain [V/(A·s)] |
-| `unimoc.observer.mech.pll_kp` | real32 | PLL proportional gain |
-| `unimoc.observer.mech.pll_ki` | real32 | PLL integral gain |
-| `unimoc.observer.asm_flux.g_i` | real32 | ASM flux observer current gain [1/s] |
-| `unimoc.observer.asm_flux.g_flux` | real32 | ASM flux observer flux gain [Wb/(A·s)] |
-| `unimoc.control.asm_flux.kp` | real32 | ASM flux PI proportional gain [A/Wb] |
-| `unimoc.control.asm_flux.ki` | real32 | ASM flux PI integral gain [A/(Wb·s)] |
-| `unimoc.control.asm_flux.i_d_min` | real32 | ASM flux min d-axis current [A] |
-| `unimoc.control.asm_flux.i_d_max` | real32 | ASM flux max d-axis current [A] |
-| `unimoc.control.fw.v_max` | real32 | Field-weakening voltage limit (normalised) |
-| `unimoc.control.fw.ki` | real32 | Field-weakening integrator gain [A/(V·s)] |
-| `unimoc.control.fw.i_d_min` | real32 | Field-weakening min i_d [A] |
-| `unimoc.control.svm.duty_min` | real32 | SVM minimum duty cycle |
-| `unimoc.control.svm.duty_max` | real32 | SVM maximum duty cycle |
-| `unimoc.control.dtc.dead_time` | real32 | Dead time [s] |
-| `unimoc.control.dtc.f_pwm` | real32 | PWM frequency [Hz] |
-| `unimoc.control.dtc.i_threshold` | real32 | Dead-time zero-crossing threshold [A] |
-| `unimoc.observer.hfi.v_inject` | real32 | HFI injection voltage [V] |
-| `unimoc.observer.hfi.error_gain` | real32 | HFI angle-error gain [1/V] |
-| `unimoc.control.excitation.mode` | natural8 | EESM excitation mode (0=current, 1=flux) |
-| `unimoc.control.excitation.L_m` | real32 | EESM mutual inductance [H] |
-| `unimoc.control.excitation.kp` | real32 | Excitation PI proportional gain [V/A] |
-| `unimoc.control.excitation.ki` | real32 | Excitation PI integral gain [V/(A·s)] |
-| `unimoc.control.excitation.i_f_min` | real32 | Min excitation current [A] |
-| `unimoc.control.excitation.i_f_max` | real32 | Max excitation current [A] |
-| `unimoc.observer.excitation.tau` | real32 | Excitation observer LPF time constant [s] |
-| `unimoc.observer.excitation.L_m` | real32 | Excitation observer L_m [H] |
-| `unimoc.control.pos.kp` | real32 | Position loop P gain [rad/s per rad] |
-| `unimoc.control.pos.kp_speed` | real32 | Speed loop P gain |
-| `unimoc.control.pos.ki_speed` | real32 | Speed loop I gain |
-| `unimoc.control.pos.speed_limit` | real32 | Max velocity [rad/s] |
-| `unimoc.control.pos.accel_limit` | real32 | Max acceleration [rad/s²] |
-| `unimoc.control.pos.position_tolerance` | real32 | In-position threshold [rad] |
-| `unimoc.control.pos.speed_tolerance` | real32 | In-position speed threshold [rad/s] |
-| `unimoc.control.pos.homing_speed` | real32 | Homing search velocity [rad/s] |
+| `uavcan.node.id` | `uavcan.primitive.scalar.Natural16.1.0` | Node ID (0 = PnP) |
+| `uavcan.node.description` | `uavcan.primitive.String.1.0` | Human-readable node name |
+| `unimoc.motor.type` | `uavcan.primitive.scalar.Natural8.1.0` | 0=PMSM, 1=ASM, 2=EESM |
+| `unimoc.motor.pole_pairs` | `uavcan.primitive.scalar.Natural8.1.0` | Motor pole-pair count |
+| `unimoc.control.mode` | `uavcan.primitive.scalar.Natural8.1.0` | Boot control mode (0=TORQUE, 1=SPEED, 2=POSITION) |
+| `unimoc.motor.stator.R` | `uavcan.primitive.scalar.Real32.1.0` | Stator resistance [Ω] |
+| `unimoc.motor.stator.L` | `uavcan.primitive.scalar.Real32.1.0` | Stator inductance [H] |
+| `unimoc.motor.pmsm.flux_pm` | `uavcan.primitive.scalar.Real32.1.0` | PM flux linkage ψ_PM [Wb] |
+| `unimoc.motor.pmsm.L_d` | `uavcan.primitive.scalar.Real32.1.0` | d-axis inductance [H] |
+| `unimoc.motor.pmsm.L_q` | `uavcan.primitive.scalar.Real32.1.0` | q-axis inductance [H] |
+| `unimoc.motor.asm.R_r` | `uavcan.primitive.scalar.Real32.1.0` | ASM rotor resistance [Ω] |
+| `unimoc.motor.asm.R_s` | `uavcan.primitive.scalar.Real32.1.0` | ASM stator resistance [Ω] |
+| `unimoc.motor.asm.L_s` | `uavcan.primitive.scalar.Real32.1.0` | ASM stator inductance [H] |
+| `unimoc.motor.asm.L_r` | `uavcan.primitive.scalar.Real32.1.0` | ASM rotor inductance [H] |
+| `unimoc.motor.asm.L_m` | `uavcan.primitive.scalar.Real32.1.0` | ASM mutual inductance [H] |
+| `unimoc.observer.mech.g_i` | `uavcan.primitive.scalar.Real32.1.0` | Back-EMF observer current gain [1/s] |
+| `unimoc.observer.mech.g_e` | `uavcan.primitive.scalar.Real32.1.0` | Back-EMF observer EMF gain [V/(A·s)] |
+| `unimoc.observer.mech.pll_kp` | `uavcan.primitive.scalar.Real32.1.0` | PLL proportional gain |
+| `unimoc.observer.mech.pll_ki` | `uavcan.primitive.scalar.Real32.1.0` | PLL integral gain |
+| `unimoc.observer.asm_flux.g_i` | `uavcan.primitive.scalar.Real32.1.0` | ASM flux observer current gain [1/s] |
+| `unimoc.observer.asm_flux.g_flux` | `uavcan.primitive.scalar.Real32.1.0` | ASM flux observer flux gain [Wb/(A·s)] |
+| `unimoc.control.asm_flux.kp` | `uavcan.primitive.scalar.Real32.1.0` | ASM flux PI proportional gain [A/Wb] |
+| `unimoc.control.asm_flux.ki` | `uavcan.primitive.scalar.Real32.1.0` | ASM flux PI integral gain [A/(Wb·s)] |
+| `unimoc.control.asm_flux.i_d_min` | `uavcan.primitive.scalar.Real32.1.0` | ASM flux min d-axis current [A] |
+| `unimoc.control.asm_flux.i_d_max` | `uavcan.primitive.scalar.Real32.1.0` | ASM flux max d-axis current [A] |
+| `unimoc.control.fw.v_max` | `uavcan.primitive.scalar.Real32.1.0` | Field-weakening voltage limit (normalised) |
+| `unimoc.control.fw.ki` | `uavcan.primitive.scalar.Real32.1.0` | Field-weakening integrator gain [A/(V·s)] |
+| `unimoc.control.fw.i_d_min` | `uavcan.primitive.scalar.Real32.1.0` | Field-weakening min i_d [A] |
+| `unimoc.control.svm.duty_min` | `uavcan.primitive.scalar.Real32.1.0` | SVM minimum duty cycle |
+| `unimoc.control.svm.duty_max` | `uavcan.primitive.scalar.Real32.1.0` | SVM maximum duty cycle |
+| `unimoc.control.dtc.dead_time` | `uavcan.primitive.scalar.Real32.1.0` | Dead time [s] |
+| `unimoc.control.dtc.f_pwm` | `uavcan.primitive.scalar.Real32.1.0` | PWM frequency [Hz] |
+| `unimoc.control.dtc.i_threshold` | `uavcan.primitive.scalar.Real32.1.0` | Dead-time zero-crossing threshold [A] |
+| `unimoc.observer.hfi.v_inject` | `uavcan.primitive.scalar.Real32.1.0` | HFI injection voltage [V] |
+| `unimoc.observer.hfi.error_gain` | `uavcan.primitive.scalar.Real32.1.0` | HFI angle-error gain [1/V] |
+| `unimoc.control.excitation.mode` | `uavcan.primitive.scalar.Natural8.1.0` | EESM excitation mode (0=current, 1=flux) |
+| `unimoc.control.excitation.L_m` | `uavcan.primitive.scalar.Real32.1.0` | EESM mutual inductance [H] |
+| `unimoc.control.excitation.kp` | `uavcan.primitive.scalar.Real32.1.0` | Excitation PI proportional gain [V/A] |
+| `unimoc.control.excitation.ki` | `uavcan.primitive.scalar.Real32.1.0` | Excitation PI integral gain [V/(A·s)] |
+| `unimoc.control.excitation.i_f_min` | `uavcan.primitive.scalar.Real32.1.0` | Min excitation current [A] |
+| `unimoc.control.excitation.i_f_max` | `uavcan.primitive.scalar.Real32.1.0` | Max excitation current [A] |
+| `unimoc.observer.excitation.tau` | `uavcan.primitive.scalar.Real32.1.0` | Excitation observer LPF time constant [s] |
+| `unimoc.observer.excitation.L_m` | `uavcan.primitive.scalar.Real32.1.0` | Excitation observer L_m [H] |
+| `unimoc.control.pos.kp` | `uavcan.primitive.scalar.Real32.1.0` | Position loop P gain [rad/s per rad] |
+| `unimoc.control.pos.kp_speed` | `uavcan.primitive.scalar.Real32.1.0` | Speed loop P gain |
+| `unimoc.control.pos.ki_speed` | `uavcan.primitive.scalar.Real32.1.0` | Speed loop I gain |
+| `unimoc.control.pos.speed_limit` | `uavcan.primitive.scalar.Real32.1.0` | Max velocity [rad/s] |
+| `unimoc.control.pos.accel_limit` | `uavcan.primitive.scalar.Real32.1.0` | Max acceleration [rad/s²] |
+| `unimoc.control.pos.position_tolerance` | `uavcan.primitive.scalar.Real32.1.0` | In-position threshold [rad] |
+| `unimoc.control.pos.speed_tolerance` | `uavcan.primitive.scalar.Real32.1.0` | In-position speed threshold [rad/s] |
+| `unimoc.control.pos.homing_speed` | `uavcan.primitive.scalar.Real32.1.0` | Homing search velocity [rad/s] |
 
 ### Setpoints via Subjects
 
@@ -212,6 +214,7 @@ which subjects are acted on.
 | `homing_trigger` | 105 | → (subscribe) | Any message starts homing sequence |
 
 Port IDs are reconfigurable via `uavcan.sub.<name>.id` registers.
+All input/output subjects can be inspected live in Cymon.
 
 ### Telemetry Subjects
 
@@ -326,4 +329,3 @@ Contributions are welcome!  Please:
 UNIMOC is free software released under the
 **GNU General Public License v3.0**.  See the [`LICENSE`](LICENSE) file for
 the full text.
-

@@ -35,6 +35,7 @@
 
 # build folder
 build/*
+build_test/
 .venv/
 
 modm/modm_tools/__pycache__/*

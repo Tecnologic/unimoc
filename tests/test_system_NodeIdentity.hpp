@@ -33,13 +33,6 @@ TEST_F(NodeIdentityTest, DefaultVersions)
     EXPECT_EQ(id.sw_version_minor, 0u);
 }
 
-TEST_F(NodeIdentityTest, DefaultUniqueIdZero)
-{
-    NodeIdentity id;
-    for (auto b : id.unique_id)
-        EXPECT_EQ(b, 0u);
-}
-
 // --- set_name / get_name
 TEST_F(NodeIdentityTest, SetAndGetName)
 {
@@ -94,14 +87,6 @@ TEST_F(NodeIdentityTest, InequalityHwVersion)
     NodeIdentity a, b;
     b.hw_version_major = 2u;
     EXPECT_NE(a, b);
-}
-
-TEST_F(NodeIdentityTest, UniqueIdNotCompared)
-{
-    // unique_id differences should NOT affect operator==
-    NodeIdentity a, b;
-    b.unique_id[0] = 0xFFu;
-    EXPECT_EQ(a, b);
 }
 
 }  // namespace test

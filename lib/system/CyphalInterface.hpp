@@ -5,7 +5,7 @@
     / /_/ / /|  // // /  / / /_/ / /___
     \____/_/ |_/___/_/  /_/\____/\____/
 
-    Universal Motor Control  2025 Alexander <tecnologic86@gmail.com> Evers
+    Universal Motor Control  2026 Alexander <tecnologic86@gmail.com> Evers
 
     This file is part of UNIMOC.
 
@@ -61,6 +61,8 @@
  * node name returned in `uavcan.node.GetInfo` responses.  Set it once via
  * Cyphal to give the drive a meaningful identity in the network (e.g.,
  * "unimoc.propulsion.left").  The value is stored in NvmSettings::identity.
+ * The hardware unique-ID used for GetInfo/PnP is sourced directly from the
+ * hardware layer at runtime (not from NvmSettings).
  *
  * Setpoints and control mode
  * ==========================

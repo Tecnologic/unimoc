@@ -6,6 +6,7 @@
 #include <gtest/gtest.h>
 #include <cmath>
 #include "PositionController.hpp"
+#include "PositionTracker.hpp"
 
 namespace unimoc
 {
@@ -18,6 +19,7 @@ class PositionControllerTest : public ::testing::Test
 {
 protected:
     using Ctrl = PositionController<float>;
+    using Tracker = unimoc::observer::PositionTracker<float>;
 
     Ctrl make_default()
     {
@@ -35,6 +37,11 @@ protected:
     }
 };
 
+constexpr void set_home_adapter(void* ctx, int pole_pairs)
+{
+    static_cast<unimoc::observer::PositionTracker<float>*>(ctx)->set_home(pole_pairs);
+}
+
 // --- At rest, zero setpoint → zero output
 TEST_F(PositionControllerTest, ZeroSetpointZeroOutput)
 {
@@ -50,6 +57,15 @@ TEST_F(PositionControllerTest, PositiveErrorDrivesPositiveOutput)
     c.pos_ref_rad = 1.0f;
     const float out = c.update(0.0f, 0.0f, 1e-4f);
     EXPECT_GT(out, 0.0f);
+}
+
+TEST_F(PositionControllerTest, LargeJumpUsesTrapezoidPlanning)
+{
+    auto c = make_default();
+    c.trapezoid_jump_threshold = 0.2f;
+    c.pos_ref_rad = 10.0f;
+    c.update(0.0f, 0.0f, 1e-3f);
+    EXPECT_LT(c.pos_ref_limited, c.pos_ref_rad);
 }
 
 // --- Output never exceeds speed_limit
@@ -94,11 +110,25 @@ TEST_F(PositionControllerTest, HomingSearchingOutputsHomingSpeed)
 TEST_F(PositionControllerTest, HomingTriggerZeroingAdvancesToDone)
 {
     auto c = make_default();
+    Tracker tracker;
+    tracker.update(0.3f, 2);
+    c.set_home_callback(&set_home_adapter, &tracker, 2);
     c.start_homing();
     c.update(0.0f, 0.0f, 1e-4f);  // SEARCHING step
     c.trigger_zeroing();
     EXPECT_EQ(c.homing_state, HomingState::ZEROING);
     c.update(0.0f, 0.0f, 1e-4f);  // ZEROING step → transitions to DONE
+    EXPECT_EQ(c.homing_state, HomingState::DONE);
+    EXPECT_TRUE(tracker.is_homed);
+}
+
+TEST_F(PositionControllerTest, HomingAutoZeroingOnCurrentThreshold)
+{
+    auto c = make_default();
+    c.homing_block_current_threshold = 5.0f;
+    c.start_homing();
+    EXPECT_EQ(c.homing_state, HomingState::SEARCHING);
+    c.update(0.0f, 0.0f, 1e-4f, 5.1f);
     EXPECT_EQ(c.homing_state, HomingState::DONE);
 }
 

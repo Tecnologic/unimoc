@@ -5,7 +5,7 @@
     / /_/ / /|  // // /  / / /_/ / /___
     \____/_/ |_/___/_/  /_/\____/\____/
 
-    Universal Motor Control  2025 Alexander <tecnologic86@gmail.com> Evers
+    Universal Motor Control  2026 Alexander <tecnologic86@gmail.com> Evers
 
     This file is part of UNIMOC.
 
@@ -28,7 +28,6 @@
 #define UNIMOC_SYSTEM_NODE_IDENTITY_H_
 
 #include <algorithm>
-#include <array>
 #include <cstdint>
 #include <cstring>
 #include <string_view>
@@ -52,6 +51,14 @@ inline constexpr uint8_t NODE_NAME_MAX_LEN = 50;
 /// Matches the UAVCAN/Cyphal GetInfo response layout.
 inline constexpr uint8_t UNIQUE_ID_LEN = 16;
 
+#ifndef UNIMOC_SW_VERSION_MAJOR
+#define UNIMOC_SW_VERSION_MAJOR 1
+#endif
+
+#ifndef UNIMOC_SW_VERSION_MINOR
+#define UNIMOC_SW_VERSION_MINOR 0
+#endif
+
 /**
  * @brief Node identity record for a UNIMOC drive node.
  *
@@ -68,14 +75,14 @@ inline constexpr uint8_t UNIQUE_ID_LEN = 16;
  * - `hw_version_major` / `hw_version_minor` and `sw_version_major` /
  *   `sw_version_minor` are read-only registers exposed as
  *   `unimoc.hw.version` and `unimoc.sw.version`.
- * - `unique_id` is read-only, derived from hardware (MCU UID registers) and
- *   is NOT persisted in NVM — it is populated at startup from hardware.
+ * - The 16-byte hardware unique-ID is read directly from hardware by the
+ *   platform layer and attached to `uavcan.node.GetInfo` responses at runtime.
  *
  * Hardware unique ID
  * ------------------
- * The 16-byte `unique_id` must be filled by the hardware layer at startup
- * (e.g., from the STM32 96-bit UID registers, zero-padded).  It is used by
- * Cyphal plug-and-play node-ID allocation and is part of the GetInfo response.
+ * The 16-byte unique-ID is not stored in this persisted struct.  It must be
+ * read by the hardware layer at startup (e.g., from STM32 UID registers) and
+ * provided directly to Cyphal GetInfo / PnP handling.
  *
  * Application identity
  * --------------------
@@ -96,14 +103,10 @@ struct NodeIdentity
     /// Hardware version — minor component.
     uint8_t hw_version_minor{0};
 
-    /// Software version — major component (read-only, set at compile time).
-    uint8_t sw_version_major{1};
+    /// Software version — major component (read-only, set from git version).
+    uint8_t sw_version_major{static_cast<uint8_t>(UNIMOC_SW_VERSION_MAJOR)};
     /// Software version — minor component.
-    uint8_t sw_version_minor{0};
-
-    /// 16-byte hardware unique identifier (populated from MCU UID at startup;
-    /// NOT stored in NVM).
-    std::array<uint8_t, UNIQUE_ID_LEN> unique_id{};
+    uint8_t sw_version_minor{static_cast<uint8_t>(UNIMOC_SW_VERSION_MINOR)};
 
     // -------------------------------------------------------------------------
     // Helpers
@@ -140,10 +143,7 @@ struct NodeIdentity
     }
 
     /**
-     * @brief Compare two identity records for equality (name + versions only).
-     *
-     * unique_id is intentionally excluded — it is hardware-sourced and may
-     * differ between two identical firmware installations.
+     * @brief Compare two identity records for equality (name + versions).
      */
     [[nodiscard]] constexpr bool
     operator==(const NodeIdentity& other) const noexcept

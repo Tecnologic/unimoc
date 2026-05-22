@@ -1,5 +1,5 @@
 # Specify the minimum CMake version
-cmake_minimum_required(VERSION 3.31)
+cmake_minimum_required(VERSION 4.00)
 
 # Add the library target
 add_library(unimoc_lib)
@@ -15,4 +15,3 @@ target_include_directories(unimoc_lib PUBLIC
 target_sources(unimoc_lib PRIVATE src/dummy.cpp) 
 
 target_link_libraries(unimoc_lib PUBLIC project_options project_warnings)
-

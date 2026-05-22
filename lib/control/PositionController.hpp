@@ -5,7 +5,7 @@
     / /_/ / /|  // // /  / / /_/ / /___
     \____/_/ |_/___/_/  /_/\____/\____/
 
-    Universal Motor Control  2025 Alexander <tecnologic86@gmail.com> Evers
+    Universal Motor Control  2026 Alexander <tecnologic86@gmail.com> Evers
 
     This file is part of UNIMOC.
 
@@ -110,8 +110,12 @@ enum class HomingState : unsigned char
  * ---------------
  * Call start_homing() to begin the sequence:
  *   1. HomingState → SEARCHING: output = homing_speed (slow constant velocity)
- *   2. Application detects home event → call trigger_zeroing()
- *   3. HomingState → ZEROING: set_home() is called on the PositionTracker
+ *   2. Transition to ZEROING occurs either:
+ *      - explicitly via trigger_zeroing(), or
+ *      - automatically when |homing_current_feedback| reaches
+ *        homing_block_current_threshold during SEARCHING.
+ *   3. HomingState → ZEROING: set_home() is called through the configured
+ *      home callback (typically PositionTracker::set_home()).
  *   4. HomingState → DONE: normal position control resumes from pos_ref = 0
  *
  * Cyphal interface
@@ -127,6 +131,8 @@ enum class HomingState : unsigned char
 template <std::floating_point T = float>
 struct PositionController
 {
+    using HomeCallback = void (*)(void*, int);
+
     // -------------------------------------------------------------------------
     // Position loop
     // -------------------------------------------------------------------------
@@ -162,6 +168,9 @@ struct PositionController
     /// Speed threshold for the in_position flag [rad/s].
     T speed_tolerance{static_cast<T>(1.0)};
 
+    /// Position-step threshold [rad] above which trapezoidal planning is used.
+    T trapezoid_jump_threshold{static_cast<T>(0.5)};
+
     // -------------------------------------------------------------------------
     // Homing parameters
     // -------------------------------------------------------------------------
@@ -169,6 +178,11 @@ struct PositionController
     /// Constant shaft velocity used during the SEARCHING phase [rad/s].
     /// Positive = positive rotation direction.
     T homing_speed{static_cast<T>(5.0)};
+
+    /// Current threshold [A] used for blocked-drive homing detection.
+    /// If > 0 and |homing_current_feedback| >= threshold while SEARCHING,
+    /// the state transitions to ZEROING automatically.
+    T homing_block_current_threshold{static_cast<T>(0)};
 
     // -------------------------------------------------------------------------
     // Setpoint (written by Cyphal callback or application code)
@@ -197,6 +211,15 @@ struct PositionController
     /// Current homing state machine state.
     HomingState homing_state{HomingState::IDLE};
 
+    /// Optional callback used to perform the home latch in ZEROING.
+    HomeCallback home_callback{nullptr};
+
+    /// Opaque callback context (typically PositionTracker*).
+    void* home_callback_context{nullptr};
+
+    /// Pole pairs forwarded to the home callback.
+    int home_pole_pairs{1};
+
     // -------------------------------------------------------------------------
     // Outputs (updated by update())
     // -------------------------------------------------------------------------
@@ -218,22 +241,39 @@ struct PositionController
      * @param omega_meas    Measured mechanical angular velocity [rad/s]
      *                      (from MechanicalObserver::omega / pole_pairs).
      * @param dt            Control period [s].
+     * @param homing_current_feedback
+     *                      Absolute-current feedback used for blocked-drive
+     *                      homing detection (typically q-axis current) [A].
      * @return              Mechanical angular velocity reference omega_ref [rad/s].
      */
     constexpr T
-    update(const T pos_meas_rad, const T omega_meas, const T dt) noexcept
+    update(const T pos_meas_rad,
+           const T omega_meas,
+           const T dt,
+           const T homing_current_feedback = static_cast<T>(0)) noexcept
     {
         // --- Homing override ---
         if (homing_state == HomingState::SEARCHING)
         {
-            omega_ref  = homing_speed;
-            in_position = false;
-            return omega_ref;
+            if (homing_block_current_threshold > static_cast<T>(0)
+                && std::abs(homing_current_feedback) >= homing_block_current_threshold)
+            {
+                homing_state = HomingState::ZEROING;
+            }
+            else
+            {
+                omega_ref   = homing_speed;
+                in_position = false;
+                return omega_ref;
+            }
         }
 
         if (homing_state == HomingState::ZEROING)
         {
-            // Zeroing is handled by trigger_zeroing(); transition to DONE.
+            if (home_callback != nullptr && home_callback_context != nullptr)
+            {
+                home_callback(home_callback_context, home_pole_pairs);
+            }
             homing_state = HomingState::DONE;
             pos_ref_rad      = static_cast<T>(0);
             pos_ref_limited  = static_cast<T>(0);
@@ -244,10 +284,18 @@ struct PositionController
             return omega_ref;
         }
 
-        // --- Rate-limit the position reference ---
-        const T max_pos_step = speed_limit * dt;
-        const T pos_err_raw  = pos_ref_rad - pos_ref_limited;
-        pos_ref_limited += std::clamp(pos_err_raw, -max_pos_step, max_pos_step);
+        // --- Position reference planning ---
+        const T max_pos_step      = speed_limit * dt;
+        const T setpoint_jump_mag = std::abs(pos_ref_rad - pos_meas_rad);
+        if (setpoint_jump_mag > trapezoid_jump_threshold)
+        {
+            const T pos_err_raw = pos_ref_rad - pos_ref_limited;
+            pos_ref_limited += std::clamp(pos_err_raw, -max_pos_step, max_pos_step);
+        }
+        else
+        {
+            pos_ref_limited = pos_ref_rad;
+        }
 
         // --- Position loop (P) ---
         const T pos_error    = pos_ref_limited - pos_meas_rad;
@@ -302,8 +350,8 @@ struct PositionController
      * or stall detection triggers during the SEARCHING phase.
      *
      * The homing state machine transitions to ZEROING; on the very next
-     * update() call set_home() will be invoked on the linked PositionTracker
-     * and the state will advance to DONE.
+     * update() call the configured home callback is invoked and the state
+     * advances to DONE.
      *
      * @note If not currently in the SEARCHING state this call is ignored.
      */
@@ -314,6 +362,21 @@ struct PositionController
         {
             homing_state = HomingState::ZEROING;
         }
+    }
+
+    /**
+     * @brief Configure the callback used to latch home during ZEROING.
+     *
+     * @param callback    Function called once in ZEROING.
+     * @param context     Opaque pointer passed to callback.
+     * @param pole_pairs  Pole-pair count passed to callback.
+     */
+    constexpr void
+    set_home_callback(HomeCallback callback, void* context, const int pole_pairs) noexcept
+    {
+        home_callback         = callback;
+        home_callback_context = context;
+        home_pole_pairs       = pole_pairs;
     }
 
     /**
