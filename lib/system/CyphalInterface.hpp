@@ -67,8 +67,12 @@
  * Setpoints and control mode
  * ==========================
  * Runtime setpoints are **not** persisted to NVM — they are ephemeral and
- * sourced from Cyphal subjects each cycle.  The *initial* control mode after
- * boot is stored in NvmSettings::control_mode and can be changed by writing
+ * sourced from Cyphal subjects each cycle.  For UDRAL servo-style interfaces
+ * (`reg.udral.service.actuator.servo/_.0.1`) the active control mode is
+ * selected from the first finite kinematics field of the setpoint
+ * (`position -> POSITION`, `velocity -> SPEED`, else `torque -> TORQUE`).
+ * The *initial* control mode after boot is still stored in
+ * NvmSettings::control_mode and can be changed by writing
  * the `unimoc.control.mode` register.
  *
  * All settings available via Cyphal
@@ -366,8 +370,9 @@ inline constexpr uint16_t SUB_SPEED_SETPOINT     = 101u;
 /// Register: `uavcan.sub.position_sp.id`
 inline constexpr uint16_t SUB_POSITION_SETPOINT  = 102u;
 
-/// Control mode selection: 0=TORQUE, 1=SPEED, 2=POSITION.
-/// Data type: uavcan.primitive.scalar.Natural8.1.0
+/// Legacy explicit control mode selection: 0=TORQUE, 1=SPEED, 2=POSITION.
+/// UDRAL servo mode selection should follow setpoint field precedence instead.
+/// Data type: uavcan.primitive.scalar.Natural8.1.0 (legacy)
 /// Register: `uavcan.sub.control_mode.id`
 inline constexpr uint16_t SUB_CONTROL_MODE       = 103u;
 

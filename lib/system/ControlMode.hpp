@@ -27,6 +27,10 @@
 #ifndef UNIMOC_SYSTEM_CONTROL_MODE_H_
 #define UNIMOC_SYSTEM_CONTROL_MODE_H_
 
+#include <cmath>
+#include <concepts>
+#include <optional>
+
 /**
  * @namespace unimoc global namespace
  */
@@ -73,6 +77,47 @@ enum class ControlMode : unsigned char
     /// PositionController and PositionTracker must be active.
     POSITION,
 };
+
+/**
+ * @brief Select control mode from UDRAL servo rotational dynamics setpoint fields.
+ *
+ * Implements the mode selection described in:
+ * `reg/udral/service/actuator/servo/_.0.1.dsdl`
+ * using:
+ * `reg/udral/physics/dynamics/rotation/Planar.0.1.dsdl`.
+ *
+ * Rule:
+ * 1) First finite kinematics field selects the controlled quantity:
+ *    angular_position -> POSITION, angular_velocity -> SPEED.
+ * 2) angular_acceleration is not currently supported by UNIMOC and is ignored.
+ * 3) If no kinematics command is provided, finite torque selects TORQUE mode.
+ * 4) If nothing actionable is finite, return std::nullopt (ignore setpoint).
+ */
+template <std::floating_point T>
+[[nodiscard]] inline std::optional<ControlMode>
+select_control_mode_from_udral_servo_rotation(const T angular_position,
+                                              const T angular_velocity,
+                                              const T angular_acceleration,
+                                              const T torque) noexcept
+{
+    if (std::isfinite(angular_position))
+    {
+        return ControlMode::POSITION;
+    }
+    if (std::isfinite(angular_velocity))
+    {
+        return ControlMode::SPEED;
+    }
+    if (std::isfinite(angular_acceleration))
+    {
+        return std::nullopt;
+    }
+    if (std::isfinite(torque))
+    {
+        return ControlMode::TORQUE;
+    }
+    return std::nullopt;
+}
 
 }  // namespace system
 }  // namespace unimoc

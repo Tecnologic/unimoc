@@ -202,14 +202,18 @@ Full register name table (`lib/system/CyphalInterface.hpp`):
 
 Runtime setpoints are **ephemeral** (not stored in NVM) and arrive via Cyphal
 publisher subjects each control cycle.  The active control mode determines
-which subjects are acted on.
+which subjects are acted on. For UDRAL servo setpoints
+(`reg.udral.service.actuator.servo/_.0.1` + `reg.udral.physics.dynamics.rotation.Planar.0.1`),
+mode switching follows setpoint precedence: first finite kinematics field
+(`position` then `velocity`) selects the mode, otherwise finite `torque`
+falls back to torque mode.
 
 | Subject | Default port ID | Direction | Description |
 |---|---|---|---|
 | `torque_sp` | 100 | → (subscribe) | Torque / q-axis current setpoint |
 | `speed_sp` | 101 | → (subscribe) | Speed setpoint [rad/s] |
 | `position_sp` | 102 | → (subscribe) | Position setpoint [rad] (requires homing) |
-| `control_mode` | 103 | → (subscribe) | Active control mode (0/1/2) |
+| `control_mode` | 103 | → (subscribe) | Legacy explicit mode override (0/1/2) |
 | `excitation_sp` | 104 | → (subscribe) | EESM excitation setpoint (A or Wb) |
 | `homing_trigger` | 105 | → (subscribe) | Any message starts homing sequence |
 
