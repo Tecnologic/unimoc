@@ -4,3 +4,4 @@ target_sources(${CMAKE_PROJECT_NAME}
 
 add_subdirectory(logging)
 add_subdirectory(current_control)
+add_subdirectory(cyphal)
