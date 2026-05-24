@@ -139,12 +139,12 @@ struct PositionTracker
 
         if (delta > pi)
         {
-            // Wrapped from +π to −π: shaft moved in the negative direction
+            // Wrapped from −π to +π: shaft moved in the negative direction
             --turns;
         }
         else if (delta < -pi)
         {
-            // Wrapped from −π to +π: shaft moved in the positive direction
+            // Wrapped from +π to −π: shaft moved in the positive direction
             ++turns;
         }
 
