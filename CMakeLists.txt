@@ -15,27 +15,7 @@ target_compile_options(project_options INTERFACE -fdiagnostics-color=never)
 add_library(project_warnings INTERFACE)
 include(cmake/Cache.cmake)
 
-set(UNIMOC_SW_VERSION_MAJOR 1)
-set(UNIMOC_SW_VERSION_MINOR 0)
-find_package(Git QUIET)
-if(GIT_FOUND AND EXISTS "${CMAKE_SOURCE_DIR}/.git")
-  execute_process(
-    COMMAND "${GIT_EXECUTABLE}" describe --tags --abbrev=0
-    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
-    OUTPUT_VARIABLE UNIMOC_GIT_TAG
-    OUTPUT_STRIP_TRAILING_WHITESPACE
-    ERROR_QUIET
-  )
-  if(UNIMOC_GIT_TAG MATCHES "^v?([0-9]+)\\.([0-9]+)(\\..*)?$")
-    set(UNIMOC_SW_VERSION_MAJOR "${CMAKE_MATCH_1}")
-    set(UNIMOC_SW_VERSION_MINOR "${CMAKE_MATCH_2}")
-  endif()
-endif()
-
-target_compile_definitions(project_options INTERFACE
-  UNIMOC_SW_VERSION_MAJOR=${UNIMOC_SW_VERSION_MAJOR}
-  UNIMOC_SW_VERSION_MINOR=${UNIMOC_SW_VERSION_MINOR}
-)
+INCLUDE(${CMAKE_SOURCE_DIR}/lib/gitversion/cmake.cmake)
 
 # recomended warniings for modm projects
 include(cmake/CompilerWarnings.cmake)
@@ -59,6 +39,8 @@ if(HARDWARE_DIRECTORY)
   target_include_directories(project_options INTERFACE ${CMAKE_SOURCE_DIR}/hardware)
   # add hardware files
   add_subdirectory(${HARDWARE_DIRECTORY})
+  # attach gitversion to the firmware executable created by the hardware directory
+  TARGET_GIT_VERSION_INIT(${CMAKE_PROJECT_NAME})
 else()
   message(WARNING "HARDWARE_DIRECTORY is not set, skipping hardware files.")  
 endif()
