@@ -104,8 +104,8 @@ namespace unimoc
 
             TEST_F(SinCosTest, SineCosineDifference)
             {
-                SinCosF sinCos1(0.707f, 0.707f); // 45 degrees
-                SinCosF sinCos2(0.866f, 0.5f);  // 30 degrees
+                SinCosF sinCos1(0.70711f, 0.70711f); // 45 degrees
+                SinCosF sinCos2(0.5f, 0.86603f);     // 30 degrees
                 auto diff = sinCos1 - sinCos2;
                 EXPECT_NEAR(diff.sin, 0.2588f, 1e-4f); // sin(45 - 30) = sin(15)
                 EXPECT_NEAR(diff.cos, 0.9659f, 1e-4f); // cos(45 - 30) = cos(15)
@@ -114,7 +114,10 @@ namespace unimoc
             TEST_F(SinCosTest, ZeroLengthNormalization)
             {
                 SinCosF sinCos(0.0f, 0.0f);
-                EXPECT_THROW(sinCos.normToOne(), std::runtime_error);
+                // normToOne is non-throwing; returns the unchanged zero vector
+                auto result = sinCos.normToOne();
+                EXPECT_FLOAT_EQ(result.sin, 0.0f);
+                EXPECT_FLOAT_EQ(result.cos, 0.0f);
             }
         } // namespace test
     }     // namespace system

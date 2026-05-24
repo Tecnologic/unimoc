@@ -1,7 +1,8 @@
-cmake_minimum_required(VERSION 3.20)
+cmake_minimum_required(VERSION 4.00)
 
-# remove the warning about CMP0175
-cmake_policy(SET CMP0175 OLD)
+if(POLICY CMP0175)
+  cmake_policy(SET CMP0175 NEW)
+endif()
 
 # Projektname und Version
 project(unimoc LANGUAGES C CXX)
@@ -13,6 +14,28 @@ target_compile_options(project_options INTERFACE -fdiagnostics-color=never)
 
 add_library(project_warnings INTERFACE)
 include(cmake/Cache.cmake)
+
+set(UNIMOC_SW_VERSION_MAJOR 1)
+set(UNIMOC_SW_VERSION_MINOR 0)
+find_package(Git QUIET)
+if(GIT_FOUND AND EXISTS "${CMAKE_SOURCE_DIR}/.git")
+  execute_process(
+    COMMAND "${GIT_EXECUTABLE}" describe --tags --abbrev=0
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    OUTPUT_VARIABLE UNIMOC_GIT_TAG
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET
+  )
+  if(UNIMOC_GIT_TAG MATCHES "^v?([0-9]+)\\.([0-9]+)(\\..*)?$")
+    set(UNIMOC_SW_VERSION_MAJOR "${CMAKE_MATCH_1}")
+    set(UNIMOC_SW_VERSION_MINOR "${CMAKE_MATCH_2}")
+  endif()
+endif()
+
+target_compile_definitions(project_options INTERFACE
+  UNIMOC_SW_VERSION_MAJOR=${UNIMOC_SW_VERSION_MAJOR}
+  UNIMOC_SW_VERSION_MINOR=${UNIMOC_SW_VERSION_MINOR}
+)
 
 # recomended warniings for modm projects
 include(cmake/CompilerWarnings.cmake)
@@ -50,8 +73,10 @@ endif()
 # add universal code as library
 add_subdirectory(lib)
 
-target_link_libraries(${CMAKE_PROJECT_NAME} PUBLIC unimoc_lib project_options project_warnings)
-
+# The firmware executable only exists when tests are disabled (src/ is added).
+if(NOT ENABLE_TESTS)
+  target_link_libraries(${CMAKE_PROJECT_NAME} PUBLIC unimoc_lib project_options project_warnings)
+endif()
 
 
 

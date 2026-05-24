@@ -5,7 +5,7 @@
     / /_/ / /|  // // /  / / /_/ / /___
     \____/_/ |_/___/_/  /_/\____/\____/
 
-    Universal Motor Control  2025 Alexander <tecnologic86@gmail.com> Evers
+    Universal Motor Control  2026 Alexander <tecnologic86@gmail.com> Evers
 
     This file is part of UNIMOC.
 
@@ -157,7 +157,7 @@ namespace unimoc
             }
 
             // transform dq vector to alpha beta vector.
-            constexpr auto inverse_park(const sin_cos &angle) const noexcept -> StatorReference<T>
+            constexpr auto inverse_park(const sin_cos<T> &angle) const noexcept -> StatorReference<T>
             {
                 return StatorReference<T>{
                     .alpha = d * angle.cos - q * angle.sin,

@@ -5,7 +5,7 @@
     / /_/ / /|  // // /  / / /_/ / /___
     \____/_/ |_/___/_/  /_/\____/\____/
 
-    Universal Motor Control  2025 Alexander <tecnologic86@gmail.com> Evers
+    Universal Motor Control  2026 Alexander <tecnologic86@gmail.com> Evers
 
     This file is part of UNIMOC.
 
@@ -29,7 +29,7 @@
 
 #include <array>
 #include <cmath>
-#include <concepts>	
+#include <concepts>
 #include "Units.hpp"
 
 /**
@@ -44,38 +44,27 @@ namespace unimoc
     {
         /// @brief SinCos class
         ///
-        /// This class is used to represent the sine and cosine values of an angle.
+        /// Plain value type holding the precomputed sine and cosine of an angle.
+        /// Construct with an angle in radians to compute sin/cos via the standard
+        /// library, or supply explicit sin/cos values directly.
         ///
-        /// It provides methods to compute the sine and cosine values, normalize them, and perform arithmetic operations.   
+        /// It provides methods to normalize the vector, perform arithmetic operations,
+        /// and convert to an array.
         ///
         /// @tparam T The type of the sine and cosine values. It must be a floating point type.
-        ///
-        /// @note The class is designed
-        /// to be used with angles in radians, and it is expected that the user will implement the `computeSinCos` method
-        /// to provide the actual sine and cosine calculations based on the angle.    
         template <std::floating_point T>
         struct SinCos
         {
-            T sin;
-            T cos;
+            T sin{static_cast<T>(0)};
+            T cos{static_cast<T>(0)};
 
-            // function to compute sin and cos values
-            // this function should be implemented by the user
-            // it should return the sin and cos values of the given angle
-            virtual SinCos<T> computeSinCos(const units::unit_t<units::angle::radian, T> angle) = 0;
-
-            // default constructor destructor
+            // default constructor / destructor
             constexpr SinCos() = default;
-            virtual ~SinCos() = default;
+            ~SinCos() = default;
 
-            // constructor with angle
-            constexpr SinCos(const units::unit_t<units::angle::radian, T> angle)
-            {
-                // compute sin and cos values
-                SinCos<T> result = computeSinCos(angle);
-                sin = result.sin;
-                cos = result.cos;
-            }
+            // constructor with angle in radians
+            explicit constexpr SinCos(const T angle)
+                : sin(std::sin(angle)), cos(std::cos(angle)) {}
 
             // length of the vector
             constexpr T length() const noexcept
@@ -84,13 +73,21 @@ namespace unimoc
             }
 
             // normalize the sin and cos values to one
-            constexpr auto normToOne(void) const
+            // Precondition: length() != 0.
+            // Returns *this unchanged on a zero-length vector; compatible with
+            // -fno-exceptions firmware builds (no throw).
+            constexpr auto normToOne(void) const noexcept
             {
-                return SinCos<T>(sin / this.length(), cos / this.length());
+                const T len = this->length();
+                if (len == static_cast<T>(0))
+                {
+                    return *this;
+                }
+                return SinCos<T>(sin / len, cos / len);
             }
 
             // constructor with sin and cos values
-            constexpr SinCos(const T sin, const T cos) : sin(sin), cos(cos) {  }
+            constexpr SinCos(const T s, const T c) : sin(s), cos(c) {  }
 
             // copy constructor
             constexpr SinCos(const SinCos &other) : sin(other.sin), cos(other.cos) { }
