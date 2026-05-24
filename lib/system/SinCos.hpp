@@ -45,15 +45,14 @@ namespace unimoc
     {
         /// @brief SinCos class
         ///
-        /// This class is used to represent the sine and cosine values of an angle.
+        /// Plain value type holding the precomputed sine and cosine of an angle.
+        /// Construct with an angle in radians to compute sin/cos via the standard
+        /// library, or supply explicit sin/cos values directly.
         ///
-        /// It provides methods to compute the sine and cosine values, normalize them, and perform arithmetic operations.   
+        /// It provides methods to normalize the vector, perform arithmetic operations,
+        /// and convert to an array.
         ///
         /// @tparam T The type of the sine and cosine values. It must be a floating point type.
-        ///
-        /// @note The class is designed
-        /// to be used with angles in radians, and it is expected that the user will implement the `computeSinCos` method
-        /// to provide the actual sine and cosine calculations based on the angle.    
         template <std::floating_point T>
         struct SinCos
         {
