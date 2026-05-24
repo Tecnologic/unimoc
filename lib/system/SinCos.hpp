@@ -30,7 +30,6 @@
 #include <array>
 #include <cmath>
 #include <concepts>
-#include <stdexcept>
 #include "Units.hpp"
 
 /**
@@ -74,13 +73,15 @@ namespace unimoc
             }
 
             // normalize the sin and cos values to one
-            // throws std::runtime_error if length is zero
-            constexpr auto normToOne(void) const
+            // Precondition: length() != 0.
+            // Returns *this unchanged on a zero-length vector; compatible with
+            // -fno-exceptions firmware builds (no throw).
+            constexpr auto normToOne(void) const noexcept
             {
                 const T len = this->length();
                 if (len == static_cast<T>(0))
                 {
-                    throw std::runtime_error("SinCos::normToOne: zero-length vector");
+                    return *this;
                 }
                 return SinCos<T>(sin / len, cos / len);
             }
