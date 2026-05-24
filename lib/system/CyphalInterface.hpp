@@ -170,23 +170,29 @@ namespace reg
     /// Type: real32[1] (read/write, persistent)
     inline constexpr const char* ASM_L_M           = "unimoc.motor.asm.L_m";
 
-    // --- Mechanical observer gains ---
+    // --- Mechanical observer (Kalman filter) ---
 
-    /// Current observer correction gain g_i [1/s].
+    /// Rotor + load inertia J [kg·m²].
     /// Type: real32[1] (read/write, persistent)
-    inline constexpr const char* MECH_OBS_G_I      = "unimoc.observer.mech.g_i";
+    inline constexpr const char* MOTOR_J           = "unimoc.motor.mechanics.J";
 
-    /// Back-EMF observer correction gain g_e [V/(A·s)].
+    /// Kalman filter process noise variance Q.
     /// Type: real32[1] (read/write, persistent)
-    inline constexpr const char* MECH_OBS_G_E      = "unimoc.observer.mech.g_e";
+    inline constexpr const char* MECH_OBS_Q        = "unimoc.observer.mech.Q";
 
-    /// Back-EMF PLL proportional gain [rad/s per unit].
+    /// Kalman filter measurement noise variance R.
     /// Type: real32[1] (read/write, persistent)
-    inline constexpr const char* MECH_OBS_PLL_KP   = "unimoc.observer.mech.pll_kp";
+    inline constexpr const char* MECH_OBS_R        = "unimoc.observer.mech.R";
 
-    /// Back-EMF PLL integral gain [rad/s² per unit].
+    // --- PMSM flux observer ---
+
+    /// PMSM flux observer d-axis anti-drift feedback gain C_d [1/s].
     /// Type: real32[1] (read/write, persistent)
-    inline constexpr const char* MECH_OBS_PLL_KI   = "unimoc.observer.mech.pll_ki";
+    inline constexpr const char* PMSM_FLUX_OBS_C_D = "unimoc.observer.pmsm_flux.C_d";
+
+    /// PMSM flux observer q-axis anti-drift feedback gain C_q [1/s].
+    /// Type: real32[1] (read/write, persistent)
+    inline constexpr const char* PMSM_FLUX_OBS_C_Q = "unimoc.observer.pmsm_flux.C_q";
 
     // --- ASM flux observer gains ---
 
@@ -333,6 +339,57 @@ namespace reg
     /// Constant homing search velocity [rad/s].
     /// Type: real32[1] (read/write, persistent)
     inline constexpr const char* POS_HOMING_SPEED  = "unimoc.control.pos.homing_speed";
+
+    // --- Motor operating limits ---
+
+    /// Maximum motor (resultant stator vector) current [A].
+    /// Type: real32[1] (read/write, persistent)
+    inline constexpr const char* MOTOR_I_MAX            = "unimoc.motor.limits.i_max";
+
+    /// Maximum electrical angular velocity (forward) [rad/s].
+    /// Type: real32[1] (read/write, persistent)
+    inline constexpr const char* MOTOR_OMEGA_MAX        = "unimoc.motor.limits.omega_max";
+
+    /// Maximum electrical angular velocity (reverse, negative) [rad/s].
+    /// Type: real32[1] (read/write, persistent)
+    inline constexpr const char* MOTOR_OMEGA_MIN        = "unimoc.motor.limits.omega_min";
+
+    /// Maximum battery discharge (drive) current [A].
+    /// Type: real32[1] (read/write, persistent)
+    inline constexpr const char* BATTERY_DRIVE_I_MAX    = "unimoc.battery.limits.drive_current";
+
+    /// Maximum battery charge (regen) current [A].
+    /// Type: real32[1] (read/write, persistent)
+    inline constexpr const char* BATTERY_CHARGE_I_MAX   = "unimoc.battery.limits.charge_current";
+
+    // --- PWM frequency ---
+
+    /// PWM switching frequency selection: 16/20/24/28/32 kHz.
+    /// Stored as the frequency value in kHz (uint8).
+    /// Type: natural8[1] (read/write, persistent)
+    inline constexpr const char* PWM_FREQUENCY          = "unimoc.control.pwm_frequency";
+
+    // --- d/q-axis current controller ---
+
+    /// d-axis proportional gain [V/A].
+    /// Type: real32[1] (read/write, persistent)
+    inline constexpr const char* CURRENT_KP_D           = "unimoc.control.current.kp_d";
+
+    /// d-axis integral gain [V/(A·s)].
+    /// Type: real32[1] (read/write, persistent)
+    inline constexpr const char* CURRENT_KI_D           = "unimoc.control.current.ki_d";
+
+    /// q-axis proportional gain [V/A].
+    /// Type: real32[1] (read/write, persistent)
+    inline constexpr const char* CURRENT_KP_Q           = "unimoc.control.current.kp_q";
+
+    /// q-axis integral gain [V/(A·s)].
+    /// Type: real32[1] (read/write, persistent)
+    inline constexpr const char* CURRENT_KI_Q           = "unimoc.control.current.ki_q";
+
+    /// Maximum voltage vector magnitude (normalised by V_dc).
+    /// Type: real32[1] (read/write, persistent)
+    inline constexpr const char* CURRENT_V_MAX          = "unimoc.control.current.v_max";
 
 }  // namespace reg
 

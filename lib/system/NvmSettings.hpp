@@ -34,6 +34,16 @@
 #include "NodeIdentity.hpp"
 #include "HardwareLimits.hpp"
 
+// ============================================================================
+// Standalone enums (declared before NvmSettings so they can be used as
+// member types with in-class initialisers).
+// ============================================================================
+
+// ============================================================================
+// Standalone enums (declared before NvmSettings so they can be used as
+// member types with in-class initialisers).
+// ============================================================================
+
 /**
  * @namespace unimoc global namespace
  */
@@ -44,6 +54,24 @@ namespace unimoc
  */
 namespace system
 {
+
+/**
+ * @brief Selectable PWM switching frequency for the current-control timer.
+ *
+ * The value of each enumerator equals the frequency in kHz so it can be
+ * recovered at runtime with a single cast:
+ *   uint32_t f_hz = static_cast<uint32_t>(settings.pwm_frequency) * 1000u;
+ *
+ * Supported range: 16 kHz … 32 kHz in 4 kHz steps.
+ */
+enum class PwmFrequency : uint8_t
+{
+    F16 = 16u,  ///< 16 kHz — lowest switching losses, highest ripple.
+    F20 = 20u,  ///< 20 kHz — below human hearing threshold.
+    F24 = 24u,  ///< 24 kHz.
+    F28 = 28u,  ///< 28 kHz.
+    F32 = 32u,  ///< 32 kHz — lowest current ripple, highest switching losses.
+};
 
 /// Magic number stored at the start of every NvmSettings block.
 /// Used to detect an uninitialised or corrupt NVM image.
@@ -284,6 +312,46 @@ struct NvmSettings
     /// Most negative i_d allowed [A].
     /// Register: `unimoc.control.fw.i_d_min`
     float fw_i_d_min{-10.0f};
+
+    // =========================================================================
+    // PWM frequency
+    // =========================================================================
+
+    /// PWM switching frequency for the current-control timer.
+    ///
+    /// The ISR fires at 2× this frequency (once at peak, once at trough of the
+    /// centre-aligned timer) so the effective current-loop rate is 2 × f_pwm.
+    /// The slow-update task runs at (2 × f_pwm) / 4 = f_pwm / 2.
+    ///
+    /// Register: `unimoc.control.pwm_frequency`
+    PwmFrequency pwm_frequency{PwmFrequency::F20};
+
+    // =========================================================================
+    // Current controller (d/q-axis PI with cross-coupling feedforward)
+    // =========================================================================
+
+    /// d-axis proportional gain [V/A].
+    /// Register: `unimoc.control.current.kp_d`
+    float current_kp_d{1.0f};
+
+    /// d-axis integral gain [V/(A·s)].
+    /// Register: `unimoc.control.current.ki_d`
+    float current_ki_d{100.0f};
+
+    /// q-axis proportional gain [V/A].
+    /// Register: `unimoc.control.current.kp_q`
+    float current_kp_q{1.0f};
+
+    /// q-axis integral gain [V/(A·s)].
+    /// Register: `unimoc.control.current.ki_q`
+    float current_ki_q{100.0f};
+
+    /// Maximum voltage vector magnitude (normalised by V_dc, range (0, 1]).
+    /// Limits the current controller output before it reaches the SVM
+    /// modulator.  Typically set slightly below the SVM duty_max to preserve
+    /// headroom for dead-time compensation and ADC sampling.
+    /// Register: `unimoc.control.current.v_max`
+    float current_v_max{0.9f};
 
     // =========================================================================
     // SVM modulator
