@@ -27,11 +27,11 @@
 #ifndef UNIMOC_OBSERVER_MECHANICAL_OBSERVER_H_
 #define UNIMOC_OBSERVER_MECHANICAL_OBSERVER_H_
 
-#include <algorithm>
+#include <array>
 #include <cmath>
 #include <concepts>
 #include <numbers>
-#include "StatorReference.hpp"
+#include "RotorReference.hpp"
 
 /**
  * @namespace unimoc global namespace
@@ -45,188 +45,281 @@ namespace observer
 {
 
 /**
- * @brief Full-order back-EMF observer with phase-locked loop (PLL) for PMSM.
+ * @brief Kalman-filter-based mechanical observer for rotor angle and speed.
  *
  * Overview
  * --------
- * The observer estimates the extended back-EMF vector (ê_α, ê_β) in the
- * stationary α/β frame.  A PLL then locks onto that vector to extract the
- * electrical rotor angle θ̂ and electrical angular velocity ω̂.
+ * The observer tracks the three mechanical states:
+ *   x = [ω̂,  θ̂,  m̂_l]ᵀ
+ * where ω̂ is the estimated electrical angular velocity [rad/s], θ̂ is the
+ * estimated electrical rotor angle [rad], and m̂_l is the estimated load
+ * torque [N·m].
  *
- * Observer equations (Euler forward integration, stationary frame)
- * ---------------------------------------------------------------
- *   dî_α/dt = (1/L) · (V_α − R·î_α − ê_α) + g_i · (i_α − î_α)
- *   dî_β/dt = (1/L) · (V_β − R·î_β − ê_β) + g_i · (i_β − î_β)
- *   dê_α/dt = g_e · (i_α − î_α)
- *   dê_β/dt = g_e · (i_β − î_β)
+ * Prediction step  (call predict() once per control cycle)
+ * ---------------------------------------------------------
+ * The electric torque is computed from the rotor-frame d/q currents:
  *
- * PLL (angle tracking)
- * --------------------
- * The angle error is derived without calling atan2 by projecting ê onto the
- * estimated d-axis direction:
+ *   m_el = (3/2) · [ψ_PM · i_q + (L_d − L_q) · i_d · i_q]
  *
- *   ε = ê_α · cos(θ̂) + ê_β · sin(θ̂)   ≈ |ê| · sin(θ_true − θ̂)
+ * The states are then propagated using Euler forward integration:
  *
- * A PI controller on ε drives θ̂ → θ_true:
- *   ω̂ += K_i_pll · ε · dt
- *   θ̂ += (ω̂ + K_p_pll · ε) · dt
+ *   ω̂  += (dt/J) · (m_el − m̂_l)
+ *   θ̂  += ω̂ · dt
+ *   m̂_l unchanged (load is modelled as a random walk)
  *
- * An additional correction term can be injected from an HFI observer (or any
- * other auxiliary position sensor, e.g. hall sensors) via inject_angle_error().
+ * After prediction ω̂ is clamped to [omega_min, omega_max] to enforce
+ * hardware speed limits, and θ̂ is wrapped to (−π, π].
  *
- * Flying-start support
- * --------------------
- * The observer needs no special initialisation.  When the motor is already
- * spinning the back-EMF is immediately observable, and the PLL converges
- * regardless of the initial angle estimate.  Convergence speed is governed
- * by K_p_pll, K_i_pll, g_i and g_e.
+ * Measurement update  (call inject_angle_error() once per control cycle)
+ * -----------------------------------------------------------------------
+ * An external angle measurement (from a flux observer, HFI, or hall sensors)
+ * provides the innovation:
+ *
+ *   ε = θ_measured − θ̂
+ *
+ * A Kalman filter with process noise Q (scalar, applied uniformly to all
+ * three state variances) and measurement noise R (scalar) computes the
+ * optimal gain k and corrects the state:
+ *
+ *   ω̂  += k[0] · ε
+ *   θ̂  += k[1] · ε
+ *   m̂_l += k[2] · ε
+ *
+ * The covariance propagation uses the linearised state-transition matrix
+ * evaluated at the current dt and J.
+ *
+ * Outputs
+ * -------
+ * After each call to predict() or inject_angle_error(), the fields
+ * sin_theta and cos_theta are updated so downstream Park/inverse-Park
+ * transforms can use them directly.
  *
  * @tparam T  Floating-point type (float by default).
  */
 template <std::floating_point T = float>
 struct MechanicalObserver
 {
-    // -------------------------------------------------------------------------
-    // Motor parameters
-    // -------------------------------------------------------------------------
+    // =========================================================================
+    // Motor / mechanics parameters  (set from NvmSettings before first use)
+    // =========================================================================
 
-    /// Stator phase resistance R [Ω].
-    T R{static_cast<T>(0.1)};
+    /// Permanent-magnet flux linkage ψ_PM [Wb].
+    T psi{static_cast<T>(0)};
 
-    /// Stator inductance L [H] (use L_q for IPMSM, or average (L_d+L_q)/2).
-    T L{static_cast<T>(1e-3)};
+    /// d-axis inductance L_d [H].
+    T L_d{static_cast<T>(1e-3)};
 
-    // -------------------------------------------------------------------------
-    // Observer gains
-    // -------------------------------------------------------------------------
+    /// q-axis inductance L_q [H].
+    T L_q{static_cast<T>(1e-3)};
 
-    /// Current observer correction gain g_i  [1/s].
-    T g_i{static_cast<T>(2000.0)};
+    /// Rotor + load inertia J [kg·m²].
+    T J{static_cast<T>(1e-4)};
 
-    /// Back-EMF observer correction gain g_e  [V/(A·s)].
-    T g_e{static_cast<T>(50000.0)};
+    // =========================================================================
+    // Speed limits  (set from motor / hardware constraints)
+    // =========================================================================
 
-    // -------------------------------------------------------------------------
-    // PLL gains
-    // -------------------------------------------------------------------------
+    /// Maximum electrical angular velocity in the forward direction [rad/s].
+    T omega_max{static_cast<T>(2000.0)};
 
-    /// PLL proportional gain K_p [rad/s per unit error].
-    T pll_kp{static_cast<T>(500.0)};
+    /// Maximum electrical angular velocity in the reverse direction [rad/s]
+    /// (must be ≤ 0).
+    T omega_min{static_cast<T>(-2000.0)};
 
-    /// PLL integral gain K_i [rad/s² per unit error].
-    T pll_ki{static_cast<T>(5000.0)};
+    // =========================================================================
+    // Kalman filter noise parameters
+    // =========================================================================
 
-    // -------------------------------------------------------------------------
+    /// Process noise variance Q (applied to all three state covariances).
+    T Q{static_cast<T>(1e-5)};
+
+    /// Measurement noise variance R.
+    T R{static_cast<T>(1e-4)};
+
+    // =========================================================================
     // Observer state
-    // -------------------------------------------------------------------------
-
-    /// Estimated α-axis stator current [A].
-    T i_alpha_hat{static_cast<T>(0)};
-    /// Estimated β-axis stator current [A].
-    T i_beta_hat{static_cast<T>(0)};
-
-    /// Estimated α-axis back-EMF [V].
-    T e_alpha_hat{static_cast<T>(0)};
-    /// Estimated β-axis back-EMF [V].
-    T e_beta_hat{static_cast<T>(0)};
-
-    // -------------------------------------------------------------------------
-    // PLL state
-    // -------------------------------------------------------------------------
-
-    /// Estimated electrical rotor angle θ̂ [rad].
-    T theta{static_cast<T>(0)};
+    // =========================================================================
 
     /// Estimated electrical angular velocity ω̂ [rad/s].
     T omega{static_cast<T>(0)};
 
-    // -------------------------------------------------------------------------
-    // Output (updated by update())
-    // -------------------------------------------------------------------------
+    /// Estimated electrical rotor angle θ̂ [rad], wrapped to (−π, π].
+    T theta{static_cast<T>(0)};
+
+    /// Estimated load torque m̂_l [N·m].
+    T m_l{static_cast<T>(0)};
+
+    /// Last computed electrical torque m_el [N·m].
+    T m_el{static_cast<T>(0)};
+
+    // =========================================================================
+    // Outputs (updated by predict() and inject_angle_error())
+    // =========================================================================
 
     /// sin(θ̂) — ready for use in Park / inverse-Park transforms.
     T sin_theta{static_cast<T>(0)};
+
     /// cos(θ̂) — ready for use in Park / inverse-Park transforms.
     T cos_theta{static_cast<T>(1)};
 
+    // =========================================================================
+    // Kalman filter internal state  (covariance matrices)
+    // =========================================================================
+
+    /// State error covariance matrix P (3×3, row-major).
+    T p[3][3]{};
+
+    /// Predicted covariance matrix P_k (3×3, row-major, working storage).
+    T pk[3][3]{};
+
+    /// Kalman gain vector k (3 elements, one per state).
+    T k[3]{};
+
+    /// Innovation covariance scalar S.
+    T s{};
+
+    // =========================================================================
+    // Public API
+    // =========================================================================
+
     /**
-     * @brief Run one observer step.
+     * @brief Prediction step — propagate the mechanical model one control cycle.
      *
-     * Call this once per PWM/control interrupt.
+     * Computes the electrical torque from the rotor-frame d/q current vector,
+     * integrates the mechanical equations of motion, and clamps ω̂ to
+     * [omega_min, omega_max] to enforce hardware limits.
      *
-     * @param v_ab  Applied stator voltage vector α/β [V].
-     * @param i_ab  Measured stator current vector α/β [A].
+     * Call once per PWM/control interrupt **before** inject_angle_error().
+     *
+     * @param i_dq  Measured rotor-frame d/q stator current [A].
      * @param dt    Control period [s].
      */
     constexpr void
-    update(const system::StatorReference<T>& v_ab,
-           const system::StatorReference<T>& i_ab,
-           const T                           dt) noexcept
+    predict(const system::RotorReference<T>& i_dq, const T dt) noexcept
     {
-        // --- Current prediction error ---
-        const T err_alpha = i_ab.alpha - i_alpha_hat;
-        const T err_beta  = i_ab.beta  - i_beta_hat;
+        const T tsj = dt / J;
 
-        // --- Back-EMF observer integration ---
-        const T inv_L = static_cast<T>(1) / L;
+        // Electric torque: T_e = (3/2) · [ψ_PM · i_q + (L_d − L_q) · i_d · i_q]
+        m_el = static_cast<T>(1.5) *
+               (psi * i_dq.q + (L_d - L_q) * i_dq.d * i_dq.q);
 
-        i_alpha_hat += dt * (inv_L * (v_ab.alpha - R * i_alpha_hat - e_alpha_hat)
-                             + g_i * err_alpha);
-        i_beta_hat  += dt * (inv_L * (v_ab.beta  - R * i_beta_hat  - e_beta_hat)
-                             + g_i * err_beta);
+        // Integrate angular velocity
+        omega += tsj * (m_el - m_l);
 
-        e_alpha_hat += dt * g_e * err_alpha;
-        e_beta_hat  += dt * g_e * err_beta;
+        // Clamp to hardware speed limits
+        if (omega > omega_max)
+            omega = omega_max;
+        else if (omega < omega_min)
+            omega = omega_min;
 
-        // --- PLL: angle error from back-EMF projection onto estimated d-axis ---
-        //
-        // ê_α = |E| · (−sin θ),  ê_β = |E| · cos θ
-        //
-        // The d-axis direction at estimated angle θ̂ is [cos θ̂, sin θ̂].
-        // Projecting ê onto the d-axis gives:
-        //   ε = ê_α · cos θ̂ + ê_β · sin θ̂  =  |E| · sin(θ − θ̂)
-        //
-        // For small errors ε ≈ |E| · (θ − θ̂).
-        const T angle_error = e_alpha_hat * cos_theta + e_beta_hat * sin_theta;
+        // Recover from NaN/Inf
+        if (!std::isfinite(omega))
+            omega = static_cast<T>(0);
 
-        // PI controller drives angle_error → 0
-        omega += pll_ki * angle_error * dt;
-        theta += (omega + pll_kp * angle_error) * dt;
-
-        // Wrap θ̂ to (−π, π]
+        // Integrate angle
+        theta += omega * dt;
         wrap_angle(theta);
 
-        // Pre-compute sin/cos for use by downstream transforms
         sin_theta = std::sin(theta);
         cos_theta = std::cos(theta);
     }
 
     /**
-     * @brief Inject an external angle error correction into the PLL.
+     * @brief Measurement update — Kalman correction from an external angle error.
      *
-     * Used by the HFI observer (and optionally hall-sensor observers) to feed
-     * additional position information into the same PLL without running a
-     * separate angle estimator.
+     * Propagates the state-error covariance using the linearised mechanics model
+     * and then applies the Kalman-optimal correction to [ω̂, θ̂, m̂_l].
      *
-     * @param angle_error  Signed angle error [rad] (positive when estimated
-     *                     angle is lagging the true angle).
+     * This is also the entry point used by the ASM flux observer and HFI
+     * observer to inject auxiliary angle information into the same estimator.
+     *
+     * Call once per PWM/control interrupt **after** predict().
+     *
+     * @param angle_error  Innovation ε = θ_measured − θ̂ [rad].
      * @param dt           Control period [s].
      */
     constexpr void
     inject_angle_error(const T angle_error, const T dt) noexcept
     {
-        omega += pll_ki * angle_error * dt;
-        theta += pll_kp * angle_error * dt;
+        const T tsj = dt / J;
+
+        // -----------------------------------------------------------------
+        // Covariance prediction  P_k = F·P·Fᵀ + Q·I
+        //
+        // State-transition matrix (linearised about current state):
+        //   F = | 1    0   -tsj |
+        //       | dt   1    0   |
+        //       | 0    0    1   |
+        // -----------------------------------------------------------------
+
+        pk[0][2] = p[0][2] - p[2][2] * tsj;
+
+        pk[0][0] = p[0][0] + Q - p[2][0] * tsj - pk[0][2] * tsj;
+        pk[1][0] = p[1][0] + p[0][0] * dt - tsj * (p[1][2] + p[0][2] * dt);
+        pk[2][0] = p[2][0] - tsj * p[2][2];
+
+        pk[0][1] = p[0][1] + dt * (p[0][0] - tsj * p[2][0]) - tsj * p[2][1];
+        pk[1][1] = p[1][1] + Q + p[0][1] * dt + dt * (p[1][0] + p[0][0] * dt);
+        pk[2][1] = p[2][1] + p[2][0] * dt;
+
+        // p[0][2] already stored in pk[0][2] above
+        pk[1][2] = p[1][2] + p[0][2] * dt;
+        pk[2][2] = p[2][2] + Q;
+
+        // -----------------------------------------------------------------
+        // Innovation covariance and Kalman gain
+        //   S   = H · P_k · Hᵀ + R  =  pk[1][1] + R  (H = [0, 1, 0])
+        //   k   = P_k · Hᵀ / S
+        // -----------------------------------------------------------------
+        s    = static_cast<T>(1) / (pk[1][1] + R);
+        k[0] = pk[0][1] * s;
+        k[1] = pk[1][1] * s;
+        k[2] = pk[2][1] * s;
+
+        // -----------------------------------------------------------------
+        // Covariance update  P = (I − k·H) · P_k
+        // -----------------------------------------------------------------
+        const T k1m1 = k[1] - static_cast<T>(1);
+
+        p[0][0] = pk[0][0] - k[0] * pk[1][0];
+        p[1][0] = -pk[1][0] * k1m1;
+        p[2][0] = pk[2][0] - k[2] * pk[1][0];
+
+        p[0][1] = pk[0][1] - k[0] * pk[1][1];
+        p[1][1] = -pk[1][1] * k1m1;
+        p[2][1] = pk[2][1] - k[2] * pk[1][1];
+
+        p[0][2] = pk[0][2] - k[0] * pk[1][2];
+        p[1][2] = -pk[1][2] * k1m1;
+        p[2][2] = pk[2][2] - k[2] * pk[1][2];
+
+        // -----------------------------------------------------------------
+        // State correction
+        // -----------------------------------------------------------------
+        omega += k[0] * angle_error;
+        theta += k[1] * angle_error;
+        m_l   += k[2] * angle_error;
+
+        // Re-clamp after correction
+        if (omega > omega_max)
+            omega = omega_max;
+        else if (omega < omega_min)
+            omega = omega_min;
+
+        if (!std::isfinite(omega))
+            omega = static_cast<T>(0);
+
         wrap_angle(theta);
+
         sin_theta = std::sin(theta);
         cos_theta = std::cos(theta);
     }
 
     /**
-     * @brief Reset observer and PLL state.
+     * @brief Reset all observer state to zero.
      *
-     * Call when re-enabling the drive after a fault or when a reliable initial
-     * angle is available (e.g. from an encoder).
+     * Call on fault recovery, mode transitions, or when a reliable initial
+     * angle and speed are available.
      *
      * @param theta_init  Initial electrical angle [rad].
      * @param omega_init  Initial electrical angular velocity [rad/s].
@@ -235,13 +328,20 @@ struct MechanicalObserver
     reset(const T theta_init = static_cast<T>(0),
           const T omega_init = static_cast<T>(0)) noexcept
     {
-        i_alpha_hat = static_cast<T>(0);
-        i_beta_hat  = static_cast<T>(0);
-        e_alpha_hat = static_cast<T>(0);
-        e_beta_hat  = static_cast<T>(0);
+        omega = omega_init;
+        theta = theta_init;
+        m_l   = static_cast<T>(0);
+        m_el  = static_cast<T>(0);
 
-        theta     = theta_init;
-        omega     = omega_init;
+        for (int i = 0; i < 3; ++i)
+            for (int j = 0; j < 3; ++j)
+                p[i][j] = pk[i][j] = static_cast<T>(0);
+
+        for (int i = 0; i < 3; ++i)
+            k[i] = static_cast<T>(0);
+
+        s = static_cast<T>(0);
+
         sin_theta = std::sin(theta);
         cos_theta = std::cos(theta);
     }

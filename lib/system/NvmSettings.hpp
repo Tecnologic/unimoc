@@ -27,10 +27,12 @@
 #ifndef UNIMOC_SYSTEM_NVM_SETTINGS_H_
 #define UNIMOC_SYSTEM_NVM_SETTINGS_H_
 
+#include <algorithm>
 #include <cstdint>
 #include "ControlMode.hpp"
 #include "MotorType.hpp"
 #include "NodeIdentity.hpp"
+#include "HardwareLimits.hpp"
 
 /**
  * @namespace unimoc global namespace
@@ -131,6 +133,38 @@ struct NvmSettings
     float stator_L{1e-3f};
 
     // =========================================================================
+    // Motor operating limits
+    //
+    // These are runtime-configurable limits; they must never exceed the
+    // compile-time hardware limits declared in hardware::Limits.
+    // Call clamp_to_hardware_limits() after loading from NVM to enforce this.
+    // =========================================================================
+
+    /// Maximum motor (resultant stator vector) current [A].
+    /// Hard upper bound: hardware::Limits::max_motor_current_A.
+    /// Register: `unimoc.motor.limits.i_max`
+    float motor_i_max{hardware::Limits::max_motor_current_A};
+
+    /// Maximum electrical angular velocity in the forward direction [rad/s].
+    /// Register: `unimoc.motor.limits.omega_max`
+    float motor_omega_max{2000.0f};
+
+    /// Maximum electrical angular velocity in the reverse direction [rad/s]
+    /// (stored as a negative value).
+    /// Register: `unimoc.motor.limits.omega_min`
+    float motor_omega_min{-2000.0f};
+
+    /// Maximum battery discharge (drive) current [A].
+    /// Hard upper bound: hardware::Limits::max_battery_drive_current_A.
+    /// Register: `unimoc.battery.limits.drive_current`
+    float battery_drive_current_max{hardware::Limits::max_battery_drive_current_A};
+
+    /// Maximum battery charge (regenerative braking) current [A].
+    /// Hard upper bound: hardware::Limits::max_battery_charge_current_A.
+    /// Register: `unimoc.battery.limits.charge_current`
+    float battery_charge_current_max{hardware::Limits::max_battery_charge_current_A};
+
+    // =========================================================================
     // PMSM / EESM parameters
     // =========================================================================
 
@@ -173,24 +207,35 @@ struct NvmSettings
     float asm_L_m{47e-3f};
 
     // =========================================================================
-    // Mechanical observer (back-EMF PLL) gains
+    // Mechanical observer (Kalman filter) parameters
     // =========================================================================
 
-    /// Current observer correction gain g_i [1/s].
-    /// Register: `unimoc.observer.mech.g_i`
-    float mech_obs_g_i{2000.0f};
+    /// Rotor + load inertia J [kg·m²].
+    /// Used by MechanicalObserver::predict() to integrate the torque equation.
+    /// Register: `unimoc.motor.mechanics.J`
+    float motor_J{1e-4f};
 
-    /// Back-EMF observer correction gain g_e [V/(A·s)].
-    /// Register: `unimoc.observer.mech.g_e`
-    float mech_obs_g_e{50000.0f};
+    /// Kalman filter process noise variance Q.
+    /// Increase to let the filter track faster but noisier.
+    /// Register: `unimoc.observer.mech.Q`
+    float mech_obs_Q{1e-5f};
 
-    /// PLL proportional gain K_p [rad/s per unit error].
-    /// Register: `unimoc.observer.mech.pll_kp`
-    float mech_obs_pll_kp{500.0f};
+    /// Kalman filter measurement noise variance R.
+    /// Increase to smooth angle corrections at the cost of slower tracking.
+    /// Register: `unimoc.observer.mech.R`
+    float mech_obs_R{1e-4f};
 
-    /// PLL integral gain K_i [rad/s² per unit error].
-    /// Register: `unimoc.observer.mech.pll_ki`
-    float mech_obs_pll_ki{5000.0f};
+    // =========================================================================
+    // PMSM flux observer (PmsmFluxObserver) gains
+    // =========================================================================
+
+    /// d-axis anti-drift feedback gain C_d [1/s].
+    /// Register: `unimoc.observer.pmsm_flux.C_d`
+    float pmsm_flux_obs_C_d{50.0f};
+
+    /// q-axis anti-drift feedback gain C_q [1/s].
+    /// Register: `unimoc.observer.pmsm_flux.C_q`
+    float pmsm_flux_obs_C_q{1.0f};
 
     // =========================================================================
     // ASM flux observer gains
@@ -357,7 +402,7 @@ struct NvmSettings
     float pos_homing_speed{5.0f};
 
     // =========================================================================
-    // Validation
+    // Validation and safety clamping
     // =========================================================================
 
     /**
@@ -370,6 +415,25 @@ struct NvmSettings
     is_valid() const noexcept
     {
         return magic == NVM_MAGIC && version == NVM_VERSION;
+    }
+
+    /**
+     * @brief Clamp all runtime current limits to the compile-time hardware maxima.
+     *
+     * Call this immediately after loading settings from NVM (and before
+     * applying any Cyphal register write) to ensure that stored values can
+     * never drive hardware beyond its safe operating envelope even if the NVM
+     * image was written by firmware targeting a different hardware revision.
+     */
+    constexpr void
+    clamp_to_hardware_limits() noexcept
+    {
+        motor_i_max =
+            hardware::Limits::clamp_motor_current(motor_i_max);
+        battery_drive_current_max =
+            hardware::Limits::clamp_battery_drive_current(battery_drive_current_max);
+        battery_charge_current_max =
+            hardware::Limits::clamp_battery_charge_current(battery_charge_current_max);
     }
 
     /// Restore all fields to factory defaults.
