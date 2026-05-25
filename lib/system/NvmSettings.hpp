@@ -39,11 +39,6 @@
 // member types with in-class initialisers).
 // ============================================================================
 
-// ============================================================================
-// Standalone enums (declared before NvmSettings so they can be used as
-// member types with in-class initialisers).
-// ============================================================================
-
 /**
  * @namespace unimoc global namespace
  */
