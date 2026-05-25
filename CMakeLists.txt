@@ -15,8 +15,6 @@ target_compile_options(project_options INTERFACE -fdiagnostics-color=never)
 add_library(project_warnings INTERFACE)
 include(cmake/Cache.cmake)
 
-INCLUDE(${CMAKE_SOURCE_DIR}/lib/gitversion/cmake.cmake)
-
 # recomended warniings for modm projects
 include(cmake/CompilerWarnings.cmake)
 set_project_warnings(project_warnings)
@@ -41,6 +39,9 @@ if(HARDWARE_DIRECTORY)
   target_include_directories(project_options INTERFACE ${CMAKE_SOURCE_DIR}/hardware)
   # add hardware files
   add_subdirectory(${HARDWARE_DIRECTORY})
+  # gitversion is only needed for firmware targets; include it here so
+  # hosted/test builds do not require the submodule to be initialised.
+  INCLUDE(${CMAKE_SOURCE_DIR}/lib/gitversion/cmake.cmake)
   # attach gitversion to the firmware executable created by the hardware directory
   TARGET_GIT_VERSION_INIT(${CMAKE_PROJECT_NAME})
 else()
