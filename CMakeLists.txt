@@ -5,7 +5,7 @@ if(POLICY CMP0175)
 endif()
 
 # Projektname und Version
-project(unimoc LANGUAGES C CXX)
+project(unimoc LANGUAGES C CXX ASM)
 
 add_library(project_options INTERFACE)
 
