@@ -57,15 +57,24 @@ void CurrentControlIsr::init(const system::NvmSettings& settings,
     cc.ki_d  = settings.current_ki_d;
     cc.kp_q  = settings.current_kp_q;
     cc.ki_q  = settings.current_ki_q;
-    cc.L_d   = settings.L_d;
-    cc.L_q   = settings.L_q;
-    cc.psi   = settings.flux_pm;
+    const float L_d = settings.L_d;
+    const float L_q = settings.L_q;
+    const float psi = settings.flux_pm;
+
+    cc.L_d   = L_d;
+    cc.L_q   = L_q;
+    cc.psi   = psi;
     cc.v_max = settings.current_v_max;
 
     // --- Mechanical observer parameters ---
-    mech_obs.motor_J = settings.motor_J;
-    mech_obs.Q       = settings.mech_obs_Q;
-    mech_obs.R       = settings.mech_obs_R;
+    mech_obs.psi       = psi;
+    mech_obs.L_d       = L_d;
+    mech_obs.L_q       = L_q;
+    mech_obs.J         = settings.motor_J;
+    mech_obs.omega_max = settings.motor_omega_max;
+    mech_obs.omega_min = settings.motor_omega_min;
+    mech_obs.Q         = settings.mech_obs_Q;
+    mech_obs.R         = settings.mech_obs_R;
 
     // --- Pre-fill both double-buffer halves with zero-angle sin/cos ---
     for (auto& buf : state.double_buf.buf)
