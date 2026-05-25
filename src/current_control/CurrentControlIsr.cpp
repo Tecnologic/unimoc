@@ -107,6 +107,8 @@ void CurrentControlIsr::init(const system::NvmSettings& settings,
 #ifndef UNIMOC_TARGET_HW
 // Host / test build: provide neutral stubs.
 
+static uint32_t timer_ccr_shadow[3] = {2099u, 2099u, 2099u};
+
 /// Read an ADC injected data register (0-based index 0..2).
 static float adc_read_injected([[maybe_unused]] uint8_t rank)
 {
@@ -117,13 +119,20 @@ static float adc_read_injected([[maybe_unused]] uint8_t rank)
 static void timer_set_ccr([[maybe_unused]] uint8_t channel,
                           [[maybe_unused]] uint32_t value)
 {
-    // no-op in host build
+    if ((channel >= 1u) && (channel <= 3u))
+    {
+        timer_ccr_shadow[channel - 1u] = value;
+    }
 }
 
-/// Read the current ARR (for boundary guard).
-static uint32_t timer_get_arr()
+/// Read a timer compare register (1-based channel index 1..3).
+static uint32_t timer_get_ccr([[maybe_unused]] uint8_t channel)
 {
-    return 4199u;  // matches F20 default
+    if ((channel >= 1u) && (channel <= 3u))
+    {
+        return timer_ccr_shadow[channel - 1u];
+    }
+    return 0u;
 }
 
 #endif  // UNIMOC_TARGET_HW
@@ -174,17 +183,25 @@ void CurrentControlIsr::on_jeoc() noexcept
     const uint32_t arr = state.arr;
     {
         // Peek at the current CCR values to assess headroom.
-        // On a real target these would read TIMx->CCR1/2/3.
-        // Here we use the ARR midpoint as a proxy (always in bounds for stub).
-        const uint32_t half = arr / 2u;
-        if (!duty_in_bounds(half, arr))
+        // On target this should map to TIMx->CCR1/2/3.
+        const uint32_t ccr1 = timer_get_ccr(1u);
+        const uint32_t ccr2 = timer_get_ccr(2u);
+        const uint32_t ccr3 = timer_get_ccr(3u);
+
+        if (!duty_in_bounds(ccr1, arr) ||
+            !duty_in_bounds(ccr2, arr) ||
+            !duty_in_bounds(ccr3, arr))
         {
-            // Write safe neutral duties (50 %) and return.
+            // Write safe neutral duties (50 %) and skip this control update.
             const uint32_t neutral = arr / 2u;
             timer_set_ccr(1u, neutral);
             timer_set_ccr(2u, neutral);
             timer_set_ccr(3u, neutral);
-            // Do NOT advance sub_step_ so the ISR re-attempts at the next event.
+            sub_step_ = (sub_step_ + 1u) & 3u;
+            if (sub_step_ == 0u)
+            {
+                state.samples_ready = true;
+            }
             return;
         }
     }
