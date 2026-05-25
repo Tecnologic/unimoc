@@ -43,7 +43,9 @@ enum class FsmState : uint8_t
 // Per-step pass/fail
 // =============================================================================
 
-/// Number of independently reportable steps (excludes IDLE, DONE, FAULT).
+/// Total number of FSM states (includes IDLE, DONE, and FAULT).
+/// The \c passed[] array is sized and indexed by FsmState value (0 … NUM_STATES-1);
+/// IDLE, DONE, and FAULT entries are skipped when reporting results.
 inline constexpr uint8_t NUM_STARTUP_STEPS = static_cast<uint8_t>(FsmState::NUM_STATES);
 
 // =============================================================================
