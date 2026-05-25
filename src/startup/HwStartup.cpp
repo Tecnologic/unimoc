@@ -75,6 +75,9 @@ void HwStartup::request_next_step() noexcept
 
 void HwStartup::request_abort() noexcept
 {
+    // No-op if the FSM was never started or has already completed.
+    if (state_ == FsmState::IDLE || state_ == FsmState::DONE)
+        return;
     enter_fault("user abort");
 }
 
@@ -293,34 +296,37 @@ void HwStartup::run_adc_offset_cal() noexcept
     // Ensure neutral duty while collecting
     cc_.force_duty(0.5f, 0.5f, 0.5f);
 
-    if (collect_sample(N_CAL))
+    if (!step_done_)
     {
-        const float n     = static_cast<float>(N_CAL);
-        const float mean_a = static_cast<float>(accum_a_) / n;
-        const float mean_b = static_cast<float>(accum_b_) / n;
-
-        results.adc_offset_a = mean_a;
-        results.adc_offset_b = mean_b;
-
-        const bool pass = (std::abs(mean_a) < offset_threshold_A)
-                       && (std::abs(mean_b) < offset_threshold_A);
-
-        results.passed[static_cast<uint8_t>(FsmState::ADC_OFFSET_CAL)] = pass;
-
-        modm::log::info
-            << "[STARTUP] ADC_OFFSET_CAL: offset_a=" << mean_a
-            << " A, offset_b=" << mean_b << " A  "
-            << (pass ? "PASS" : "FAIL") << "\n";
-
-        if (!pass)
+        if (collect_sample(N_CAL))
         {
-            modm::log::warning
-                << "[STARTUP] ADC offset exceeds threshold (" << offset_threshold_A
-                << " A). Check op-amp supply, resistors, and PCB connections.\n";
-        }
+            const float n     = static_cast<float>(N_CAL);
+            const float mean_a = static_cast<float>(accum_a_) / n;
+            const float mean_b = static_cast<float>(accum_b_) / n;
 
-        step_done_ = true;
-        modm::log::info << "[STARTUP] Press NEXT to continue.\n";
+            results.adc_offset_a = mean_a;
+            results.adc_offset_b = mean_b;
+
+            const bool pass = (std::abs(mean_a) < offset_threshold_A)
+                           && (std::abs(mean_b) < offset_threshold_A);
+
+            results.passed[static_cast<uint8_t>(FsmState::ADC_OFFSET_CAL)] = pass;
+
+            modm::log::info
+                << "[STARTUP] ADC_OFFSET_CAL: offset_a=" << mean_a
+                << " A, offset_b=" << mean_b << " A  "
+                << (pass ? "PASS" : "FAIL") << "\n";
+
+            if (!pass)
+            {
+                modm::log::warning
+                    << "[STARTUP] ADC offset exceeds threshold (" << offset_threshold_A
+                    << " A). Check op-amp supply, resistors, and PCB connections.\n";
+            }
+
+            step_done_ = true;
+            modm::log::info << "[STARTUP] Press NEXT to continue.\n";
+        }
     }
 
     if (step_done_ && next_step_requested_ && validate_current_state())
@@ -335,39 +341,42 @@ void HwStartup::run_adc_noise_floor() noexcept
 {
     cc_.force_duty(0.5f, 0.5f, 0.5f);
 
-    if (collect_sample(N_CAL))
+    if (!step_done_)
     {
-        const float n   = static_cast<float>(N_CAL);
-        // variance = E[x²] - E[x]²
-        const float var_a = static_cast<float>(accum_sq_a_ / n)
-                          - (static_cast<float>(accum_a_ / n)
-                             * static_cast<float>(accum_a_ / n));
-        const float var_b = static_cast<float>(accum_sq_b_ / n)
-                          - (static_cast<float>(accum_b_ / n)
-                             * static_cast<float>(accum_b_ / n));
-
-        results.adc_noise_rms_a = (var_a > 0.0f) ? std::sqrt(var_a) : 0.0f;
-        results.adc_noise_rms_b = (var_b > 0.0f) ? std::sqrt(var_b) : 0.0f;
-
-        const bool pass = (results.adc_noise_rms_a < noise_threshold_A)
-                       && (results.adc_noise_rms_b < noise_threshold_A);
-
-        results.passed[static_cast<uint8_t>(FsmState::ADC_NOISE_FLOOR)] = pass;
-
-        modm::log::info
-            << "[STARTUP] ADC_NOISE_FLOOR: rms_a=" << results.adc_noise_rms_a
-            << " A, rms_b=" << results.adc_noise_rms_b << " A  "
-            << (pass ? "PASS" : "FAIL") << "\n";
-
-        if (!pass)
+        if (collect_sample(N_CAL))
         {
-            modm::log::warning
-                << "[STARTUP] ADC noise exceeds threshold (" << noise_threshold_A
-                << " A). Check decoupling caps, layout, and ground paths.\n";
-        }
+            const float n   = static_cast<float>(N_CAL);
+            // variance = E[x²] - E[x]²
+            const float var_a = static_cast<float>(accum_sq_a_ / n)
+                              - (static_cast<float>(accum_a_ / n)
+                                 * static_cast<float>(accum_a_ / n));
+            const float var_b = static_cast<float>(accum_sq_b_ / n)
+                              - (static_cast<float>(accum_b_ / n)
+                                 * static_cast<float>(accum_b_ / n));
 
-        step_done_ = true;
-        modm::log::info << "[STARTUP] Press NEXT to continue.\n";
+            results.adc_noise_rms_a = (var_a > 0.0f) ? std::sqrt(var_a) : 0.0f;
+            results.adc_noise_rms_b = (var_b > 0.0f) ? std::sqrt(var_b) : 0.0f;
+
+            const bool pass = (results.adc_noise_rms_a < noise_threshold_A)
+                           && (results.adc_noise_rms_b < noise_threshold_A);
+
+            results.passed[static_cast<uint8_t>(FsmState::ADC_NOISE_FLOOR)] = pass;
+
+            modm::log::info
+                << "[STARTUP] ADC_NOISE_FLOOR: rms_a=" << results.adc_noise_rms_a
+                << " A, rms_b=" << results.adc_noise_rms_b << " A  "
+                << (pass ? "PASS" : "FAIL") << "\n";
+
+            if (!pass)
+            {
+                modm::log::warning
+                    << "[STARTUP] ADC noise exceeds threshold (" << noise_threshold_A
+                    << " A). Check decoupling caps, layout, and ground paths.\n";
+            }
+
+            step_done_ = true;
+            modm::log::info << "[STARTUP] Press NEXT to continue.\n";
+        }
     }
 
     if (step_done_ && next_step_requested_ && validate_current_state())
@@ -414,58 +423,56 @@ void HwStartup::run_dc_link_voltage_check() noexcept
 {
     cc_.force_duty(0.5f, 0.5f, 0.5f);
 
-    if (collect_sample(N_CAL))
+    if (step_done_)
     {
-        const float mean_vdc = static_cast<float>(accum_b_);  // vdc accumulated separately below
-        // Note: V_dc is read from cc_.state.raw_vdc on every call.
-        // Accumulate it in a dedicated pass: re-use accum_a_ for vdc.
-        // (accum_a_ was used above for ia; since this step only checks vdc,
-        //  we use a single accumulator in the collect pass.)
-        // The collect_sample() above incorrectly accumulates raw_ia/ib.
-        // Use a dedicated vdc accumulator here via sample_count_ gating.
-        (void)mean_vdc;
-
-        // Actual V_dc is read live; average over N_CAL samples.
-        // We repurpose accum_a_ for raw_vdc in this state by re-doing the
-        // collection with explicit code here and NOT calling collect_sample().
-        // Step is already done (collect_sample returned true); compute from raw_vdc.
-        const float measured_vdc = cc_.state.raw_vdc;  // last sample; good enough
-
-        if (ext_vdc_V_ > vdc_min_valid)
-        {
-            results.gain_vdc = measured_vdc / ext_vdc_V_;
-            const bool pass = std::abs(results.gain_vdc - 1.0f) < vdc_gain_tolerance;
-
-            results.passed[static_cast<uint8_t>(FsmState::DC_LINK_VOLTAGE_CHECK)] = pass;
-
-            modm::log::info
-                << "[STARTUP] DC_LINK_VOLTAGE_CHECK: adc_vdc=" << measured_vdc
-                << " V, ext=" << ext_vdc_V_
-                << " V, gain=" << results.gain_vdc
-                << "  " << (pass ? "PASS" : "FAIL") << "\n";
-
-            if (!pass)
-            {
-                modm::log::warning
-                    << "[STARTUP] V_dc gain error exceeds " << (vdc_gain_tolerance * 100.0f)
-                    << " %. Check voltage-divider resistors on V_dc sense circuit.\n"
-                    << "[STARTUP] Suggested correction factor: " << results.gain_vdc << "\n";
-            }
-        }
-        else
-        {
-            modm::log::info
-                << "[STARTUP] DC_LINK_VOLTAGE_CHECK: adc_vdc=" << measured_vdc
-                << " V. Enter multimeter reading via unimoc.startup.ext_vdc_V, "
-                   "then press NEXT.\n";
-        }
-
-        step_done_ = true;
-        modm::log::info << "[STARTUP] Press NEXT to continue.\n";
+        if (next_step_requested_ && validate_current_state())
+            advance_to_next_state();
+        return;
     }
 
-    if (step_done_ && next_step_requested_ && validate_current_state())
-        advance_to_next_state();
+    // Accumulate raw_vdc directly — do NOT use collect_sample() which
+    // accumulates raw_ia/raw_ib and would give a meaningless mean here.
+    accum_a_ += static_cast<double>(cc_.state.raw_vdc);
+    ++sample_count_;
+
+    if (sample_count_ < N_CAL)
+        return;
+
+    // N_CAL samples collected; compute the averaged V_dc reading.
+    const float measured_vdc = static_cast<float>(accum_a_)
+                              / static_cast<float>(N_CAL);
+
+    if (ext_vdc_V_ > vdc_min_valid)
+    {
+        results.gain_vdc = measured_vdc / ext_vdc_V_;
+        const bool pass = std::abs(results.gain_vdc - 1.0f) < vdc_gain_tolerance;
+
+        results.passed[static_cast<uint8_t>(FsmState::DC_LINK_VOLTAGE_CHECK)] = pass;
+
+        modm::log::info
+            << "[STARTUP] DC_LINK_VOLTAGE_CHECK: adc_vdc=" << measured_vdc
+            << " V, ext=" << ext_vdc_V_
+            << " V, gain=" << results.gain_vdc
+            << "  " << (pass ? "PASS" : "FAIL") << "\n";
+
+        if (!pass)
+        {
+            modm::log::warning
+                << "[STARTUP] V_dc gain error exceeds " << (vdc_gain_tolerance * 100.0f)
+                << " %. Check voltage-divider resistors on V_dc sense circuit.\n"
+                << "[STARTUP] Suggested correction factor: " << results.gain_vdc << "\n";
+        }
+    }
+    else
+    {
+        modm::log::info
+            << "[STARTUP] DC_LINK_VOLTAGE_CHECK: adc_vdc=" << measured_vdc
+            << " V. Enter multimeter reading via unimoc.startup.ext_vdc_V, "
+               "then press NEXT.\n";
+    }
+
+    step_done_ = true;
+    modm::log::info << "[STARTUP] Press NEXT to continue.\n";
 }
 
 // =============================================================================
@@ -483,6 +490,14 @@ void HwStartup::run_gate_driver_enable_check() noexcept
     static constexpr float GATE_TEST_DUTY_HIGH = 0.55f;
     static constexpr float GATE_TEST_DUTY_LOW  = 0.45f;
     static constexpr uint32_t N_GATE = 512u;
+
+    // Keep the step idle once results have been collected.
+    if (step_done_)
+    {
+        if (next_step_requested_ && validate_current_state())
+            advance_to_next_state();
+        return;
+    }
 
     if (gate_phase_disabled_)
     {
@@ -533,9 +548,6 @@ void HwStartup::run_gate_driver_enable_check() noexcept
         step_done_ = true;
         modm::log::info << "[STARTUP] Press NEXT to continue.\n";
     }
-
-    if (step_done_ && next_step_requested_ && validate_current_state())
-        advance_to_next_state();
 }
 
 // =============================================================================
@@ -598,6 +610,12 @@ void HwStartup::run_phase_adc_alignment() noexcept
         return;
     }
 
+    // Initialise base_trigger_offset_ from the actual hardware value on first
+    // entry (sweep_pos_ == 0) so the sweep range and step size are correct for
+    // any timer clock, not just 168 MHz.
+    if (sweep_pos_ == 0u && sample_count_ == 0u)
+        base_trigger_offset_ = cc_.state.adc_trigger_offset;
+
     if (sweep_pos_ >= N_SWEEP_STEPS)
     {
         // Find sweep position with minimum noise
@@ -612,14 +630,16 @@ void HwStartup::run_phase_adc_alignment() noexcept
             }
         }
 
-        // Convert position to timer ticks:
-        // position 0 = base - 5 µs, step = 0.5 µs = base_trigger_offset_/2
-        const uint32_t half_tick = base_trigger_offset_ / 2u;
-        const int32_t  offset_steps = static_cast<int32_t>(best_pos)
+        // Convert position to timer ticks (keep signed to detect underflow).
+        // position 0 = base - N/2 * half_tick, step = 0.5 µs = base_trigger_offset_/2
+        const int32_t half_tick     = static_cast<int32_t>(base_trigger_offset_ / 2u);
+        const int32_t offset_steps  = static_cast<int32_t>(best_pos)
                                     - static_cast<int32_t>(N_SWEEP_STEPS / 2u);
-        const uint32_t optimal_ticks = static_cast<uint32_t>(
-            static_cast<int32_t>(base_trigger_offset_)
-            + offset_steps * static_cast<int32_t>(half_tick));
+        const int32_t ticks_signed  = static_cast<int32_t>(base_trigger_offset_)
+                                    + offset_steps * half_tick;
+        // Clamp to a non-negative value before storing as uint32_t.
+        const uint32_t optimal_ticks = (ticks_signed > 0)
+                                     ? static_cast<uint32_t>(ticks_signed) : 0u;
 
         results.adc_trigger_offset_optimal = optimal_ticks;
 
@@ -668,13 +688,14 @@ void HwStartup::run_phase_adc_alignment() noexcept
         accum_sq_a_    = 0.0;
         accum_sq_b_    = 0.0;
 
-        // Set trigger offset for next sweep position
-        const uint32_t half_tick     = base_trigger_offset_ / 2u;
-        const int32_t  offset_steps  = static_cast<int32_t>(sweep_pos_)
-                                     - static_cast<int32_t>(N_SWEEP_STEPS / 2u);
-        const uint32_t new_offset    = static_cast<uint32_t>(
-            static_cast<int32_t>(base_trigger_offset_)
-            + offset_steps * static_cast<int32_t>(half_tick));
+        // Set trigger offset for next sweep position (clamp to non-negative).
+        const int32_t half_tick    = static_cast<int32_t>(base_trigger_offset_ / 2u);
+        const int32_t offset_steps = static_cast<int32_t>(sweep_pos_)
+                                   - static_cast<int32_t>(N_SWEEP_STEPS / 2u);
+        const int32_t new_signed   = static_cast<int32_t>(base_trigger_offset_)
+                                   + offset_steps * half_tick;
+        const uint32_t new_offset  = (new_signed > 0)
+                                   ? static_cast<uint32_t>(new_signed) : 0u;
         cc_.set_adc_trigger_offset(new_offset);
     }
 }

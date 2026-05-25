@@ -414,7 +414,7 @@ namespace reg
     inline constexpr const char* STARTUP_EXT_VDC_V      = "unimoc.startup.ext_vdc_V";
 
     /// Read-back of pass/fail status flags, one byte per FSM step (1=pass, 0=fail/pending).
-    /// Type: uint8[<=13] (read-only)
+    /// Type: uint8[<=14] (read-only)
     inline constexpr const char* STARTUP_RESULTS        = "unimoc.startup.results";
 
     /// Computed phase-A current-sense gain correction factor [dimensionless].

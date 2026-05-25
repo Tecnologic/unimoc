@@ -136,10 +136,15 @@ public:
     // Polling interface (called from the main loop)
     // =========================================================================
 
-    /// Returns true while the FSM is running (any state other than IDLE).
+    /// Returns true while the FSM is actively running.
+    /// Returns false when the FSM is IDLE (never started), DONE (completed),
+    /// or FAULT (aborted), so that normal application tasks (SlowUpdate) can
+    /// resume after the startup sequence finishes.
     bool is_active() const noexcept
     {
-        return state_ != FsmState::IDLE;
+        return state_ != FsmState::IDLE
+            && state_ != FsmState::DONE
+            && state_ != FsmState::FAULT;
     }
 
     /// Returns the current FSM state.
@@ -198,7 +203,7 @@ private:
     // Alignment sweep
     uint32_t sweep_pos_{0u};
     float    sweep_noise_a_[N_SWEEP_STEPS]{};
-    uint32_t base_trigger_offset_{168u};  ///< 1 µs at 168 MHz = 168 ticks
+    uint32_t base_trigger_offset_{168u};  ///< Initialised from cc_.state.adc_trigger_offset at sweep start.
 
     // Gate-driver enable-check accumulators
     float    gate_mean_disabled_{0.0f};
