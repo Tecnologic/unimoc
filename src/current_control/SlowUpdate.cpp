@@ -83,25 +83,20 @@ bool SlowUpdate::run_once() noexcept
     const float dt_slow = state.dt_slow;
 
     // -------------------------------------------------------------------------
-    // 2. Snapshot the buffer that the ISR was using.
-    //    We read `active` with acquire ordering so all ISR writes to
-    //    i_ab_samples[0..3] are visible before we read them.
-    //
-    //    Because `samples_ready` is only set at sub-step 3 (after the fourth
-    //    write), and the ISR will now be on sub-step 0 of the *next* cycle
-    //    (writing to the same active buffer again), we have a full set of
-    //    valid samples in old_active.  We copy them to the stack before the
-    //    ISR overwrites any of them.
+    // 2. Flip buffers first so ISR writes go to the opposite half.
+    //    The old active half now becomes read-only for this SlowUpdate pass.
     // -------------------------------------------------------------------------
     const uint8_t old_active =
         state.double_buf.active.load(std::memory_order_acquire);
+    const uint8_t new_active = 1u - old_active;
+    state.double_buf.active.store(new_active, std::memory_order_release);
 
+    // -------------------------------------------------------------------------
+    // 3. Snapshot the old active buffer used by the just-finished ISR cycle.
+    // -------------------------------------------------------------------------
     const SubStepBuffer& old_buf = state.double_buf.buf[old_active];
 
-    // Stack copies — safe to read even while the ISR may overwrite
-    // i_ab_samples[0] for the next cycle (the ISR writes sequentially, so
-    // samples 1..3 remain valid until the next wrap).  To be conservative we
-    // copy all four before proceeding.
+    // Stack copies from the old half (ISR now writes only to new_active).
     system::StatorReference<float> i_ab_snap[NUM_SUB_STEPS];
     system::SinCos<float>          sc_snap[NUM_SUB_STEPS];
 
@@ -115,7 +110,7 @@ bool SlowUpdate::run_once() noexcept
     const system::RotorReference<float> u_dq_last = state.u_dq_last;
 
     // -------------------------------------------------------------------------
-    // 3. Angle-advance correction: re-Park each sample with the sin/cos that
+    // 4. Angle-advance correction: re-Park each sample with the sin/cos that
     //    was active when it was captured.  This corrects for the changing
     //    electrical angle across the four sub-steps.
     // -------------------------------------------------------------------------
@@ -126,7 +121,7 @@ bool SlowUpdate::run_once() noexcept
     }
 
     // -------------------------------------------------------------------------
-    // 4. Mean d/q current over the four sub-steps
+    // 5. Mean d/q current over the four sub-steps
     // -------------------------------------------------------------------------
     system::RotorReference<float> i_dq_mean{0.0f, 0.0f};
     for (uint8_t k = 0u; k < NUM_SUB_STEPS; ++k)
@@ -139,19 +134,19 @@ bool SlowUpdate::run_once() noexcept
     i_dq_mean.q *= inv_n;
 
     // -------------------------------------------------------------------------
-    // 5. PMSM flux observer
+    // 6. PMSM flux observer
     //    calculate() internally reads mech_obs.sin_theta / cos_theta and
     //    calls mech_obs.inject_angle_error() at the end.
     // -------------------------------------------------------------------------
     flux_obs.calculate(u_dq_last, i_dq_mean, flux_setpoint_, dt_slow, mech_obs);
 
     // -------------------------------------------------------------------------
-    // 6. Mechanical Kalman predict step (propagates omega and theta forward)
+    // 7. Mechanical Kalman predict step (propagates omega and theta forward)
     // -------------------------------------------------------------------------
     mech_obs.predict(i_dq_mean, dt_slow);
 
     // -------------------------------------------------------------------------
-    // 7. HFI update (if active) — updates step counter and feeds error into
+    // 8. HFI update (if active) — updates step counter and feeds error into
     //    the Kalman filter via inject_angle_error().
     //    The HFI observer processes the mean α/β current; it needs the mean
     //    sin/cos for the Park transform inside update().  We use sc_snap[0]
@@ -178,14 +173,13 @@ bool SlowUpdate::run_once() noexcept
     }
 
     // -------------------------------------------------------------------------
-    // 8. Precompute sc[0..3] for the next 4-step cycle and store them in the
-    //    INACTIVE buffer.
+    // 9. Precompute sc[0..3] for the next 4-step cycle into the now-inactive
+    //    old half.
     //    phi_k = theta + k × omega × dt_fast
     //    (theta and omega are current Kalman estimates, updated by predict()
     //    and inject_angle_error() just above.)
     // -------------------------------------------------------------------------
-    const uint8_t new_active = 1u - old_active;
-    SubStepBuffer& new_buf   = state.double_buf.buf[new_active];
+    SubStepBuffer& new_buf = state.double_buf.buf[old_active];
 
     const float theta_now = mech_obs.theta;
     const float omega_now = mech_obs.omega;
@@ -195,13 +189,6 @@ bool SlowUpdate::run_once() noexcept
         const float phi_k = theta_now + static_cast<float>(k) * omega_now * dt_fast;
         new_buf.sc[k] = system::SinCos<float>(phi_k);
     }
-
-    // -------------------------------------------------------------------------
-    // 9. Atomic flip — from this point the ISR reads the newly prepared buffer.
-    //    memory_order_release ensures all stores to new_buf.sc[k] are visible
-    //    to any thread that subsequently reads active with memory_order_acquire.
-    // -------------------------------------------------------------------------
-    state.double_buf.active.store(new_active, std::memory_order_release);
 
     return true;
 }
