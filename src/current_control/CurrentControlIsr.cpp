@@ -236,7 +236,7 @@ void CurrentControlIsr::on_jeoc() noexcept
     // 7. Current PI with decoupling feedforward
     // -------------------------------------------------------------------------
     const system::RotorReference<float> u_dq =
-        cc.update(state.i_ref, i_dq, mech_obs.omega, state.dt_fast);
+        cc.update(state.i_ref, i_dq, mech_obs.omega, state.dt_fast, v_dc);
 
     // Store for SlowUpdate (flux observer needs last voltage)
     state.u_dq_last = u_dq;

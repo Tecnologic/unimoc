@@ -133,8 +133,9 @@ struct CurrentController
     // Output limit
     // =========================================================================
 
-    /// Maximum voltage vector magnitude, normalised by V_dc (range (0, 1]).
+    /// Maximum voltage vector magnitude as a fraction of V_dc (range (0, 1]).
     /// Typically set to 0.9 to preserve SVM headroom and avoid over-modulation.
+    /// The actual voltage limit applied inside update() is v_max * v_dc [V].
     T v_max{static_cast<T>(0.9)};
 
     // =========================================================================
@@ -160,14 +161,17 @@ struct CurrentController
      * @param i_meas  Rotor-frame d/q measured current [A].
      * @param omega   Estimated electrical angular velocity ω̂ [rad/s].
      * @param dt      Control period for this step [s].
+     * @param v_dc    DC-link voltage [V], used to scale the voltage limit
+     *                (limit = v_max * v_dc).
      * @return        Rotor-frame d/q voltage demand [V], clamped to the
-     *                voltage circle of radius v_max.
+     *                voltage circle of radius v_max * v_dc.
      */
     constexpr system::RotorReference<T>
     update(const system::RotorReference<T>& i_ref,
            const system::RotorReference<T>& i_meas,
            const T                          omega,
-           const T                          dt) noexcept
+           const T                          dt,
+           const T                          v_dc) noexcept
     {
         // --- Current errors ---
         const T e_d = i_ref.d - i_meas.d;
@@ -184,14 +188,16 @@ struct CurrentController
         T u_q_raw = kp_q * e_q + integrator_q + v_ff_q;
 
         // --- Circular voltage-vector limiting ---
+        // The limit is expressed in volts: v_limit = v_max [fraction] * v_dc [V].
+        const T v_limit = v_max * v_dc;
         const T mag_sq = u_d_raw * u_d_raw + u_q_raw * u_q_raw;
         T u_d = u_d_raw;
         T u_q = u_q_raw;
 
         bool saturated = false;
-        if (mag_sq > v_max * v_max)
+        if (mag_sq > v_limit * v_limit)
         {
-            const T scale = v_max / std::sqrt(mag_sq);
+            const T scale = v_limit / std::sqrt(mag_sq);
             u_d = u_d_raw * scale;
             u_q = u_q_raw * scale;
             saturated = true;
