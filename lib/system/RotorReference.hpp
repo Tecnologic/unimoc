@@ -28,6 +28,7 @@
 #define UNIMOC_SYSTEM_ROTOR_REFERENCE_H_
 
 #include <array>
+#include "SinCos.hpp"
 
 /**
  * @namespace unimoc global namespace
@@ -42,9 +43,6 @@ namespace unimoc
         // forward declaration of stationary system
         template <typename T>
         struct StatorReference;
-        // forward declaration of sin_cos
-        template <typename T>
-        struct sin_cos;
 
         ///< rotating dq system.
         template <typename T = float>
@@ -54,7 +52,7 @@ namespace unimoc
             T q;
 
             constexpr RotorReference() = default;
-            constexpr RotorReference(T d, T q) : d(d), q(q) {}
+            constexpr RotorReference(T d_in, T q_in) : d(d_in), q(q_in) {}
 
             // copy constructor
             constexpr RotorReference(const RotorReference &other) : d(other.d), q(other.q) {}
@@ -157,12 +155,12 @@ namespace unimoc
             }
 
             // transform dq vector to alpha beta vector.
-            constexpr auto inverse_park(const sin_cos<T> &angle) const noexcept -> StatorReference<T>
+            constexpr auto inverse_park(const SinCos<T> &angle) const noexcept -> StatorReference<T>
             {
-                return StatorReference<T>{
-                    .alpha = d * angle.cos - q * angle.sin,
-                    .beta = d * angle.sin + q * angle.cos,
-                };
+                return StatorReference<T>(
+                    d * angle.cos - q * angle.sin,
+                    d * angle.sin + q * angle.cos
+                );
             }
         };
     } // namespace system

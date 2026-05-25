@@ -43,9 +43,6 @@ namespace unimoc
         // forward declaration of stationary system
         template <typename T>
         struct StatorReference;
-        // forward declaration of sin_cos
-        template <typename T>
-        struct sin_cos;
 
         ///< rotating dq system.
         template <typename T = float>
@@ -55,7 +52,7 @@ namespace unimoc
             T b;
             T c;
             constexpr ThreePhase() = default;
-            constexpr ThreePhase(T a, T b, T c) : a(a), b(b), c(c) {}
+            constexpr ThreePhase(T a_in, T b_in, T c_in) : a(a_in), b(b_in), c(c_in) {}
 
             // copy constructor
             constexpr ThreePhase(const ThreePhase &other) : a(other.a), b(other.b), c(other.c) {}
@@ -119,10 +116,10 @@ namespace unimoc
                 constexpr T sqrt3by2 = std::sqrt(3.0f) / 2.0f;
                 constexpr T _2by3 = 2.0f / 3.0f;
 
-                return StatorReference<T>{
-                    .alpha = _2by3 * (a - (0.5f * b) - (0.5f * c)),
-                    .beta = _2by3 * ((sqrt3by2 * b) - (sqrt3by2 * c)),
-                };
+                return StatorReference<T>(
+                    _2by3 * (a - (0.5f * b) - (0.5f * c)),
+                    _2by3 * ((sqrt3by2 * b) - (sqrt3by2 * c))
+                );
             }
         };
 

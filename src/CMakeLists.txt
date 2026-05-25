@@ -3,4 +3,5 @@ target_sources(${CMAKE_PROJECT_NAME}
   main.cpp)
 
 add_subdirectory(logging)
+add_subdirectory(current_control)
 add_subdirectory(cyphal)

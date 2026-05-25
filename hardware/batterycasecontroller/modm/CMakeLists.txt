@@ -13,7 +13,7 @@ include(cmake/ModmConfiguration.cmake)
 set_source_files_properties(
   ext/rtt/SEGGER_RTT_ASM.S
   src/modm/platform/core/reset_handler.sx
-  PROPERTIES LANGUAGE CXX
+  PROPERTIES LANGUAGE ASM
 )
 
 add_library(modm OBJECT

@@ -5,7 +5,7 @@ if(POLICY CMP0175)
 endif()
 
 # Projektname und Version
-project(unimoc LANGUAGES C CXX)
+project(unimoc LANGUAGES C CXX ASM)
 
 add_library(project_options INTERFACE)
 
@@ -14,8 +14,6 @@ target_compile_options(project_options INTERFACE -fdiagnostics-color=never)
 
 add_library(project_warnings INTERFACE)
 include(cmake/Cache.cmake)
-
-INCLUDE(${CMAKE_SOURCE_DIR}/lib/gitversion/cmake.cmake)
 
 # recomended warniings for modm projects
 include(cmake/CompilerWarnings.cmake)
@@ -36,12 +34,21 @@ option(ENABLE_TESTS "Enable tests" OFF)
 option(HARDWARE_DIRECTORY "Directory for hardware files" "${CMAKE_SOURCE_DIR}/hardware/batterycasecontroller")
 
 if(HARDWARE_DIRECTORY)
+  # Always expose the hardware/ include path so platform-agnostic headers
+  # (e.g. HardwareLimits.hpp) are available to all targets, including tests.
   target_include_directories(project_options INTERFACE ${CMAKE_SOURCE_DIR}/hardware)
   # add hardware files
   add_subdirectory(${HARDWARE_DIRECTORY})
+  # gitversion is only needed for firmware targets; include it here so
+  # hosted/test builds do not require the submodule to be initialised.
+  INCLUDE(${CMAKE_SOURCE_DIR}/lib/gitversion/cmake.cmake)
   # attach gitversion to the firmware executable created by the hardware directory
   TARGET_GIT_VERSION_INIT(${CMAKE_PROJECT_NAME})
 else()
+  # Even without a hardware implementation directory, expose the hardware/
+  # header path so that HardwareLimits.hpp is found during hosted builds and
+  # tests.  No platform-specific source files are compiled.
+  target_include_directories(project_options INTERFACE ${CMAKE_SOURCE_DIR}/hardware)
   message(WARNING "HARDWARE_DIRECTORY is not set, skipping hardware files.")  
 endif()
 

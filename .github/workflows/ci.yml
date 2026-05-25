@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: ["**"]
+    branches: ["main"]
   pull_request:
 
 jobs:
@@ -47,14 +47,16 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          submodules: true
 
       - name: Install system dependencies
         run: |
           sudo apt-get update -q
-          sudo apt-get install -y ninja-build gcc-arm-none-eabi
+          sudo apt-get install -y ninja-build gcc-arm-none-eabi python-is-python3
 
       - name: Install CMake 4.x
-        run: pip install cmake --quiet
+        run: pip install cmake pyelftools --quiet
 
       - name: Configure
         run: cmake --preset "BatteryCaseController Debug"
