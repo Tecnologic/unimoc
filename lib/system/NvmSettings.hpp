@@ -496,6 +496,27 @@ struct NvmSettings
     float adc_gain_vdc{1.0f};
 
     // =========================================================================
+    // Phase current balance correction
+    //
+    // Per-phase ADC gain correction factors, dimensionless (nominal value 1.0).
+    // Applied to the raw phase-current ADC reading of each channel to
+    // compensate for hardware gain/offset mismatch between the three current
+    // sense paths.  Identified by CMD_MEASURE_BALANCE.
+    // =========================================================================
+
+    /// Phase-A ADC gain correction factor [dimensionless, ≈ 1.0].
+    /// Register: `unimoc.motor.balance.gain_a`
+    float phase_balance_a{1.0f};
+
+    /// Phase-B ADC gain correction factor [dimensionless, ≈ 1.0].
+    /// Register: `unimoc.motor.balance.gain_b`
+    float phase_balance_b{1.0f};
+
+    /// Phase-C ADC gain correction factor [dimensionless, ≈ 1.0].
+    /// Register: `unimoc.motor.balance.gain_c`
+    float phase_balance_c{1.0f};
+
+    // =========================================================================
     // Validation and safety clamping
     // =========================================================================
 
