@@ -56,7 +56,7 @@ jobs:
           sudo apt-get install -y ninja-build gcc-arm-none-eabi python-is-python3
 
       - name: Install CMake 4.x
-        run: pip install cmake --quiet
+        run: pip install cmake pyelftools --quiet
 
       - name: Configure
         run: cmake --preset "BatteryCaseController Debug"
