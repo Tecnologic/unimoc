@@ -74,7 +74,7 @@ inline constexpr uint32_t NVM_MAGIC = 0x554D4F43u;  // 'UMOC'
 
 /// Layout version of the NvmSettings struct.
 /// Increment whenever the struct layout changes incompatibly.
-inline constexpr uint16_t NVM_VERSION = 1u;
+inline constexpr uint16_t NVM_VERSION = 2u;
 
 /**
  * @brief Aggregate of all persistent (NVM-backed) UNIMOC configuration.
@@ -463,6 +463,37 @@ struct NvmSettings
     /// Constant homing velocity [rad/s].
     /// Register: `unimoc.control.pos.homing_speed`
     float pos_homing_speed{5.0f};
+
+    // =========================================================================
+    // ADC calibration (populated by the hardware startup aid)
+    //
+    // These values are measured by HwStartup and stored here for persistence.
+    // The hardware-specific adc_read_injected() implementation should apply
+    // them as:  i_cal = (i_raw - adc_offset_X) * adc_gain_X
+    //           v_cal = v_raw * adc_gain_vdc
+    // =========================================================================
+
+    /// Phase-A current-sense ADC zero offset [A].
+    /// Register: `unimoc.startup.adc_offset_a`
+    float adc_offset_a{0.0f};
+
+    /// Phase-B current-sense ADC zero offset [A].
+    /// Register: `unimoc.startup.adc_offset_b`
+    float adc_offset_b{0.0f};
+
+    /// Phase-A current-sense ADC gain correction factor [dimensionless].
+    /// Apply as: i_cal_a = (i_raw_a - adc_offset_a) * adc_gain_a.
+    /// Register: `unimoc.startup.gain_a`
+    float adc_gain_a{1.0f};
+
+    /// Phase-B current-sense ADC gain correction factor [dimensionless].
+    /// Register: `unimoc.startup.gain_b`
+    float adc_gain_b{1.0f};
+
+    /// DC-link voltage ADC gain correction factor [dimensionless].
+    /// Apply as: v_cal = v_raw * adc_gain_vdc.
+    /// Register: `unimoc.startup.gain_vdc`
+    float adc_gain_vdc{1.0f};
 
     // =========================================================================
     // Validation and safety clamping

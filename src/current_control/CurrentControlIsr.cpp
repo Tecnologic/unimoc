@@ -172,6 +172,34 @@ void CurrentControlIsr::on_jeoc() noexcept
     const float v_dc = adc_read_injected(2u);
 
     // -------------------------------------------------------------------------
+    // 1a. Store raw ADC samples — always, regardless of control mode.
+    //     The startup FSM reads these from a lower-priority context.
+    // -------------------------------------------------------------------------
+    state.raw_ia  = i_a;
+    state.raw_ib  = i_b;
+    state.raw_vdc = v_dc;
+
+    // -------------------------------------------------------------------------
+    // 1b. Force-duty mode: write fixed CCR values and skip the control loop.
+    //     ADC samples are stored above so the startup FSM can still monitor
+    //     them for over-current protection.
+    // -------------------------------------------------------------------------
+    if (force_duty_active)
+    {
+        const uint32_t arr_fd = state.arr;
+        const auto to_ccr_fd = [arr_fd](float dv) -> uint32_t {
+            return static_cast<uint32_t>(
+                std::roundf(std::clamp(dv, 0.0f, 1.0f) * static_cast<float>(arr_fd)));
+        };
+        timer_set_ccr(1u, to_ccr_fd(forced_duties.a));
+        timer_set_ccr(2u, to_ccr_fd(forced_duties.b));
+        timer_set_ccr(3u, to_ccr_fd(forced_duties.c));
+        sub_step_ = (sub_step_ + 1u) & 3u;
+        if (sub_step_ == 0u) { state.samples_ready = true; }
+        return;
+    }
+
+    // -------------------------------------------------------------------------
     // 2. Snapshot the active-buffer index at sub-step 0 and reuse it for the
     //    whole 4-step cycle so that a buffer flip mid-cycle is handled safely.
     // -------------------------------------------------------------------------
@@ -295,6 +323,39 @@ void CurrentControlIsr::on_jeoc() noexcept
     {
         state.samples_ready = true;
     }
+}
+
+// =============================================================================
+// force_duty
+// =============================================================================
+
+void CurrentControlIsr::force_duty(float da, float db, float dc) noexcept
+{
+    forced_duties.a = std::clamp(da, svm.duty_min, svm.duty_max);
+    forced_duties.b = std::clamp(db, svm.duty_min, svm.duty_max);
+    forced_duties.c = std::clamp(dc, svm.duty_min, svm.duty_max);
+    force_duty_active = true;
+}
+
+// =============================================================================
+// release_force_duty
+// =============================================================================
+
+void CurrentControlIsr::release_force_duty() noexcept
+{
+    force_duty_active = false;
+    cc.reset();  // clear integrators before resuming closed-loop control
+}
+
+// =============================================================================
+// set_adc_trigger_offset
+// =============================================================================
+
+void CurrentControlIsr::set_adc_trigger_offset(uint32_t offset) noexcept
+{
+    state.adc_trigger_offset = offset;
+    // On real hardware: write offset to the timer CCR register that triggers
+    // the ADC injected sequence (e.g. TIMx->CCR4 on STM32).
 }
 
 }  // namespace current_control

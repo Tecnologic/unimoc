@@ -126,6 +126,15 @@ struct CurrentControlState
 
     /// ADC trigger CC offset in timer ticks (1 µs) — set by init().
     uint32_t adc_trigger_offset{168u};
+
+    /// Most-recent raw ADC samples; updated by every on_jeoc() call regardless
+    /// of control mode.  Safe to read from lower-priority contexts (e.g. the
+    /// startup FSM) — worst case a single torn read on a sample that is
+    /// immediately corrected on the next ISR call.
+    /// Units: [A equivalent] for currents, [V] for the DC-link.
+    float raw_ia{0.0f};
+    float raw_ib{0.0f};
+    float raw_vdc{0.0f};
 };
 
 /**
@@ -253,6 +262,48 @@ public:
     }
 
     // =========================================================================
+    // Startup / bring-up interface
+    // =========================================================================
+
+    /**
+     * @brief Override PWM output with fixed duty cycles, bypassing the PI loop.
+     *
+     * When active, on_jeoc() still reads and stores the raw ADC samples in
+     * state.raw_ia / raw_ib / raw_vdc, but skips Clarke / Park / PI / SVM and
+     * writes the requested duties directly to the timer CCR registers.
+     *
+     * Duties are clamped to [svm.duty_min, svm.duty_max].  To ensure the ADC
+     * sampling window is never corrupted, consider keeping duties well within
+     * this range during calibration steps.
+     *
+     * @param da  Phase-A duty cycle [0, 1].
+     * @param db  Phase-B duty cycle [0, 1].
+     * @param dc  Phase-C duty cycle [0, 1].
+     */
+    void force_duty(float da, float db, float dc) noexcept;
+
+    /**
+     * @brief Release force-duty mode and return to normal closed-loop PI control.
+     *
+     * Resets the current-controller integrators so the PI loop resumes from a
+     * clean state rather than inheriting stale winding-up values accumulated
+     * while force-duty was active.
+     */
+    void release_force_duty() noexcept;
+
+    /**
+     * @brief Update the ADC injection trigger offset in timer ticks.
+     *
+     * Used by the startup alignment sweep to find the optimal ADC sampling
+     * point within the PWM half-period.  Updates state.adc_trigger_offset;
+     * on real hardware the caller must also write the new value to the timer
+     * hardware compare register that triggers the ADC injected sequence.
+     *
+     * @param offset  New trigger offset [timer ticks from PWM peak/trough].
+     */
+    void set_adc_trigger_offset(uint32_t offset) noexcept;
+
+    // =========================================================================
     // Shared state (accessed by SlowUpdate)
     // =========================================================================
 
@@ -281,6 +332,15 @@ public:
 
     /// True when HFI injection is active.
     bool hfi_active{false};
+
+    /// When true, on_jeoc() writes forced_duties to the CCR registers and
+    /// bypasses the PI control loop.  Set by force_duty(); cleared by
+    /// release_force_duty().
+    bool force_duty_active{false};
+
+    /// Fixed duty cycles applied to CCR1/2/3 while force_duty_active is true.
+    /// Clamped to [svm.duty_min, svm.duty_max] by force_duty().
+    system::ThreePhase<float> forced_duties{0.5f, 0.5f, 0.5f};
 
 private:
     CurrentControlIsr() = default;
