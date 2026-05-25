@@ -123,6 +123,59 @@ TEST_F(NvmSettingsTest, DefaultExcitationMode)
     EXPECT_EQ(s.excitation_mode, 0u);  // CurrentMode
 }
 
+// --- Phase current balance defaults ---
+
+TEST_F(NvmSettingsTest, DefaultPhaseBalanceA)
+{
+    NvmSettings s;
+    EXPECT_FLOAT_EQ(s.phase_balance_a, 1.0f);
+}
+
+TEST_F(NvmSettingsTest, DefaultPhaseBalanceB)
+{
+    NvmSettings s;
+    EXPECT_FLOAT_EQ(s.phase_balance_b, 1.0f);
+}
+
+TEST_F(NvmSettingsTest, DefaultPhaseBalanceC)
+{
+    NvmSettings s;
+    EXPECT_FLOAT_EQ(s.phase_balance_c, 1.0f);
+}
+
+TEST_F(NvmSettingsTest, PhaseBalanceCanBeModified)
+{
+    NvmSettings s;
+    s.phase_balance_a = 1.02f;
+    s.phase_balance_b = 0.98f;
+    s.phase_balance_c = 1.00f;
+    EXPECT_FLOAT_EQ(s.phase_balance_a, 1.02f);
+    EXPECT_FLOAT_EQ(s.phase_balance_b, 0.98f);
+    EXPECT_FLOAT_EQ(s.phase_balance_c, 1.00f);
+    EXPECT_TRUE(s.is_valid());
+}
+
+TEST_F(NvmSettingsTest, ResetRestoresPhaseBalanceDefaults)
+{
+    NvmSettings s;
+    s.phase_balance_a = 1.05f;
+    s.phase_balance_b = 0.95f;
+    s.phase_balance_c = 0.99f;
+    s.reset_to_defaults();
+    EXPECT_FLOAT_EQ(s.phase_balance_a, 1.0f);
+    EXPECT_FLOAT_EQ(s.phase_balance_b, 1.0f);
+    EXPECT_FLOAT_EQ(s.phase_balance_c, 1.0f);
+}
+
+// --- NVM version is 2 after layout change ---
+
+TEST_F(NvmSettingsTest, NvmVersionIsTwo)
+{
+    EXPECT_EQ(NVM_VERSION, 2u);
+    NvmSettings s;
+    EXPECT_EQ(s.version, 2u);
+}
+
 }  // namespace test
 }  // namespace system
 }  // namespace unimoc

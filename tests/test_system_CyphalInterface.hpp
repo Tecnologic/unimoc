@@ -138,6 +138,124 @@ TEST_F(CyphalInterfaceTest, MeasurementCommandsUnique)
     }
 }
 
+// --- Identification result publisher port IDs ---
+
+TEST_F(CyphalInterfaceTest, MeasResultPortIdsAboveTelemetry)
+{
+    // All measurement result ports must be above the last telemetry port (207)
+    EXPECT_GT(PUB_MEAS_RS,      PUB_EXCITATION_CURRENT);
+    EXPECT_GT(PUB_MEAS_LD_LQ,   PUB_EXCITATION_CURRENT);
+    EXPECT_GT(PUB_MEAS_PSI,     PUB_EXCITATION_CURRENT);
+    EXPECT_GT(PUB_MEAS_BALANCE, PUB_EXCITATION_CURRENT);
+}
+
+TEST_F(CyphalInterfaceTest, MeasResultPortIdsUnique)
+{
+    const uint16_t ports[] = {
+        PUB_MEAS_RS,
+        PUB_MEAS_LD_LQ,
+        PUB_MEAS_PSI,
+        PUB_MEAS_BALANCE,
+    };
+    constexpr std::size_t N = sizeof(ports) / sizeof(ports[0]);
+    for (std::size_t i = 0; i < N; ++i)
+    {
+        for (std::size_t j = i + 1; j < N; ++j)
+        {
+            EXPECT_NE(ports[i], ports[j])
+                << "Duplicate port ID at indices " << i << " and " << j;
+        }
+    }
+}
+
+// --- Motor identification command codes ---
+
+TEST_F(CyphalInterfaceTest, IdentificationCommandsInVendorRange)
+{
+    EXPECT_LT(cmd::CMD_MEASURE_RS,       0x8000u);
+    EXPECT_LT(cmd::CMD_MEASURE_LD_LQ,    0x8000u);
+    EXPECT_LT(cmd::CMD_MEASURE_PSI,      0x8000u);
+    EXPECT_LT(cmd::CMD_MEASURE_BALANCE,  0x8000u);
+}
+
+TEST_F(CyphalInterfaceTest, IdentificationCommandsInExpectedSubrange)
+{
+    // CMD_MEASURE_* commands live in 0x0100..0x01FF
+    EXPECT_GE(cmd::CMD_MEASURE_RS,      0x0100u);
+    EXPECT_GE(cmd::CMD_MEASURE_LD_LQ,   0x0100u);
+    EXPECT_GE(cmd::CMD_MEASURE_PSI,     0x0100u);
+    EXPECT_GE(cmd::CMD_MEASURE_BALANCE, 0x0100u);
+    EXPECT_LE(cmd::CMD_MEASURE_RS,      0x01FFu);
+    EXPECT_LE(cmd::CMD_MEASURE_LD_LQ,   0x01FFu);
+    EXPECT_LE(cmd::CMD_MEASURE_PSI,     0x01FFu);
+    EXPECT_LE(cmd::CMD_MEASURE_BALANCE, 0x01FFu);
+}
+
+TEST_F(CyphalInterfaceTest, IdentificationCommandsUnique)
+{
+    const uint16_t codes[] = {
+        cmd::CMD_MEASURE_RS,
+        cmd::CMD_MEASURE_LD_LQ,
+        cmd::CMD_MEASURE_PSI,
+        cmd::CMD_MEASURE_BALANCE,
+    };
+    constexpr std::size_t N = sizeof(codes) / sizeof(codes[0]);
+    for (std::size_t i = 0; i < N; ++i)
+    {
+        for (std::size_t j = i + 1; j < N; ++j)
+        {
+            EXPECT_NE(codes[i], codes[j])
+                << "Duplicate command code at indices " << i << " and " << j;
+        }
+    }
+}
+
+TEST_F(CyphalInterfaceTest, IdentificationCommandsDontOverlapGetCommands)
+{
+    // No CMD_MEASURE_* should share a value with any CMD_GET_*
+    const uint16_t get_codes[] = {
+        cmd::CMD_GET_ROTOR_ANGLE,
+        cmd::CMD_GET_ROTOR_SPEED,
+        cmd::CMD_GET_SHAFT_POSITION,
+        cmd::CMD_GET_IN_POSITION,
+        cmd::CMD_GET_HOMING_STATE,
+        cmd::CMD_GET_DC_VOLTAGE,
+        cmd::CMD_GET_PHASE_CURRENT,
+        cmd::CMD_GET_EXCITATION_CURRENT,
+    };
+    const uint16_t measure_codes[] = {
+        cmd::CMD_MEASURE_RS,
+        cmd::CMD_MEASURE_LD_LQ,
+        cmd::CMD_MEASURE_PSI,
+        cmd::CMD_MEASURE_BALANCE,
+    };
+    for (auto g : get_codes)
+    {
+        for (auto m : measure_codes)
+        {
+            EXPECT_NE(g, m);
+        }
+    }
+}
+
+// --- Parameter bitmask flags ---
+
+TEST_F(CyphalInterfaceTest, ParamApplyToRamIsBit0)
+{
+    EXPECT_EQ(cmd::PARAM_APPLY_TO_RAM,   0x0001u);
+}
+
+TEST_F(CyphalInterfaceTest, ParamPersistToNvmIsBit1)
+{
+    EXPECT_EQ(cmd::PARAM_PERSIST_TO_NVM, 0x0002u);
+}
+
+TEST_F(CyphalInterfaceTest, ParamFlagsAreDistinctBits)
+{
+    // The two flags must not share any bit
+    EXPECT_EQ(cmd::PARAM_APPLY_TO_RAM & cmd::PARAM_PERSIST_TO_NVM, 0u);
+}
+
 // --- Response status codes ---
 
 TEST_F(CyphalInterfaceTest, StatusSuccess)

@@ -391,6 +391,22 @@ namespace reg
     /// Type: real32[1] (read/write, persistent)
     inline constexpr const char* CURRENT_V_MAX          = "unimoc.control.current.v_max";
 
+    // --- Phase current balance correction ---
+
+    /// Phase-A ADC gain correction factor [dimensionless, ≈ 1.0].
+    /// Applied to the raw phase-A current sample to compensate hardware offset/gain
+    /// mismatch between ADC channels.  Identified by CMD_MEASURE_BALANCE.
+    /// Type: real32[1] (read/write, persistent)
+    inline constexpr const char* BALANCE_GAIN_A         = "unimoc.motor.balance.gain_a";
+
+    /// Phase-B ADC gain correction factor [dimensionless, ≈ 1.0].
+    /// Type: real32[1] (read/write, persistent)
+    inline constexpr const char* BALANCE_GAIN_B         = "unimoc.motor.balance.gain_b";
+
+    /// Phase-C ADC gain correction factor [dimensionless, ≈ 1.0].
+    /// Type: real32[1] (read/write, persistent)
+    inline constexpr const char* BALANCE_GAIN_C         = "unimoc.motor.balance.gain_c";
+
 }  // namespace reg
 
 // ============================================================================
@@ -488,6 +504,41 @@ inline constexpr uint16_t PUB_PHASE_CURRENT      = 206u;
 /// Register: `uavcan.pub.excitation_current.id`
 inline constexpr uint16_t PUB_EXCITATION_CURRENT = 207u;
 
+// ---- Motor identification / self-test result subjects ----
+//
+// These subjects carry the result of an identification run triggered by a
+// CMD_MEASURE_* execute command.  Each subject is published exactly once at
+// the end of the measurement; periodic publication is not used.
+//
+// If the port is disabled (UNSET_PORT_ID) the result is still applied to
+// RAM / NVM according to the command `parameter` bitmask, but no Cyphal
+// message is emitted.
+
+/// Measured stator resistance R_s [Ω].
+/// Published at the end of a CMD_MEASURE_RS run.
+/// Data type: uavcan.primitive.scalar.Real32.1.0
+/// Register: `uavcan.pub.meas_rs.id`
+inline constexpr uint16_t PUB_MEAS_RS       = 208u;
+
+/// Measured inductance pair [L_d, L_q] [H] as a 2-element real array.
+/// Published at the end of a CMD_MEASURE_LD_LQ run.
+/// Data type: uavcan.primitive.array.Real32.1.0 (length 2: [L_d, L_q])
+/// Register: `uavcan.pub.meas_ld_lq.id`
+inline constexpr uint16_t PUB_MEAS_LD_LQ    = 209u;
+
+/// Measured permanent-magnet (or rotor) flux linkage ψ_PM [Wb].
+/// Published at the end of a CMD_MEASURE_PSI run.
+/// Data type: uavcan.primitive.scalar.Real32.1.0
+/// Register: `uavcan.pub.meas_psi.id`
+inline constexpr uint16_t PUB_MEAS_PSI      = 210u;
+
+/// Measured phase current balance correction factors [gain_a, gain_b, gain_c]
+/// [dimensionless, ≈ 1.0] as a 3-element real array.
+/// Published at the end of a CMD_MEASURE_BALANCE run.
+/// Data type: uavcan.primitive.array.Real32.1.0 (length 3: [gain_a, gain_b, gain_c])
+/// Register: `uavcan.pub.meas_balance.id`
+inline constexpr uint16_t PUB_MEAS_BALANCE  = 211u;
+
 /// @}
 
 // ============================================================================
@@ -507,8 +558,8 @@ inline constexpr uint16_t PUB_EXCITATION_CURRENT = 207u;
 // Codes 0xFF00..0xFFFF are reserved by the Cyphal specification; all other
 // values below 0x8000 are vendor-specific and available to UNIMOC.
 //
-// Vendor-specific measurement commands (0x0001..0x00FF)
-// ------------------------------------------------------
+// Vendor-specific telemetry commands (0x0001..0x00FF)
+// ---------------------------------------------------
 // Sending any CMD_GET_* command causes the node to publish a single
 // on-demand measurement frame on the corresponding subject even when the
 // periodic publication interval is set to zero (port disabled).  The command
@@ -516,6 +567,33 @@ inline constexpr uint16_t PUB_EXCITATION_CURRENT = 207u;
 // measurement has been enqueued for transmission, or STATUS_BAD_COMMAND if
 // the measurement is not available (e.g. EESM-only measurement on a PMSM
 // node).
+//
+// Vendor-specific motor identification commands (0x0100..0x01FF)
+// --------------------------------------------------------------
+// Sending any CMD_MEASURE_* command starts an automated measurement
+// procedure (the motor must be at rest unless otherwise specified).  The
+// node responds with STATUS_SUCCESS immediately to acknowledge that the
+// procedure has been started, or one of the STATUS_BAD_* codes if it cannot
+// be started (e.g. motor still running).
+//
+// The `parameter` field of the request is a bitmask that controls what
+// happens with the measurement result:
+//
+//   Bit 0  PARAM_APPLY_TO_RAM   — apply the result to in-RAM parameters
+//                                 (takes effect immediately for the next
+//                                 control cycle).
+//   Bit 1  PARAM_PERSIST_TO_NVM — flush the in-RAM parameters to NVM after
+//                                 applying (only meaningful when bit 0 is set).
+//
+// Typical usage:
+//   parameter == 0x0000  → measure, publish on PUB_MEAS_* subject only;
+//                           do not change any parameter.
+//   parameter == 0x0001  → measure, publish, and apply to RAM (live effect)
+//                           without persisting to NVM.
+//   parameter == 0x0003  → measure, publish, apply to RAM, and flush to NVM.
+//
+// At the end of the procedure the result is published on the corresponding
+// PUB_MEAS_* subject (if that port is configured / not UNSET_PORT_ID).
 // ============================================================================
 
 /// @defgroup exec_commands uavcan.node.ExecuteCommand constants
@@ -609,6 +687,46 @@ inline constexpr uint16_t CMD_GET_PHASE_CURRENT      = 0x0007u;
 /// î_f [A] (EESM only; returns STATUS_BAD_STATE for PMSM/ASM nodes).
 /// Subject: PUB_EXCITATION_CURRENT (port 207).
 inline constexpr uint16_t CMD_GET_EXCITATION_CURRENT = 0x0008u;
+
+// -------------------------------------------------------------------------
+// Vendor-specific motor identification / self-test commands (0x0100..0x01FF)
+//
+// All CMD_MEASURE_* commands accept a `parameter` bitmask:
+//   PARAM_APPLY_TO_RAM    (bit 0) — write result into in-RAM parameters
+//   PARAM_PERSIST_TO_NVM  (bit 1) — additionally flush RAM to NVM
+// -------------------------------------------------------------------------
+
+/// Bitmask bit 0: apply measurement result to in-RAM parameters.
+inline constexpr uint16_t PARAM_APPLY_TO_RAM    = 0x0001u;
+
+/// Bitmask bit 1: persist in-RAM parameters to NVM after applying.
+/// Only meaningful when PARAM_APPLY_TO_RAM is also set.
+inline constexpr uint16_t PARAM_PERSIST_TO_NVM  = 0x0002u;
+
+/// Measure stator resistance R_s via DC injection (motor at rest).
+/// Result published on PUB_MEAS_RS (port 208).
+/// If successful, `stator_R` is updated per `parameter` bitmask.
+inline constexpr uint16_t CMD_MEASURE_RS        = 0x0100u;
+
+/// Measure d/q-axis inductances L_d and L_q via AC impedance sweep
+/// (HFI-style, motor at rest).
+/// Result published on PUB_MEAS_LD_LQ (port 209) as [L_d, L_q].
+/// If successful, `L_d` and `L_q` are updated per `parameter` bitmask.
+inline constexpr uint16_t CMD_MEASURE_LD_LQ     = 0x0101u;
+
+/// Measure permanent-magnet (or rotor) flux linkage ψ_PM via back-EMF
+/// observation (motor must be spinning at a known speed; ensure the shaft
+/// is free to rotate before issuing this command).
+/// Result published on PUB_MEAS_PSI (port 210).
+/// If successful, `flux_pm` is updated per `parameter` bitmask.
+inline constexpr uint16_t CMD_MEASURE_PSI       = 0x0102u;
+
+/// Measure phase current balance by injecting equal test currents and
+/// comparing ADC readings across all three phases (motor at rest).
+/// Result published on PUB_MEAS_BALANCE (port 211) as
+/// [gain_a, gain_b, gain_c].
+/// If successful, `phase_balance_a/b/c` are updated per `parameter` bitmask.
+inline constexpr uint16_t CMD_MEASURE_BALANCE   = 0x0103u;
 
 }  // namespace cmd
 
