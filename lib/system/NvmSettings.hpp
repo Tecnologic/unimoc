@@ -74,7 +74,7 @@ inline constexpr uint32_t NVM_MAGIC = 0x554D4F43u;  // 'UMOC'
 
 /// Layout version of the NvmSettings struct.
 /// Increment whenever the struct layout changes incompatibly.
-inline constexpr uint16_t NVM_VERSION = 1u;
+inline constexpr uint16_t NVM_VERSION = 2u;
 
 /**
  * @brief Aggregate of all persistent (NVM-backed) UNIMOC configuration.
@@ -463,6 +463,27 @@ struct NvmSettings
     /// Constant homing velocity [rad/s].
     /// Register: `unimoc.control.pos.homing_speed`
     float pos_homing_speed{5.0f};
+
+    // =========================================================================
+    // Phase current balance correction
+    //
+    // Per-phase ADC gain correction factors, dimensionless (nominal value 1.0).
+    // Applied to the raw phase-current ADC reading of each channel to
+    // compensate for hardware gain/offset mismatch between the three current
+    // sense paths.  Identified by CMD_MEASURE_BALANCE.
+    // =========================================================================
+
+    /// Phase-A ADC gain correction factor [dimensionless, ≈ 1.0].
+    /// Register: `unimoc.motor.balance.gain_a`
+    float phase_balance_a{1.0f};
+
+    /// Phase-B ADC gain correction factor [dimensionless, ≈ 1.0].
+    /// Register: `unimoc.motor.balance.gain_b`
+    float phase_balance_b{1.0f};
+
+    /// Phase-C ADC gain correction factor [dimensionless, ≈ 1.0].
+    /// Register: `unimoc.motor.balance.gain_c`
+    float phase_balance_c{1.0f};
 
     // =========================================================================
     // Validation and safety clamping
