@@ -490,6 +490,130 @@ inline constexpr uint16_t PUB_EXCITATION_CURRENT = 207u;
 
 /// @}
 
+// ============================================================================
+// Execute Command — uavcan.node.ExecuteCommand.1.1
+// ============================================================================
+//
+// The ExecuteCommand service (fixed service-ID 435 per Cyphal specification
+// §5.3.4) lets a network manager send a command to this node.
+//
+// Response status codes
+// ---------------------
+// The response `status` field uses the values below.  Any code not listed
+// here is vendor-specific and may carry additional meaning.
+//
+// Standard command codes
+// ----------------------
+// Codes 0xFF00..0xFFFF are reserved by the Cyphal specification; all other
+// values below 0x8000 are vendor-specific and available to UNIMOC.
+//
+// Vendor-specific measurement commands (0x0001..0x00FF)
+// ------------------------------------------------------
+// Sending any CMD_GET_* command causes the node to publish a single
+// on-demand measurement frame on the corresponding subject even when the
+// periodic publication interval is set to zero (port disabled).  The command
+// parameter field is ignored.  The node responds with STATUS_SUCCESS once the
+// measurement has been enqueued for transmission, or STATUS_BAD_COMMAND if
+// the measurement is not available (e.g. EESM-only measurement on a PMSM
+// node).
+// ============================================================================
+
+/// @defgroup exec_commands uavcan.node.ExecuteCommand constants
+/// @{
+
+namespace cmd
+{
+
+// -------------------------------------------------------------------------
+// Response status codes (uavcan.node.ExecuteCommand.1.1 Response.status)
+// -------------------------------------------------------------------------
+
+/// The command was accepted and is being executed (or has completed).
+inline constexpr uint8_t STATUS_SUCCESS       = 0u;
+
+/// The command was rejected because the node is not in a state that allows
+/// the requested operation.
+inline constexpr uint8_t STATUS_FAILURE       = 1u;
+
+/// The command code is not supported by this node.
+inline constexpr uint8_t STATUS_NOT_AUTHORIZED = 2u;
+
+/// The command is syntactically valid but cannot be executed in the current
+/// node state (e.g. motor still running when a calibration is requested).
+inline constexpr uint8_t STATUS_BAD_STATE     = 3u;
+
+/// The supplied parameter is out of range or malformed.
+inline constexpr uint8_t STATUS_BAD_PARAMETER = 4u;
+
+/// The command code is unknown to this node.
+inline constexpr uint8_t STATUS_BAD_COMMAND   = 5u;
+
+// -------------------------------------------------------------------------
+// Standard Cyphal execute command codes (Cyphal specification §5.3.4)
+// -------------------------------------------------------------------------
+
+/// Restart the node.
+inline constexpr uint16_t COMMAND_RESTART                = 65535u;
+
+/// Power off the node.
+inline constexpr uint16_t COMMAND_POWER_OFF              = 65534u;
+
+/// Begin a software update via the Cyphal file-transfer protocol.
+inline constexpr uint16_t COMMAND_BEGIN_SOFTWARE_UPDATE  = 65533u;
+
+/// Reset all persistent parameters to factory defaults and restart.
+inline constexpr uint16_t COMMAND_FACTORY_RESET          = 65532u;
+
+/// Stop the motor immediately (coast to a stop, disarm the drive).
+inline constexpr uint16_t COMMAND_EMERGENCY_STOP         = 65531u;
+
+/// Persist all current register values to non-volatile memory.
+inline constexpr uint16_t COMMAND_STORE_PERSISTENT_STATES = 65530u;
+
+// -------------------------------------------------------------------------
+// Vendor-specific measurement commands (on-demand single-shot publications)
+// -------------------------------------------------------------------------
+
+/// Request a single publication of the estimated rotor electrical angle [rad].
+/// Subject: PUB_ROTOR_ANGLE (port 200).
+inline constexpr uint16_t CMD_GET_ROTOR_ANGLE        = 0x0001u;
+
+/// Request a single publication of the estimated electrical angular velocity
+/// [rad/s].
+/// Subject: PUB_ROTOR_SPEED (port 201).
+inline constexpr uint16_t CMD_GET_ROTOR_SPEED        = 0x0002u;
+
+/// Request a single publication of the absolute shaft position [rad],
+/// referenced to home.
+/// Subject: PUB_SHAFT_POSITION (port 202).
+inline constexpr uint16_t CMD_GET_SHAFT_POSITION     = 0x0003u;
+
+/// Request a single publication of the in-position flag.
+/// Subject: PUB_IN_POSITION (port 203).
+inline constexpr uint16_t CMD_GET_IN_POSITION        = 0x0004u;
+
+/// Request a single publication of the homing state
+/// (0=IDLE, 1=SEARCHING, 2=ZEROING, 3=DONE, 4=FAULT).
+/// Subject: PUB_HOMING_STATE (port 204).
+inline constexpr uint16_t CMD_GET_HOMING_STATE       = 0x0005u;
+
+/// Request a single publication of the DC-link voltage [V].
+/// Subject: PUB_DC_VOLTAGE (port 205).
+inline constexpr uint16_t CMD_GET_DC_VOLTAGE         = 0x0006u;
+
+/// Request a single publication of the phase current magnitude [A].
+/// Subject: PUB_PHASE_CURRENT (port 206).
+inline constexpr uint16_t CMD_GET_PHASE_CURRENT      = 0x0007u;
+
+/// Request a single publication of the estimated rotor excitation current
+/// î_f [A] (EESM only; returns STATUS_BAD_STATE for PMSM/ASM nodes).
+/// Subject: PUB_EXCITATION_CURRENT (port 207).
+inline constexpr uint16_t CMD_GET_EXCITATION_CURRENT = 0x0008u;
+
+}  // namespace cmd
+
+/// @}
+
 }  // namespace cyphal
 }  // namespace system
 }  // namespace unimoc
