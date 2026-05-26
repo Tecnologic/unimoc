@@ -38,6 +38,39 @@ jobs:
       - name: Test
         run: ./build/hosted/tests/system_test --gtest_color=yes
 
+  clang-tidy:
+    name: clang-tidy static analysis
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y ninja-build clang clang-tidy
+
+      - name: Install CMake 4.x
+        run: pip install cmake --quiet
+
+      - name: Configure
+        run: |
+          cmake -S . -B build/hosted \
+                -DENABLE_TESTS=ON \
+                -DHARDWARE_DIRECTORY="" \
+                -G Ninja \
+                -DCMAKE_BUILD_TYPE=Debug \
+                -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+                -DCMAKE_CXX_COMPILER=clang++
+
+      - name: Run clang-tidy
+        run: |
+          find lib src -name '*.cpp' -o -name '*.hpp' | \
+          xargs clang-tidy -p build/hosted
+
   batterycase-build:
     name: BatteryCase Controller firmware build (ARM Cortex-M4)
     runs-on: ubuntu-latest
