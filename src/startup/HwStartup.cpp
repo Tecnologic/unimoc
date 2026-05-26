@@ -345,14 +345,12 @@ void HwStartup::run_adc_noise_floor() noexcept
     {
         if (collect_sample(N_CAL))
         {
-            const float n   = static_cast<float>(N_CAL);
+            const double n_d = static_cast<double>(N_CAL);
             // variance = E[x²] - E[x]²
-            const float var_a = static_cast<float>(accum_sq_a_ / n)
-                              - (static_cast<float>(accum_a_ / n)
-                                 * static_cast<float>(accum_a_ / n));
-            const float var_b = static_cast<float>(accum_sq_b_ / n)
-                              - (static_cast<float>(accum_b_ / n)
-                                 * static_cast<float>(accum_b_ / n));
+            const float var_a = static_cast<float>(accum_sq_a_ / n_d
+                              - (accum_a_ / n_d) * (accum_a_ / n_d));
+            const float var_b = static_cast<float>(accum_sq_b_ / n_d
+                              - (accum_b_ / n_d) * (accum_b_ / n_d));
 
             results.adc_noise_rms_a = (var_a > 0.0f) ? std::sqrt(var_a) : 0.0f;
             results.adc_noise_rms_b = (var_b > 0.0f) ? std::sqrt(var_b) : 0.0f;
@@ -674,10 +672,9 @@ void HwStartup::run_phase_adc_alignment() noexcept
     // Collecting N_ALIGN_SAMPLES at the current sweep position
     if (collect_sample(N_ALIGN_SAMPLES))
     {
-        const float n   = static_cast<float>(N_ALIGN_SAMPLES);
-        const float var = static_cast<float>(accum_sq_a_ / n)
-                        - (static_cast<float>(accum_a_ / n)
-                           * static_cast<float>(accum_a_ / n));
+        const double n_d = static_cast<double>(N_ALIGN_SAMPLES);
+        const float var = static_cast<float>(accum_sq_a_ / n_d
+                        - (accum_a_ / n_d) * (accum_a_ / n_d));
         sweep_noise_a_[sweep_pos_] = (var > 0.0f) ? std::sqrt(var) : 0.0f;
 
         // Advance sweep
