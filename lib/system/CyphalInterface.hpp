@@ -391,6 +391,52 @@ namespace reg
     /// Type: real32[1] (read/write, persistent)
     inline constexpr const char* CURRENT_V_MAX          = "unimoc.control.current.v_max";
 
+    // =========================================================================
+    // Hardware startup aid
+    // =========================================================================
+
+    /// Write 1 to start the startup FSM; write 0 to abort.
+    /// Type: uint8[1] (write-only)
+    inline constexpr const char* STARTUP_RUN            = "unimoc.startup.run";
+
+    /// Current FSM step (read) or step to advance to (write 1 = next step).
+    /// Type: uint8[1] (read/write)
+    inline constexpr const char* STARTUP_STEP           = "unimoc.startup.step";
+
+    /// User-entered external current measurement [A] (clamp-meter reading).
+    /// Used by CURRENT_SENSE_CALIBRATION step to compute gain_a / gain_b.
+    /// Type: real32[1] (read/write)
+    inline constexpr const char* STARTUP_EXT_CURRENT_A  = "unimoc.startup.ext_current_A";
+
+    /// User-entered external DC-link voltage measurement [V] (multimeter).
+    /// Used by DC_LINK_VOLTAGE_CHECK step to compute gain_vdc.
+    /// Type: real32[1] (read/write)
+    inline constexpr const char* STARTUP_EXT_VDC_V      = "unimoc.startup.ext_vdc_V";
+
+    /// Read-back of pass/fail status flags, one byte per FSM step (1=pass, 0=fail/pending).
+    /// Type: uint8[<=14] (read-only)
+    inline constexpr const char* STARTUP_RESULTS        = "unimoc.startup.results";
+
+    /// Computed phase-A current-sense gain correction factor [dimensionless].
+    /// Type: real32[1] (read-only after CURRENT_SENSE_CALIBRATION step)
+    inline constexpr const char* STARTUP_GAIN_A         = "unimoc.startup.gain_a";
+
+    /// Computed phase-B current-sense gain correction factor [dimensionless].
+    /// Type: real32[1] (read-only after CURRENT_SENSE_CALIBRATION step)
+    inline constexpr const char* STARTUP_GAIN_B         = "unimoc.startup.gain_b";
+
+    /// Computed DC-link voltage ADC gain correction factor [dimensionless].
+    /// Type: real32[1] (read-only after DC_LINK_VOLTAGE_CHECK step)
+    inline constexpr const char* STARTUP_GAIN_VDC       = "unimoc.startup.gain_vdc";
+
+    /// Measured phase-A current-sense zero offset [A].
+    /// Type: real32[1] (read-only after ADC_OFFSET_CAL step)
+    inline constexpr const char* STARTUP_ADC_OFFSET_A   = "unimoc.startup.adc_offset_a";
+
+    /// Measured phase-B current-sense zero offset [A].
+    /// Type: real32[1] (read-only after ADC_OFFSET_CAL step)
+    inline constexpr const char* STARTUP_ADC_OFFSET_B   = "unimoc.startup.adc_offset_b";
+
     // --- Phase current balance correction ---
 
     /// Phase-A ADC gain correction factor [dimensionless, ≈ 1.0].
