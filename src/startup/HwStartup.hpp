@@ -203,7 +203,7 @@ private:
     // Alignment sweep
     uint32_t sweep_pos_{0u};
     float    sweep_noise_a_[N_SWEEP_STEPS]{};
-    uint32_t base_trigger_offset_{168u};  ///< Initialised from cc_.state.adc_trigger_offset at sweep start.
+    uint32_t base_trigger_offset_{0u};    ///< Initialised from cc_.state.adc_trigger_offset at sweep start.
 
     // Gate-driver enable-check accumulators
     float    gate_mean_disabled_{0.0f};
