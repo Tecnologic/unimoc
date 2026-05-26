@@ -430,13 +430,16 @@ void HwStartup::run_dc_link_voltage_check() noexcept
 
     // Accumulate raw_vdc directly — do NOT use collect_sample() which
     // accumulates raw_ia/raw_ib and would give a meaningless mean here.
-    accum_a_ += static_cast<double>(cc_.state.raw_vdc);
-    ++sample_count_;
-
     if (sample_count_ < N_CAL)
-        return;
+    {
+        accum_a_ += static_cast<double>(cc_.state.raw_vdc);
+        ++sample_count_;
+        if (sample_count_ < N_CAL)
+            return;
+        // N_CAL samples just collected — fall through to evaluate.
+    }
 
-    // N_CAL samples collected; compute the averaged V_dc reading.
+    // N_CAL samples collected; compute the N_CAL-sample average V_dc reading.
     const float measured_vdc = static_cast<float>(accum_a_)
                               / static_cast<float>(N_CAL);
 
@@ -460,17 +463,21 @@ void HwStartup::run_dc_link_voltage_check() noexcept
                 << " %. Check voltage-divider resistors on V_dc sense circuit.\n"
                 << "[STARTUP] Suggested correction factor: " << results.gain_vdc << "\n";
         }
+
+        step_done_ = true;
+        modm::log::info << "[STARTUP] Press NEXT to continue.\n";
     }
-    else
+    else if (sample_count_ == N_CAL)
     {
+        // Log the "waiting" prompt exactly once (bump sample_count_ as sentinel).
         modm::log::info
             << "[STARTUP] DC_LINK_VOLTAGE_CHECK: adc_vdc=" << measured_vdc
             << " V. Enter multimeter reading via unimoc.startup.ext_vdc_V, "
                "then press NEXT.\n";
+        ++sample_count_;
+        // step_done_ stays false; keep polling until ext_vdc_V_ is provided.
     }
-
-    step_done_ = true;
-    modm::log::info << "[STARTUP] Press NEXT to continue.\n";
+    // else: sample_count_ > N_CAL, ext_vdc_V_ still not valid — silent wait.
 }
 
 // =============================================================================
