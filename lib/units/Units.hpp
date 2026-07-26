@@ -518,22 +518,22 @@ operator>=(const Unit<Rep, Period, Tag>& lhs, const Unit<Rep, Period, Tag>& rhs)
 // --- User-defined literals ---
 // Angle literals
 constexpr Angle
-operator"" _rad(long double val)
+operator""_rad(long double val)
 {
 	return Angle(static_cast<float>(val));
 }
 constexpr Angle
-operator"" _deg(long double val)
+operator""_deg(long double val)
 {
 	return Angle(static_cast<float>(val * std::numbers::pi_v<long double> / 180.0L));
 }
 constexpr Angle
-operator"" _rad(unsigned long long val)
+operator""_rad(unsigned long long val)
 {
 	return Angle(static_cast<float>(val));
 }
 constexpr Angle
-operator"" _deg(unsigned long long val)
+operator""_deg(unsigned long long val)
 {
 	return Angle(static_cast<float>(static_cast<long double>(val) *
 									std::numbers::pi_v<long double> / 180.0L));
@@ -541,182 +541,182 @@ operator"" _deg(unsigned long long val)
 
 // Time literals
 constexpr Time
-operator"" _s(long double val)
+operator""_s(long double val)
 {
 	return Time(static_cast<float>(val));
 }
-constexpr Unit<float, std::milli, TimeTag> operator"" _ms(long double val)
+constexpr Unit<float, std::milli, TimeTag> operator""_ms(long double val)
 {
 	return Unit<float, std::milli, TimeTag>(static_cast<float>(val));
 }
 constexpr Time
-operator"" _s(unsigned long long val)
+operator""_s(unsigned long long val)
 {
 	return Time(static_cast<float>(val));
 }
-constexpr Unit<float, std::milli, TimeTag> operator"" _ms(unsigned long long val)
+constexpr Unit<float, std::milli, TimeTag> operator""_ms(unsigned long long val)
 {
 	return Unit<float, std::milli, TimeTag>(static_cast<float>(val));
 }
 
 // Current literals
 constexpr Current
-operator"" _A(long double val)
+operator""_A(long double val)
 {
 	return Current(static_cast<float>(val));
 }
-constexpr Unit<float, std::milli, CurrentTag> operator"" _mA(long double val)
+constexpr Unit<float, std::milli, CurrentTag> operator""_mA(long double val)
 {
 	return Unit<float, std::milli, CurrentTag>(static_cast<float>(val));
 }
 constexpr Current
-operator"" _A(unsigned long long val)
+operator""_A(unsigned long long val)
 {
 	return Current(static_cast<float>(val));
 }
-constexpr Unit<float, std::milli, CurrentTag> operator"" _mA(unsigned long long val)
+constexpr Unit<float, std::milli, CurrentTag> operator""_mA(unsigned long long val)
 {
 	return Unit<float, std::milli, CurrentTag>(static_cast<float>(val));
 }
 
 // Voltage literals
 constexpr Voltage
-operator"" _V(long double val)
+operator""_V(long double val)
 {
 	return Voltage(static_cast<float>(val));
 }
-constexpr Unit<float, std::milli, VoltageTag> operator"" _mV(long double val)
+constexpr Unit<float, std::milli, VoltageTag> operator""_mV(long double val)
 {
 	return Unit<float, std::milli, VoltageTag>(static_cast<float>(val));
 }
-constexpr Unit<float, std::kilo, VoltageTag> operator"" _kV(long double val)
+constexpr Unit<float, std::kilo, VoltageTag> operator""_kV(long double val)
 {
 	return Unit<float, std::kilo, VoltageTag>(static_cast<float>(val));
 }
 constexpr Voltage
-operator"" _V(unsigned long long val)
+operator""_V(unsigned long long val)
 {
 	return Voltage(static_cast<float>(val));
 }
-constexpr Unit<float, std::milli, VoltageTag> operator"" _mV(unsigned long long val)
+constexpr Unit<float, std::milli, VoltageTag> operator""_mV(unsigned long long val)
 {
 	return Unit<float, std::milli, VoltageTag>(static_cast<float>(val));
 }
-constexpr Unit<float, std::kilo, VoltageTag> operator"" _kV(unsigned long long val)
+constexpr Unit<float, std::kilo, VoltageTag> operator""_kV(unsigned long long val)
 {
 	return Unit<float, std::kilo, VoltageTag>(static_cast<float>(val));
 }
 
 // Frequency Literals
 constexpr Frequency
-operator"" _Hz(long double val)
+operator""_Hz(long double val)
 {
 	return Frequency(static_cast<float>(val));
 }
-constexpr Unit<float, std::kilo, FrequencyTag> operator"" _kHz(long double val)
+constexpr Unit<float, std::kilo, FrequencyTag> operator""_kHz(long double val)
 {
 	return Unit<float, std::kilo, FrequencyTag>(static_cast<float>(val));
 }
 constexpr Frequency
-operator"" _Hz(unsigned long long val)
+operator""_Hz(unsigned long long val)
 {
 	return Frequency(static_cast<float>(val));
 }
-constexpr Unit<float, std::kilo, FrequencyTag> operator"" _kHz(unsigned long long val)
+constexpr Unit<float, std::kilo, FrequencyTag> operator""_kHz(unsigned long long val)
 {
 	return Unit<float, std::kilo, FrequencyTag>(static_cast<float>(val));
 }
 
 // Torque Literals
 constexpr Torque
-operator"" _Nm(long double val)
+operator""_Nm(long double val)
 {
 	return Torque(static_cast<float>(val));
 }
 constexpr Torque
-operator"" _Nm(unsigned long long val)
+operator""_Nm(unsigned long long val)
 {
 	return Torque(static_cast<float>(val));
 }
 
 // Power Literals
 constexpr Power
-operator"" _W(long double val)
+operator""_W(long double val)
 {
 	return Power(static_cast<float>(val));
 }
-constexpr Unit<float, std::kilo, PowerTag> operator"" _kW(long double val)
+constexpr Unit<float, std::kilo, PowerTag> operator""_kW(long double val)
 {
 	return Unit<float, std::kilo, PowerTag>(static_cast<float>(val));
 }
 constexpr Power
-operator"" _W(unsigned long long val)
+operator""_W(unsigned long long val)
 {
 	return Power(static_cast<float>(val));
 }
-constexpr Unit<float, std::kilo, PowerTag> operator"" _kW(unsigned long long val)
+constexpr Unit<float, std::kilo, PowerTag> operator""_kW(unsigned long long val)
 {
 	return Unit<float, std::kilo, PowerTag>(static_cast<float>(val));
 }
 
 // Magnetic Flux Literals
 constexpr MagneticFlux
-operator"" _Wb(long double val)
+operator""_Wb(long double val)
 {
 	return MagneticFlux(static_cast<float>(val));
 }
-constexpr Unit<float, std::milli, MagneticFluxTag> operator"" _mWb(long double val)
+constexpr Unit<float, std::milli, MagneticFluxTag> operator""_mWb(long double val)
 {
 	return Unit<float, std::milli, MagneticFluxTag>(static_cast<float>(val));
 }
 constexpr MagneticFlux
-operator"" _Wb(unsigned long long val)
+operator""_Wb(unsigned long long val)
 {
 	return MagneticFlux(static_cast<float>(val));
 }
-constexpr Unit<float, std::milli, MagneticFluxTag> operator"" _mWb(unsigned long long val)
+constexpr Unit<float, std::milli, MagneticFluxTag> operator""_mWb(unsigned long long val)
 {
 	return Unit<float, std::milli, MagneticFluxTag>(static_cast<float>(val));
 }
 
 // Resistance Literals
 constexpr Resistance
-operator"" _Ohm(long double val)
+operator""_Ohm(long double val)
 {
 	return Resistance(static_cast<float>(val));
 }
-constexpr Unit<float, std::kilo, ResistanceTag> operator"" _kOhm(long double val)
+constexpr Unit<float, std::kilo, ResistanceTag> operator""_kOhm(long double val)
 {
 	return Unit<float, std::kilo, ResistanceTag>(static_cast<float>(val));
 }
 
 constexpr Resistance
-operator"" _Ohm(unsigned long long val)
+operator""_Ohm(unsigned long long val)
 {
 	return Resistance(static_cast<float>(val));
 }
-constexpr Unit<float, std::kilo, ResistanceTag> operator"" _kOhm(unsigned long long val)
+constexpr Unit<float, std::kilo, ResistanceTag> operator""_kOhm(unsigned long long val)
 {
 	return Unit<float, std::kilo, ResistanceTag>(static_cast<float>(val));
 }
 
 // Inductance Literals
 constexpr Inductance
-operator"" _H(long double val)
+operator""_H(long double val)
 {
 	return Inductance(static_cast<float>(val));
 }
-constexpr Unit<float, std::milli, InductanceTag> operator"" _mH(long double val)
+constexpr Unit<float, std::milli, InductanceTag> operator""_mH(long double val)
 {
 	return Unit<float, std::milli, InductanceTag>(static_cast<float>(val));
 }
 
 constexpr Inductance
-operator"" _H(unsigned long long val)
+operator""_H(unsigned long long val)
 {
 	return Inductance(static_cast<float>(val));
 }
-constexpr Unit<float, std::milli, InductanceTag> operator"" _mH(unsigned long long val)
+constexpr Unit<float, std::milli, InductanceTag> operator""_mH(unsigned long long val)
 {
 	return Unit<float, std::milli, InductanceTag>(static_cast<float>(val));
 }

@@ -32,6 +32,7 @@ enable_doxygen()
 
 option(ENABLE_TESTS "Enable tests" OFF)
 option(HARDWARE_DIRECTORY "Directory for hardware files" "${CMAKE_SOURCE_DIR}/hardware/batterycasecontroller")
+option(RUNNING_ON_HOST "Set to ON if running on host (not on target)" OFF)
 
 if(HARDWARE_DIRECTORY)
   # Always expose the hardware/ include path so platform-agnostic headers
@@ -39,17 +40,24 @@ if(HARDWARE_DIRECTORY)
   target_include_directories(project_options INTERFACE ${CMAKE_SOURCE_DIR}/hardware)
   # add hardware files
   add_subdirectory(${HARDWARE_DIRECTORY})
-  # gitversion is only needed for firmware targets; include it here so
-  # hosted/test builds do not require the submodule to be initialised.
-  INCLUDE(${CMAKE_SOURCE_DIR}/lib/gitversion/cmake.cmake)
-  # attach gitversion to the firmware executable created by the hardware directory
-  TARGET_GIT_VERSION_INIT(${CMAKE_PROJECT_NAME})
+
+  if (RUNNING_ON_HOST)
+    target_compile_definitions(project_options INTERFACE RUNNING_ON_HOST)
+  else ()
+    target_compile_definitions(project_options INTERFACE RUNNING_ON_TARGET)
+
+    # gitversion is only needed for firmware targets; include it here so
+    # hosted/test builds do not require the submodule to be initialised.
+    INCLUDE(${CMAKE_SOURCE_DIR}/lib/gitversion/cmake.cmake)
+    # attach gitversion to the firmware executable created by the hardware directory
+    TARGET_GIT_VERSION_INIT(${CMAKE_PROJECT_NAME})
+  endif()
 else()
   # Even without a hardware implementation directory, expose the hardware/
   # header path so that HardwareLimits.hpp is found during hosted builds and
   # tests.  No platform-specific source files are compiled.
   target_include_directories(project_options INTERFACE ${CMAKE_SOURCE_DIR}/hardware)
-  message(WARNING "HARDWARE_DIRECTORY is not set, skipping hardware files.")  
+  message(WARNING "HARDWARE_DIRECTORY is not set, skipping hardware files.")
 endif()
 
 if(ENABLE_TESTS)

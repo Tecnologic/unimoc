@@ -49,7 +49,8 @@
           "CMAKE_BUILD_TYPE": "Debug",
           "ENABLE_TESTS": "ON",
           "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
-          "HARDWARE_DIRECTORY": "${sourceDir}/hardware/host"
+          "HARDWARE_DIRECTORY": "${sourceDir}/hardware/host",
+          "RUNNING_ON_HOST": "ON"
         }
       }
     ],
@@ -77,4 +78,3 @@
       }
     ]
   }
-  
