@@ -197,6 +197,7 @@ function(modm_target_config_create target target_arch target_options target_warn
     -Wl,--no-wchar-size-warning
     -Wl,--relax
     -Wl,-Map,${CMAKE_PROJECT_NAME}.map,--cref
+    -Wl,-z,execstack
   )
 
   set(LINKFLAGS_RELEASE

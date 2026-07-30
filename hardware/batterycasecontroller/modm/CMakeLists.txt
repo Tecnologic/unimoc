@@ -37,6 +37,7 @@ add_library(modm OBJECT
   src/modm/platform/adc/adc_interrupt_5.cpp
   src/modm/platform/adc/adc_shared_interrupts.cpp
   src/modm/platform/clock/rcc.cpp
+  src/modm/platform/clock/rcc_defs.cpp
   src/modm/platform/clock/systick_timer.cpp
   src/modm/platform/core/assert.cpp
   src/modm/platform/core/delay.cpp

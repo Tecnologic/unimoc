@@ -17,14 +17,8 @@
 
 #include "rcc.hpp"
 
-// CMSIS Core compliance
-constinit uint32_t modm_fastdata SystemCoreClock(modm::platform::Rcc::BootFrequency);
-modm_weak void SystemCoreClockUpdate() { /* Nothing to update */ }
-
 namespace modm::platform
 {
-constinit uint16_t modm_fastdata delay_fcpu_MHz(computeDelayMhz(Rcc::BootFrequency));
-constinit uint16_t modm_fastdata delay_ns_per_loop(computeDelayNsPerLoop(Rcc::BootFrequency));
 
 // ----------------------------------------------------------------------------
 bool
@@ -103,29 +97,33 @@ Rcc::enablePll(PllSource source, const PllFactors& pllFactors, uint32_t waitCycl
 	// Read reserved values and clear all other values
 	uint32_t tmp = RCC->PLLCFGR & ~(
 			RCC_PLLCFGR_PLLSRC | RCC_PLLCFGR_PLLM | RCC_PLLCFGR_PLLN |
-			// RCC_PLLCFGR_PLLPEN | RCC_PLLCFGR_PLLP |
+			RCC_PLLCFGR_PLLPEN | RCC_PLLCFGR_PLLP |
+			RCC_PLLCFGR_PLLQEN | RCC_PLLCFGR_PLLQ |
 			RCC_PLLCFGR_PLLREN | RCC_PLLCFGR_PLLR);
 
 	// PLLSRC source for pll
 	tmp |= static_cast<uint32_t>(source);
 
 	// PLLM factor is user defined VCO input frequency must be configured between 4MHz and 16Mhz
-	tmp |= (uint32_t(pllFactors.pllM - 1) << RCC_PLLCFGR_PLLM_Pos) & RCC_PLLCFGR_PLLM;
+	tmp |= (uint32_t(pllFactors.pllM - 1u) << RCC_PLLCFGR_PLLM_Pos) & RCC_PLLCFGR_PLLM;
 
 	// PLLN factor is user defined: between 64 and 344 MHz
 	tmp |= (uint32_t(pllFactors.pllN) << RCC_PLLCFGR_PLLN_Pos) & RCC_PLLCFGR_PLLN;
 
+	// PLLP divider for P frequency
+	if (pllFactors.pllP != PllFactors::Disabled) {
+		if (pllFactors.pllP == 17) tmp |= RCC_PLLCFGR_PLLP_Pos;
+		tmp |= RCC_PLLCFGR_PLLPEN;
+	}
+
 	// PLLR divider for CPU frequency
-	tmp |= ((uint32_t(pllFactors.pllR / 2) - 1) << RCC_PLLCFGR_PLLR_Pos) & RCC_PLLCFGR_PLLR;
-	// PLLQ (21) divider for USB frequency; (00: PLLQ = 2, 01: PLLQ = 4, etc.)
-	if (pllFactors.pllQ != 0xff) {
-		tmp &= ~RCC_PLLCFGR_PLLQ;
-		tmp |= (((uint32_t) (pllFactors.pllQ / 2) - 1) << RCC_PLLCFGR_PLLQ_Pos) & RCC_PLLCFGR_PLLQ;
-		// enable pll USB clock output
+	tmp |= ((uint32_t(pllFactors.pllR / 2u) - 1u) << RCC_PLLCFGR_PLLR_Pos) & RCC_PLLCFGR_PLLR;
+	tmp |= RCC_PLLCFGR_PLLREN;
+
+	if (pllFactors.pllQ != PllFactors::Disabled) {
+		tmp |= (((uint32_t) (pllFactors.pllQ / 2u) - 1u) << RCC_PLLCFGR_PLLQ_Pos) & RCC_PLLCFGR_PLLQ;
 		tmp |= RCC_PLLCFGR_PLLQEN;
 	}
-	// enable pll CPU clock output
-	tmp |= RCC_PLLCFGR_PLLREN;
 
 	RCC->PLLCFGR = tmp;
 
