@@ -3,37 +3,46 @@
 # installs dependencies from requirements.txt, and then uses lbuild to generate
 # the necessary build files for modm based on project.xml.
 
-# check if Python3 is available
-find_package(Python3 REQUIRED COMPONENTS Interpreter)
-if(NOT Python3_Interpreter_FOUND)
-    message(FATAL_ERROR "Python3 interpreter not found. Please install Python3.") 
-endif()
+# ==============================================================================
+# Setup Python Environment for modm using uv
+# ==============================================================================
 
-# set the path to the Python virtual environment
-# and the path to the Python binary within that environment
+# 1. Suche nach dem uv-Executable auf dem Host-System
+find_program(UV_EXECUTABLE uv REQUIRED)
+
+# 2. Pfade und Python-Version definieren
+set(PYTHON_VERSION "3.12")
 set(VENV_PATH "${CMAKE_SOURCE_DIR}/.venv")
-if (WIN32)
-  set(VENV_BIN "${VENV_PATH}/Scripts")
-else()
-  set(VENV_BIN "${VENV_PATH}/bin")
-endif()
-
-# Set the path to the requirements.txt file
 set(REQUIREMENTS_TXT "${CMAKE_SOURCE_DIR}/requirements.txt")
 
-# Create the Python virtual environment if it does not exist
-if(NOT EXISTS "${VENV_PATH}")
-    execute_process(
-        COMMAND ${Python3_EXECUTABLE} -m venv "${VENV_PATH}"
-        WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
-    )
+if(WIN32)
+  set(VENV_PYTHON "${VENV_PATH}/Scripts/python.exe")
+else()
+  set(VENV_PYTHON "${VENV_PATH}/bin/python")
+endif()
 
-    # Activate the virtual environment and install the required packages
+# 3. Virtual Environment mit Python 3.12 erstellen (falls nicht vorhanden)
+if(NOT EXISTS "${VENV_PATH}")
+    message(STATUS "Creating Python ${PYTHON_VERSION} virtual environment using uv...")
     execute_process(
-        COMMAND "${VENV_BIN}/python" -m pip install --upgrade pip
-    )
-    execute_process(
-        COMMAND "${VENV_BIN}/pip" install -r "${REQUIREMENTS_TXT}"
+        COMMAND "${UV_EXECUTABLE}" venv --python "${PYTHON_VERSION}" "${VENV_PATH}"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+        COMMAND_ERROR_IS_FATAL ANY
     )
 endif()
 
+# 4. Abhängigkeiten aus requirements.txt via uv installieren
+# (uv prüft extrem schnell, ob Pakete bereits installiert sind)
+if(EXISTS "${REQUIREMENTS_TXT}")
+    message(STATUS "Installing/updating Python dependencies with uv...")
+    execute_process(
+        COMMAND "${UV_EXECUTABLE}" pip install -r "${REQUIREMENTS_TXT}" --python "${VENV_PYTHON}"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+        COMMAND_ERROR_IS_FATAL ANY
+    )
+else()
+    message(WARNING "requirements.txt not found at: ${REQUIREMENTS_TXT}")
+endif()
+
+# Optional: Setze den Python-Executable-Pfad für spätere CMake-Schritte (z. B. lbuild Aufrufe)
+set(Python3_EXECUTABLE "${VENV_PYTHON}" CACHE FILEPATH "Python 3 interpreter in venv" FORCE)
