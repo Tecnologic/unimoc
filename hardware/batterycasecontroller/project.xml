@@ -22,7 +22,7 @@
     <module>modm:platform:adc:4</module>
     <module>modm:platform:adc:5</module>
     <module>modm:platform:timer:8</module>
-    <module>modm:platform:rtt</module>
+    <module>modm:rtt</module>
     <module>modm:build:cmake</module>
     <module>modm:debug</module>
   </modules>

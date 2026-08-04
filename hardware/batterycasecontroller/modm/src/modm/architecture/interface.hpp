@@ -27,7 +27,6 @@
 #include "interface/gpio.hpp"
 #include "interface/interrupt.hpp"
 #include "interface/register.hpp"
-#include "interface/uart.hpp"
 #include "interface/peripheral.hpp"
 
 #endif	// MODM_INTERFACE_HPP

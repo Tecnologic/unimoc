@@ -1,10 +1,11 @@
-cmake_minimum_required(VERSION 3.20)
+cmake_minimum_required(VERSION 4.00)
 
-# remove the warning about CMP0175
-cmake_policy(SET CMP0175 OLD)
+if(POLICY CMP0175)
+  cmake_policy(SET CMP0175 NEW)
+endif()
 
 # Projektname und Version
-project(unimoc LANGUAGES C CXX)
+project(unimoc LANGUAGES C CXX ASM)
 
 add_library(project_options INTERFACE)
 
@@ -31,12 +32,31 @@ enable_doxygen()
 
 option(ENABLE_TESTS "Enable tests" OFF)
 option(HARDWARE_DIRECTORY "Directory for hardware files" "${CMAKE_SOURCE_DIR}/hardware/batterycasecontroller")
+option(RUNNING_ON_HOST "Set to ON if running on host (not on target)" OFF)
 
 if(HARDWARE_DIRECTORY)
+  # Always expose the hardware/ include path so platform-agnostic headers
+  # (e.g. HardwareLimits.hpp) are available to all targets, including tests.
   target_include_directories(project_options INTERFACE ${CMAKE_SOURCE_DIR}/hardware)
   # add hardware files
   add_subdirectory(${HARDWARE_DIRECTORY})
+
+  if (RUNNING_ON_HOST)
+    target_compile_definitions(project_options INTERFACE RUNNING_ON_HOST)
+  else ()
+    target_compile_definitions(project_options INTERFACE RUNNING_ON_TARGET)
+
+    # gitversion is only needed for firmware targets; include it here so
+    # hosted/test builds do not require the submodule to be initialised.
+    INCLUDE(${CMAKE_SOURCE_DIR}/lib/gitversion/cmake.cmake)
+    # attach gitversion to the firmware executable created by the hardware directory
+    TARGET_GIT_VERSION_INIT(${CMAKE_PROJECT_NAME})
+  endif()
 else()
+  # Even without a hardware implementation directory, expose the hardware/
+  # header path so that HardwareLimits.hpp is found during hosted builds and
+  # tests.  No platform-specific source files are compiled.
+  target_include_directories(project_options INTERFACE ${CMAKE_SOURCE_DIR}/hardware)
   message(WARNING "HARDWARE_DIRECTORY is not set, skipping hardware files.")
 endif()
 
@@ -50,8 +70,9 @@ endif()
 # add universal code as library
 add_subdirectory(lib)
 
-target_link_libraries(${CMAKE_PROJECT_NAME} PUBLIC unimoc_lib project_options project_warnings)
-
-
+# The firmware executable only exists when tests are disabled (src/ is added).
+if(NOT ENABLE_TESTS)
+  target_link_libraries(${CMAKE_PROJECT_NAME} PUBLIC unimoc_lib project_options project_warnings)
+endif()
 
 

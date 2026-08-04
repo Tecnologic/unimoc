@@ -38,7 +38,6 @@
 #include "platform/gpio/software_port.hpp"
 #include "platform/gpio/static.hpp"
 #include "platform/gpio/unused.hpp"
-#include "platform/rtt/rtt.hpp"
 #include "platform/timer/advanced_base.hpp"
 #include "platform/timer/basic_base.hpp"
 #include "platform/timer/general_purpose_base.hpp"
