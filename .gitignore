@@ -7,6 +7,7 @@
 *.o
 *.obj
 *.log
+*.pyc
 
 # Precompiled Headers
 *.gch
@@ -33,7 +34,9 @@
 *.app
 
 # build folder
-build
+build/*
+build_test/
+.venv/
 
 # python cache
 __pycache__
