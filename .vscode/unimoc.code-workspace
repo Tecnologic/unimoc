@@ -94,26 +94,20 @@
 			"thread": "cpp"
 		},
 		"cmake.automaticReconfigure": true,
+		"cmake.copyCompileCommands": "${workspaceFolder}/compile_commands.json",
 		"cmake.autoSelectActiveFolder": false,
-		"C_Cpp.autocompleteAddParentheses": true,
-		"C_Cpp.codeFolding": "disabled",
-		"C_Cpp.default.cppStandard": "c++23",
-		"C_Cpp.default.cStandard": "c23",
-		"C_Cpp.default.intelliSenseMode": "gcc-arm",
-		"C_Cpp.clang_format_sortIncludes": true,
-		"C_Cpp.formatting": "clangFormat",
-		"editor.defaultFormatter": "ms-vscode.cpptools",
+		"clangd.arguments": [
+			"--compile-commands-dir=${workspaceFolder}",
+			"--background-index"
+		],
+		"C_Cpp.intelliSenseEngine": "disabled",
 		"editor.formatOnSaveMode": "modificationsIfAvailable",
-		"C_Cpp.autocomplete": "default",
-		"C_Cpp.errorSquiggles": "enabled",
-		"C_Cpp.files.exclude": {
-			"**/.vscode": true,
-			"**/.vs": true,
-			"**/.git": true,
-			"**/.venv": true,
-			"modm/**": true
+		"[c]": {
+			"editor.defaultFormatter": "llvm-vs-code-extensions.vscode-clangd"
 		},
-		"C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools",
+		"[cpp]": {
+			"editor.defaultFormatter": "llvm-vs-code-extensions.vscode-clangd"
+		},
 		"[jsonc]": {
 			"editor.defaultFormatter": "vscode.json-language-features"
 		},

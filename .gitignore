@@ -38,6 +38,9 @@ build/*
 build_test/
 .venv/
 
+# CMake Tools compilation database for clangd
+compile_commands.json
+
 # python cache
 __pycache__
 .venv

@@ -36,6 +36,7 @@
         },
         "cacheVariables": {
             "CMAKE_BUILD_TYPE": "MinSizeRel",
+            "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
             "HARDWARE_DIRECTORY": "${sourceDir}/hardware/batterycasecontroller",
             "MODM_DBG_UI": "tui",
             "CYMON_BUILD_TESTS": "OFF"
