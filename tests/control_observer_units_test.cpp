@@ -123,7 +123,7 @@ TEST(ControlObserverUnitsTest, AlgorithmsLoadInitialSettingsFromNvm) {
   EXPECT_FLOAT_EQ(hfi.error_gain.Value(), 3.0F);
 
   control::Svm svm;
-  svm.init(settings);
+  svm.Init(settings);
   EXPECT_FLOAT_EQ(svm.duty_min.Value(), 0.1F);
   EXPECT_FLOAT_EQ(svm.duty_max.Value(), 0.9F);
 }

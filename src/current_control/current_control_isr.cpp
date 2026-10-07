@@ -43,7 +43,7 @@ void CurrentControlIsr::init(const settings::NvmSettings& settings, hardware::Ha
 
   hfi.init(settings);
   dtc.init(settings);
-  svm.init(settings);
+  svm.Init(settings);
 
   // --- Current controller parameters ---
   cc.kp_d = settings.current_kp_d;
@@ -196,15 +196,13 @@ void CurrentControlIsr::on_jeoc() noexcept {
   // -------------------------------------------------------------------------
   // 10. Dead-time compensation (adds a correction in the α/β frame)
   // -------------------------------------------------------------------------
-  const float v_dc_safe = (v_dc > 1.0f) ? v_dc : 1.0f;  // prevent /0
-  system::Stator<unit::DimensionlessRatio> u_ab_norm{u_ab.alpha.Value() / v_dc_safe, u_ab.beta.Value() / v_dc_safe};
-  u_ab_norm = u_ab_norm + dtc.calculate(i_ab);
+  const system::Stator<unit::DimensionlessRatio> dtc_ratio = dtc.calculate(i_ab);
 
   // -------------------------------------------------------------------------
   // 11. Space-vector modulation → normalised duties [0, 1]
-  //     SVM expects the voltage vector normalised by V_dc.
+  //     SVM normalises by V_dc and adds the (already normalised) DTC term.
   // -------------------------------------------------------------------------
-  const system::ThreePhase<unit::DimensionlessRatio> duties = svm.calculate(u_ab_norm);
+  const system::ThreePhase<unit::DimensionlessRatio> duties = svm.CalculateWithDeadTimeCompensation(u_ab, unit::Voltage{v_dc}, dtc_ratio);
 
   // -------------------------------------------------------------------------
   // 12. Write normalized duties through the hardware boundary.

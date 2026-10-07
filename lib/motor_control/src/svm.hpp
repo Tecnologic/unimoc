@@ -14,20 +14,14 @@
 #pragma once
 
 #include <algorithm>
-#include <array>
-#include <concepts>
 #include "nvm_settings.hpp"
 #include "stator_system.hpp"
 #include "three_phase_system.hpp"
 
-/**
- * @namespace unimoc global namespace
- */
-namespace unimoc {
-/**
+  /**
  * @namespace control control algorithms namespace
  */
-namespace control {
+namespace unimoc::control {
 
 using namespace unit;
 
@@ -43,10 +37,11 @@ using namespace unit;
  *   a value of 1.0 represents V_dc.  The full linear SVPWM range corresponds to
  *   a vector magnitude of 1/√3 ≈ 0.577.
  * - The zero-sequence offset is chosen so that the sum of the three duty cycles
- *   is always 1.5 (each centred around 0.5), giving centred / symmetric PWM.
+ *   is 1.5 before clamping (each centred around 0.5), giving centred / symmetric PWM.
  * - After centring the output duty cycles are clamped to [duty_min, duty_max]
  *   (default 5 % … 95 %) to leave headroom for current measurement and dead-time
- *   compensation without preloading the timer counter.
+ *   compensation without preloading the timer counter.  Clamping breaks the
+ *   sum of 1.5 when the reference exceeds the linear range.
  */
 struct Svm {
   /// Minimum duty cycle (keeps time for ADC sampling and dead-time headroom).
@@ -59,46 +54,65 @@ struct Svm {
    *
    * @param settings Validated NVM settings.
    */
-  constexpr void init(const settings::NvmSettings& settings) noexcept {
+  constexpr void Init(const settings::NvmSettings& settings) noexcept {
     duty_min = settings.svm_duty_min;
     duty_max = settings.svm_duty_max;
   }
 
   /**
-   * @brief Compute three-phase duty cycles from a stationary-frame voltage vector.
+   * @brief Compute three-phase duty cycles from phase voltage references.
    *
-   * @param v  Voltage vector with alpha/beta components normalised by V_dc.
+   * @param phase_ratios  Phase voltage references normalised by V_dc.
    * @return   Three-phase duty cycles [0, 1] clamped to [duty_min, duty_max].
    */
-  [[nodiscard]] constexpr system::ThreePhase<unit::DimensionlessRatio> calculate(const system::Stator<unit::DimensionlessRatio>& v) const noexcept {
-    // --- Inverse Clarke (amplitude-invariant) ---
-    // Transforms the α/β reference into three phase-voltage references.
-    const auto phase_voltages = v.ToThreePhase();
-    unit::DimensionlessRatio va = phase_voltages.a;
-    unit::DimensionlessRatio vb = phase_voltages.b;
-    unit::DimensionlessRatio vc = phase_voltages.c;
+  [[nodiscard]] constexpr system::ThreePhase<unit::DimensionlessRatio> Calculate(const system::ThreePhase<unit::DimensionlessRatio>& phase_ratios) const noexcept {
+    unit::DimensionlessRatio phase_ratio_a = phase_ratios.a;
+    unit::DimensionlessRatio phase_ratio_b = phase_ratios.b;
+    unit::DimensionlessRatio phase_ratio_c = phase_ratios.c;
 
     // --- Zero-sequence injection for centred SVM ---
     // The zero-sequence component centres the modulated waveforms so that the
     // mid-point of (max + min) is always at 0.  Adding it to each phase shifts
     // all duties to be symmetric around 0.5.
-    unit::DimensionlessRatio vmax = std::max({va, vb, vc});
-    unit::DimensionlessRatio vmin = std::min({va, vb, vc});
-    unit::DimensionlessRatio v0 = (vmax + vmin) * -0.5F;
+    unit::DimensionlessRatio ratio_max = std::max({phase_ratio_a, phase_ratio_b, phase_ratio_c});
+    unit::DimensionlessRatio ratio_min = std::min({phase_ratio_a, phase_ratio_b, phase_ratio_c});
+    unit::DimensionlessRatio ratio_mid = (ratio_max + ratio_min) * -0.5F;
 
     // Convert phase voltages [-0.5, 0.5] → duty cycles [0, 1]
-    unit::DimensionlessRatio da = 0.5_ratio + va + v0;
-    unit::DimensionlessRatio db = 0.5_ratio + vb + v0;
-    unit::DimensionlessRatio dc = 0.5_ratio + vc + v0;
+    unit::DimensionlessRatio duty_a = 0.5_ratio + phase_ratio_a + ratio_mid;
+    unit::DimensionlessRatio duty_b = 0.5_ratio + phase_ratio_b + ratio_mid;
+    unit::DimensionlessRatio duty_c = 0.5_ratio + phase_ratio_c + ratio_mid;
 
     // --- Clamp to [duty_min, duty_max] ---
-    da = da.Clamp(duty_min.Value(), duty_max.Value());
-    db = db.Clamp(duty_min.Value(), duty_max.Value());
-    dc = dc.Clamp(duty_min.Value(), duty_max.Value());
+    duty_a = duty_a.Clamp(duty_min.Value(), duty_max.Value());
+    duty_b = duty_b.Clamp(duty_min.Value(), duty_max.Value());
+    duty_c = duty_c.Clamp(duty_min.Value(), duty_max.Value());
 
-    return system::ThreePhase<unit::DimensionlessRatio>{da, db, dc};
+    return system::ThreePhase<unit::DimensionlessRatio>{duty_a, duty_b, duty_c};
+  }
+
+  /**
+   * @brief Compute duty cycles from an alpha/beta voltage, the DC-link voltage and a dead-time correction.
+   *
+   * Normalises with a single reciprocal, adds the correction, applies the inverse
+   * Clarke transform and modulates.
+   *
+   * @param voltage         Stationary-frame voltage vector.
+   * @param dc_link_voltage DC-link voltage; values below 1 V are treated as 1 V to avoid division by zero.
+   * @param dead_time_ratio Dead-time compensation in the alpha/beta frame, already normalised by V_dc.
+   * @return   Three-phase duty cycles [0, 1] clamped to [duty_min, duty_max].
+   */
+  [[nodiscard]] constexpr system::ThreePhase<unit::DimensionlessRatio> CalculateWithDeadTimeCompensation(
+      const system::Stator<unit::Voltage>& voltage,
+      unit::Voltage dc_link_voltage,
+      const system::Stator<unit::DimensionlessRatio>& dead_time_ratio) const noexcept {
+
+    const float kInverseDcVoltage = 1.0F / std::max(dc_link_voltage.Value(), 1.0F);
+    const system::Stator<unit::DimensionlessRatio> kVoltageRatio{(voltage.alpha.Value() * kInverseDcVoltage) + dead_time_ratio.alpha.Value(),
+                                                                 (voltage.beta.Value() * kInverseDcVoltage) + dead_time_ratio.beta.Value()};
+
+    return Calculate(kVoltageRatio.ToThreePhase());
   }
 };
 
-}  // namespace control
-}  // namespace unimoc
+}  // namespace unimoc::control
