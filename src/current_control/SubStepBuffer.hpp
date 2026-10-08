@@ -75,7 +75,7 @@ inline constexpr uint8_t NUM_SUB_STEPS = 4u;
 struct SubStepBuffer
 {
     /// Pre-computed sin/cos for each sub-step Park transform.
-    system::SinCos<unit::DimensionlessRatio> sc[NUM_SUB_STEPS]{};
+    system::SinCos<unit::Ratio> sc[NUM_SUB_STEPS]{};
 
     /// Stator-frame (α/β) current samples recorded by the ISR at each sub-step.
     system::Stator<unit::Current> i_ab_samples[NUM_SUB_STEPS]{};

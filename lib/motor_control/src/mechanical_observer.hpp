@@ -143,10 +143,10 @@ struct MechanicalObserver {
   // =========================================================================
 
   /// sin(θ̂) — ready for use in Park / inverse-Park transforms.
-  unit::DimensionlessRatio sin_theta{};
+  unit::Ratio sin_theta{};
 
   /// cos(θ̂) — ready for use in Park / inverse-Park transforms.
-  unit::DimensionlessRatio cos_theta{1.0_ratio};
+  unit::Ratio cos_theta{1.0_ratio};
 
   // =========================================================================
   // Kalman filter internal state  (covariance matrices)
@@ -222,8 +222,8 @@ struct MechanicalObserver {
     theta += unit::Angle{omega.Value() * dt.Value()};
     wrap_angle(theta);
 
-    sin_theta = unit::DimensionlessRatio{std::sin(theta.Value())};
-    cos_theta = unit::DimensionlessRatio{std::cos(theta.Value())};
+    sin_theta = unit::Ratio{std::sin(theta.Value())};
+    cos_theta = unit::Ratio{std::cos(theta.Value())};
   }
 
   /**
@@ -311,8 +311,8 @@ struct MechanicalObserver {
 
     wrap_angle(theta);
 
-    sin_theta = unit::DimensionlessRatio{std::sin(theta.Value())};
-    cos_theta = unit::DimensionlessRatio{std::cos(theta.Value())};
+    sin_theta = unit::Ratio{std::sin(theta.Value())};
+    cos_theta = unit::Ratio{std::cos(theta.Value())};
   }
 
   /**
@@ -337,8 +337,8 @@ struct MechanicalObserver {
 
     s = static_cast<T>(0);
 
-    sin_theta = unit::DimensionlessRatio{std::sin(theta.Value())};
-    cos_theta = unit::DimensionlessRatio{std::cos(theta.Value())};
+    sin_theta = unit::Ratio{std::sin(theta.Value())};
+    cos_theta = unit::Ratio{std::cos(theta.Value())};
   }
 
  private:

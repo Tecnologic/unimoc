@@ -5,7 +5,7 @@
 #include "field_weakening.hpp"
 #include "mtpa.hpp"
 
-using DimensionlessStator = unimoc::system::Stator<unimoc::unit::DimensionlessRatio>;
+using DimensionlessStator = unimoc::system::Stator<unimoc::unit::Ratio>;
 using CurrentStator = unimoc::system::Stator<unimoc::unit::Current>;
 using CurrentRotor = unimoc::system::Rotor<unimoc::unit::Current>;
 using VoltageRotor = unimoc::system::Rotor<unimoc::unit::Voltage>;

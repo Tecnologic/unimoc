@@ -1,7 +1,7 @@
 #include "svm.hpp"
 #include <gtest/gtest.h>
 
-using Stator = unimoc::system::Stator<unimoc::unit::DimensionlessRatio>;
+using Stator = unimoc::system::Stator<unimoc::unit::Ratio>;
 using Svm = unimoc::control::Svm;
 using namespace unimoc::unit;
 

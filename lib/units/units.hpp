@@ -57,7 +57,7 @@ struct FrequencyTag;
 /// Tag identifying inverse time, whose base unit is 1/s.
 struct InverseTimeTag;
 /// Tag identifying a dimensionless ratio, such as a sine or cosine result.
-struct DimensionlessRatioTag;
+struct RatioTag;
 /// Tag identifying voltage-per-current controller gains.
 struct VoltagePerCurrentTag;
 /// Tag identifying voltage-per-current-per-time controller gains.
@@ -279,7 +279,7 @@ using Frequency = Unit<float, std::ratio<1>, FrequencyTag>;
 /// Inverse time in reciprocal seconds (1/s).
 using InverseTime = Unit<float, std::ratio<1>, InverseTimeTag>;
 /// Dimensionless ratio, such as a sine or cosine result.
-using DimensionlessRatio = Unit<float, std::ratio<1>, DimensionlessRatioTag>;
+using Ratio = Unit<float, std::ratio<1>, RatioTag>;
 /// Voltage per current gain [V/A].
 using VoltagePerCurrent = Unit<float, std::ratio<1>, VoltagePerCurrentTag>;
 /// Voltage per current per time gain [V/(A s)].
@@ -352,7 +352,7 @@ constexpr Unit<Rep, Period, Tag> operator/(const Unit<Rep, Period, Tag>& lhs, co
  */
 template <typename Rep, typename P1, typename P2, typename Tag>
 constexpr auto operator/(const Unit<Rep, P1, Tag>& lhs, const Unit<Rep, P2, Tag>& rhs) {
-  return Unit<Rep, std::ratio_divide<P1, P2>, DimensionlessRatioTag>(lhs.Value() / rhs.Value());
+  return Unit<Rep, std::ratio_divide<P1, P2>, RatioTag>(lhs.Value() / rhs.Value());
 }
 
 /**
@@ -360,7 +360,7 @@ constexpr auto operator/(const Unit<Rep, P1, Tag>& lhs, const Unit<Rep, P2, Tag>
  * @return A unit with the original tag and period.
  */
 template <typename Rep, typename P, typename Tag>
-constexpr auto operator*(const Unit<Rep, P, Tag>& unit, const DimensionlessRatio& ratio) {
+constexpr auto operator*(const Unit<Rep, P, Tag>& unit, const Ratio& ratio) {
   return Unit<Rep, P, Tag>(unit.Value() * ratio.Value());
 }
 
@@ -369,7 +369,7 @@ constexpr auto operator*(const Unit<Rep, P, Tag>& unit, const DimensionlessRatio
  * @return A unit with the original unit's tag and period.
  */
 template <typename Rep, typename P, typename Tag>
-constexpr auto operator*(const DimensionlessRatio& ratio, const Unit<Rep, P, Tag>& unit) {
+constexpr auto operator*(const Ratio& ratio, const Unit<Rep, P, Tag>& unit) {
   return unit * ratio;  // Commutative
 }
 
@@ -378,7 +378,7 @@ constexpr auto operator*(const DimensionlessRatio& ratio, const Unit<Rep, P, Tag
  * @return A unit with the original tag and period.
  */
 template <typename Rep, typename P, typename Tag>
-constexpr auto operator/(const Unit<Rep, P, Tag>& unit, const DimensionlessRatio& ratio) {
+constexpr auto operator/(const Unit<Rep, P, Tag>& unit, const Ratio& ratio) {
   return Unit<Rep, P, Tag>(unit.Value() / ratio.Value());
 }
 
@@ -1173,8 +1173,8 @@ constexpr InverseTime operator""_per_s(unsigned long long val) { return InverseT
  * @param val Ratio value.
  * @return A dimensionless ratio.
  */
-constexpr DimensionlessRatio operator""_ratio(long double val) { return DimensionlessRatio(static_cast<float>(val)); }
-constexpr DimensionlessRatio operator""_ratio(unsigned long long val) { return DimensionlessRatio(static_cast<float>(val)); }
+constexpr Ratio operator""_ratio(long double val) { return Ratio(static_cast<float>(val)); }
+constexpr Ratio operator""_ratio(unsigned long long val) { return Ratio(static_cast<float>(val)); }
 
 /**
  * @brief Creates a rotational inertia from a kilogram-square-metre literal.

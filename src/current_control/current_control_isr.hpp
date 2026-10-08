@@ -110,7 +110,7 @@ struct CurrentControlState {
   uint32_t adc_trigger_offset{168u};
 
   /// Most recently requested normalized phase duties.
-  system::ThreePhase<unit::DimensionlessRatio> phase_duties{0.5_ratio, 0.5_ratio, 0.5_ratio};
+  system::ThreePhase<unit::Ratio> phase_duties{0.5_ratio, 0.5_ratio, 0.5_ratio};
 
   /// Most-recent raw ADC samples; updated by every on_jeoc() call regardless
   /// of control mode. Safe to read from lower-priority contexts (e.g. the
@@ -313,12 +313,12 @@ class CurrentControlIsr {
 
   /// Fixed duty cycles applied to CCR1/2/3 while force_duty_active is true.
   /// Clamped to [svm.duty_min, svm.duty_max] by force_duty().
-  system::ThreePhase<unit::DimensionlessRatio> forced_duties{0.5_ratio, 0.5_ratio, 0.5_ratio};
+  system::ThreePhase<unit::Ratio> forced_duties{0.5_ratio, 0.5_ratio, 0.5_ratio};
 
  private:
   CurrentControlIsr() = default;
 
-  void set_phase_duties(const system::ThreePhase<unit::DimensionlessRatio>& duties) noexcept;
+  void set_phase_duties(const system::ThreePhase<unit::Ratio>& duties) noexcept;
 
   hardware::HardwareInterface* hardware_{nullptr};
 

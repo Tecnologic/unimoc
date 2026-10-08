@@ -129,7 +129,7 @@ bool Initialize(const unit::Frequency pwm_frequency,
   }
 
   pulse_width::SetAdcTriggerOffset(adc_trigger_offset);
-  pulse_width::SetPhaseDuties(system::ThreePhase<unit::DimensionlessRatio>{0.5_ratio, 0.5_ratio, 0.5_ratio});
+  pulse_width::SetPhaseDuties(system::ThreePhase<unit::Ratio>{0.5_ratio, 0.5_ratio, 0.5_ratio});
 
   // Initialize the ADCs last so the timer trigger and control state are ready
   // before the first conversion interrupt can be delivered.

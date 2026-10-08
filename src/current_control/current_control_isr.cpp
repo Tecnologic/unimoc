@@ -62,7 +62,7 @@ void CurrentControlIsr::init(const settings::NvmSettings& settings, hardware::Ha
   for (auto& buf : state.double_buf.buf) {
     for (uint8_t k = 0u; k < NUM_SUB_STEPS; ++k) {
       // phi_k = 0 + k × omega_init × dt_fast = 0 (omega = 0 at startup)
-      buf.sc[k] = system::SinCos<unit::DimensionlessRatio>(0.0_rad);
+      buf.sc[k] = system::SinCos<unit::Ratio>(0.0_rad);
     }
   }
 
@@ -72,7 +72,7 @@ void CurrentControlIsr::init(const settings::NvmSettings& settings, hardware::Ha
   sub_step_ = 0u;
   active_buf_snapshot_ = 0u;
   state.samples_ready = false;
-  state.phase_duties = system::ThreePhase<unit::DimensionlessRatio>{0.5_ratio, 0.5_ratio, 0.5_ratio};
+  state.phase_duties = system::ThreePhase<unit::Ratio>{0.5_ratio, 0.5_ratio, 0.5_ratio};
 }
 
 // =============================================================================
@@ -82,9 +82,9 @@ void CurrentControlIsr::init(const settings::NvmSettings& settings, hardware::Ha
 // This function is called from the ADC JEOC ISR at the highest configured IRQ
 // priority.  It must complete in well under one PWM half-period.
 //
-static bool duty_in_bounds(const unit::DimensionlessRatio duty,
-                           const unit::DimensionlessRatio duty_min,
-                           const unit::DimensionlessRatio duty_max) noexcept {
+static bool duty_in_bounds(const unit::Ratio duty,
+                           const unit::Ratio duty_min,
+                           const unit::Ratio duty_max) noexcept {
   return duty >= duty_min && duty <= duty_max;
 }
 
@@ -132,7 +132,7 @@ void CurrentControlIsr::on_jeoc() noexcept {
   }
   const uint8_t ab = active_buf_snapshot_;
   SubStepBuffer& sb = state.double_buf.buf[ab];
-  const system::SinCos<unit::DimensionlessRatio>& sc = sb.sc[sub_step_];
+  const system::SinCos<unit::Ratio>& sc = sb.sc[sub_step_];
 
   // -------------------------------------------------------------------------
   // 3. Boundary guard — skip current PI and write neutral duties when any
@@ -140,11 +140,11 @@ void CurrentControlIsr::on_jeoc() noexcept {
   //    insufficient PWM headroom for voltage injection).
   // -------------------------------------------------------------------------
   {
-    const system::ThreePhase<unit::DimensionlessRatio> applied_duties = hardware_->GetPhaseDuties();
+    const system::ThreePhase<unit::Ratio> applied_duties = hardware_->GetPhaseDuties();
     if (!duty_in_bounds(applied_duties.a, svm.duty_min, svm.duty_max) || !duty_in_bounds(applied_duties.b, svm.duty_min, svm.duty_max) ||
         !duty_in_bounds(applied_duties.c, svm.duty_min, svm.duty_max)) {
       // Write safe neutral duties (50 %) and skip this control update.
-      set_phase_duties(system::ThreePhase<unit::DimensionlessRatio>{0.5_ratio, 0.5_ratio, 0.5_ratio});
+      set_phase_duties(system::ThreePhase<unit::Ratio>{0.5_ratio, 0.5_ratio, 0.5_ratio});
       sub_step_ = (sub_step_ + 1u) & 3u;
       if (sub_step_ == 0u) {
         state.samples_ready = true;
@@ -196,13 +196,13 @@ void CurrentControlIsr::on_jeoc() noexcept {
   // -------------------------------------------------------------------------
   // 10. Dead-time compensation (adds a correction in the α/β frame)
   // -------------------------------------------------------------------------
-  const system::Stator<unit::DimensionlessRatio> dtc_ratio = dtc.calculate(i_ab);
+  const system::Stator<unit::Ratio> dtc_ratio = dtc.calculate(i_ab);
 
   // -------------------------------------------------------------------------
   // 11. Space-vector modulation → normalised duties [0, 1]
   //     SVM normalises by V_dc and adds the (already normalised) DTC term.
   // -------------------------------------------------------------------------
-  const system::ThreePhase<unit::DimensionlessRatio> duties = svm.CalculateWithDeadTimeCompensation(u_ab, unit::Voltage{v_dc}, dtc_ratio);
+  const system::ThreePhase<unit::Ratio> duties = svm.CalculateWithDeadTimeCompensation(u_ab, unit::Voltage{v_dc}, dtc_ratio);
 
   // -------------------------------------------------------------------------
   // 12. Write normalized duties through the hardware boundary.
@@ -223,9 +223,9 @@ void CurrentControlIsr::on_jeoc() noexcept {
 // =============================================================================
 
 void CurrentControlIsr::force_duty(float da, float db, float dc) noexcept {
-  forced_duties.a = unit::DimensionlessRatio{da}.Clamp(svm.duty_min.Value(), svm.duty_max.Value());
-  forced_duties.b = unit::DimensionlessRatio{db}.Clamp(svm.duty_min.Value(), svm.duty_max.Value());
-  forced_duties.c = unit::DimensionlessRatio{dc}.Clamp(svm.duty_min.Value(), svm.duty_max.Value());
+  forced_duties.a = unit::Ratio{da}.Clamp(svm.duty_min.Value(), svm.duty_max.Value());
+  forced_duties.b = unit::Ratio{db}.Clamp(svm.duty_min.Value(), svm.duty_max.Value());
+  forced_duties.c = unit::Ratio{dc}.Clamp(svm.duty_min.Value(), svm.duty_max.Value());
   force_duty_active = true;
 }
 
@@ -247,7 +247,7 @@ void CurrentControlIsr::set_adc_trigger_offset(uint32_t offset) noexcept {
   if (hardware_ != nullptr) hardware_->SetAdcTriggerOffset(offset);
 }
 
-void CurrentControlIsr::set_phase_duties(const system::ThreePhase<unit::DimensionlessRatio>& duties) noexcept {
+void CurrentControlIsr::set_phase_duties(const system::ThreePhase<unit::Ratio>& duties) noexcept {
   state.phase_duties = duties;
   if (hardware_ != nullptr) hardware_->SetPhaseDuties(duties);
 }

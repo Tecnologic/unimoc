@@ -143,7 +143,7 @@ struct PositionController {
   // -------------------------------------------------------------------------
 
   /// Speed loop proportional gain [(rad/s) per (rad/s)].
-  unit::DimensionlessRatio kp_speed{5.0_ratio};
+  unit::Ratio kp_speed{5.0_ratio};
 
   /// Speed loop integral gain [(rad/s) per (rad/s²)].
   unit::InverseTime ki_speed{20.0_per_s};

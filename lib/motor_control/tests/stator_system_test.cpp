@@ -5,8 +5,8 @@
 #include "rotor_system.hpp"
 #include "three_phase_system.hpp"
 
-using Stator = unimoc::system::Stator<unimoc::unit::DimensionlessRatio>;
-using Rotor = unimoc::system::Rotor<unimoc::unit::DimensionlessRatio>;
+using Stator = unimoc::system::Stator<unimoc::unit::Ratio>;
+using Rotor = unimoc::system::Rotor<unimoc::unit::Ratio>;
 using RotorAngle = unimoc::system::RotorAngle;
 using namespace unimoc::unit;
 

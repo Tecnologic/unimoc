@@ -74,7 +74,7 @@ bool SlowUpdate::run_once() noexcept {
 
   // Stack copies from the old half (ISR now writes only to new_active).
   system::Stator<unit::Current> i_ab_snap[NUM_SUB_STEPS];
-  system::SinCos<unit::DimensionlessRatio> sc_snap[NUM_SUB_STEPS];
+  system::SinCos<unit::Ratio> sc_snap[NUM_SUB_STEPS];
 
   for (uint8_t k = 0u; k < NUM_SUB_STEPS; ++k) {
     i_ab_snap[k] = old_buf.i_ab_samples[k];
@@ -152,7 +152,7 @@ bool SlowUpdate::run_once() noexcept {
 
   for (uint8_t k = 0u; k < NUM_SUB_STEPS; ++k) {
     const float phi_k = theta_now + static_cast<float>(k) * omega_now * dt_fast;
-    new_buf.sc[k] = system::SinCos<unit::DimensionlessRatio>(unit::Angle{phi_k});
+    new_buf.sc[k] = system::SinCos<unit::Ratio>(unit::Angle{phi_k});
   }
 
   return true;

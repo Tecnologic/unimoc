@@ -104,7 +104,7 @@ struct ExcitationController {
   // -------------------------------------------------------------------------
 
   /// Proportional gain K_p [1] for the current-reference loop.
-  unit::DimensionlessRatio kp{5.0_ratio};
+  unit::Ratio kp{5.0_ratio};
 
   /// Integral gain K_i [1/s].
   unit::InverseTime ki{50.0_per_s};

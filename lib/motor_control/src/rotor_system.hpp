@@ -38,7 +38,7 @@ namespace unimoc::system
  *
  * @tparam T UNIMOC unit type used for the d and q components.
  */
-template <unimoc::unit::UnitLike T = unimoc::unit::DimensionlessRatio>
+template <unimoc::unit::UnitLike T = unimoc::unit::Ratio>
 struct Rotor
 {
 	/// Unit representation type used by each component.
@@ -212,7 +212,7 @@ struct Rotor
 	 * @return The vector in the stationary alpha/beta reference frame.
 	 */
 	[[nodiscard]] constexpr Stator<T>
-	ToStator(const SinCos<unit::DimensionlessRatio> &sin_cos) const noexcept
+	ToStator(const SinCos<unit::Ratio> &sin_cos) const noexcept
 	{
 		const Representation kSin = sin_cos.sin.Value();
 		const Representation kCos = sin_cos.cos.Value();

@@ -28,7 +28,7 @@
 #include <cmath>
 #include <concepts>
 
-using ThreePhase = unimoc::system::ThreePhase<unimoc::unit::DimensionlessRatio>;
+using ThreePhase = unimoc::system::ThreePhase<unimoc::unit::Ratio>;
 using namespace unimoc::unit;
 
 static_assert(unimoc::unit::UnitLike<unimoc::unit::Current>);

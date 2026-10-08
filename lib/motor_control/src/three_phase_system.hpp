@@ -36,7 +36,7 @@ namespace unimoc::system
  *
  * @tparam T UNIMOC unit type used for phases A, B, and C.
  */
-template <unimoc::unit::UnitLike T = unimoc::unit::DimensionlessRatio>
+template <unimoc::unit::UnitLike T = unimoc::unit::Ratio>
 struct ThreePhase
 {
 	/// Unit representation type used by each phase.

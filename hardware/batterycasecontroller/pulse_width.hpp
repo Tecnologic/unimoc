@@ -46,12 +46,12 @@ bool Initialize(unit::Frequency pwm_frequency, HardwareInterface::SlowUpdateCall
  * @brief Sets the phase duties for the motor control.
  * @param duties The phase duties to set, represented as a ThreePhase structure.
  */
-void SetPhaseDuties(const system::ThreePhase<unit::DimensionlessRatio>& duties) noexcept;
+void SetPhaseDuties(const system::ThreePhase<unit::Ratio>& duties) noexcept;
 
 /**
  * @brief Reads the currently applied normalized PWM duties.
  */
-system::ThreePhase<unit::DimensionlessRatio> GetPhaseDuties() noexcept;
+system::ThreePhase<unit::Ratio> GetPhaseDuties() noexcept;
 
 /**
  * @brief Sets the timer compare value used to trigger ADC conversion.

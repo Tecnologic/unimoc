@@ -3,8 +3,8 @@
 #include <concepts>
 #include "rotor_angle.hpp"
 
-using Rotor = unimoc::system::Rotor<unimoc::unit::DimensionlessRatio>;
-using Stator = unimoc::system::Stator<unimoc::unit::DimensionlessRatio>;
+using Rotor = unimoc::system::Rotor<unimoc::unit::Ratio>;
+using Stator = unimoc::system::Stator<unimoc::unit::Ratio>;
 using RotorAngle = unimoc::system::RotorAngle;
 
 class RotorSystemTest : public ::testing::Test {};

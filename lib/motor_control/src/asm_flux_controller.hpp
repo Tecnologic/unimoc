@@ -155,7 +155,7 @@ struct AsmFluxController {
     // a near-zero measured flux during start-up.
     if (psi_r_ref > unit::MagneticFlux{1.0_uWb}) {
       const unit::Time rotor_time_constant = L_r / R_r;
-      const unit::DimensionlessRatio slip_ratio = L_m * i_q / psi_r_ref;
+      const unit::Ratio slip_ratio = L_m * i_q / psi_r_ref;
       omega_slip = (slip_ratio * unit::Angle{1.0F}) / rotor_time_constant;
     } else {
       omega_slip = unit::AngularVelocity{};

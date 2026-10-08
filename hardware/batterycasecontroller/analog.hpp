@@ -122,7 +122,7 @@ float GetBridgeTemperature() noexcept;
  * @brief Sets the phase duties for the motor control.
  * @param duties The phase duties to set, represented as a ThreePhase structure.
  */
-void SetPhaseDuties(const system::ThreePhase<unit::DimensionlessRatio>& duties) noexcept;
+void SetPhaseDuties(const system::ThreePhase<unit::Ratio>& duties) noexcept;
 
 }  // namespace analog
 }  // namespace hardware

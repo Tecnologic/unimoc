@@ -115,7 +115,7 @@ struct PositionTracker {
   unit::Angle position_rad{};
 
   /// Absolute mechanical shaft position referenced to home [revolutions].
-  unit::DimensionlessRatio position_rev{};
+  unit::Ratio position_rev{};
 
   /**
    * @brief Update the position tracker.
@@ -148,7 +148,7 @@ struct PositionTracker {
     const T raw_rad = (static_cast<T>(turns) * two_pi + theta) / static_cast<T>(pole_pairs);
 
     position_rad = unit::Angle{raw_rad - home_offset_rad.Value()};
-    position_rev = unit::DimensionlessRatio{position_rad.Value() / two_pi};
+    position_rev = unit::Ratio{position_rad.Value() / two_pi};
   }
 
   /**
@@ -165,7 +165,7 @@ struct PositionTracker {
 
     home_offset_rad = unit::Angle{(static_cast<T>(turns) * two_pi + theta_prev.Value()) / static_cast<T>(pole_pairs)};
     position_rad = unit::Angle{};
-    position_rev = unit::DimensionlessRatio{};
+    position_rev = unit::Ratio{};
     is_homed = true;
   }
 
@@ -181,7 +181,7 @@ struct PositionTracker {
     home_offset_rad = unit::Angle{};
     is_homed = false;
     position_rad = unit::Angle{};
-    position_rev = unit::DimensionlessRatio{};
+    position_rev = unit::Ratio{};
   }
 };
 

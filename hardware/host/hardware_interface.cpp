@@ -91,11 +91,11 @@ static CurrentControlSamples GetCurrentControlSamplesStub() noexcept {
 
 static TemperatureMeasurements GetTemperatureMeasurementsStub() noexcept { return TemperatureMeasurements{}; }
 
-static system::ThreePhase<unit::DimensionlessRatio> phase_duties_shadow{0.5_ratio, 0.5_ratio, 0.5_ratio};
+static system::ThreePhase<unit::Ratio> phase_duties_shadow{0.5_ratio, 0.5_ratio, 0.5_ratio};
 
-static system::ThreePhase<unit::DimensionlessRatio> GetPhaseDutiesStub() noexcept { return phase_duties_shadow; }
+static system::ThreePhase<unit::Ratio> GetPhaseDutiesStub() noexcept { return phase_duties_shadow; }
 
-static void SetPhaseDutiesStub(const system::ThreePhase<unit::DimensionlessRatio>& duties) noexcept { phase_duties_shadow = duties; }
+static void SetPhaseDutiesStub(const system::ThreePhase<unit::Ratio>& duties) noexcept { phase_duties_shadow = duties; }
 
 static void SetAdcTriggerOffsetStub([[maybe_unused]] uint32_t offset) noexcept {}
 

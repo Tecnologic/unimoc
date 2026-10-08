@@ -146,7 +146,7 @@ struct CurrentController {
   /// Maximum voltage vector magnitude as a fraction of V_dc (range (0, 1]).
   /// Typically set to 0.9 to preserve SVM headroom and avoid over-modulation.
   /// The actual voltage limit applied inside update() is v_max * v_dc [V].
-  unit::DimensionlessRatio v_max{0.9_ratio};
+  unit::Ratio v_max{0.9_ratio};
 
   // =========================================================================
   // Integrator state

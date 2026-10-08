@@ -76,7 +76,7 @@ constexpr std::int64_t RoundToInt64(float value) noexcept { return static_cast<s
  * @brief Holds the sine and cosine of one angle.
  * @tparam Representation Numeric representation used by both values.
  */
-template <typename Representation = unit::DimensionlessRatio>
+template <typename Representation = unit::Ratio>
 struct SinCos {
   /// Sine of the angle.
   Representation sin{0.0F};
@@ -134,7 +134,7 @@ struct SinCos {
  */
 struct PortableSinCosProvider {
   /// Result type returned by this provider.
-  using Result = SinCos<unit::DimensionlessRatio>;
+  using Result = SinCos<unit::Ratio>;
 
   /**
    * @brief Calculates sine and cosine from a raw Q1.31 phase.
@@ -152,7 +152,7 @@ struct PortableSinCosProvider {
         detail::LinearInterpolate(kTable[detail::kSinTableQuarterSize], kTable[detail::kSinTableQuarterSize + 1U], kInterpolationFactor);
     const float kNormalization = 1.5F - (0.5F * ((kSinValue * kSinValue) + (kCosValue * kCosValue)));
 
-    return Result{unit::DimensionlessRatio{kSinValue * kNormalization}, unit::DimensionlessRatio{kCosValue * kNormalization}};
+    return Result{unit::Ratio{kSinValue * kNormalization}, unit::Ratio{kCosValue * kNormalization}};
   }
 
   /**
@@ -186,8 +186,8 @@ struct PortableSinCosProvider {
 template <typename Provider>
 concept SinCosProvider = requires(const Provider kProvider, std::int32_t raw) {
   typename Provider::Result;
-  requires std::same_as<typename Provider::Result, SinCos<unit::DimensionlessRatio>>;
-  { kProvider.Calculate(raw) } -> std::same_as<SinCos<unit::DimensionlessRatio>>;
+  requires std::same_as<typename Provider::Result, SinCos<unit::Ratio>>;
+  { kProvider.Calculate(raw) } -> std::same_as<SinCos<unit::Ratio>>;
 };
 
 static_assert(SinCosProvider<PortableSinCosProvider>);
@@ -200,7 +200,7 @@ static_assert(SinCosProvider<PortableSinCosProvider>);
  * @return The provider result.
  */
 template <SinCosProvider Provider>
-[[nodiscard]] constexpr SinCos<unit::DimensionlessRatio> GenerateSinCos(const Provider& provider, std::int32_t raw) noexcept {
+[[nodiscard]] constexpr SinCos<unit::Ratio> GenerateSinCos(const Provider& provider, std::int32_t raw) noexcept {
   return provider.Calculate(raw);
 }
 

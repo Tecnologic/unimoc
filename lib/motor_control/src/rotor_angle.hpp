@@ -136,13 +136,13 @@ class RotorAngle {
    * @brief Returns the sine of the angle inside the current revolution.
    * @return The interpolated sine value.
    */
-  [[nodiscard]] constexpr unit::DimensionlessRatio Sin() const noexcept { return sin_; }
+  [[nodiscard]] constexpr unit::Ratio Sin() const noexcept { return sin_; }
 
   /**
    * @brief Returns the cosine of the angle inside the current revolution.
    * @return The interpolated cosine value.
    */
-  [[nodiscard]] constexpr unit::DimensionlessRatio Cos() const noexcept { return cos_; }
+  [[nodiscard]] constexpr unit::Ratio Cos() const noexcept { return cos_; }
 
   /**
    * @brief Advances this angle by an offset.
@@ -227,8 +227,8 @@ class RotorAngle {
   /** @brief Recomputes sine and cosine from the lookup table. */
   constexpr void UpdateSinCos() noexcept {
     const auto kSinCos = GenerateSinCos(PortableSinCosProvider{}, raw_);
-    sin_ = unit::DimensionlessRatio(kSinCos.sin);
-    cos_ = unit::DimensionlessRatio(kSinCos.cos);
+    sin_ = unit::Ratio(kSinCos.sin);
+    cos_ = unit::Ratio(kSinCos.cos);
   }
 
   /// Q1.31 phase inside the current revolution.
@@ -236,9 +236,9 @@ class RotorAngle {
   /// Number of completed revolutions.
   std::int32_t revolutions_{0};
   /// Sine of the phase inside the current revolution.
-  unit::DimensionlessRatio sin_{0.0F};
+  unit::Ratio sin_{0.0F};
   /// Cosine of the phase inside the current revolution.
-  unit::DimensionlessRatio cos_{1.0F};
+  unit::Ratio cos_{1.0F};
 };
 
 }  // namespace unimoc::system

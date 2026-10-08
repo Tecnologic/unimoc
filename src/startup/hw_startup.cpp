@@ -719,9 +719,9 @@ void HwStartup::run_done() noexcept {
 
   const settings::SettingsStatus commit_status = settings_operations_.ApplyAdcCalibration(unit::Current{results.adc_offset_a},
                                                                                         unit::Current{results.adc_offset_b},
-                                                                                        unit::DimensionlessRatio{gain_a},
-                                                                                        unit::DimensionlessRatio{gain_b},
-                                                                                        unit::DimensionlessRatio{gain_vdc});
+                                                                                        unit::Ratio{gain_a},
+                                                                                        unit::Ratio{gain_b},
+                                                                                        unit::Ratio{gain_vdc});
   if (commit_status != settings::SettingsStatus::kSuccess) {
     enter_fault("failed to persist calibration settings");
     return;

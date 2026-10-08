@@ -31,9 +31,9 @@ using namespace unit;
 template <typename Numerator, typename Denominator>
 concept Dividable = requires(Numerator numerator, Denominator denominator) { numerator / denominator; };
 
-TEST(ControlObserverUnitsTest, RejectsDimensionlessRatioPerTime) {
-  static_assert(!Dividable<unit::DimensionlessRatio, unit::Time>);
-  static_assert(std::is_same_v<decltype((unit::DimensionlessRatio{} * unit::Angle{}) / unit::Time{}), unit::AngularVelocity>);
+TEST(ControlObserverUnitsTest, RejectsRatioPerTime) {
+  static_assert(!Dividable<unit::Ratio, unit::Time>);
+  static_assert(std::is_same_v<decltype((unit::Ratio{} * unit::Angle{}) / unit::Time{}), unit::AngularVelocity>);
 }
 
 TEST(ControlObserverUnitsTest, MechanicalObserverUsesUnitTypes) {

@@ -311,7 +311,7 @@ struct NvmSettings {
   /// modulator.  Typically set slightly below the SVM duty_max to preserve
   /// headroom for dead-time compensation and ADC sampling.
   /// Register: `unimoc.control.current.v_max`
-  unit::DimensionlessRatio current_v_max{0.9_ratio};
+  unit::Ratio current_v_max{0.9_ratio};
 
   // =========================================================================
   // SVM modulator
@@ -319,11 +319,11 @@ struct NvmSettings {
 
   /// Minimum duty cycle (headroom for ADC + dead-time).
   /// Register: `unimoc.control.svm.duty_min`
-  unit::DimensionlessRatio svm_duty_min{0.05_ratio};
+  unit::Ratio svm_duty_min{0.05_ratio};
 
   /// Maximum duty cycle.
   /// Register: `unimoc.control.svm.duty_max`
-  unit::DimensionlessRatio svm_duty_max{0.95_ratio};
+  unit::Ratio svm_duty_max{0.95_ratio};
 
   // =========================================================================
   // Dead-time compensation
@@ -367,7 +367,7 @@ struct NvmSettings {
 
   /// Proportional gain [V/A].
   /// Register: `unimoc.control.excitation.kp`
-  unit::DimensionlessRatio excitation_kp{5.0_ratio};
+  unit::Ratio excitation_kp{5.0_ratio};
 
   /// Integral gain [V/(A·s)].
   /// Register: `unimoc.control.excitation.ki`
@@ -403,7 +403,7 @@ struct NvmSettings {
 
   /// Speed loop proportional gain.
   /// Register: `unimoc.control.pos.kp_speed`
-  unit::DimensionlessRatio pos_kp_speed{5.0_ratio};
+  unit::Ratio pos_kp_speed{5.0_ratio};
 
   /// Speed loop integral gain.
   /// Register: `unimoc.control.pos.ki_speed`
@@ -449,16 +449,16 @@ struct NvmSettings {
   /// Phase-A current-sense ADC gain correction factor [dimensionless].
   /// Apply as: i_cal_a = (i_raw_a - adc_offset_a) * adc_gain_a.
   /// Register: `unimoc.startup.gain_a`
-  unit::DimensionlessRatio adc_gain_a{1.0_ratio};
+  unit::Ratio adc_gain_a{1.0_ratio};
 
   /// Phase-B current-sense ADC gain correction factor [dimensionless].
   /// Register: `unimoc.startup.gain_b`
-  unit::DimensionlessRatio adc_gain_b{1.0_ratio};
+  unit::Ratio adc_gain_b{1.0_ratio};
 
   /// DC-link voltage ADC gain correction factor [dimensionless].
   /// Apply as: v_cal = v_raw * adc_gain_vdc.
   /// Register: `unimoc.startup.gain_vdc`
-  unit::DimensionlessRatio adc_gain_vdc{1.0_ratio};
+  unit::Ratio adc_gain_vdc{1.0_ratio};
 
   // =========================================================================
   // Phase current balance correction
@@ -471,15 +471,15 @@ struct NvmSettings {
 
   /// Phase-A ADC gain correction factor [dimensionless, ≈ 1.0].
   /// Register: `unimoc.motor.balance.gain_a`
-  unit::DimensionlessRatio phase_balance_a{1.0_ratio};
+  unit::Ratio phase_balance_a{1.0_ratio};
 
   /// Phase-B ADC gain correction factor [dimensionless, ≈ 1.0].
   /// Register: `unimoc.motor.balance.gain_b`
-  unit::DimensionlessRatio phase_balance_b{1.0_ratio};
+  unit::Ratio phase_balance_b{1.0_ratio};
 
   /// Phase-C ADC gain correction factor [dimensionless, ≈ 1.0].
   /// Register: `unimoc.motor.balance.gain_c`
-  unit::DimensionlessRatio phase_balance_c{1.0_ratio};
+  unit::Ratio phase_balance_c{1.0_ratio};
 
   // =========================================================================
   // Validation and safety clamping

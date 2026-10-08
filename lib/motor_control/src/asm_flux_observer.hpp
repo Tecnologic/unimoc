@@ -150,9 +150,9 @@ struct AsmFluxObserver {
   unit::Angle flux_angle{};
 
   /// sin(θ_flux) — ready for field-oriented transforms.
-  unit::DimensionlessRatio sin_flux{};
+  unit::Ratio sin_flux{};
   /// cos(θ_flux) — ready for field-oriented transforms.
-  unit::DimensionlessRatio cos_flux{1.0_ratio};
+  unit::Ratio cos_flux{1.0_ratio};
 
   /**
    * @brief Run one observer step and update the MechanicalObserver PLL.
@@ -210,8 +210,8 @@ struct AsmFluxObserver {
     // --- Compute flux magnitude and angle ---
     flux_magnitude = unit::MagneticFlux{std::sqrt(psi_r_alpha.Value() * psi_r_alpha.Value() + psi_r_beta.Value() * psi_r_beta.Value())};
     flux_angle = unit::Angle{std::atan2(psi_r_beta.Value(), psi_r_alpha.Value())};
-    sin_flux = unit::DimensionlessRatio{std::sin(flux_angle.Value())};
-    cos_flux = unit::DimensionlessRatio{std::cos(flux_angle.Value())};
+    sin_flux = unit::Ratio{std::sin(flux_angle.Value())};
+    cos_flux = unit::Ratio{std::cos(flux_angle.Value())};
 
     // --- Feed flux angle into MechanicalObserver PLL ---
     //
@@ -237,7 +237,7 @@ struct AsmFluxObserver {
     psi_r_beta = unit::MagneticFlux{};
     flux_magnitude = unit::MagneticFlux{};
     flux_angle = unit::Angle{};
-    sin_flux = unit::DimensionlessRatio{};
+    sin_flux = unit::Ratio{};
     cos_flux = 1.0_ratio;
   }
 

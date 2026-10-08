@@ -137,8 +137,8 @@ struct Hfi {
    * @param cos_th  cos(θ̂) from MechanicalObserver.
    * @return        Injection voltage in the α/β frame [V].
    */
-  [[nodiscard]] constexpr system::Stator<unit::Voltage> get_injection_voltage(const unit::DimensionlessRatio sin_th,
-                                                                              const unit::DimensionlessRatio cos_th) const noexcept {
+  [[nodiscard]] constexpr system::Stator<unit::Voltage> get_injection_voltage(const unit::Ratio sin_th,
+                                                                              const unit::Ratio cos_th) const noexcept {
     // d-axis unit vector in α/β: [cos θ̂, sin θ̂]
     // q-axis unit vector in α/β: [−sin θ̂, cos θ̂]
 
@@ -187,8 +187,8 @@ struct Hfi {
    * @param mech_obs  Reference to the mechanical observer that owns the PLL.
    */
   constexpr void update(const system::Stator<unit::Current>& i_ab,
-                        const unit::DimensionlessRatio sin_th,
-                        const unit::DimensionlessRatio cos_th,
+                        const unit::Ratio sin_th,
+                        const unit::Ratio cos_th,
                         const unit::Time dt,
                         MechanicalObserver<T>& mech_obs) noexcept {
     // Park transform: α/β → estimated d/q

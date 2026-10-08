@@ -115,7 +115,7 @@ namespace settings_store_internal {
       settings.pos_position_tolerance.Value() < 0.0F || settings.pos_speed_tolerance.Value() < 0.0F)
     return SettingsStatus::kOutOfRange;
 
-  const auto IsRatio = [](const unit::DimensionlessRatio value) { return value.Value() >= 0.0F && value.Value() <= 1.0F; };
+  const auto IsRatio = [](const unit::Ratio value) { return value.Value() >= 0.0F && value.Value() <= 1.0F; };
   if (settings.fw_v_max.Value() < 0.0F || !IsRatio(settings.current_v_max) || !IsRatio(settings.svm_duty_min) || !IsRatio(settings.svm_duty_max) ||
       settings.svm_duty_min > settings.svm_duty_max || settings.adc_gain_a.Value() <= 0.0F || settings.adc_gain_b.Value() <= 0.0F ||
       settings.adc_gain_vdc.Value() <= 0.0F || settings.phase_balance_a.Value() <= 0.0F || settings.phase_balance_b.Value() <= 0.0F ||
@@ -201,9 +201,9 @@ class SettingsOperations {
    */
   SettingsStatus ApplyAdcCalibration(unit::Current offset_a,
                                      unit::Current offset_b,
-                                     unit::DimensionlessRatio gain_a,
-                                     unit::DimensionlessRatio gain_b,
-                                     unit::DimensionlessRatio gain_vdc) const;
+                                     unit::Ratio gain_a,
+                                     unit::Ratio gain_b,
+                                     unit::Ratio gain_vdc) const;
 
   /**
    * @brief Returns the immutable hardware capabilities used for validation.
@@ -342,9 +342,9 @@ inline SettingsStatus SettingsOperations::SetNodeName(std::string_view name) con
 
 inline SettingsStatus SettingsOperations::ApplyAdcCalibration(unit::Current offset_a,
                                                               unit::Current offset_b,
-                                                              unit::DimensionlessRatio gain_a,
-                                                              unit::DimensionlessRatio gain_b,
-                                                              unit::DimensionlessRatio gain_vdc) const {
+                                                              unit::Ratio gain_a,
+                                                              unit::Ratio gain_b,
+                                                              unit::Ratio gain_vdc) const {
   return Update([=](NvmSettings& settings) {
     settings.adc_offset_a = offset_a;
     settings.adc_offset_b = offset_b;

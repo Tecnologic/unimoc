@@ -45,7 +45,7 @@ struct ThreePhase;
  *
  * @tparam T UNIMOC unit type used for the alpha and beta components.
  */
-template <unimoc::unit::UnitLike T = unimoc::unit::DimensionlessRatio>
+template <unimoc::unit::UnitLike T = unimoc::unit::Ratio>
 struct Stator
 {
 	/// Unit representation type used by each component.
@@ -229,7 +229,7 @@ struct Stator
 	 * @return The vector in the rotating d/q reference frame.
 	 */
 	[[nodiscard]] constexpr Rotor<T>
-	ToRotor(const SinCos<unit::DimensionlessRatio> &sin_cos) const noexcept
+	ToRotor(const SinCos<unit::Ratio> &sin_cos) const noexcept
 	{
 		const Representation kSin = sin_cos.sin.Value();
 		const Representation kCos = sin_cos.cos.Value();

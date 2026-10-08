@@ -129,21 +129,21 @@ constexpr uint16_t dutyCycleToCompareValue(float dutyCycle, uint16_t period) noe
 }
 
 //! \brief Sets the PWM duty cycles for the three phases (A, B, C).
-void SetPhaseDuties(const system::ThreePhase<unit::DimensionlessRatio>& duties) noexcept {
+void SetPhaseDuties(const system::ThreePhase<unit::Ratio>& duties) noexcept {
   Timer8::setCompareValue<GpioOutputB6::Ch1>(dutyCycleToCompareValue(duties.a.Value(), Timer8::getOverflow()));
   Timer8::setCompareValue<GpioOutputB8::Ch2>(dutyCycleToCompareValue(duties.b.Value(), Timer8::getOverflow()));
   Timer8::setCompareValue<GpioOutputB9::Ch3>(dutyCycleToCompareValue(duties.c.Value(), Timer8::getOverflow()));
 }
 
-system::ThreePhase<unit::DimensionlessRatio> GetPhaseDuties() noexcept {
+system::ThreePhase<unit::Ratio> GetPhaseDuties() noexcept {
   const auto overflow = Timer8::getOverflow();
   if (overflow == 0u) {
-    return system::ThreePhase<unit::DimensionlessRatio>{0.5_ratio, 0.5_ratio, 0.5_ratio};
+    return system::ThreePhase<unit::Ratio>{0.5_ratio, 0.5_ratio, 0.5_ratio};
   }
   const float scale = 1.0F / static_cast<float>(overflow);
-  return system::ThreePhase<unit::DimensionlessRatio>{unit::DimensionlessRatio{static_cast<float>(Timer8::getCompareValue(1u)) * scale},
-                                                      unit::DimensionlessRatio{static_cast<float>(Timer8::getCompareValue(2u)) * scale},
-                                                      unit::DimensionlessRatio{static_cast<float>(Timer8::getCompareValue(3u)) * scale}};
+  return system::ThreePhase<unit::Ratio>{unit::Ratio{static_cast<float>(Timer8::getCompareValue(1u)) * scale},
+                                                      unit::Ratio{static_cast<float>(Timer8::getCompareValue(2u)) * scale},
+                                                      unit::Ratio{static_cast<float>(Timer8::getCompareValue(3u)) * scale}};
 }
 
 void SetAdcTriggerOffset(const uint32_t offset) noexcept {

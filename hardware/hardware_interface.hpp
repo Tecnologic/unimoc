@@ -92,8 +92,8 @@ class HardwareInterface {
   using GetPhaseVoltagesCallback = system::ThreePhase<unit::Voltage> (*)() noexcept;
   using GetCurrentControlSamplesCallback = CurrentControlSamples (*)() noexcept;
   using GetTemperatureMeasurementsCallback = TemperatureMeasurements (*)() noexcept;
-  using GetPhaseDutiesCallback = system::ThreePhase<unit::DimensionlessRatio> (*)() noexcept;
-  using SetPhaseDutiesCallback = void (*)(const system::ThreePhase<unit::DimensionlessRatio>&) noexcept;
+  using GetPhaseDutiesCallback = system::ThreePhase<unit::Ratio> (*)() noexcept;
+  using SetPhaseDutiesCallback = void (*)(const system::ThreePhase<unit::Ratio>&) noexcept;
   using SetAdcTriggerOffsetCallback = void (*)(uint32_t) noexcept;
   using GetTimerClockFrequencyCallback = uint32_t (*)() noexcept;
 
@@ -169,13 +169,13 @@ class HardwareInterface {
   /**
    * @brief Reads the currently applied normalized PWM duties.
    */
-  [[nodiscard]] system::ThreePhase<unit::DimensionlessRatio> GetPhaseDuties() const noexcept { return get_phase_duties_(); }
+  [[nodiscard]] system::ThreePhase<unit::Ratio> GetPhaseDuties() const noexcept { return get_phase_duties_(); }
 
   /**
    * @brief Writes the three phase PWM duties.
    * @param duties Normalized duties for phases A, B, and C.
    */
-  void SetPhaseDuties(const system::ThreePhase<unit::DimensionlessRatio>& duties) const noexcept { set_phase_duties_(duties); }
+  void SetPhaseDuties(const system::ThreePhase<unit::Ratio>& duties) const noexcept { set_phase_duties_(duties); }
 
   /**
    * @brief Updates the timer compare value that triggers ADC conversion.

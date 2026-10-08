@@ -17,7 +17,7 @@ constexpr float kPi = std::numbers::pi_v<float>;
 constexpr float kTwoPi = 2.0F * kPi;
 
 struct TestProvider {
-  using Result = unimoc::system::SinCos<unimoc::unit::DimensionlessRatio>;
+  using Result = unimoc::system::SinCos<unimoc::unit::Ratio>;
 
   [[nodiscard]] static constexpr Result Calculate(std::int32_t kRaw) noexcept {
     static_cast<void>(kRaw);
@@ -50,7 +50,7 @@ TEST(PortableSinCosProviderTest, MatchesStandardLibrary) {
 }
 
 TEST(PortableSinCosProviderTest, AngleValueUsesPortableProvider) {
-  const unimoc::system::SinCos<unimoc::unit::DimensionlessRatio> kResult{0.5_rad};
+  const unimoc::system::SinCos<unimoc::unit::Ratio> kResult{0.5_rad};
   const auto kExpected = PortableSinCosProvider::Calculate(0.5_rad);
 
   EXPECT_FLOAT_EQ(kResult.sin.Value(), kExpected.sin.Value());

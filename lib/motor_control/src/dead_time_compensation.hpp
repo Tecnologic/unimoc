@@ -92,7 +92,7 @@ struct DeadTimeCompensation
      * @return      Compensation voltage vector (normalised by V_dc) to add to
      *              the α/β voltage reference.
      */
-    [[nodiscard]] constexpr system::Stator<unit::DimensionlessRatio>
+    [[nodiscard]] constexpr system::Stator<unit::Ratio>
     calculate(const system::Stator<unit::Current>& i_ab) const noexcept
     {
         // --- Reconstruct three-phase currents from α/β ---
@@ -106,9 +106,9 @@ struct DeadTimeCompensation
         // --- Soft sign function: clamp(i / threshold, -1, +1) ---
         // This provides linear interpolation through zero, preventing chattering.
         const T threshold = i_threshold.Value();
-        T sign_a = unit::DimensionlessRatio{ia / threshold}.Clamp(static_cast<T>(-1), static_cast<T>(1)).Value();
-        T sign_b = unit::DimensionlessRatio{ib / threshold}.Clamp(static_cast<T>(-1), static_cast<T>(1)).Value();
-        T sign_c = unit::DimensionlessRatio{ic / threshold}.Clamp(static_cast<T>(-1), static_cast<T>(1)).Value();
+        T sign_a = unit::Ratio{ia / threshold}.Clamp(static_cast<T>(-1), static_cast<T>(1)).Value();
+        T sign_b = unit::Ratio{ib / threshold}.Clamp(static_cast<T>(-1), static_cast<T>(1)).Value();
+        T sign_c = unit::Ratio{ic / threshold}.Clamp(static_cast<T>(-1), static_cast<T>(1)).Value();
 
         // Normalised per-phase voltage error: sign · t_dead · f_pwm
         T dt_norm = dead_time.Value() * f_pwm.Value();
@@ -122,7 +122,7 @@ struct DeadTimeCompensation
         T d_alpha = two_thirds * (dva - static_cast<T>(0.5) * dvb - static_cast<T>(0.5) * dvc);
         T d_beta  = two_thirds * (k * dvb - k * dvc);
 
-        return system::Stator<unit::DimensionlessRatio>{d_alpha, d_beta};
+        return system::Stator<unit::Ratio>{d_alpha, d_beta};
     }
 };
 
