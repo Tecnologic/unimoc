@@ -15,7 +15,7 @@ IncludeBlocks: Merge
 
 CommentPragmas: '(@copydoc|@copybrief|@see|@overload|@snippet)'
 
-ColumnLimit: 150
+ColumnLimit: 110
 BinPackArguments: false
 BinPackParameters: false
 PenaltyBreakBeforeFirstCallParameter: 1000

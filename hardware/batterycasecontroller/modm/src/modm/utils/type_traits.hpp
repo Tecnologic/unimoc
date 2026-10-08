@@ -8,62 +8,53 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/.
  */
 
-namespace modm
-{
+namespace modm {
 
 /// @cond
-namespace impl
-{
-	// Deduce signature from member function type
-	// e.g. gives R(Args...) for R(T::*)(Args...) const
-	template<typename F>
-	struct mem_fn_helper;
+namespace impl {
+// Deduce signature from member function type
+// e.g. gives R(Args...) for R(T::*)(Args...) const
+template <typename F>
+struct mem_fn_helper;
 
-	template<typename T, typename R, typename... Args>
-	struct mem_fn_helper<R(T::*)(Args...)>
-	{
-		using type = R(Args...);
-	};
+template <typename T, typename R, typename... Args>
+struct mem_fn_helper<R (T::*)(Args...)> {
+  using type = R(Args...);
+};
 
-	template<typename T, typename R, typename... Args>
-	struct mem_fn_helper<R(T::*)(Args...) const>
-	{
-		using type = R(Args...);
-	};
+template <typename T, typename R, typename... Args>
+struct mem_fn_helper<R (T::*)(Args...) const> {
+  using type = R(Args...);
+};
 
-	template<typename T, typename R, typename... Args>
-	struct mem_fn_helper<R(T::*)(Args...) &>
-	{
-		using type = R(Args...);
-	};
+template <typename T, typename R, typename... Args>
+struct mem_fn_helper<R (T::*)(Args...) &> {
+  using type = R(Args...);
+};
 
-	template<typename T, typename R, typename... Args>
-	struct mem_fn_helper<R(T::*)(Args...) const&>
-	{
-		using type = R(Args...);
-	};
-}
+template <typename T, typename R, typename... Args>
+struct mem_fn_helper<R (T::*)(Args...) const&> {
+  using type = R(Args...);
+};
+}  // namespace impl
 
-template<typename F>
+template <typename F>
 struct get_callable_signature;
 
-template<typename R, typename... Args>
-struct get_callable_signature<R(*)(Args...)>
-{
-    using type = R(Args...);
+template <typename R, typename... Args>
+struct get_callable_signature<R (*)(Args...)> {
+  using type = R(Args...);
 };
 
-template<typename R, typename... Args>
-struct get_callable_signature<R(Args...)>
-{
-    using type = R(Args...);
+template <typename R, typename... Args>
+struct get_callable_signature<R(Args...)> {
+  using type = R(Args...);
 };
 
-template<typename F>
-    requires requires { &F::operator(); }
-struct get_callable_signature<F>
-{
-    using type = typename impl::mem_fn_helper<decltype(&F::operator())>::type;
+template <typename F>
+  requires requires { &F::operator(); }
+struct get_callable_signature<F> {
+  using type = typename impl::mem_fn_helper<decltype(&F::operator())>::type;
 };
 /// @endcond
 
@@ -82,4 +73,4 @@ struct get_callable_signature<F>
 template <typename T>
 using get_callable_signature_t = typename get_callable_signature<T>::type;
 
-}
+}  // namespace modm

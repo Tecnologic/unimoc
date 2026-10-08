@@ -16,84 +16,58 @@
 #define MODM_IODEVICE_WRAPPER_HPP
 
 #include <stdint.h>
-
 #include "iodevice.hpp"
 
-namespace modm
-{
+namespace modm {
 
 /// The preferred behavior when the IODevice buffer is full
 /// @ingroup	modm_io
-enum class
-IOBuffer
-{
-	DiscardIfFull,
-	BlockIfFull
-};
+enum class IOBuffer { DiscardIfFull, BlockIfFull };
 
 /**
  * @ingroup		modm_io
  * @tparam		Device		Peripheral which should be wrapped
  * @tparam		behavior	preferred behavior when the Device buffer is full
  */
-template< class Device, IOBuffer behavior >
-class IODeviceWrapper : public IODevice
-{
-public:
-	IODeviceWrapper() = default;
-	using IODevice::write;
+template <class Device, IOBuffer behavior>
+class IODeviceWrapper : public IODevice {
+ public:
+  IODeviceWrapper() = default;
+  using IODevice::write;
 
-	void
-	write(char c) override
-	{
-		if constexpr (behavior == IOBuffer::BlockIfFull)
-			while (not Device::write(uint8_t(c))) ;
-		else Device::write(uint8_t(c));
-	}
+  void write(char c) override {
+    if constexpr (behavior == IOBuffer::BlockIfFull)
+      while (not Device::write(uint8_t(c)));
+    else
+      Device::write(uint8_t(c));
+  }
 
-	void
-	flush() override
-	{
-		Device::flushWriteBuffer();
-	}
+  void flush() override { Device::flushWriteBuffer(); }
 
-	bool
-	read(char& c) override
-	{
-		return Device::read(reinterpret_cast<uint8_t&>(c));
-	}
+  bool read(char& c) override { return Device::read(reinterpret_cast<uint8_t&>(c)); }
 };
 
 /// @ingroup modm_io
-template< class Device, IOBuffer behavior >
-class IODeviceObjectWrapper : public IODevice
-{
-	Device &device;
-public:
-	IODeviceObjectWrapper(Device& device) : device{device} {}
-	using IODevice::write;
+template <class Device, IOBuffer behavior>
+class IODeviceObjectWrapper : public IODevice {
+  Device& device;
 
-	void
-	write(char c) override
-	{
-		if constexpr (behavior == IOBuffer::BlockIfFull)
-			while (not device.write(uint8_t(c))) ;
-		else device.write(uint8_t(c));
-	}
+ public:
+  IODeviceObjectWrapper(Device& device) : device{device} {}
+  using IODevice::write;
 
-	void
-	flush() override
-	{
-		device.flushWriteBuffer();
-	}
+  void write(char c) override {
+    if constexpr (behavior == IOBuffer::BlockIfFull)
+      while (not device.write(uint8_t(c)));
+    else
+      device.write(uint8_t(c));
+  }
 
-	bool
-	read(char& c) override
-	{
-		return device.read(reinterpret_cast<uint8_t&>(c));
-	}
+  void flush() override { device.flushWriteBuffer(); }
+
+  bool read(char& c) override { return device.read(reinterpret_cast<uint8_t&>(c)); }
 };
 
-}
+}  // namespace modm
 
-#endif // MODM_IODEVICE_WRAPPER_HPP
+#endif  // MODM_IODEVICE_WRAPPER_HPP

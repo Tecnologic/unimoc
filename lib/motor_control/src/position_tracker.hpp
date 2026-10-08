@@ -163,7 +163,8 @@ struct PositionTracker {
   constexpr void set_home(const int pole_pairs) noexcept {
     constexpr T two_pi = static_cast<T>(2) * std::numbers::pi_v<T>;
 
-    home_offset_rad = unit::Angle{(static_cast<T>(turns) * two_pi + theta_prev.Value()) / static_cast<T>(pole_pairs)};
+    home_offset_rad =
+        unit::Angle{(static_cast<T>(turns) * two_pi + theta_prev.Value()) / static_cast<T>(pole_pairs)};
     position_rad = unit::Angle{};
     position_rev = unit::Ratio{};
     is_homed = true;

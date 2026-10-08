@@ -13,7 +13,6 @@
 #define MODM_INTERFACE_HPP
 
 #include <stdint.h>
-
 #include "interface/accessor.hpp"
 #include "interface/accessor_flash.hpp"
 #include "interface/accessor_ram.hpp"
@@ -26,7 +25,7 @@
 #include "interface/fiber.hpp"
 #include "interface/gpio.hpp"
 #include "interface/interrupt.hpp"
-#include "interface/register.hpp"
 #include "interface/peripheral.hpp"
+#include "interface/register.hpp"
 
-#endif	// MODM_INTERFACE_HPP
+#endif  // MODM_INTERFACE_HPP

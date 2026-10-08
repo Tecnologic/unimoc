@@ -11,14 +11,13 @@
  */
 // ----------------------------------------------------------------------------
 
-#include "../device.hpp"
 #include <modm/architecture/interface/interrupt.hpp>
+#include "../device.hpp"
 
 // this should be able to be generated instead of using Macros for this.
 #include "adc_interrupt_1.hpp"
 #include "adc_interrupt_2.hpp"
-MODM_ISR(ADC1_2)
-{
-	modm::platform::AdcInterrupt1::handler();
-	modm::platform::AdcInterrupt2::handler();
+MODM_ISR(ADC1_2) {
+  modm::platform::AdcInterrupt1::handler();
+  modm::platform::AdcInterrupt2::handler();
 }

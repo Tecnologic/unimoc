@@ -204,7 +204,9 @@ struct MechanicalObserver {
     const T tsj = dt.Value() / J.Value();
 
     // Electric torque: T_e = (3/2) · [ψ_PM · i_q + (L_d − L_q) · i_d · i_q]
-    m_el = unit::Torque{static_cast<T>(1.5) * (psi.Value() * i_dq.q.Value() + (L_d.Value() - L_q.Value()) * i_dq.d.Value() * i_dq.q.Value())};
+    m_el =
+        unit::Torque{static_cast<T>(1.5) * (psi.Value() * i_dq.q.Value() +
+                                            (L_d.Value() - L_q.Value()) * i_dq.d.Value() * i_dq.q.Value())};
 
     // Integrate angular velocity
     omega += unit::AngularVelocity{tsj * (m_el.Value() - m_l.Value())};
@@ -324,7 +326,8 @@ struct MechanicalObserver {
    * @param theta_init  Initial electrical angle.
    * @param omega_init  Initial electrical angular velocity.
    */
-  constexpr void reset(const unit::Angle theta_init = unit::Angle{}, const unit::AngularVelocity omega_init = unit::AngularVelocity{}) noexcept {
+  constexpr void reset(const unit::Angle theta_init = unit::Angle{},
+                       const unit::AngularVelocity omega_init = unit::AngularVelocity{}) noexcept {
     omega = omega_init;
     theta = theta_init;
     m_l = unit::Torque{};

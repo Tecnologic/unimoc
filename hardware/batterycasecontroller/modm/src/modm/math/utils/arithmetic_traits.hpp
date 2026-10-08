@@ -18,140 +18,138 @@
 #ifndef MODM_ARITHMETIC_TRAITS_HPP
 #define MODM_ARITHMETIC_TRAITS_HPP
 
+#include <cmath>
 #include <cstdint>
 #include <limits>
 #include <type_traits>
-#include <cmath>
 
-namespace modm
-{
+namespace modm {
 
 /// @cond
-namespace detail
-{
-	// type trait to determine next possibly larger int type
-	// char <= short <= int <= long <= long long
-	template<typename T>
-	struct NextInt
-	{ using type = T; };
+namespace detail {
+// type trait to determine next possibly larger int type
+// char <= short <= int <= long <= long long
+template <typename T>
+struct NextInt {
+  using type = T;
+};
 
-	// char is a distinct type, not identical with signed char or unsigned char
-	template<>
-	struct NextInt<char>
-	{
-		using type = std::conditional_t<
-			std::is_signed_v<char>,
-			short,
-			unsigned short
-		>;
-	};
+// char is a distinct type, not identical with signed char or unsigned char
+template <>
+struct NextInt<char> {
+  using type = std::conditional_t<std::is_signed_v<char>, short, unsigned short>;
+};
 
-	template<>
-	struct NextInt<signed char>
-	{ using type = short; };
+template <>
+struct NextInt<signed char> {
+  using type = short;
+};
 
-	template<>
-	struct NextInt<unsigned char>
-	{ using type = unsigned short; };
+template <>
+struct NextInt<unsigned char> {
+  using type = unsigned short;
+};
 
-	template<>
-	struct NextInt<short>
-	{ using type = int; };
+template <>
+struct NextInt<short> {
+  using type = int;
+};
 
-	template<>
-	struct NextInt<unsigned short>
-	{ using type = unsigned int; };
+template <>
+struct NextInt<unsigned short> {
+  using type = unsigned int;
+};
 
-	template<>
-	struct NextInt<int>
-	{ using type = long; };
+template <>
+struct NextInt<int> {
+  using type = long;
+};
 
-	template<>
-	struct NextInt<unsigned int>
-	{ using type = unsigned long; };
+template <>
+struct NextInt<unsigned int> {
+  using type = unsigned long;
+};
 
-	template<>
-	struct NextInt<long>
-	{ using type = long long; };
+template <>
+struct NextInt<long> {
+  using type = long long;
+};
 
-	template<>
-	struct NextInt<unsigned long>
-	{ using type = unsigned long long; };
+template <>
+struct NextInt<unsigned long> {
+  using type = unsigned long long;
+};
 
-	// ------------------------------------------------------------------------
+// ------------------------------------------------------------------------
 
-	// implement WideType<T>
-	template<typename T>
-	struct WideType
-	{ using type = T; };
+// implement WideType<T>
+template <typename T>
+struct WideType {
+  using type = T;
+};
 
-	template<>
-	struct WideType<bool>
-	{ using type = char; };
+template <>
+struct WideType<bool> {
+  using type = char;
+};
 
-	template<>
-	struct WideType<long long>
-	{ using type = double; };
+template <>
+struct WideType<long long> {
+  using type = double;
+};
 
-	template<>
-	struct WideType<unsigned long long>
-	{ using type = double; };
+template <>
+struct WideType<unsigned long long> {
+  using type = double;
+};
 
-	template<typename T, typename = std::enable_if_t<
-		std::is_integral_v<T> && !std::is_same_v<std::decay_t<T>, bool>
-	> >
-	using enable_if_int = T;
+template <typename T,
+          typename = std::enable_if_t<std::is_integral_v<T> && !std::is_same_v<std::decay_t<T>, bool>>>
+using enable_if_int = T;
 
-	template<typename T>
-	struct WideType<enable_if_int<T>>
-	{
-		static constexpr bool isNextIntLarger =
-			std::numeric_limits<typename NextInt<T>::type>::max() > std::numeric_limits<T>::max();
+template <typename T>
+struct WideType<enable_if_int<T>> {
+  static constexpr bool isNextIntLarger = std::numeric_limits<typename NextInt<T>::type>::max() >
+                                          std::numeric_limits<T>::max();
 
-		using type = std::conditional_t<
-			isNextIntLarger,
-			typename NextInt<T>::type,
-			typename WideType<typename NextInt<T>::type>::type
-		>;
-	};
+  using type = std::conditional_t<isNextIntLarger,
+                                  typename NextInt<T>::type,
+                                  typename WideType<typename NextInt<T>::type>::type>;
+};
 
-	// ------------------------------------------------------------------------
+// ------------------------------------------------------------------------
 
-	template<typename T>
-	struct MakeSigned
-	{
-		using type = T;
-	};
+template <typename T>
+struct MakeSigned {
+  using type = T;
+};
 
-	template<typename T>
-	struct MakeSigned<enable_if_int<T>>
-	{
-		using type = std::make_signed_t<T>;
-	};
+template <typename T>
+struct MakeSigned<enable_if_int<T>> {
+  using type = std::make_signed_t<T>;
+};
 
-	template<typename T>
-	struct MakeUnsigned
-	{
-		using type = T;
-	};
+template <typename T>
+struct MakeUnsigned {
+  using type = T;
+};
 
-	template<typename T>
-	struct MakeUnsigned<enable_if_int<T>>
-	{
-		using type = std::make_unsigned_t<T>;
-	};
-}
+template <typename T>
+struct MakeUnsigned<enable_if_int<T>> {
+  using type = std::make_unsigned_t<T>;
+};
+}  // namespace detail
 /// @endcond
 
 /// @ingroup modm_math_utils
 /// @{
-template<typename T>
+template <typename T>
 using WideType = typename detail::WideType<T>::type;
 
-template<typename T>
+template <typename T>
 using SignedType = typename detail::MakeSigned<T>::type;
 
-template<typename T>
+template <typename T>
 using UnsignedType = typename detail::MakeUnsigned<T>::type;
 
 /**
@@ -175,17 +173,15 @@ using UnsignedType = typename detail::MakeUnsigned<T>::type;
  * constexpr unsigned char digits = modm::ArithmeticTraits<T>::decimalDigits;
  * @endcode
  */
-template<typename T>
-struct ArithmeticTraits
-{
-	static constexpr bool isInteger = std::is_integral_v<T>
-		&& !std::is_same_v<std::decay_t<T>, bool>;
+template <typename T>
+struct ArithmeticTraits {
+  static constexpr bool isInteger = std::is_integral_v<T> && !std::is_same_v<std::decay_t<T>, bool>;
 
-	static constexpr unsigned char decimalDigits =
-		std::ceil(std::numeric_limits<T>::digits * log10(2)) + (std::is_signed_v<T> ? 1 : 0);
+  static constexpr unsigned char decimalDigits =
+      std::ceil(std::numeric_limits<T>::digits * log10(2)) + (std::is_signed_v<T> ? 1 : 0);
 };
 /// @}
 
-} // namespace modm
+}  // namespace modm
 
-#endif	// MODM_ARITHMETIC_TRAITS_HPP
+#endif  // MODM_ARITHMETIC_TRAITS_HPP

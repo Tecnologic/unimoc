@@ -14,37 +14,30 @@
 #include <stdint.h>
 #include <cstdlib>
 
-namespace modm
-{
+namespace modm {
 
 /// @ingroup modm_math_utils
 /// @{
 
-constexpr uint32_t
-fromBcd(uint32_t bcd)
-{
-	uint32_t decimal = 0;
-	for (uint16_t multiplier = 1; bcd; multiplier *= 10)
-	{
-		decimal += (bcd & 0b1111) * multiplier;
-		bcd >>= 4;
-	}
-	return decimal;
+constexpr uint32_t fromBcd(uint32_t bcd) {
+  uint32_t decimal = 0;
+  for (uint16_t multiplier = 1; bcd; multiplier *= 10) {
+    decimal += (bcd & 0b1111) * multiplier;
+    bcd >>= 4;
+  }
+  return decimal;
 }
 
-constexpr uint32_t
-toBcd(uint32_t decimal)
-{
-	uint32_t bcd = 0;
-	for (uint16_t shift = 0; decimal; shift += 4)
-	{
-		const auto dv = std::div(decimal, 10l);
-		bcd |= dv.rem << shift;
-		decimal = dv.quot;
-	}
-	return bcd;
+constexpr uint32_t toBcd(uint32_t decimal) {
+  uint32_t bcd = 0;
+  for (uint16_t shift = 0; decimal; shift += 4) {
+    const auto dv = std::div(decimal, 10l);
+    bcd |= dv.rem << shift;
+    decimal = dv.quot;
+  }
+  return bcd;
 }
 
 /// @}
 
-} // namespace modm
+}  // namespace modm

@@ -21,12 +21,17 @@
 namespace unimoc {
 namespace startup {
 
-void LogInfo(const char* const message) noexcept { hardware::runtime.Log(hardware::LogLevel::kInfo, message); }
+void LogInfo(const char* const message) noexcept {
+  hardware::runtime.Log(hardware::LogLevel::kInfo, message);
+}
 
-void LogWarning(const char* const message) noexcept { hardware::runtime.Log(hardware::LogLevel::kWarning, message); }
+void LogWarning(const char* const message) noexcept {
+  hardware::runtime.Log(hardware::LogLevel::kWarning, message);
+}
 
 #if defined(__GNUC__) || defined(__clang__)
-void LogFormatted(const hardware::LogLevel level, const char* const format, ...) noexcept __attribute__((format(printf, 2, 3)));
+void LogFormatted(const hardware::LogLevel level, const char* const format, ...) noexcept
+    __attribute__((format(printf, 2, 3)));
 #else
 void LogFormatted(const hardware::LogLevel level, const char* const format, ...) noexcept;
 #endif
@@ -304,7 +309,8 @@ void HwStartup::run_adc_offset_cal() noexcept {
 
       if (!pass) {
         LogFormatted(hardware::LogLevel::kWarning,
-                     "[STARTUP] ADC offset exceeds threshold (%f A). Check op-amp supply, resistors, and PCB connections.\n",
+                     "[STARTUP] ADC offset exceeds threshold (%f A). Check op-amp supply, resistors, and PCB "
+                     "connections.\n",
                      static_cast<double>(offset_threshold_A));
       }
 
@@ -333,7 +339,8 @@ void HwStartup::run_adc_noise_floor() noexcept {
       results.adc_noise_rms_a = (var_a > 0.0f) ? std::sqrt(var_a) : 0.0f;
       results.adc_noise_rms_b = (var_b > 0.0f) ? std::sqrt(var_b) : 0.0f;
 
-      const bool pass = (results.adc_noise_rms_a < noise_threshold_A) && (results.adc_noise_rms_b < noise_threshold_A);
+      const bool pass =
+          (results.adc_noise_rms_a < noise_threshold_A) && (results.adc_noise_rms_b < noise_threshold_A);
 
       results.passed[static_cast<uint8_t>(FsmState::ADC_NOISE_FLOOR)] = pass;
 
@@ -345,7 +352,8 @@ void HwStartup::run_adc_noise_floor() noexcept {
 
       if (!pass) {
         LogFormatted(hardware::LogLevel::kWarning,
-                     "[STARTUP] ADC noise exceeds threshold (%f A). Check decoupling caps, layout, and ground paths.\n",
+                     "[STARTUP] ADC noise exceeds threshold (%f A). Check decoupling caps, layout, and "
+                     "ground paths.\n",
                      static_cast<double>(noise_threshold_A));
       }
 
@@ -425,7 +433,8 @@ void HwStartup::run_dc_link_voltage_check() noexcept {
 
     if (!pass) {
       LogFormatted(hardware::LogLevel::kWarning,
-                   "[STARTUP] V_dc gain error exceeds %f %%. Check voltage-divider resistors on V_dc sense circuit.\n"
+                   "[STARTUP] V_dc gain error exceeds %f %%. Check voltage-divider resistors on V_dc sense "
+                   "circuit.\n"
                    "[STARTUP] Suggested correction factor: %f\n",
                    static_cast<double>(vdc_gain_tolerance * 100.0f),
                    static_cast<double>(results.gain_vdc));
@@ -436,7 +445,8 @@ void HwStartup::run_dc_link_voltage_check() noexcept {
   } else if (sample_count_ == N_CAL) {
     // Log the "waiting" prompt exactly once (bump sample_count_ as sentinel).
     LogFormatted(hardware::LogLevel::kInfo,
-                 "[STARTUP] DC_LINK_VOLTAGE_CHECK: adc_vdc=%f V. Enter multimeter reading via unimoc.startup.ext_vdc_V, "
+                 "[STARTUP] DC_LINK_VOLTAGE_CHECK: adc_vdc=%f V. Enter multimeter reading via "
+                 "unimoc.startup.ext_vdc_V, "
                  "then press NEXT.\n",
                  static_cast<double>(measured_vdc));
     ++sample_count_;
@@ -503,7 +513,9 @@ void HwStartup::run_gate_driver_enable_check() noexcept {
                  pass ? "PASS" : "FAIL");
 
     if (!pass) {
-      LogWarning("[STARTUP] Gate-driver response smaller than 2x noise floor. Check gate-enable GPIO and driver power supply.\n");
+      LogWarning(
+          "[STARTUP] Gate-driver response smaller than 2x noise floor. Check gate-enable GPIO and driver "
+          "power supply.\n");
     }
 
     // Reset flag for potential re-run
@@ -607,11 +619,14 @@ void HwStartup::run_phase_adc_alignment() noexcept {
                  pass ? "PASS" : "FAIL");
 
     if (!pass) {
-      LogWarning("[STARTUP] Could not find a clean ADC sampling window. Check PWM frequency, ADC trigger timing, and hardware layout.\n");
+      LogWarning(
+          "[STARTUP] Could not find a clean ADC sampling window. Check PWM frequency, ADC trigger timing, "
+          "and hardware layout.\n");
     }
 
     LogFormatted(hardware::LogLevel::kInfo,
-                 "[STARTUP] Suggest writing adc_trigger_offset=%u to NvmSettings to persist the optimal offset.\n"
+                 "[STARTUP] Suggest writing adc_trigger_offset=%u to NvmSettings to persist the optimal "
+                 "offset.\n"
                  "[STARTUP] Press NEXT to continue.\n",
                  static_cast<unsigned int>(optimal_ticks));
 
@@ -672,8 +687,8 @@ void HwStartup::run_current_sense_calibration() noexcept {
       results.gain_a = (std::abs(mean_ia) > 1e-4f) ? (mean_ia / ext_current_A_) : 0.0f;
       results.gain_b = (std::abs(mean_ib) > 1e-4f) ? (mean_ib / (-ext_current_A_ * 0.5f)) : 0.0f;
 
-      const bool pass =
-          (std::abs(results.gain_a - 1.0f) < gain_tolerance) && (results.gain_b > 1e-4f && std::abs(results.gain_b - 1.0f) < gain_tolerance);
+      const bool pass = (std::abs(results.gain_a - 1.0f) < gain_tolerance) &&
+                        (results.gain_b > 1e-4f && std::abs(results.gain_b - 1.0f) < gain_tolerance);
 
       results.passed[static_cast<uint8_t>(FsmState::CURRENT_SENSE_CALIBRATION)] = pass;
 
@@ -686,7 +701,8 @@ void HwStartup::run_current_sense_calibration() noexcept {
 
       if (!pass) {
         LogFormatted(hardware::LogLevel::kWarning,
-                     "[STARTUP] Gain error exceeds %f %%. Check voltage-divider and op-amp gain resistors for current-sense channels.\n"
+                     "[STARTUP] Gain error exceeds %f %%. Check voltage-divider and op-amp gain resistors "
+                     "for current-sense channels.\n"
                      "[STARTUP] Correction factors: adc_gain_a=%f, adc_gain_b=%f\n",
                      static_cast<double>(gain_tolerance * 100.0f),
                      static_cast<double>(1.0f / results.gain_a),
@@ -717,11 +733,12 @@ void HwStartup::run_done() noexcept {
   const float gain_b = (results.gain_b > 1e-4f) ? (1.0f / results.gain_b) : 1.0f;
   const float gain_vdc = (results.gain_vdc > 1e-4f) ? (1.0f / results.gain_vdc) : 1.0f;
 
-  const settings::SettingsStatus commit_status = settings_operations_.ApplyAdcCalibration(unit::Current{results.adc_offset_a},
-                                                                                        unit::Current{results.adc_offset_b},
-                                                                                        unit::Ratio{gain_a},
-                                                                                        unit::Ratio{gain_b},
-                                                                                        unit::Ratio{gain_vdc});
+  const settings::SettingsStatus commit_status =
+      settings_operations_.ApplyAdcCalibration(unit::Current{results.adc_offset_a},
+                                               unit::Current{results.adc_offset_b},
+                                               unit::Ratio{gain_a},
+                                               unit::Ratio{gain_b},
+                                               unit::Ratio{gain_vdc});
   if (commit_status != settings::SettingsStatus::kSuccess) {
     enter_fault("failed to persist calibration settings");
     return;
@@ -746,7 +763,10 @@ void HwStartup::log_summary() noexcept {
   for (uint8_t i = 0u; i < NUM_STARTUP_STEPS; ++i) {
     const auto s = static_cast<FsmState>(i);
     if (s == FsmState::IDLE || s == FsmState::DONE || s == FsmState::FAULT) continue;
-    LogFormatted(hardware::LogLevel::kInfo, "[STARTUP]   %s: %s\n", state_name(s), results.passed[i] ? "PASS" : "FAIL/PENDING");
+    LogFormatted(hardware::LogLevel::kInfo,
+                 "[STARTUP]   %s: %s\n",
+                 state_name(s),
+                 results.passed[i] ? "PASS" : "FAIL/PENDING");
   }
 
   LogFormatted(hardware::LogLevel::kInfo,

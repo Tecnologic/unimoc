@@ -35,13 +35,11 @@
 /**
  * @namespace unimoc global namespace
  */
-namespace unimoc
-{
+namespace unimoc {
 /**
  * @namespace current_control current-control subsystem namespace
  */
-namespace current_control
-{
+namespace current_control {
 
 /// Number of HFI sub-steps per slow-update cycle.
 inline constexpr uint8_t NUM_SUB_STEPS = 4u;
@@ -72,13 +70,12 @@ inline constexpr uint8_t NUM_SUB_STEPS = 4u;
  * Because SlowUpdate fully prepares the inactive buffer before the atomic
  * flip, the ISR never observes a half-written `sc` set.
  */
-struct SubStepBuffer
-{
-    /// Pre-computed sin/cos for each sub-step Park transform.
-    system::SinCos<unit::Ratio> sc[NUM_SUB_STEPS]{};
+struct SubStepBuffer {
+  /// Pre-computed sin/cos for each sub-step Park transform.
+  system::SinCos<unit::Ratio> sc[NUM_SUB_STEPS]{};
 
-    /// Stator-frame (α/β) current samples recorded by the ISR at each sub-step.
-    system::Stator<unit::Current> i_ab_samples[NUM_SUB_STEPS]{};
+  /// Stator-frame (α/β) current samples recorded by the ISR at each sub-step.
+  system::Stator<unit::Current> i_ab_samples[NUM_SUB_STEPS]{};
 };
 
 /**
@@ -104,18 +101,17 @@ struct SubStepBuffer
  * writing into the same buffer again — the slow-update task reads the
  * *previous* four samples.
  */
-struct DoubleBuffer
-{
-    /// The two ping-pong buffers.
-    SubStepBuffer buf[2]{};
+struct DoubleBuffer {
+  /// The two ping-pong buffers.
+  SubStepBuffer buf[2]{};
 
-    /**
-     * @brief Index of the buffer currently in use by the ISR (0 or 1).
-     *
-     * Write with `memory_order_release` (slow-update task).
-     * Read  with `memory_order_acquire` (ISR, beginning of each sub-step cycle).
-     */
-    std::atomic<uint8_t> active{0u};
+  /**
+   * @brief Index of the buffer currently in use by the ISR (0 or 1).
+   *
+   * Write with `memory_order_release` (slow-update task).
+   * Read  with `memory_order_acquire` (ISR, beginning of each sub-step cycle).
+   */
+  std::atomic<uint8_t> active{0u};
 };
 
 }  // namespace current_control

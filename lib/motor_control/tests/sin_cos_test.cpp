@@ -41,7 +41,8 @@ TEST(PortableSinCosProviderTest, GeneratesZeroAngle) {
 TEST(PortableSinCosProviderTest, MatchesStandardLibrary) {
   constexpr int kSamples = 4096;
   for (int sample_index = 0; sample_index < kSamples; ++sample_index) {
-    const float kExpected = -kPi + ((kTwoPi * static_cast<float>(sample_index)) / static_cast<float>(kSamples));
+    const float kExpected =
+        -kPi + ((kTwoPi * static_cast<float>(sample_index)) / static_cast<float>(kSamples));
     const auto kResult = PortableSinCosProvider::Calculate(Angle{kExpected});
 
     EXPECT_NEAR(kResult.sin.Value(), std::sin(kExpected), 2.0e-5F) << "sample=" << sample_index;

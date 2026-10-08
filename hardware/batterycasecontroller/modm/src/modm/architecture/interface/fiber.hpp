@@ -14,20 +14,18 @@
 #pragma once
 
 #include <modm/architecture/interface/clock.hpp>
-#include <utility>
 #include <type_traits>
+#include <utility>
 
-namespace modm::fiber
-{
+namespace modm::fiber {
 
 /// Identifier of a fiber task.
 /// @ingroup modm_architecture_fiber
 using id = uintptr_t;
 
-} // namespace modm::fiber
+}  // namespace modm::fiber
 
-namespace modm::this_fiber
-{
+namespace modm::this_fiber {
 
 /// @ingroup modm_architecture_fiber
 /// @{
@@ -46,22 +44,17 @@ namespace modm::this_fiber
  *          fibers, and you may starve other fibers of processing time.
  *          If you cannot guarantee correct timings, consider using an RTOS.
  */
-void
-yield();
+void yield();
 
 /// Returns the id of the current fiber
-modm::fiber::id
-get_id();
+modm::fiber::id get_id();
 
 /// Yields the current fiber until `bool condition()` returns true.
 /// @warning If `bool condition()` is true on first call, no yield is performed!
-template< class Function >
-requires requires { std::is_invocable_r_v<bool, Function, void>; }
-void
-poll(Function &&condition)
-{
-	while(not std::forward<Function>(condition)())
-		modm::this_fiber::yield();
+template <class Function>
+  requires requires { std::is_invocable_r_v<bool, Function, void>; }
+void poll(Function&& condition) {
+  while (not std::forward<Function>(condition)()) modm::this_fiber::yield();
 }
 
 /**
@@ -76,31 +69,27 @@ poll(Function &&condition)
  * @note Due to the overhead of `yield()` and the scheduling other fibers, the
  *       sleep duration may be longer without any guarantee of an upper limit.
  */
-template< class Rep, class Period, class Function >
-requires requires { std::is_invocable_r_v<bool, Function, void>; }
+template <class Rep, class Period, class Function>
+  requires requires { std::is_invocable_r_v<bool, Function, void>; }
 [[nodiscard]]
-bool
-poll_for(std::chrono::duration<Rep, Period> sleep_duration, Function &&condition)
-{
-	if (std::forward<Function>(condition)()) return true;
+bool poll_for(std::chrono::duration<Rep, Period> sleep_duration, Function&& condition) {
+  if (std::forward<Function>(condition)()) return true;
 
-	// Only choose the microsecond clock if necessary
-	using Clock = std::conditional_t<
-		std::is_convertible_v<std::chrono::duration<Rep, Period>,
-							  std::chrono::duration<Rep, std::milli>>,
-		modm::chrono::milli_clock, modm::chrono::micro_clock>;
+  // Only choose the microsecond clock if necessary
+  using Clock = std::conditional_t<
+      std::is_convertible_v<std::chrono::duration<Rep, Period>, std::chrono::duration<Rep, std::milli>>,
+      modm::chrono::milli_clock,
+      modm::chrono::micro_clock>;
 
-	// Ensure the sleep duration is rounded up to the next full clock tick
-	const auto clock_sleep_duration(
-			std::chrono::ceil<typename Clock::duration>(sleep_duration));
+  // Ensure the sleep duration is rounded up to the next full clock tick
+  const auto clock_sleep_duration(std::chrono::ceil<typename Clock::duration>(sleep_duration));
 
-	const auto start = Clock::now();
-	do {
-		modm::this_fiber::yield();
-		if (std::forward<Function>(condition)()) return true;
-	}
-	while((Clock::now() - start) < clock_sleep_duration);
-	return false;
+  const auto start = Clock::now();
+  do {
+    modm::this_fiber::yield();
+    if (std::forward<Function>(condition)()) return true;
+  } while ((Clock::now() - start) < clock_sleep_duration);
+  return false;
 }
 
 /**
@@ -115,22 +104,19 @@ poll_for(std::chrono::duration<Rep, Period> sleep_duration, Function &&condition
  * @note Due to the overhead of `yield()` and the scheduling other fibers, the
  *       sleep duration may be longer without any guarantee of an upper limit.
  */
-template< class Clock, class Duration, class Function >
-requires requires { std::is_invocable_r_v<bool, Function, void>; }
+template <class Clock, class Duration, class Function>
+  requires requires { std::is_invocable_r_v<bool, Function, void>; }
 [[nodiscard]]
-bool
-poll_until(std::chrono::time_point<Clock, Duration> sleep_time, Function &&condition)
-{
-	if (std::forward<Function>(condition)()) return true;
+bool poll_until(std::chrono::time_point<Clock, Duration> sleep_time, Function&& condition) {
+  if (std::forward<Function>(condition)()) return true;
 
-	const auto start = Clock::now();
-	const auto sleep_duration = sleep_time - start;
-	do {
-		modm::this_fiber::yield();
-		if (std::forward<Function>(condition)()) return true;
-	}
-	while((Clock::now() - start) < sleep_duration);
-	return false;
+  const auto start = Clock::now();
+  const auto sleep_duration = sleep_time - start;
+  do {
+    modm::this_fiber::yield();
+    if (std::forward<Function>(condition)()) return true;
+  } while ((Clock::now() - start) < sleep_duration);
+  return false;
 }
 
 /**
@@ -141,11 +127,9 @@ poll_until(std::chrono::time_point<Clock, Duration> sleep_time, Function &&condi
  *       sleep duration may be longer without any guarantee of an upper limit.
  * @see https://en.cppreference.com/w/cpp/thread/sleep_for
  */
-template< class Rep, class Period >
-void
-sleep_for(std::chrono::duration<Rep, Period> sleep_duration)
-{
-	(void) poll_for(sleep_duration, []{ return false; });
+template <class Rep, class Period>
+void sleep_for(std::chrono::duration<Rep, Period> sleep_duration) {
+  (void)poll_for(sleep_duration, [] { return false; });
 }
 
 /**
@@ -155,13 +139,11 @@ sleep_for(std::chrono::duration<Rep, Period> sleep_duration)
  *       sleep duration may be longer without any guarantee of an upper limit.
  * @see https://en.cppreference.com/w/cpp/thread/sleep_until
  */
-template< class Clock, class Duration >
-void
-sleep_until(std::chrono::time_point<Clock, Duration> sleep_time)
-{
-	(void) poll_until(sleep_time, []{ return false; });
+template <class Clock, class Duration>
+void sleep_until(std::chrono::time_point<Clock, Duration> sleep_time) {
+  (void)poll_until(sleep_time, [] { return false; });
 }
 
 /// @}
 
-} // namespace modm::this_fiber
+}  // namespace modm::this_fiber

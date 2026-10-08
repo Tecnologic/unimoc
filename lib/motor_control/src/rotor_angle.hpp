@@ -99,7 +99,9 @@ class RotorAngle {
    * @brief Returns the angle inside the current revolution.
    * @return The angle in [-pi, pi).
    */
-  [[nodiscard]] constexpr unit::Angle AngleInRevolution() const noexcept { return unit::Angle(static_cast<float>(raw_) * detail::kRadiansPerCount); }
+  [[nodiscard]] constexpr unit::Angle AngleInRevolution() const noexcept {
+    return unit::Angle(static_cast<float>(raw_) * detail::kRadiansPerCount);
+  }
 
   /**
    * @brief Returns the number of completed revolutions.
@@ -115,7 +117,8 @@ class RotorAngle {
    * count grows large; use AbsoluteRaw() when exactness is required.
    */
   [[nodiscard]] constexpr unit::Angle AbsoluteAngle() const noexcept {
-    return unit::Angle((static_cast<float>(revolutions_) * detail::kRadiansPerRevolution) + AngleInRevolution().Value());
+    return unit::Angle((static_cast<float>(revolutions_) * detail::kRadiansPerRevolution) +
+                       AngleInRevolution().Value());
   }
 
   /**
@@ -129,7 +132,8 @@ class RotorAngle {
    * @return The absolute position, counting 2^32 counts per revolution.
    */
   [[nodiscard]] constexpr std::int64_t AbsoluteRaw() const noexcept {
-    return (static_cast<std::int64_t>(revolutions_) * detail::kCountsPerRevolution) + static_cast<std::int64_t>(raw_);
+    return (static_cast<std::int64_t>(revolutions_) * detail::kCountsPerRevolution) +
+           static_cast<std::int64_t>(raw_);
   }
 
   /**
@@ -192,7 +196,8 @@ class RotorAngle {
    * @return The difference in (-pi, pi], ignoring the revolution counters.
    */
   constexpr unit::Angle operator-(const RotorAngle& other) const noexcept {
-    const auto kDelta = static_cast<std::int32_t>(static_cast<std::uint32_t>(raw_) - static_cast<std::uint32_t>(other.raw_));
+    const auto kDelta =
+        static_cast<std::int32_t>(static_cast<std::uint32_t>(raw_) - static_cast<std::uint32_t>(other.raw_));
     return unit::Angle(static_cast<float>(kDelta) * detail::kRadiansPerCount);
   }
 
@@ -201,7 +206,9 @@ class RotorAngle {
    * @param other Angle to compare.
    * @return `true` when phase and revolution count match.
    */
-  constexpr bool operator==(const RotorAngle& other) const noexcept { return (raw_ == other.raw_) && (revolutions_ == other.revolutions_); }
+  constexpr bool operator==(const RotorAngle& other) const noexcept {
+    return (raw_ == other.raw_) && (revolutions_ == other.revolutions_);
+  }
 
   /**
    * @brief Compares two rotor angles for inequality.
@@ -217,7 +224,8 @@ class RotorAngle {
    */
   constexpr void AddRaw(std::int32_t delta) noexcept {
     // Wrapping is done unsigned because signed overflow is undefined behaviour.
-    const auto kNext = static_cast<std::int32_t>(static_cast<std::uint32_t>(raw_) + static_cast<std::uint32_t>(delta));
+    const auto kNext =
+        static_cast<std::int32_t>(static_cast<std::uint32_t>(raw_) + static_cast<std::uint32_t>(delta));
     if (((raw_ ^ kNext) & (delta ^ kNext)) < 0) {
       revolutions_ += (delta >= 0) ? 1 : -1;
     }

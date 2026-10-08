@@ -13,9 +13,9 @@
  */
 #pragma once
 
-#include "pmsm_flux_observer.hpp"
 #include "current_control_isr.hpp"
 #include "nvm_settings.hpp"
+#include "pmsm_flux_observer.hpp"
 #include "rotor_system.hpp"
 
 /**

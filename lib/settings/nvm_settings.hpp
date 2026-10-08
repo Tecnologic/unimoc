@@ -492,7 +492,9 @@ struct NvmSettings {
    * uninitialised or corrupt — reset to defaults and re-save.
    * @return `true` when the image header matches the current settings format.
    */
-  [[nodiscard]] constexpr bool IsValid() const noexcept { return magic == kNvmMagic && version == kNvmVersion; }
+  [[nodiscard]] constexpr bool IsValid() const noexcept {
+    return magic == kNvmMagic && version == kNvmVersion;
+  }
 
   /// Restore all fields to factory defaults.
   void ResetToDefaults() noexcept { *this = NvmSettings{}; }

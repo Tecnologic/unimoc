@@ -46,7 +46,8 @@ inline constexpr std::int64_t kCountsPerHalfRevolution = 0x8000'0000LL;
 /// Number of Q1.31 counts per full revolution as a float.
 inline constexpr float kCountsPerRevolutionF = static_cast<float>(kCountsPerRevolution);
 /// Radians represented by a single Q1.31 count.
-inline constexpr float kRadiansPerCount = static_cast<float>(2.0 * std::numbers::pi_v<double> / static_cast<double>(kCountsPerRevolution));
+inline constexpr float kRadiansPerCount =
+    static_cast<float>(2.0 * std::numbers::pi_v<double> / static_cast<double>(kCountsPerRevolution));
 /// Revolutions represented by one radian.
 inline constexpr float kRevolutionsPerRadian = static_cast<float>(1.0 / (2.0 * std::numbers::pi_v<double>));
 /// Radians per full revolution.
@@ -59,7 +60,9 @@ inline constexpr float kRadiansPerRevolution = 2.0F * std::numbers::pi_v<float>;
  * @param interpolationFactor Normalised position inside the segment, in [0, 1).
  * @return The interpolated function value.
  */
-constexpr float LinearInterpolate(float functionValueStart, float functionValueEnd, float interpolationFactor) noexcept {
+constexpr float LinearInterpolate(float functionValueStart,
+                                  float functionValueEnd,
+                                  float interpolationFactor) noexcept {
   return functionValueStart + (interpolationFactor * (functionValueEnd - functionValueStart));
 }
 
@@ -68,7 +71,9 @@ constexpr float LinearInterpolate(float functionValueStart, float functionValueE
  * @param value Value to round.
  * @return The rounded value.
  */
-constexpr std::int64_t RoundToInt64(float value) noexcept { return static_cast<std::int64_t>(value >= 0.0F ? value + 0.5F : value - 0.5F); }
+constexpr std::int64_t RoundToInt64(float value) noexcept {
+  return static_cast<std::int64_t>(value >= 0.0F ? value + 0.5F : value - 0.5F);
+}
 
 }  // namespace detail
 
@@ -91,7 +96,8 @@ struct SinCos {
    * @param sinValue Sine value.
    * @param cosValue Cosine value.
    */
-  constexpr SinCos(Representation sinValue, Representation cosValue) noexcept : sin(sinValue), cos(cosValue) {}
+  constexpr SinCos(Representation sinValue, Representation cosValue) noexcept
+      : sin(sinValue), cos(cosValue) {}
 
   /**
    * @brief Calculates a portable sine/cosine pair from an angle.
@@ -117,7 +123,8 @@ struct SinCos {
  * | Linear interpolation | 1.88e-5 | 4 table loads and FPU arithmetic |
  * | Linear interpolation plus normalisation | 1.4e-7 | Linear work plus 7 FPU operations |
  * | Cubic Hermite interpolation | 1.5e-7 in float32 | 4 table loads and substantially more FPU arithmetic |
- * | STM32G4 CORDIC, 6-cycle Q1.31 | 2^-19 documented residual | Peripheral setup, transfers, and 6 CORDIC iterations |
+ * | STM32G4 CORDIC, 6-cycle Q1.31 | 2^-19 documented residual | Peripheral setup, transfers, and 6 CORDIC
+ * iterations |
  *
  * The instruction and peripheral-work figures are implementation estimates;
  * flash wait states, memory placement, compiler scheduling, and transfer mode
@@ -144,12 +151,14 @@ struct PortableSinCosProvider {
   [[nodiscard]] static constexpr Result Calculate(std::int32_t raw) noexcept {
     const auto kPhase = static_cast<std::uint32_t>(raw);
     const auto kTableIndex = kPhase >> detail::kSinTableFractionBits;
-    const float kInterpolationFactor = static_cast<float>(kPhase & detail::kSinTableFractionMask) * detail::kSinTableFractionScale;
+    const float kInterpolationFactor =
+        static_cast<float>(kPhase & detail::kSinTableFractionMask) * detail::kSinTableFractionScale;
     const float* const kTable = detail::kSinTable.data() + kTableIndex;
 
     const float kSinValue = detail::LinearInterpolate(kTable[0U], kTable[1U], kInterpolationFactor);
-    const float kCosValue =
-        detail::LinearInterpolate(kTable[detail::kSinTableQuarterSize], kTable[detail::kSinTableQuarterSize + 1U], kInterpolationFactor);
+    const float kCosValue = detail::LinearInterpolate(kTable[detail::kSinTableQuarterSize],
+                                                      kTable[detail::kSinTableQuarterSize + 1U],
+                                                      kInterpolationFactor);
     const float kNormalization = 1.5F - (0.5F * ((kSinValue * kSinValue) + (kCosValue * kCosValue)));
 
     return Result{unit::Ratio{kSinValue * kNormalization}, unit::Ratio{kCosValue * kNormalization}};
@@ -200,7 +209,8 @@ static_assert(SinCosProvider<PortableSinCosProvider>);
  * @return The provider result.
  */
 template <SinCosProvider Provider>
-[[nodiscard]] constexpr SinCos<unit::Ratio> GenerateSinCos(const Provider& provider, std::int32_t raw) noexcept {
+[[nodiscard]] constexpr SinCos<unit::Ratio> GenerateSinCos(const Provider& provider,
+                                                           std::int32_t raw) noexcept {
   return provider.Calculate(raw);
 }
 

@@ -14,10 +14,6 @@
 #include "adc_interrupt_5.hpp"
 #include <modm/architecture/interface/interrupt.hpp>
 // ----------------------------------------------------------------------------
-modm::platform::AdcInterrupt5::Handler
-modm::platform::AdcInterrupt5::handler([]{});
+modm::platform::AdcInterrupt5::Handler modm::platform::AdcInterrupt5::handler([] {});
 
-MODM_ISR(ADC5)
-{
-	modm::platform::AdcInterrupt5::handler();
-}
+MODM_ISR(ADC5) { modm::platform::AdcInterrupt5::handler(); }

@@ -49,7 +49,8 @@ class SettingsStorage {
    * @param load Reads exactly the requested image size.
    * @param save Atomically writes the supplied image when possible.
    */
-  constexpr SettingsStorage(void* context, LoadCallback load, SaveCallback save) noexcept : context_{context}, load_{load}, save_{save} {}
+  constexpr SettingsStorage(void* context, LoadCallback load, SaveCallback save) noexcept
+      : context_{context}, load_{load}, save_{save} {}
 
   /**
    * @brief Loads a serialized settings image.

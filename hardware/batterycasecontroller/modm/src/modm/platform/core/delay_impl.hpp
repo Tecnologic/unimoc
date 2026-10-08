@@ -15,48 +15,43 @@
 // ----------------------------------------------------------------------------
 
 #pragma once
-#include <cmath>
 #include <chrono>
-#include "delay_ns.hpp"
+#include <cmath>
 #include <modm/architecture/interface/assert.hpp>
+#include "delay_ns.hpp"
 /// @cond
 #define MODM_DELAY_NS_IS_ACCURATE 1
 
-namespace modm
-{
-namespace platform
-{
+namespace modm {
+namespace platform {
 extern uint16_t delay_ns_per_loop;
 extern uint16_t delay_fcpu_MHz;
 
 constexpr uint8_t delay_fcpu_MHz_shift(4);
-constexpr uint16_t computeDelayMhz(uint32_t hz)
-{ return std::round(hz / 1'000'000.f * (1ul << delay_fcpu_MHz_shift)); }
+constexpr uint16_t computeDelayMhz(uint32_t hz) {
+  return std::round(hz / 1'000'000.f * (1ul << delay_fcpu_MHz_shift));
 }
+}  // namespace platform
 
-modm_always_inline
-void delay_ns(uint32_t ns)
-{
-    asm volatile(
-        "mov r0, %0 \n\t"
-        "blx %1"
-        :: "r" (ns), "l" (platform::delay_ns) : "r0", "r1", "r2", "lr");
+modm_always_inline void delay_ns(uint32_t ns) {
+  asm volatile(
+      "mov r0, %0 \n\t"
+      "blx %1" ::"r"(ns),
+      "l"(platform::delay_ns)
+      : "r0", "r1", "r2", "lr");
 }
-
 
 void delay_us(uint32_t us);
-inline void delay_ms(uint32_t ms)
-{
-    while(1)
-    {
-        if (ms <= 1000) {
-            delay_us(ms * 1000);
-            break;
-        }
-        delay_us(1'000'000);
-        ms -= 1000;
+inline void delay_ms(uint32_t ms) {
+  while (1) {
+    if (ms <= 1000) {
+      delay_us(ms * 1000);
+      break;
     }
+    delay_us(1'000'000);
+    ms -= 1000;
+  }
 }
 
-}
+}  // namespace modm
 /// @endcond

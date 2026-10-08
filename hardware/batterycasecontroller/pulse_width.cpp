@@ -43,7 +43,8 @@ MODM_ISR(TIM8_UP) { TimerUpdateInterruptHandler(); }
  *
  * \return true if initialization is successful, false otherwise.
  */
-bool Initialize(const unit::Frequency pwm_frequency, const HardwareInterface::SlowUpdateCallback callback) noexcept {
+bool Initialize(const unit::Frequency pwm_frequency,
+                const HardwareInterface::SlowUpdateCallback callback) noexcept {
   const uint32_t frequency_hz = static_cast<uint32_t>(pwm_frequency.Value());
   if (frequency_hz == 0u) return false;
   slow_update_callback = callback;
@@ -74,7 +75,12 @@ bool Initialize(const unit::Frequency pwm_frequency, const HardwareInterface::Sl
   GpioB9::reset();                                // Reset GPIO B9 to low state
   GpioB5::reset();                                // Reset GPIO B5 to low state
 
-  Timer8::connect<GpioOutputB6::Ch1, GpioOutputA7::Ch1n, GpioOutputB8::Ch2, GpioOutputB0::Ch2n, GpioOutputB9::Ch3, GpioOutputB5::Ch3n>();
+  Timer8::connect<GpioOutputB6::Ch1,
+                  GpioOutputA7::Ch1n,
+                  GpioOutputB8::Ch2,
+                  GpioOutputB0::Ch2n,
+                  GpioOutputB9::Ch3,
+                  GpioOutputB5::Ch3n>();
   Timer8::enable();  // Enable Timer 8 for PWM operation
 
   Timer8::setMode(Timer8::Mode::CenterAligned3,
@@ -130,9 +136,12 @@ constexpr uint16_t dutyCycleToCompareValue(float dutyCycle, uint16_t period) noe
 
 //! \brief Sets the PWM duty cycles for the three phases (A, B, C).
 void SetPhaseDuties(const system::ThreePhase<unit::Ratio>& duties) noexcept {
-  Timer8::setCompareValue<GpioOutputB6::Ch1>(dutyCycleToCompareValue(duties.a.Value(), Timer8::getOverflow()));
-  Timer8::setCompareValue<GpioOutputB8::Ch2>(dutyCycleToCompareValue(duties.b.Value(), Timer8::getOverflow()));
-  Timer8::setCompareValue<GpioOutputB9::Ch3>(dutyCycleToCompareValue(duties.c.Value(), Timer8::getOverflow()));
+  Timer8::setCompareValue<GpioOutputB6::Ch1>(
+      dutyCycleToCompareValue(duties.a.Value(), Timer8::getOverflow()));
+  Timer8::setCompareValue<GpioOutputB8::Ch2>(
+      dutyCycleToCompareValue(duties.b.Value(), Timer8::getOverflow()));
+  Timer8::setCompareValue<GpioOutputB9::Ch3>(
+      dutyCycleToCompareValue(duties.c.Value(), Timer8::getOverflow()));
 }
 
 system::ThreePhase<unit::Ratio> GetPhaseDuties() noexcept {
@@ -142,8 +151,9 @@ system::ThreePhase<unit::Ratio> GetPhaseDuties() noexcept {
   }
   const float scale = 1.0F / static_cast<float>(overflow);
   return system::ThreePhase<unit::Ratio>{unit::Ratio{static_cast<float>(Timer8::getCompareValue(1u)) * scale},
-                                                      unit::Ratio{static_cast<float>(Timer8::getCompareValue(2u)) * scale},
-                                                      unit::Ratio{static_cast<float>(Timer8::getCompareValue(3u)) * scale}};
+                                         unit::Ratio{static_cast<float>(Timer8::getCompareValue(2u)) * scale},
+                                         unit::Ratio{static_cast<float>(Timer8::getCompareValue(3u)) *
+                                                     scale}};
 }
 
 void SetAdcTriggerOffset(const uint32_t offset) noexcept {

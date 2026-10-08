@@ -39,7 +39,9 @@ class PositionControllerTest : public ::testing::Test {
   }
 };
 
-constexpr void set_home_adapter(void* ctx, int pole_pairs) { static_cast<unimoc::observer::PositionTracker<float>*>(ctx)->set_home(pole_pairs); }
+constexpr void set_home_adapter(void* ctx, int pole_pairs) {
+  static_cast<unimoc::observer::PositionTracker<float>*>(ctx)->set_home(pole_pairs);
+}
 
 // --- At rest, zero setpoint → zero output
 TEST_F(PositionControllerTest, ZeroSetpointZeroOutput) {

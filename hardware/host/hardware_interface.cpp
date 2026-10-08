@@ -36,8 +36,9 @@ settings::SettingsStorageStatus LoadSettings(void* const, const std::span<std::b
   if (!input.is_open()) return settings::SettingsStorageStatus::kNotFound;
 
   input.read(reinterpret_cast<char*>(image.data()), static_cast<std::streamsize>(image.size()));
-  return input.gcount() == static_cast<std::streamsize>(image.size()) ? settings::SettingsStorageStatus::kSuccess
-                                                                      : settings::SettingsStorageStatus::kIoError;
+  return input.gcount() == static_cast<std::streamsize>(image.size())
+             ? settings::SettingsStorageStatus::kSuccess
+             : settings::SettingsStorageStatus::kIoError;
 }
 
 settings::SettingsStorageStatus SaveSettings(void* const, const std::span<const std::byte> image) noexcept {
@@ -45,7 +46,8 @@ settings::SettingsStorageStatus SaveSettings(void* const, const std::span<const 
   if (!output.is_open()) return settings::SettingsStorageStatus::kIoError;
 
   output.write(reinterpret_cast<const char*>(image.data()), static_cast<std::streamsize>(image.size()));
-  return output.good() ? settings::SettingsStorageStatus::kSuccess : settings::SettingsStorageStatus::kIoError;
+  return output.good() ? settings::SettingsStorageStatus::kSuccess
+                       : settings::SettingsStorageStatus::kIoError;
 }
 
 const settings::SettingsProfile kSettingsProfile = [] {
@@ -67,10 +69,11 @@ const settings::SettingsStorage kSettingsStorage{nullptr, LoadSettings, SaveSett
 HardwareSettingsInterface settings{kSettingsProfile, kSettingsStorage};
 
 // Stub function implementations
-static bool InitializeStub([[maybe_unused]] const unit::Frequency pwm_frequency,
-                           [[maybe_unused]] const uint32_t adc_trigger_offset,
-                           [[maybe_unused]] HardwareInterface::CurrentControlCallback current_control_callback,
-                           [[maybe_unused]] HardwareInterface::SlowUpdateCallback slow_update_callback) noexcept {
+static bool InitializeStub(
+    [[maybe_unused]] const unit::Frequency pwm_frequency,
+    [[maybe_unused]] const uint32_t adc_trigger_offset,
+    [[maybe_unused]] HardwareInterface::CurrentControlCallback current_control_callback,
+    [[maybe_unused]] HardwareInterface::SlowUpdateCallback slow_update_callback) noexcept {
   // Stub: Always return successful initialization
   return true;
 }
@@ -95,7 +98,9 @@ static system::ThreePhase<unit::Ratio> phase_duties_shadow{0.5_ratio, 0.5_ratio,
 
 static system::ThreePhase<unit::Ratio> GetPhaseDutiesStub() noexcept { return phase_duties_shadow; }
 
-static void SetPhaseDutiesStub(const system::ThreePhase<unit::Ratio>& duties) noexcept { phase_duties_shadow = duties; }
+static void SetPhaseDutiesStub(const system::ThreePhase<unit::Ratio>& duties) noexcept {
+  phase_duties_shadow = duties;
+}
 
 static void SetAdcTriggerOffsetStub([[maybe_unused]] uint32_t offset) noexcept {}
 
@@ -103,7 +108,9 @@ static uint32_t GetTimerClockFrequencyStub() noexcept { return 168'000'000u; }
 
 static void WaitForInterruptStub() noexcept { std::this_thread::sleep_for(std::chrono::milliseconds(1)); }
 
-static void LogStub([[maybe_unused]] const LogLevel level, const char* const message) noexcept { std::fputs(message, stderr); }
+static void LogStub([[maybe_unused]] const LogLevel level, const char* const message) noexcept {
+  std::fputs(message, stderr);
+}
 
 // Initialize the motor array with stub implementations
 HardwareInterface motor[MOTORS] = {HardwareInterface(InitializeStub,

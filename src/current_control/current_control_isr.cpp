@@ -28,7 +28,9 @@ using namespace unit;
 // init
 // =============================================================================
 
-void CurrentControlIsr::init(const settings::NvmSettings& settings, hardware::HardwareInterface& hardware, const uint32_t timer_clock_hz) noexcept {
+void CurrentControlIsr::init(const settings::NvmSettings& settings,
+                             hardware::HardwareInterface& hardware,
+                             const uint32_t timer_clock_hz) noexcept {
   hardware_ = &hardware;
 
   // --- Timing parameters ---
@@ -141,7 +143,8 @@ void CurrentControlIsr::on_jeoc() noexcept {
   // -------------------------------------------------------------------------
   {
     const system::ThreePhase<unit::Ratio> applied_duties = hardware_->GetPhaseDuties();
-    if (!duty_in_bounds(applied_duties.a, svm.duty_min, svm.duty_max) || !duty_in_bounds(applied_duties.b, svm.duty_min, svm.duty_max) ||
+    if (!duty_in_bounds(applied_duties.a, svm.duty_min, svm.duty_max) ||
+        !duty_in_bounds(applied_duties.b, svm.duty_min, svm.duty_max) ||
         !duty_in_bounds(applied_duties.c, svm.duty_min, svm.duty_max)) {
       // Write safe neutral duties (50 %) and skip this control update.
       set_phase_duties(system::ThreePhase<unit::Ratio>{0.5_ratio, 0.5_ratio, 0.5_ratio});
@@ -171,7 +174,8 @@ void CurrentControlIsr::on_jeoc() noexcept {
   // -------------------------------------------------------------------------
   // 7. Current PI with decoupling feedforward
   // -------------------------------------------------------------------------
-  const system::Rotor<unit::Voltage> u_dq = cc.update(state.i_ref, i_dq, mech_obs.omega, unit::Time{state.dt_fast}, unit::Voltage{v_dc});
+  const system::Rotor<unit::Voltage> u_dq =
+      cc.update(state.i_ref, i_dq, mech_obs.omega, unit::Time{state.dt_fast}, unit::Voltage{v_dc});
 
   // Store for SlowUpdate (flux observer needs last voltage)
   state.u_dq_last = u_dq;
@@ -202,7 +206,8 @@ void CurrentControlIsr::on_jeoc() noexcept {
   // 11. Space-vector modulation → normalised duties [0, 1]
   //     SVM normalises by V_dc and adds the (already normalised) DTC term.
   // -------------------------------------------------------------------------
-  const system::ThreePhase<unit::Ratio> duties = svm.CalculateWithDeadTimeCompensation(u_ab, unit::Voltage{v_dc}, dtc_ratio);
+  const system::ThreePhase<unit::Ratio> duties =
+      svm.CalculateWithDeadTimeCompensation(u_ab, unit::Voltage{v_dc}, dtc_ratio);
 
   // -------------------------------------------------------------------------
   // 12. Write normalized duties through the hardware boundary.

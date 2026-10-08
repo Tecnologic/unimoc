@@ -12,17 +12,13 @@
 #include <reent.h>
 #include <modm/architecture/utils.hpp>
 
-modm_weak
-void __modm_initialize_memory(void)
-{
-	/* tumbleweed */
-}
+modm_weak void __modm_initialize_memory(void) { /* tumbleweed */ }
 
 // ----------------------------------------------------------------------------
-modm_weak modm_section(".Heap_is_not_implemented!__Please_include_the__modm:platform:heap__module_in_your_project!")
-void* _sbrk_r(struct _reent *r, ptrdiff_t size)
-{
-	(void) r;
-	(void) size;
-	return NULL;
+modm_weak modm_section(
+    ".Heap_is_not_implemented!__Please_include_the__modm:platform:heap__module_in_your_"
+    "project!") void* _sbrk_r(struct _reent* r, ptrdiff_t size) {
+  (void)r;
+  (void)size;
+  return NULL;
 }

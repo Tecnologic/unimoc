@@ -13,17 +13,11 @@
 #include <cmath>
 
 /// @cond
-namespace modm::platform
-{
+namespace modm::platform {
 
 void delay_ns(uint32_t ns);
 
-constexpr uint16_t
-computeDelayNsPerLoop(uint32_t hz)
-{
-	return std::round(3'000'000'000.0 / hz);
-}
+constexpr uint16_t computeDelayNsPerLoop(uint32_t hz) { return std::round(3'000'000'000.0 / hz); }
 
-}
+}  // namespace modm::platform
 /// @endcond
-

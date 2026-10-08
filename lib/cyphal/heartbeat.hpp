@@ -29,18 +29,18 @@ static constexpr uint8_t HEARTBEAT_MAX_PERIOD_S = 1;
 
 /// Node health values for uavcan.node.Heartbeat.1.0
 enum class Health : uint8_t {
-    NOMINAL  = 0,  ///< The node is functioning properly.
-    ADVISORY = 1,  ///< A non-critical anomaly has been detected.
-    CAUTION  = 2,  ///< A critical anomaly has been detected; recovery may be possible.
-    WARNING  = 3,  ///< The node is about to fail or has already failed.
+  NOMINAL = 0,   ///< The node is functioning properly.
+  ADVISORY = 1,  ///< A non-critical anomaly has been detected.
+  CAUTION = 2,   ///< A critical anomaly has been detected; recovery may be possible.
+  WARNING = 3,   ///< The node is about to fail or has already failed.
 };
 
 /// Node operating mode values for uavcan.node.Heartbeat.1.0
 enum class Mode : uint8_t {
-    OPERATIONAL     = 0,  ///< Normal operation.
-    INITIALIZATION  = 1,  ///< Initialisation in progress; not yet ready for normal operation.
-    MAINTENANCE     = 2,  ///< Under maintenance; non-operational.
-    SOFTWARE_UPDATE = 3,  ///< Performing a software update; non-operational.
+  OPERATIONAL = 0,      ///< Normal operation.
+  INITIALIZATION = 1,   ///< Initialisation in progress; not yet ready for normal operation.
+  MAINTENANCE = 2,      ///< Under maintenance; non-operational.
+  SOFTWARE_UPDATE = 3,  ///< Performing a software update; non-operational.
 };
 
 /// Serialized size of uavcan.node.Heartbeat.1.0 in bytes (7 bytes = 56 bits)
@@ -49,33 +49,38 @@ static constexpr std::size_t HEARTBEAT_PAYLOAD_SIZE = 7;
 namespace detail {
 
 /// Compile-time conversion of a decimal string to an integer.
-constexpr uint32_t str_to_uint(const char* s)
-{
-    uint32_t result = 0;
-    while (*s >= '0' && *s <= '9') {
-        result = result * 10u + static_cast<uint32_t>(*s - '0');
-        ++s;
-    }
-    return result;
+constexpr uint32_t str_to_uint(const char* s) {
+  uint32_t result = 0;
+  while (*s >= '0' && *s <= '9') {
+    result = result * 10u + static_cast<uint32_t>(*s - '0');
+    ++s;
+  }
+  return result;
 }
 
 /// Parse the major version component from a version string (e.g. "v1.2" → 1).
-constexpr uint8_t parse_major(const char* s)
-{
-    if (*s == 'v') { ++s; }
-    return static_cast<uint8_t>(str_to_uint(s));
+constexpr uint8_t parse_major(const char* s) {
+  if (*s == 'v') {
+    ++s;
+  }
+  return static_cast<uint8_t>(str_to_uint(s));
 }
 
 /// Parse the minor version component from a version string (e.g. "v1.2" → 2).
-constexpr uint8_t parse_minor(const char* s)
-{
-    if (*s == 'v') { ++s; }
-    while (*s != '.' && *s != '\0') { ++s; }
-    if (*s == '.') { ++s; }
-    return static_cast<uint8_t>(str_to_uint(s));
+constexpr uint8_t parse_minor(const char* s) {
+  if (*s == 'v') {
+    ++s;
+  }
+  while (*s != '.' && *s != '\0') {
+    ++s;
+  }
+  if (*s == '.') {
+    ++s;
+  }
+  return static_cast<uint8_t>(str_to_uint(s));
 }
 
-} // namespace detail
+}  // namespace detail
 
 #if __has_include(<gitversion/version.h>)
 /// Software major version derived from the generated gitversion header.
@@ -93,8 +98,7 @@ static constexpr uint8_t SW_VERSION_MINOR = 0;
 /// Vendor-specific status code that encodes the software version.
 /// Bit layout: bits[18:10] = MAJOR (9 bits), bits[9:0] = MINOR (10 bits).
 static constexpr uint32_t VERSION_VSSC =
-    (static_cast<uint32_t>(SW_VERSION_MAJOR) << 10u) |
-    static_cast<uint32_t>(SW_VERSION_MINOR);
+    (static_cast<uint32_t>(SW_VERSION_MAJOR) << 10u) | static_cast<uint32_t>(SW_VERSION_MINOR);
 
 /// Serialize a uavcan.node.Heartbeat.1.0 message into a 7-byte buffer.
 ///
@@ -112,29 +116,26 @@ static constexpr uint32_t VERSION_VSSC =
 /// @return 7-byte serialized heartbeat payload ready for transmission.
 [[nodiscard]] constexpr std::array<uint8_t, HEARTBEAT_PAYLOAD_SIZE> serialize_heartbeat(
     uint32_t uptime_s,
-    Health   health = Health::NOMINAL,
-    Mode     mode   = Mode::OPERATIONAL,
-    uint32_t vssc   = VERSION_VSSC)
-{
-    std::array<uint8_t, HEARTBEAT_PAYLOAD_SIZE> buf{};
+    Health health = Health::NOMINAL,
+    Mode mode = Mode::OPERATIONAL,
+    uint32_t vssc = VERSION_VSSC) {
+  std::array<uint8_t, HEARTBEAT_PAYLOAD_SIZE> buf{};
 
-    // uptime: 4 bytes, little-endian
-    buf[0] = static_cast<uint8_t>(uptime_s);
-    buf[1] = static_cast<uint8_t>(uptime_s >> 8u);
-    buf[2] = static_cast<uint8_t>(uptime_s >> 16u);
-    buf[3] = static_cast<uint8_t>(uptime_s >> 24u);
+  // uptime: 4 bytes, little-endian
+  buf[0] = static_cast<uint8_t>(uptime_s);
+  buf[1] = static_cast<uint8_t>(uptime_s >> 8u);
+  buf[2] = static_cast<uint8_t>(uptime_s >> 16u);
+  buf[3] = static_cast<uint8_t>(uptime_s >> 24u);
 
-    // Remaining 24 bits: health[1:0] | mode[2:0] | vssc[18:0]
-    const uint32_t tail =
-        (static_cast<uint32_t>(health) & 0x3u) |
-        ((static_cast<uint32_t>(mode)  & 0x7u) << 2u) |
-        ((vssc                         & 0x7FFFFu) << 5u);
+  // Remaining 24 bits: health[1:0] | mode[2:0] | vssc[18:0]
+  const uint32_t tail = (static_cast<uint32_t>(health) & 0x3u) |
+                        ((static_cast<uint32_t>(mode) & 0x7u) << 2u) | ((vssc & 0x7FFFFu) << 5u);
 
-    buf[4] = static_cast<uint8_t>(tail);
-    buf[5] = static_cast<uint8_t>(tail >> 8u);
-    buf[6] = static_cast<uint8_t>(tail >> 16u);
+  buf[4] = static_cast<uint8_t>(tail);
+  buf[5] = static_cast<uint8_t>(tail >> 8u);
+  buf[6] = static_cast<uint8_t>(tail >> 16u);
 
-    return buf;
+  return buf;
 }
 
-} // namespace unimoc::cyphal
+}  // namespace unimoc::cyphal

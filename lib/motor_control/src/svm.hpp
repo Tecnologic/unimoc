@@ -18,7 +18,7 @@
 #include "stator_system.hpp"
 #include "three_phase_system.hpp"
 
-  /**
+/**
  * @namespace control control algorithms namespace
  */
 namespace unimoc::control {
@@ -65,7 +65,8 @@ struct Svm {
    * @param phase_ratios  Phase voltage references normalised by V_dc.
    * @return   Three-phase duty cycles [0, 1] clamped to [duty_min, duty_max].
    */
-  [[nodiscard]] constexpr system::ThreePhase<unit::Ratio> Calculate(const system::ThreePhase<unit::Ratio>& phase_ratios) const noexcept {
+  [[nodiscard]] constexpr system::ThreePhase<unit::Ratio> Calculate(
+      const system::ThreePhase<unit::Ratio>& phase_ratios) const noexcept {
     unit::Ratio phase_ratio_a = phase_ratios.a;
     unit::Ratio phase_ratio_b = phase_ratios.b;
     unit::Ratio phase_ratio_c = phase_ratios.c;
@@ -106,10 +107,11 @@ struct Svm {
       const system::Stator<unit::Voltage>& voltage,
       unit::Voltage dc_link_voltage,
       const system::Stator<unit::Ratio>& dead_time_ratio) const noexcept {
-
     const float kInverseDcVoltage = 1.0F / std::max(dc_link_voltage.Value(), 1.0F);
-    const system::Stator<unit::Ratio> kVoltageRatio{(voltage.alpha.Value() * kInverseDcVoltage) + dead_time_ratio.alpha.Value(),
-                                                                 (voltage.beta.Value() * kInverseDcVoltage) + dead_time_ratio.beta.Value()};
+    const system::Stator<unit::Ratio> kVoltageRatio{(voltage.alpha.Value() * kInverseDcVoltage) +
+                                                        dead_time_ratio.alpha.Value(),
+                                                    (voltage.beta.Value() * kInverseDcVoltage) +
+                                                        dead_time_ratio.beta.Value()};
 
     return Calculate(kVoltageRatio.ToThreePhase());
   }

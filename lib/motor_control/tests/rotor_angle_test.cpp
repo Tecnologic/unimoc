@@ -152,7 +152,8 @@ TEST_F(RotorAngleTest, AbsoluteRawIsMonotonicAcrossWrap) {
 
 TEST_F(RotorAngleTest, AbsoluteRawMatchesAbsoluteAngle) {
   const RotorAngle kAngle = RotorAngle::FromAngle(7.0_rad);
-  const double kExpected = static_cast<double>(kAngle.AbsoluteRaw()) * (2.0 * std::numbers::pi_v<double> / static_cast<double>(kCountsPerRevolution));
+  const double kExpected = static_cast<double>(kAngle.AbsoluteRaw()) *
+                           (2.0 * std::numbers::pi_v<double> / static_cast<double>(kCountsPerRevolution));
   EXPECT_NEAR(kAngle.AbsoluteAngle().Value(), static_cast<float>(kExpected), 1.0e-5F);
 }
 

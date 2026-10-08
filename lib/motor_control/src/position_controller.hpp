@@ -244,15 +244,17 @@ struct PositionController {
    *                      homing detection (typically q-axis current) [A].
    * @return              Mechanical angular velocity reference omega_ref [rad/s].
    */
-  constexpr unit::AngularVelocity update(const unit::Angle pos_meas_rad,
-                                         const unit::AngularVelocity omega_meas,
-                                         const unit::Time dt,
-                                         const unit::Current homing_current_feedback = unit::Current{}) noexcept {
+  constexpr unit::AngularVelocity update(
+      const unit::Angle pos_meas_rad,
+      const unit::AngularVelocity omega_meas,
+      const unit::Time dt,
+      const unit::Current homing_current_feedback = unit::Current{}) noexcept {
     const T pos_meas = pos_meas_rad.Value();
     const T omega_meas_value = omega_meas.Value();
     // --- Homing override ---
     if (homing_state == HomingState::SEARCHING) {
-      if (homing_block_current_threshold.Value() > 0.0F && std::abs(homing_current_feedback.Value()) >= homing_block_current_threshold.Value()) {
+      if (homing_block_current_threshold.Value() > 0.0F &&
+          std::abs(homing_current_feedback.Value()) >= homing_block_current_threshold.Value()) {
         homing_state = HomingState::ZEROING;
       } else {
         omega_ref = homing_speed;
@@ -288,25 +290,31 @@ struct PositionController {
     // --- Position loop (P) ---
     const T pos_error = pos_ref_limited.Value() - pos_meas;
     T omega_demand = kp_pos.Value() * pos_error;
-    omega_demand = unit::AngularVelocity{omega_demand}.Clamp(-speed_limit.Value(), speed_limit.Value()).Value();
+    omega_demand =
+        unit::AngularVelocity{omega_demand}.Clamp(-speed_limit.Value(), speed_limit.Value()).Value();
 
     // --- Acceleration limit on speed demand ---
     const T max_delta_omega = accel_limit.Value() * dt.Value();
     omega_demand =
-        unit::AngularVelocity{omega_demand}.Clamp(omega_demand_prev.Value() - max_delta_omega, omega_demand_prev.Value() + max_delta_omega).Value();
+        unit::AngularVelocity{omega_demand}
+            .Clamp(omega_demand_prev.Value() - max_delta_omega, omega_demand_prev.Value() + max_delta_omega)
+            .Value();
     omega_demand_prev = unit::AngularVelocity{omega_demand};
 
     // --- Speed loop (PI) ---
     const T speed_error = omega_demand - omega_meas_value;
 
-    speed_integrator = unit::AngularVelocity{speed_integrator.Value() + ki_speed.Value() * speed_error * dt.Value()}.Clamp(-speed_limit.Value(),
-                                                                                                                           speed_limit.Value());
+    speed_integrator =
+        unit::AngularVelocity{speed_integrator.Value() + ki_speed.Value() * speed_error * dt.Value()}
+            .Clamp(-speed_limit.Value(), speed_limit.Value());
 
-    omega_ref = unit::AngularVelocity{kp_speed.Value() * speed_error + speed_integrator.Value()}.Clamp(-speed_limit.Value(), speed_limit.Value());
+    omega_ref = unit::AngularVelocity{kp_speed.Value() * speed_error + speed_integrator.Value()}
+                    .Clamp(-speed_limit.Value(), speed_limit.Value());
 
     // --- In-position flag ---
     // Compare against the raw setpoint, not the rate-limited intermediate.
-    in_position = (std::abs(pos_ref_rad.Value() - pos_meas) <= position_tolerance.Value()) && (std::abs(omega_meas_value) <= speed_tolerance.Value());
+    in_position = (std::abs(pos_ref_rad.Value() - pos_meas) <= position_tolerance.Value()) &&
+                  (std::abs(omega_meas_value) <= speed_tolerance.Value());
 
     return omega_ref;
   }

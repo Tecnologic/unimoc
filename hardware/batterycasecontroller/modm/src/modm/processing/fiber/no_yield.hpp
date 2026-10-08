@@ -12,20 +12,13 @@
 #pragma once
 
 /// @cond
-namespace modm::this_fiber
-{
+namespace modm::this_fiber {
 
-void inline
-yield()
-{
-	// do nothing and return
+void inline yield() {
+  // do nothing and return
 }
 
-modm::fiber::id inline
-get_id()
-{
-	return 0;
-}
+modm::fiber::id inline get_id() { return 0; }
 
-} // namespace modm::this_fiber
+}  // namespace modm::this_fiber
 /// @endcond

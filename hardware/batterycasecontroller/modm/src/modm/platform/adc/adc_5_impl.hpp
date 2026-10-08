@@ -13,417 +13,351 @@
 // ----------------------------------------------------------------------------
 
 #ifndef MODM_STM32F3_ADC5_HPP
-#	error 	"Don't include this file directly, use 'adc_5.hpp' instead!"
+#error "Don't include this file directly, use 'adc_5.hpp' instead!"
 #endif
 
-#include <modm/architecture/interface/delay.hpp>	// modm::delayMicroseconds
+#include <modm/architecture/interface/delay.hpp>  // modm::delayMicroseconds
 #include <modm/platform/clock/rcc.hpp>
 
-void
-modm::platform::Adc5::initialize(const ClockMode clk,
-		const ClockSource clk_src,
-		const Prescaler pre,
-		const CalibrationMode cal, const bool blocking)
-{
-	uint32_t tmp = 0;
+void modm::platform::Adc5::initialize(const ClockMode clk,
+                                      const ClockSource clk_src,
+                                      const Prescaler pre,
+                                      const CalibrationMode cal,
+                                      const bool blocking) {
+  uint32_t tmp = 0;
 
-	// enable clock
-	RCC->AHB2ENR |= RCC_AHB2ENR_ADC345EN;
-	// select clock source
-	RCC->CCIPR |= static_cast<uint32_t>(clk_src);
-	// Disable deep power down
-	ADC5->CR &= ~ADC_CR_DEEPPWD;
-	// reset ADC
-	// FIXME: not a good idea since you can only reset both
-	// ADC1/ADC2 or ADC3/ADC4 at once ....
+  // enable clock
+  RCC->AHB2ENR |= RCC_AHB2ENR_ADC345EN;
+  // select clock source
+  RCC->CCIPR |= static_cast<uint32_t>(clk_src);
+  // Disable deep power down
+  ADC5->CR &= ~ADC_CR_DEEPPWD;
+  // reset ADC
+  // FIXME: not a good idea since you can only reset both
+  // ADC1/ADC2 or ADC3/ADC4 at once ....
 
-	// set ADC "analog" clock source
-	if (clk != ClockMode::DoNotChange) {
-		if (clk == ClockMode::Asynchronous) {
-			setPrescaler(pre);
-		}
-		tmp  =  ADC345_COMMON->CCR;
-		tmp &= ~ADC_CCR_CKMODE;
-		tmp |=  static_cast<uint32_t>(clk);
-		ADC345_COMMON->CCR = tmp;
-	}
+  // set ADC "analog" clock source
+  if (clk != ClockMode::DoNotChange) {
+    if (clk == ClockMode::Asynchronous) {
+      setPrescaler(pre);
+    }
+    tmp = ADC345_COMMON->CCR;
+    tmp &= ~ADC_CCR_CKMODE;
+    tmp |= static_cast<uint32_t>(clk);
+    ADC345_COMMON->CCR = tmp;
+  }
 
-	// enable regulator
-	ADC5->CR &= ~ADC_CR_ADVREGEN;
-	ADC5->CR |= static_cast<uint32_t>(VoltageRegulatorState::Enabled);
-	modm::delay_us(10);	// FIXME: this is ugly -> find better solution
+  // enable regulator
+  ADC5->CR &= ~ADC_CR_ADVREGEN;
+  ADC5->CR |= static_cast<uint32_t>(VoltageRegulatorState::Enabled);
+  modm::delay_us(10);  // FIXME: this is ugly -> find better solution
 
-	acknowledgeInterruptFlags(InterruptFlag::Ready);
+  acknowledgeInterruptFlags(InterruptFlag::Ready);
 
-	calibrate(cal, true);	// blocking calibration
+  calibrate(cal, true);  // blocking calibration
 
-	ADC5->CR |= ADC_CR_ADEN;
-	if (blocking) {
-		// ADEN can only be set 4 ADC clock cycles after ADC_CR_ADCAL gets
-		// cleared. Setting it in a loop ensures the flag gets set for ADC
-		// clocks slower than the CPU clock.
-		while (not isReady()) {
-			ADC5->CR |= ADC_CR_ADEN;
-		}
-		acknowledgeInterruptFlags(InterruptFlag::Ready);
-	}
+  ADC5->CR |= ADC_CR_ADEN;
+  if (blocking) {
+    // ADEN can only be set 4 ADC clock cycles after ADC_CR_ADCAL gets
+    // cleared. Setting it in a loop ensures the flag gets set for ADC
+    // clocks slower than the CPU clock.
+    while (not isReady()) {
+      ADC5->CR |= ADC_CR_ADEN;
+    }
+    acknowledgeInterruptFlags(InterruptFlag::Ready);
+  }
 }
 
-void
-modm::platform::Adc5::disable(const bool blocking)
-{
-	ADC5->CR |= ADC_CR_ADDIS;
-	if (blocking) {
-		// wait for ADC_CR_ADDIS to be cleared by hw
-		while(ADC5->CR & ADC_CR_ADDIS);
-	}
-	// disable clock
-	RCC->AHB2ENR &= ~RCC_AHB2ENR_ADC345EN;
+void modm::platform::Adc5::disable(const bool blocking) {
+  ADC5->CR |= ADC_CR_ADDIS;
+  if (blocking) {
+    // wait for ADC_CR_ADDIS to be cleared by hw
+    while (ADC5->CR & ADC_CR_ADDIS);
+  }
+  // disable clock
+  RCC->AHB2ENR &= ~RCC_AHB2ENR_ADC345EN;
 }
 
-void
-modm::platform::Adc5::setPrescaler(const Prescaler pre)
-{
-	uint32_t tmp;
-	tmp  = ADC345_COMMON->CCR;
-	tmp &= ~static_cast<uint32_t>(Prescaler::Div256AllBits);
-	tmp |=  static_cast<uint32_t>(pre);
-	ADC345_COMMON->CCR = tmp;
+void modm::platform::Adc5::setPrescaler(const Prescaler pre) {
+  uint32_t tmp;
+  tmp = ADC345_COMMON->CCR;
+  tmp &= ~static_cast<uint32_t>(Prescaler::Div256AllBits);
+  tmp |= static_cast<uint32_t>(pre);
+  ADC345_COMMON->CCR = tmp;
 }
 
-bool
-modm::platform::Adc5::isReady()
-{
-	return static_cast<bool>(getInterruptFlags() & InterruptFlag::Ready);
+bool modm::platform::Adc5::isReady() { return static_cast<bool>(getInterruptFlags() & InterruptFlag::Ready); }
+
+void modm::platform::Adc5::calibrate(const CalibrationMode mode, const bool blocking) {
+  if (mode != CalibrationMode::DoNotCalibrate) {
+    ADC5->CR |= ADC_CR_ADCAL | static_cast<uint32_t>(mode);
+    if (blocking) {
+      // wait for ADC_CR_ADCAL to be cleared by hw
+      while (ADC5->CR & ADC_CR_ADCAL);
+    }
+  }
 }
 
-void
-modm::platform::Adc5::calibrate(const CalibrationMode mode,
-									const bool blocking)
-{
-	if (mode != CalibrationMode::DoNotCalibrate) {
-		ADC5->CR |= ADC_CR_ADCAL |
-										static_cast<uint32_t>(mode);
-		if(blocking) {
-			// wait for ADC_CR_ADCAL to be cleared by hw
-			while(ADC5->CR & ADC_CR_ADCAL);
-		}
-	}
+void modm::platform::Adc5::setLeftAdjustResult(const bool enable) {
+  if (enable) {
+    ADC5->CFGR |= ADC_CFGR_ALIGN;
+  } else {
+    ADC5->CFGR &= ~ADC_CFGR_ALIGN;
+  }
+}
+bool modm::platform::Adc5::configureChannel(Channel channel, SampleTime sampleTime) {
+  if (static_cast<uint8_t>(channel) > 18) {
+    return false;
+  }
+  uint32_t tmpreg = 0;
+  if (static_cast<uint8_t>(channel) < 10) {
+    tmpreg = ADC5->SMPR1 & ~((ADC_SMPR1_SMP0) << (static_cast<uint8_t>(channel) * 3));
+    tmpreg |= static_cast<uint32_t>(sampleTime) << (static_cast<uint8_t>(channel) * 3);
+    ADC5->SMPR1 = tmpreg;
+  } else {
+    tmpreg = ADC5->SMPR2 & ~((ADC_SMPR2_SMP10) << ((static_cast<uint8_t>(channel) - 10) * 3));
+    tmpreg |= static_cast<uint32_t>(sampleTime) << ((static_cast<uint8_t>(channel) - 10) * 3);
+    ADC5->SMPR2 = tmpreg;
+  }
+  return true;
 }
 
-void
-modm::platform::Adc5::setLeftAdjustResult(const bool enable)
-{
-	if (enable) {
-		ADC5->CFGR |= ADC_CFGR_ALIGN;
-	} else {
-		ADC5->CFGR &= ~ADC_CFGR_ALIGN;
-	}
-}
-bool
-modm::platform::Adc5::configureChannel(Channel channel,
-											  SampleTime sampleTime)
-{
-	if (static_cast<uint8_t>(channel) > 18) {
-		return false;
-	}
-	uint32_t tmpreg = 0;
-	if (static_cast<uint8_t>(channel) < 10) {
-		tmpreg = ADC5->SMPR1
-			& ~((ADC_SMPR1_SMP0) << (static_cast<uint8_t>(channel) * 3));
-		tmpreg |= static_cast<uint32_t>(sampleTime) <<
-						(static_cast<uint8_t>(channel) * 3);
-		ADC5->SMPR1 = tmpreg;
-	}
-	else {
-		tmpreg = ADC5->SMPR2
-			& ~((ADC_SMPR2_SMP10) << ((static_cast<uint8_t>(channel)-10) * 3));
-		tmpreg |= static_cast<uint32_t>(sampleTime) <<
-						((static_cast<uint8_t>(channel)-10) * 3);
-		ADC5->SMPR2 = tmpreg;
-	}
-	return true;
+bool modm::platform::Adc5::setChannel(Channel channel, SampleTime sampleTime) {
+  if (!configureChannel(channel, sampleTime)) {
+    return false;
+  }
 
+  ADC5->SQR1 = (static_cast<uint8_t>(channel) << ADC_SQR1_SQ1_Pos) & ADC_SQR1_SQ1_Msk;
+  return true;
 }
 
-bool
-modm::platform::Adc5::setChannel(Channel channel,
-										SampleTime sampleTime)
-{
-	if (!configureChannel(channel, sampleTime)) {
-		return false;
-	}
+bool modm::platform::Adc5::setChannelSequence(std::span<const SequenceChannel> sequence) {
+  if (sequence.size() > 16 || sequence.size() == 0) {
+    return false;
+  }
 
-	ADC5->SQR1 = (static_cast<uint8_t>(channel) << ADC_SQR1_SQ1_Pos) & ADC_SQR1_SQ1_Msk;
-	return true;
+  ADC5->SQR1 = sequence.size() - 1;
+
+  for (const auto [i, config] : modm::enumerate(sequence)) {
+    const auto [channel, sampleTime] = config;
+    if (!configureChannel(channel, sampleTime)) {
+      return false;
+    }
+
+    if (i < 4) {
+      const auto shift = (i + 1) * 6;
+      const auto mask = 0b111111u << shift;
+      ADC5->SQR1 = (ADC5->SQR1 & ~mask) | (std::to_underlying(channel) << shift);
+    } else if (i < 9) {
+      const auto shift = (i - 4) * 6;
+      const auto mask = 0b111111u << shift;
+      ADC5->SQR2 = (ADC5->SQR2 & ~mask) | (std::to_underlying(channel) << shift);
+    } else if (i < 14) {
+      const auto shift = (i - 9) * 6;
+      const auto mask = 0b111111u << shift;
+      ADC5->SQR3 = (ADC5->SQR3 & ~mask) | (std::to_underlying(channel) << shift);
+    } else {
+      const auto shift = (i - 14) * 6;
+      const auto mask = 0b111111u << shift;
+      ADC5->SQR4 = (ADC5->SQR4 & ~mask) | (std::to_underlying(channel) << shift);
+    }
+  }
+  return true;
 }
 
-bool
-modm::platform::Adc5::setChannelSequence(std::span<const SequenceChannel> sequence)
-{
-	if (sequence.size() > 16 || sequence.size() == 0) {
-		return false;
-	}
-
-	ADC5->SQR1 = sequence.size() - 1;
-
-	for (const auto [i, config] : modm::enumerate(sequence)) {
-		const auto [channel, sampleTime] = config;
-		if (!configureChannel(channel, sampleTime)) {
-			return false;
-		}
-
-		if (i < 4) {
-			const auto shift = (i + 1) * 6;
-			const auto mask = 0b111111u << shift;
-			ADC5->SQR1 = (ADC5->SQR1 & ~mask) | (std::to_underlying(channel) << shift);
-		} else if (i < 9) {
-			const auto shift = (i - 4) * 6;
-			const auto mask = 0b111111u << shift;
-			ADC5->SQR2 = (ADC5->SQR2 & ~mask) | (std::to_underlying(channel) << shift);
-		} else if (i < 14) {
-			const auto shift = (i - 9) * 6;
-			const auto mask = 0b111111u << shift;
-			ADC5->SQR3 = (ADC5->SQR3 & ~mask) | (std::to_underlying(channel) << shift);
-		} else {
-			const auto shift = (i - 14) * 6;
-			const auto mask = 0b111111u << shift;
-			ADC5->SQR4 = (ADC5->SQR4 & ~mask) | (std::to_underlying(channel) << shift);
-		}
-	}
-	return true;
+void modm::platform::Adc5::setFreeRunningMode(const bool enable) {
+  if (enable) {
+    ADC5->CFGR |= ADC_CFGR_CONT;  // set to continuous mode
+  } else {
+    ADC5->CFGR &= ~ADC_CFGR_CONT;  // set to single mode
+  }
 }
 
-void
-modm::platform::Adc5::setFreeRunningMode(const bool enable)
-{
-	if (enable) {
-		ADC5->CFGR |=  ADC_CFGR_CONT; // set to continuous mode
-	} else {
-		ADC5->CFGR &= ~ADC_CFGR_CONT; // set to single mode
-	}
+void modm::platform::Adc5::startConversion() {
+  // TODO: maybe add more interrupt flags
+  acknowledgeInterruptFlags(InterruptFlag::EndOfRegularConversion | InterruptFlag::EndOfSampling |
+                            InterruptFlag::Overrun | InterruptFlag::EndOfRegularSequenceOfConversions);
+  // starts single conversion for the regular group
+  ADC5->CR |= ADC_CR_ADSTART;
 }
 
-void
-modm::platform::Adc5::startConversion()
-{
-	// TODO: maybe add more interrupt flags
-	acknowledgeInterruptFlags(InterruptFlag::EndOfRegularConversion |
-			InterruptFlag::EndOfSampling | InterruptFlag::Overrun |
-			InterruptFlag::EndOfRegularSequenceOfConversions);
-	// starts single conversion for the regular group
-	ADC5->CR |= ADC_CR_ADSTART;
+void modm::platform::Adc5::stopConversion() {
+  ADC5->CR |= ADC_CR_ADSTP | ADC_CR_JADSTP;
+  while ((ADC5->CR & (ADC_CR_ADSTP | ADC_CR_JADSTP)) != 0);
+
+  acknowledgeInterruptFlags(InterruptFlag::EndOfRegularConversion | InterruptFlag::EndOfSampling |
+                            InterruptFlag::Overrun);
 }
 
-void
-modm::platform::Adc5::stopConversion()
-{
-	ADC5->CR |= ADC_CR_ADSTP | ADC_CR_JADSTP;
-	while ((ADC5->CR & (ADC_CR_ADSTP | ADC_CR_JADSTP)) != 0);
-
-	acknowledgeInterruptFlags(InterruptFlag::EndOfRegularConversion |
-			InterruptFlag::EndOfSampling | InterruptFlag::Overrun);
+bool modm::platform::Adc5::isConversionFinished() {
+  return static_cast<bool>(getInterruptFlags() & InterruptFlag::EndOfRegularConversion);
 }
 
-bool
-modm::platform::Adc5::isConversionFinished()
-{
-	return static_cast<bool>(getInterruptFlags() & InterruptFlag::EndOfRegularConversion);
+bool modm::platform::Adc5::isConversionSequenceFinished() {
+  return static_cast<bool>(getInterruptFlags() & InterruptFlag::EndOfRegularSequenceOfConversions);
 }
 
-bool
-modm::platform::Adc5::isConversionSequenceFinished()
-{
-	return static_cast<bool>(getInterruptFlags() & InterruptFlag::EndOfRegularSequenceOfConversions);
+void modm::platform::Adc5::enableRegularConversionExternalTrigger(
+    ExternalTriggerPolarity externalTriggerPolarity, ExternalTriggerEvent externalTriggerEvent) {
+  const auto polarity = (static_cast<uint32_t>(externalTriggerPolarity) << ADC_CFGR_EXTEN_Pos);
+  const auto externalTrigger = (static_cast<uint32_t>(externalTriggerEvent) << ADC_CFGR_EXTSEL_Pos);
+  const auto mask = ADC_CFGR_EXTEN_Msk | ADC_CFGR_EXTSEL_Msk;
+  ADC5->CFGR = (ADC5->CFGR & ~mask) | polarity | externalTrigger;
 }
 
-void
-modm::platform::Adc5::enableRegularConversionExternalTrigger(
-	ExternalTriggerPolarity externalTriggerPolarity,
-	ExternalTriggerEvent externalTriggerEvent)
-{
-	const auto polarity = (static_cast<uint32_t>(externalTriggerPolarity) << ADC_CFGR_EXTEN_Pos);
-	const auto externalTrigger = (static_cast<uint32_t>(externalTriggerEvent) << ADC_CFGR_EXTSEL_Pos);
-	const auto mask = ADC_CFGR_EXTEN_Msk | ADC_CFGR_EXTSEL_Msk;
-	ADC5->CFGR = (ADC5->CFGR & ~mask) | polarity | externalTrigger;
+void modm::platform::Adc5::disableRegularConversionExternalTrigger() {
+  // Disable regular conversions external trigger by clearing the bits
+  // for polarity and external trigger source.
+  ADC5->CFGR &= ~(ADC_CFGR_EXTEN_Msk | ADC_CFGR_EXTSEL_Msk);
 }
 
-void
-modm::platform::Adc5::disableRegularConversionExternalTrigger()
-{
-	// Disable regular conversions external trigger by clearing the bits
-	// for polarity and external trigger source.
-	ADC5->CFGR &= ~(ADC_CFGR_EXTEN_Msk | ADC_CFGR_EXTSEL_Msk);
+void modm::platform::Adc5::startInjectedConversionSequence() {
+  acknowledgeInterruptFlags(InterruptFlag::EndOfInjectedConversion |
+                            InterruptFlag::EndOfInjectedSequenceOfConversions);
+
+  ADC5->CR |= ADC_CR_JADSTART;
 }
 
-void
-modm::platform::Adc5::startInjectedConversionSequence()
-{
-	acknowledgeInterruptFlags(InterruptFlag::EndOfInjectedConversion |
-			InterruptFlag::EndOfInjectedSequenceOfConversions);
+bool modm::platform::Adc5::setInjectedConversionChannel(uint8_t index,
+                                                        Channel channel,
+                                                        SampleTime sampleTime) {
+  if (index >= 4) {
+    return false;
+  }
+  if (!configureChannel(channel, sampleTime)) {
+    return false;
+  }
 
-	ADC5->CR |= ADC_CR_JADSTART;
+  static_assert(ADC_JSQR_JSQ2_Pos == ADC_JSQR_JSQ1_Pos + 6);
+  static_assert(ADC_JSQR_JSQ3_Pos == ADC_JSQR_JSQ2_Pos + 6);
+  static_assert(ADC_JSQR_JSQ4_Pos == ADC_JSQR_JSQ3_Pos + 6);
+
+  const uint32_t pos = ADC_JSQR_JSQ1_Pos + 6 * index;
+  const uint32_t mask = ADC_JSQR_JSQ1_Msk << (6 * index);
+  ADC5->JSQR = (ADC5->JSQR & ~mask) | (static_cast<uint32_t>(channel) << pos);
+  return true;
 }
 
-bool
-modm::platform::Adc5::setInjectedConversionChannel(uint8_t index, Channel channel,
-														  SampleTime sampleTime)
-{
-	if (index >= 4) {
-		return false;
-	}
-	if (!configureChannel(channel, sampleTime)) {
-		return false;
-	}
-
-	static_assert(ADC_JSQR_JSQ2_Pos == ADC_JSQR_JSQ1_Pos + 6);
-	static_assert(ADC_JSQR_JSQ3_Pos == ADC_JSQR_JSQ2_Pos + 6);
-	static_assert(ADC_JSQR_JSQ4_Pos == ADC_JSQR_JSQ3_Pos + 6);
-
-	const uint32_t pos = ADC_JSQR_JSQ1_Pos + 6 * index;
-	const uint32_t mask = ADC_JSQR_JSQ1_Msk << (6 * index);
-	ADC5->JSQR = (ADC5->JSQR & ~mask) | (static_cast<uint32_t>(channel) << pos);
-	return true;
+template <class Gpio>
+bool modm::platform::Adc5::setInjectedConversionChannel(uint8_t index, SampleTime sampleTime) {
+  return setInjectedConversionChannel(index, getPinChannel<Gpio>(), sampleTime);
 }
 
-template<class Gpio>
-bool
-modm::platform::Adc5::setInjectedConversionChannel(uint8_t index,
-														  SampleTime sampleTime)
-{
-	return setInjectedConversionChannel(index, getPinChannel<Gpio>(), sampleTime);
+bool modm::platform::Adc5::setInjectedConversionSequenceLength(uint8_t length) {
+  if (length < 1 or length > 4) {
+    return false;
+  }
+  ADC5->JSQR = (ADC5->JSQR & ~ADC_JSQR_JL) | ((length - 1) << ADC_JSQR_JL_Pos);
+  return true;
 }
 
-bool
-modm::platform::Adc5::setInjectedConversionSequenceLength(uint8_t length)
-{
-	if (length < 1 or length > 4) {
-		return false;
-	}
-	ADC5->JSQR = (ADC5->JSQR & ~ADC_JSQR_JL)
-		| ((length - 1) << ADC_JSQR_JL_Pos);
-	return true;
+void modm::platform::Adc5::enableInjectedConversionExternalTrigger(
+    ExternalTriggerPolarity externalTriggerPolarity, ExternalTriggerEvent externalTriggerEvent) {
+  const auto polarity = (static_cast<uint32_t>(externalTriggerPolarity) << ADC_JSQR_JEXTEN_Pos);
+  const auto externalTrigger = (static_cast<uint32_t>(externalTriggerEvent) << ADC_JSQR_JEXTSEL_Pos);
+  const auto mask = ADC_JSQR_JEXTEN_Msk | ADC_JSQR_JEXTSEL_Msk;
+  ADC5->JSQR = (ADC5->JSQR & ~mask) | polarity | externalTrigger;
 }
 
-void
-modm::platform::Adc5::enableInjectedConversionExternalTrigger(
-	ExternalTriggerPolarity externalTriggerPolarity,
-	ExternalTriggerEvent externalTriggerEvent)
-{
-	const auto polarity = (static_cast<uint32_t>(externalTriggerPolarity) << ADC_JSQR_JEXTEN_Pos);
-	const auto externalTrigger = (static_cast<uint32_t>(externalTriggerEvent) << ADC_JSQR_JEXTSEL_Pos);
-	const auto mask = ADC_JSQR_JEXTEN_Msk | ADC_JSQR_JEXTSEL_Msk;
-	ADC5->JSQR = (ADC5->JSQR & ~mask) | polarity | externalTrigger;
+void modm::platform::Adc5::disableInjectedConversionExternalTrigger() {
+  // Disable injected conversions external trigger by clearing the bits
+  // for polarity and external trigger source.
+  ADC5->JSQR &= ~(ADC_JSQR_JEXTEN_Msk | ADC_JSQR_JEXTSEL_Msk);
 }
 
-void
-modm::platform::Adc5::disableInjectedConversionExternalTrigger()
-{
-	// Disable injected conversions external trigger by clearing the bits
-	// for polarity and external trigger source.
-	ADC5->JSQR &= ~(ADC_JSQR_JEXTEN_Msk | ADC_JSQR_JEXTSEL_Msk);
+bool modm::platform::Adc5::isInjectedConversionFinished() {
+  return static_cast<bool>(getInterruptFlags() & InterruptFlag::EndOfInjectedSequenceOfConversions);
 }
 
-bool
-modm::platform::Adc5::isInjectedConversionFinished()
-{
-	return static_cast<bool>(getInterruptFlags() & InterruptFlag::EndOfInjectedSequenceOfConversions);
-}
-
-void
-modm::platform::Adc5::setDmaMode(DmaMode mode)
-{
-	constexpr uint32_t mask = std::to_underlying(DmaMode::Mask);
-	ADC5->CFGR = (ADC5->CFGR & ~mask) | std::to_underlying(mode);
+void modm::platform::Adc5::setDmaMode(DmaMode mode) {
+  constexpr uint32_t mask = std::to_underlying(DmaMode::Mask);
+  ADC5->CFGR = (ADC5->CFGR & ~mask) | std::to_underlying(mode);
 }
 
 // ----------------------------------------------------------------------------
-void
-modm::platform::Adc5::enableInterruptVector(const uint32_t priority,
-												const bool enable)
-{
-	const IRQn_Type INTERRUPT_VECTOR = ADC5_IRQn;
-	if (enable) {
-		NVIC_SetPriority(INTERRUPT_VECTOR, priority);
-		NVIC_EnableIRQ(INTERRUPT_VECTOR);
-	} else {
-		NVIC_DisableIRQ(INTERRUPT_VECTOR);
-	}
+void modm::platform::Adc5::enableInterruptVector(const uint32_t priority, const bool enable) {
+  const IRQn_Type INTERRUPT_VECTOR = ADC5_IRQn;
+  if (enable) {
+    NVIC_SetPriority(INTERRUPT_VECTOR, priority);
+    NVIC_EnableIRQ(INTERRUPT_VECTOR);
+  } else {
+    NVIC_DisableIRQ(INTERRUPT_VECTOR);
+  }
 }
 
-void
-modm::platform::Adc5::enableInterrupt(const Interrupt_t interrupt)
-{
-	ADC5->IER |= interrupt.value;
+void modm::platform::Adc5::enableInterrupt(const Interrupt_t interrupt) { ADC5->IER |= interrupt.value; }
+
+void modm::platform::Adc5::disableInterrupt(const Interrupt_t interrupt) { ADC5->IER &= ~interrupt.value; }
+
+modm::platform::Adc5::InterruptFlag_t modm::platform::Adc5::getInterruptFlags() {
+  return InterruptFlag_t(ADC5->ISR);
 }
 
-void
-modm::platform::Adc5::disableInterrupt(const Interrupt_t interrupt)
-{
-	ADC5->IER &= ~interrupt.value;
+void modm::platform::Adc5::acknowledgeInterruptFlags(const InterruptFlag_t flags) {
+  // Flags are cleared by writing a one to the flag position.
+  // Writing a zero is ignored.
+  ADC5->ISR = flags.value;
 }
 
-modm::platform::Adc5::InterruptFlag_t
-modm::platform::Adc5::getInterruptFlags()
-{
-	return InterruptFlag_t(ADC5->ISR);
+bool modm::platform::Adc5::enableChannelOffset(const OffsetSlot slot,
+                                               const Channel channel,
+                                               const int16_t offset,
+                                               const bool saturate) {
+  const uint32_t offsetMask = (std::abs(offset) << ADC_OFR1_OFFSET1_Pos) & ADC_OFR1_OFFSET1_Msk;
+  const uint32_t signMask = (offset > 0) ? ADC_OFR1_OFFSETPOS : 0u;
+  const uint32_t saturateMask = saturate ? ADC_OFR1_SATEN : 0u;
+  const uint32_t enableMask = ADC_OFR1_OFFSET1_EN;
+  const uint32_t channelMask =
+      (static_cast<uint32_t>(channel) << ADC_OFR1_OFFSET1_CH_Pos) & ADC_OFR1_OFFSET1_CH_Msk;
+  const uint32_t offsetValue = channelMask | offsetMask | enableMask | saturateMask | signMask;
+
+  if (ADC5->CR & (ADC_CR_ADSTART | ADC_CR_JADSTART)) {
+    // ADC is currently converting, cannot set offset
+    return false;
+  }
+
+  switch (slot) {
+    case OffsetSlot::Slot0:
+      ADC5->OFR1 = offsetValue;
+      break;
+    case OffsetSlot::Slot1:
+      ADC5->OFR2 = offsetValue;
+      break;
+    case OffsetSlot::Slot2:
+      ADC5->OFR3 = offsetValue;
+      break;
+    case OffsetSlot::Slot3:
+      ADC5->OFR4 = offsetValue;
+      break;
+    default:
+      return false;  // invalid slot
+  }
+
+  return true;
 }
 
-void
-modm::platform::Adc5::acknowledgeInterruptFlags(const InterruptFlag_t flags)
-{
-	// Flags are cleared by writing a one to the flag position.
-	// Writing a zero is ignored.
-	ADC5->ISR = flags.value;
-}
+bool modm::platform::Adc5::disableChannelOffset(const OffsetSlot slot) {
+  if (ADC5->CR & (ADC_CR_ADSTART | ADC_CR_JADSTART)) {
+    // ADC is currently converting, cannot disable offset
+    return false;
+  }
 
-bool
-modm::platform::Adc5::enableChannelOffset( const OffsetSlot slot, const Channel channel, const int16_t offset, const bool saturate)
-{
-	const uint32_t offsetMask = (std::abs(offset) << ADC_OFR1_OFFSET1_Pos) & ADC_OFR1_OFFSET1_Msk;
-	const uint32_t signMask = (offset > 0) ? ADC_OFR1_OFFSETPOS : 0u;
-	const uint32_t saturateMask = saturate ? ADC_OFR1_SATEN : 0u;
-	const uint32_t enableMask = ADC_OFR1_OFFSET1_EN;
-	const uint32_t channelMask = (static_cast<uint32_t>(channel) << ADC_OFR1_OFFSET1_CH_Pos) & ADC_OFR1_OFFSET1_CH_Msk;
-	const uint32_t offsetValue = channelMask | offsetMask | enableMask | saturateMask | signMask;
-
-	if (ADC5->CR & (ADC_CR_ADSTART | ADC_CR_JADSTART))
-	{
-		// ADC is currently converting, cannot set offset
-		return false;
-	}
-
-	switch (slot)
-	{
-		case OffsetSlot::Slot0: ADC5->OFR1 = offsetValue;	break;
-		case OffsetSlot::Slot1: ADC5->OFR2 = offsetValue;	break;
-		case OffsetSlot::Slot2: ADC5->OFR3 = offsetValue;	break;
-		case OffsetSlot::Slot3: ADC5->OFR4 = offsetValue;	break;
-		default:
-			return false;	// invalid slot
-	}
-
-	return true;
-}
-
-bool
-modm::platform::Adc5::disableChannelOffset(const OffsetSlot slot)
-{
-	if (ADC5->CR & (ADC_CR_ADSTART | ADC_CR_JADSTART))
-	{
-		// ADC is currently converting, cannot disable offset
-		return false;
-	}
-
-	const uint32_t enableMask = ADC_OFR1_OFFSET1_EN;
-	switch (slot)
-	{
-		case OffsetSlot::Slot0: ADC5->OFR1 &= ~enableMask; break;
-		case OffsetSlot::Slot1: ADC5->OFR2 &= ~enableMask; break;
-		case OffsetSlot::Slot2: ADC5->OFR3 &= ~enableMask; break;
-		case OffsetSlot::Slot3: ADC5->OFR4 &= ~enableMask; break;
-		default:
-			return false;  // invalid slot
-	}
-	return true;
+  const uint32_t enableMask = ADC_OFR1_OFFSET1_EN;
+  switch (slot) {
+    case OffsetSlot::Slot0:
+      ADC5->OFR1 &= ~enableMask;
+      break;
+    case OffsetSlot::Slot1:
+      ADC5->OFR2 &= ~enableMask;
+      break;
+    case OffsetSlot::Slot2:
+      ADC5->OFR3 &= ~enableMask;
+      break;
+    case OffsetSlot::Slot3:
+      ADC5->OFR4 &= ~enableMask;
+      break;
+    default:
+      return false;  // invalid slot
+  }
+  return true;
 }

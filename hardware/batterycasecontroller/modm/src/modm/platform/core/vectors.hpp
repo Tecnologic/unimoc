@@ -15,8 +15,7 @@
 #include <modm/architecture/utils.hpp>
 #include <string_view>
 
-extern "C"
-{
+extern "C" {
 
 void Reset_Handler(void);
 void NMI_Handler(void);
@@ -123,246 +122,239 @@ void CORDIC_IRQHandler(void);
 void FMAC_IRQHandler(void);
 }
 
-namespace modm::platform::detail
-{
+namespace modm::platform::detail {
 
-constexpr std::string_view vectorNames[] =
-{
-	"__main_stack_top",
-	"Reset",
-	"NMI",
-	"HardFault",
-	"MemManage",
-	"BusFault",
-	"UsageFault",
-	"Undefined",
-	"Undefined",
-	"Undefined",
-	"Undefined",
-	"SVC",
-	"DebugMon",
-	"Undefined",
-	"PendSV",
-	"SysTick",
-	"WWDG",
-	"PVD_PVM",
-	"RTC_TAMP_LSECSS",
-	"RTC_WKUP",
-	"FLASH",
-	"RCC",
-	"EXTI0",
-	"EXTI1",
-	"EXTI2",
-	"EXTI3",
-	"EXTI4",
-	"DMA1_Channel1",
-	"DMA1_Channel2",
-	"DMA1_Channel3",
-	"DMA1_Channel4",
-	"DMA1_Channel5",
-	"DMA1_Channel6",
-	"DMA1_Channel7",
-	"ADC1_2",
-	"USB_HP",
-	"USB_LP",
-	"FDCAN1_IT0",
-	"FDCAN1_IT1",
-	"EXTI9_5",
-	"TIM1_BRK_TIM15",
-	"TIM1_UP_TIM16",
-	"TIM1_TRG_COM_TIM17",
-	"TIM1_CC",
-	"TIM2",
-	"TIM3",
-	"TIM4",
-	"I2C1_EV",
-	"I2C1_ER",
-	"I2C2_EV",
-	"I2C2_ER",
-	"SPI1",
-	"SPI2",
-	"USART1",
-	"USART2",
-	"USART3",
-	"EXTI15_10",
-	"RTC_Alarm",
-	"USBWakeUp",
-	"TIM8_BRK",
-	"TIM8_UP",
-	"TIM8_TRG_COM",
-	"TIM8_CC",
-	"ADC3",
-	"FMC",
-	"LPTIM1",
-	"TIM5",
-	"SPI3",
-	"UART4",
-	"UART5",
-	"TIM6_DAC",
-	"TIM7_DAC",
-	"DMA2_Channel1",
-	"DMA2_Channel2",
-	"DMA2_Channel3",
-	"DMA2_Channel4",
-	"DMA2_Channel5",
-	"ADC4",
-	"ADC5",
-	"UCPD1",
-	"COMP1_2_3",
-	"COMP4_5_6",
-	"COMP7",
-	"Undefined",
-	"Undefined",
-	"Undefined",
-	"Undefined",
-	"Undefined",
-	"Undefined",
-	"Undefined",
-	"Undefined",
-	"CRS",
-	"SAI1",
-	"TIM20_BRK",
-	"TIM20_UP",
-	"TIM20_TRG_COM",
-	"TIM20_CC",
-	"FPU",
-	"I2C4_EV",
-	"I2C4_ER",
-	"SPI4",
-	"Undefined",
-	"FDCAN2_IT0",
-	"FDCAN2_IT1",
-	"FDCAN3_IT0",
-	"FDCAN3_IT1",
-	"RNG",
-	"LPUART1",
-	"I2C3_EV",
-	"I2C3_ER",
-	"DMAMUX_OVR",
-	"QUADSPI",
-	"DMA1_Channel8",
-	"DMA2_Channel6",
-	"DMA2_Channel7",
-	"DMA2_Channel8",
-	"CORDIC",
-	"FMAC",
+constexpr std::string_view vectorNames[] = {
+    "__main_stack_top",
+    "Reset",
+    "NMI",
+    "HardFault",
+    "MemManage",
+    "BusFault",
+    "UsageFault",
+    "Undefined",
+    "Undefined",
+    "Undefined",
+    "Undefined",
+    "SVC",
+    "DebugMon",
+    "Undefined",
+    "PendSV",
+    "SysTick",
+    "WWDG",
+    "PVD_PVM",
+    "RTC_TAMP_LSECSS",
+    "RTC_WKUP",
+    "FLASH",
+    "RCC",
+    "EXTI0",
+    "EXTI1",
+    "EXTI2",
+    "EXTI3",
+    "EXTI4",
+    "DMA1_Channel1",
+    "DMA1_Channel2",
+    "DMA1_Channel3",
+    "DMA1_Channel4",
+    "DMA1_Channel5",
+    "DMA1_Channel6",
+    "DMA1_Channel7",
+    "ADC1_2",
+    "USB_HP",
+    "USB_LP",
+    "FDCAN1_IT0",
+    "FDCAN1_IT1",
+    "EXTI9_5",
+    "TIM1_BRK_TIM15",
+    "TIM1_UP_TIM16",
+    "TIM1_TRG_COM_TIM17",
+    "TIM1_CC",
+    "TIM2",
+    "TIM3",
+    "TIM4",
+    "I2C1_EV",
+    "I2C1_ER",
+    "I2C2_EV",
+    "I2C2_ER",
+    "SPI1",
+    "SPI2",
+    "USART1",
+    "USART2",
+    "USART3",
+    "EXTI15_10",
+    "RTC_Alarm",
+    "USBWakeUp",
+    "TIM8_BRK",
+    "TIM8_UP",
+    "TIM8_TRG_COM",
+    "TIM8_CC",
+    "ADC3",
+    "FMC",
+    "LPTIM1",
+    "TIM5",
+    "SPI3",
+    "UART4",
+    "UART5",
+    "TIM6_DAC",
+    "TIM7_DAC",
+    "DMA2_Channel1",
+    "DMA2_Channel2",
+    "DMA2_Channel3",
+    "DMA2_Channel4",
+    "DMA2_Channel5",
+    "ADC4",
+    "ADC5",
+    "UCPD1",
+    "COMP1_2_3",
+    "COMP4_5_6",
+    "COMP7",
+    "Undefined",
+    "Undefined",
+    "Undefined",
+    "Undefined",
+    "Undefined",
+    "Undefined",
+    "Undefined",
+    "Undefined",
+    "CRS",
+    "SAI1",
+    "TIM20_BRK",
+    "TIM20_UP",
+    "TIM20_TRG_COM",
+    "TIM20_CC",
+    "FPU",
+    "I2C4_EV",
+    "I2C4_ER",
+    "SPI4",
+    "Undefined",
+    "FDCAN2_IT0",
+    "FDCAN2_IT1",
+    "FDCAN3_IT0",
+    "FDCAN3_IT1",
+    "RNG",
+    "LPUART1",
+    "I2C3_EV",
+    "I2C3_ER",
+    "DMAMUX_OVR",
+    "QUADSPI",
+    "DMA1_Channel8",
+    "DMA2_Channel6",
+    "DMA2_Channel7",
+    "DMA2_Channel8",
+    "CORDIC",
+    "FMAC",
 };
 
-
 #ifndef MODM_ISR_DISABLE_VALIDATION
-#define MODM_ISR_VALIDATE(vector_str, vector) \
-	static_assert(::modm::platform::detail::validateIrqName(vector_str), \
-			"'" vector_str "' is not a valid IRQ name!\n" \
-			"  Hint: You do not need to add '_IRQHandler' to the name.\n" \
-			"  Hint: Here are all the IRQs on this device:\n" \
-			"    - WWDG\n" \
-			"    - PVD_PVM\n" \
-			"    - RTC_TAMP_LSECSS\n" \
-			"    - RTC_WKUP\n" \
-			"    - FLASH\n" \
-			"    - RCC\n" \
-			"    - EXTI0\n" \
-			"    - EXTI1\n" \
-			"    - EXTI2\n" \
-			"    - EXTI3\n" \
-			"    - EXTI4\n" \
-			"    - DMA1_Channel1\n" \
-			"    - DMA1_Channel2\n" \
-			"    - DMA1_Channel3\n" \
-			"    - DMA1_Channel4\n" \
-			"    - DMA1_Channel5\n" \
-			"    - DMA1_Channel6\n" \
-			"    - DMA1_Channel7\n" \
-			"    - ADC1_2\n" \
-			"    - USB_HP\n" \
-			"    - USB_LP\n" \
-			"    - FDCAN1_IT0\n" \
-			"    - FDCAN1_IT1\n" \
-			"    - EXTI9_5\n" \
-			"    - TIM1_BRK_TIM15\n" \
-			"    - TIM1_UP_TIM16\n" \
-			"    - TIM1_TRG_COM_TIM17\n" \
-			"    - TIM1_CC\n" \
-			"    - TIM2\n" \
-			"    - TIM3\n" \
-			"    - TIM4\n" \
-			"    - I2C1_EV\n" \
-			"    - I2C1_ER\n" \
-			"    - I2C2_EV\n" \
-			"    - I2C2_ER\n" \
-			"    - SPI1\n" \
-			"    - SPI2\n" \
-			"    - USART1\n" \
-			"    - USART2\n" \
-			"    - USART3\n" \
-			"    - EXTI15_10\n" \
-			"    - RTC_Alarm\n" \
-			"    - USBWakeUp\n" \
-			"    - TIM8_BRK\n" \
-			"    - TIM8_UP\n" \
-			"    - TIM8_TRG_COM\n" \
-			"    - TIM8_CC\n" \
-			"    - ADC3\n" \
-			"    - FMC\n" \
-			"    - LPTIM1\n" \
-			"    - TIM5\n" \
-			"    - SPI3\n" \
-			"    - UART4\n" \
-			"    - UART5\n" \
-			"    - TIM6_DAC\n" \
-			"    - TIM7_DAC\n" \
-			"    - DMA2_Channel1\n" \
-			"    - DMA2_Channel2\n" \
-			"    - DMA2_Channel3\n" \
-			"    - DMA2_Channel4\n" \
-			"    - DMA2_Channel5\n" \
-			"    - ADC4\n" \
-			"    - ADC5\n" \
-			"    - UCPD1\n" \
-			"    - COMP1_2_3\n" \
-			"    - COMP4_5_6\n" \
-			"    - COMP7\n" \
-			"    - CRS\n" \
-			"    - SAI1\n" \
-			"    - TIM20_BRK\n" \
-			"    - TIM20_UP\n" \
-			"    - TIM20_TRG_COM\n" \
-			"    - TIM20_CC\n" \
-			"    - FPU\n" \
-			"    - I2C4_EV\n" \
-			"    - I2C4_ER\n" \
-			"    - SPI4\n" \
-			"    - FDCAN2_IT0\n" \
-			"    - FDCAN2_IT1\n" \
-			"    - FDCAN3_IT0\n" \
-			"    - FDCAN3_IT1\n" \
-			"    - RNG\n" \
-			"    - LPUART1\n" \
-			"    - I2C3_EV\n" \
-			"    - I2C3_ER\n" \
-			"    - DMAMUX_OVR\n" \
-			"    - QUADSPI\n" \
-			"    - DMA1_Channel8\n" \
-			"    - DMA2_Channel6\n" \
-			"    - DMA2_Channel7\n" \
-			"    - DMA2_Channel8\n" \
-			"    - CORDIC\n" \
-			"    - FMAC\n" \
-	)
+#define MODM_ISR_VALIDATE(vector_str, vector)                                 \
+  static_assert(::modm::platform::detail::validateIrqName(vector_str),        \
+                "'" vector_str                                                \
+                "' is not a valid IRQ name!\n"                                \
+                "  Hint: You do not need to add '_IRQHandler' to the name.\n" \
+                "  Hint: Here are all the IRQs on this device:\n"             \
+                "    - WWDG\n"                                                \
+                "    - PVD_PVM\n"                                             \
+                "    - RTC_TAMP_LSECSS\n"                                     \
+                "    - RTC_WKUP\n"                                            \
+                "    - FLASH\n"                                               \
+                "    - RCC\n"                                                 \
+                "    - EXTI0\n"                                               \
+                "    - EXTI1\n"                                               \
+                "    - EXTI2\n"                                               \
+                "    - EXTI3\n"                                               \
+                "    - EXTI4\n"                                               \
+                "    - DMA1_Channel1\n"                                       \
+                "    - DMA1_Channel2\n"                                       \
+                "    - DMA1_Channel3\n"                                       \
+                "    - DMA1_Channel4\n"                                       \
+                "    - DMA1_Channel5\n"                                       \
+                "    - DMA1_Channel6\n"                                       \
+                "    - DMA1_Channel7\n"                                       \
+                "    - ADC1_2\n"                                              \
+                "    - USB_HP\n"                                              \
+                "    - USB_LP\n"                                              \
+                "    - FDCAN1_IT0\n"                                          \
+                "    - FDCAN1_IT1\n"                                          \
+                "    - EXTI9_5\n"                                             \
+                "    - TIM1_BRK_TIM15\n"                                      \
+                "    - TIM1_UP_TIM16\n"                                       \
+                "    - TIM1_TRG_COM_TIM17\n"                                  \
+                "    - TIM1_CC\n"                                             \
+                "    - TIM2\n"                                                \
+                "    - TIM3\n"                                                \
+                "    - TIM4\n"                                                \
+                "    - I2C1_EV\n"                                             \
+                "    - I2C1_ER\n"                                             \
+                "    - I2C2_EV\n"                                             \
+                "    - I2C2_ER\n"                                             \
+                "    - SPI1\n"                                                \
+                "    - SPI2\n"                                                \
+                "    - USART1\n"                                              \
+                "    - USART2\n"                                              \
+                "    - USART3\n"                                              \
+                "    - EXTI15_10\n"                                           \
+                "    - RTC_Alarm\n"                                           \
+                "    - USBWakeUp\n"                                           \
+                "    - TIM8_BRK\n"                                            \
+                "    - TIM8_UP\n"                                             \
+                "    - TIM8_TRG_COM\n"                                        \
+                "    - TIM8_CC\n"                                             \
+                "    - ADC3\n"                                                \
+                "    - FMC\n"                                                 \
+                "    - LPTIM1\n"                                              \
+                "    - TIM5\n"                                                \
+                "    - SPI3\n"                                                \
+                "    - UART4\n"                                               \
+                "    - UART5\n"                                               \
+                "    - TIM6_DAC\n"                                            \
+                "    - TIM7_DAC\n"                                            \
+                "    - DMA2_Channel1\n"                                       \
+                "    - DMA2_Channel2\n"                                       \
+                "    - DMA2_Channel3\n"                                       \
+                "    - DMA2_Channel4\n"                                       \
+                "    - DMA2_Channel5\n"                                       \
+                "    - ADC4\n"                                                \
+                "    - ADC5\n"                                                \
+                "    - UCPD1\n"                                               \
+                "    - COMP1_2_3\n"                                           \
+                "    - COMP4_5_6\n"                                           \
+                "    - COMP7\n"                                               \
+                "    - CRS\n"                                                 \
+                "    - SAI1\n"                                                \
+                "    - TIM20_BRK\n"                                           \
+                "    - TIM20_UP\n"                                            \
+                "    - TIM20_TRG_COM\n"                                       \
+                "    - TIM20_CC\n"                                            \
+                "    - FPU\n"                                                 \
+                "    - I2C4_EV\n"                                             \
+                "    - I2C4_ER\n"                                             \
+                "    - SPI4\n"                                                \
+                "    - FDCAN2_IT0\n"                                          \
+                "    - FDCAN2_IT1\n"                                          \
+                "    - FDCAN3_IT0\n"                                          \
+                "    - FDCAN3_IT1\n"                                          \
+                "    - RNG\n"                                                 \
+                "    - LPUART1\n"                                             \
+                "    - I2C3_EV\n"                                             \
+                "    - I2C3_ER\n"                                             \
+                "    - DMAMUX_OVR\n"                                          \
+                "    - QUADSPI\n"                                             \
+                "    - DMA1_Channel8\n"                                       \
+                "    - DMA2_Channel6\n"                                       \
+                "    - DMA2_Channel7\n"                                       \
+                "    - DMA2_Channel8\n"                                       \
+                "    - CORDIC\n"                                              \
+                "    - FMAC\n")
 #else
 #define MODM_ISR_VALIDATE(...)
 #endif
 
-constexpr int getIrqPosition(std::string_view name)
-{
-	for (int pos = 0; pos < 118; pos++)
-		if (vectorNames[pos] == name) return pos;
-	return -1;
+constexpr int getIrqPosition(std::string_view name) {
+  for (int pos = 0; pos < 118; pos++)
+    if (vectorNames[pos] == name) return pos;
+  return -1;
 }
 
-constexpr bool validateIrqName(std::string_view name)
-{
-	return getIrqPosition(name) != -1;
-}
+constexpr bool validateIrqName(std::string_view name) { return getIrqPosition(name) != -1; }
 
-}	// namespace modm::platform::detail
+}  // namespace modm::platform::detail

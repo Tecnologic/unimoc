@@ -156,13 +156,18 @@ bool Initialize(const HardwareInterface::CurrentControlCallback callback) noexce
 
   // Set the ADCs to use the same trigger source and edge. On STM32G4,
   // injected Event9 is TIM8_CC4.
-  Adc1::enableInjectedConversionExternalTrigger(Adc1::ExternalTriggerPolarity::RisingEdge, Adc1::ExternalTriggerEvent::Event9);
+  Adc1::enableInjectedConversionExternalTrigger(Adc1::ExternalTriggerPolarity::RisingEdge,
+                                                Adc1::ExternalTriggerEvent::Event9);
 
-  Adc2::enableInjectedConversionExternalTrigger(Adc2::ExternalTriggerPolarity::RisingEdge, Adc2::ExternalTriggerEvent::Event9);
-  Adc3::enableInjectedConversionExternalTrigger(Adc3::ExternalTriggerPolarity::RisingEdge, Adc3::ExternalTriggerEvent::Event9);
-  Adc4::enableInjectedConversionExternalTrigger(Adc4::ExternalTriggerPolarity::RisingEdge, Adc4::ExternalTriggerEvent::Event9);
+  Adc2::enableInjectedConversionExternalTrigger(Adc2::ExternalTriggerPolarity::RisingEdge,
+                                                Adc2::ExternalTriggerEvent::Event9);
+  Adc3::enableInjectedConversionExternalTrigger(Adc3::ExternalTriggerPolarity::RisingEdge,
+                                                Adc3::ExternalTriggerEvent::Event9);
+  Adc4::enableInjectedConversionExternalTrigger(Adc4::ExternalTriggerPolarity::RisingEdge,
+                                                Adc4::ExternalTriggerEvent::Event9);
   if constexpr (kBridgeTemperatureAvailable || kMotorTemperatureAvailable) {
-    Adc5::enableInjectedConversionExternalTrigger(Adc5::ExternalTriggerPolarity::RisingEdge, Adc5::ExternalTriggerEvent::Event9);
+    Adc5::enableInjectedConversionExternalTrigger(Adc5::ExternalTriggerPolarity::RisingEdge,
+                                                  Adc5::ExternalTriggerEvent::Event9);
   }
   if (!Adc1::enableChannelOffset<A1_IA>(Adc1::OffsetSlot::Slot0, 2048)) {
     return false;
@@ -178,7 +183,8 @@ bool Initialize(const HardwareInterface::CurrentControlCallback callback) noexce
   Adc2::startInjectedConversionSequence();
   Adc3::startInjectedConversionSequence();
   Adc4::startInjectedConversionSequence();
-  if constexpr (kBridgeTemperatureAvailable || kMotorTemperatureAvailable) Adc5::startInjectedConversionSequence();
+  if constexpr (kBridgeTemperatureAvailable || kMotorTemperatureAvailable)
+    Adc5::startInjectedConversionSequence();
 
   return true;  // Return true if initialization is successful
 }
@@ -193,7 +199,8 @@ constexpr float adcToCurrent(uint32_t adcValue) noexcept {
   constexpr float AMPLIFICATION_GAIN = 50.0f;  // Gain applied to the ADC signal
   // Calculate the current based on the ADC value, shunt resistor, and gain
   // Formula: Current (A) = (ADC Value * Voltage Reference / ADC Resolution) / (Shunt Resistor * Gain)
-  float current = (static_cast<float>(adcValue) * VOLTAGE_REFERENCE / ADC_RESOLUTION) / (SHUNT_RESISTOR * AMPLIFICATION_GAIN);
+  float current = (static_cast<float>(adcValue) * VOLTAGE_REFERENCE / ADC_RESOLUTION) /
+                  (SHUNT_RESISTOR * AMPLIFICATION_GAIN);
 
   return current;  // Convert ADC value to current in Amperes
 }
@@ -203,7 +210,8 @@ system::ThreePhase<unit::Current> ReadPhaseCurrents() noexcept {
   const unit::Current phase_b{adcToCurrent(Adc2::getInjectedConversionValue(0))};
   unit::Current phase_c{};
 
-  if constexpr (kCurrentSensorCount == 3U && kCurrentSenseHasPhaseMeasurements && !kCurrentSenseIsLowSide && !kCurrentSamplesArePwmWindowed) {
+  if constexpr (kCurrentSensorCount == 3U && kCurrentSenseHasPhaseMeasurements && !kCurrentSenseIsLowSide &&
+                !kCurrentSamplesArePwmWindowed) {
     phase_c = unit::Current{adcToCurrent(Adc3::getInjectedConversionValue(0))};
   } else {
     phase_c = unit::Current{-phase_a.Value() - phase_b.Value()};
@@ -229,7 +237,8 @@ system::ThreePhase<unit::Current> GetPhaseCurrents() noexcept { return ReadPhase
  * @return The converted voltage in Volts.
  */
 float adcToVoltage(uint32_t adcValue) noexcept {
-  constexpr float VOLTAGE_DIVIDER_RATIO = (33.0f + 1.0f) / 1.0f;  // Voltage divider ratio for 33k to 1k resistor ratio
+  constexpr float VOLTAGE_DIVIDER_RATIO =
+      (33.0f + 1.0f) / 1.0f;  // Voltage divider ratio for 33k to 1k resistor ratio
 
   // Convert the ADC value to voltage using the reference voltage and resolution
   float voltage = (static_cast<float>(adcValue) * VOLTAGE_REFERENCE / ADC_RESOLUTION) * VOLTAGE_DIVIDER_RATIO;
@@ -237,7 +246,8 @@ float adcToVoltage(uint32_t adcValue) noexcept {
 }
 
 CurrentControlSamples GetCurrentControlSamples() noexcept {
-  return CurrentControlSamples{ReadPhaseCurrents(), unit::Voltage{adcToVoltage(Adc4::getInjectedConversionValue(0))}};
+  return CurrentControlSamples{ReadPhaseCurrents(),
+                               unit::Voltage{adcToVoltage(Adc4::getInjectedConversionValue(0))}};
 }
 
 /**
@@ -267,8 +277,9 @@ float GetDcLinkVoltage() noexcept {
 }
 
 float adcToTorque(uint32_t adcValue) noexcept {
-  constexpr float TORQUE_SENSITIVITY = 70.0f;                                                       // Torque sensitivity in Nm/V E-Rider T9
-  return (static_cast<float>(adcValue) * VOLTAGE_REFERENCE / ADC_RESOLUTION) / TORQUE_SENSITIVITY;  // Convert ADC value to torque
+  constexpr float TORQUE_SENSITIVITY = 70.0f;  // Torque sensitivity in Nm/V E-Rider T9
+  return (static_cast<float>(adcValue) * VOLTAGE_REFERENCE / ADC_RESOLUTION) /
+         TORQUE_SENSITIVITY;  // Convert ADC value to torque
 }
 
 /**

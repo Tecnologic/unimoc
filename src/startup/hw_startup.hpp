@@ -133,7 +133,9 @@ class HwStartup {
   /// Returns false when the FSM is IDLE (never started), DONE (completed),
   /// or FAULT (aborted), so that normal application tasks (SlowUpdate) can
   /// resume after the startup sequence finishes.
-  bool is_active() const noexcept { return state_ != FsmState::IDLE && state_ != FsmState::DONE && state_ != FsmState::FAULT; }
+  bool is_active() const noexcept {
+    return state_ != FsmState::IDLE && state_ != FsmState::DONE && state_ != FsmState::FAULT;
+  }
 
   /// Returns the current FSM state.
   FsmState state() const noexcept { return state_; }

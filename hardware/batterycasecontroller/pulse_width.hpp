@@ -40,7 +40,8 @@ namespace pulse_width {
  *
  * @return true if initialization is successful, false otherwise.
  */
-bool Initialize(unit::Frequency pwm_frequency, HardwareInterface::SlowUpdateCallback slow_update_callback) noexcept;
+bool Initialize(unit::Frequency pwm_frequency,
+                HardwareInterface::SlowUpdateCallback slow_update_callback) noexcept;
 
 /**
  * @brief Sets the phase duties for the motor control.

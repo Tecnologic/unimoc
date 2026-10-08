@@ -14,8 +14,7 @@
 
 #include "adc.hpp"
 
-namespace modm
-{
+namespace modm {
 
 /**
  * Basic interrupt-based interface of an ADC.
@@ -46,17 +45,15 @@ namespace modm
  * @author	Niklas Hauser
  * @ingroup modm_architecture_adc
  */
-class AdcInterrupt : public modm::Adc
-{
-protected:
-	typedef void (*Handler) ();
+class AdcInterrupt : public modm::Adc {
+ protected:
+  typedef void (*Handler)();
 #ifdef __DOXYGEN__
-public:
-	static inline void
-	attachInterruptHandler(Handler handler);
+ public:
+  static inline void attachInterruptHandler(Handler handler);
 #endif
 };
 
-}	// namespace modm
+}  // namespace modm
 
-#endif // MODM_INTERFACE_ADC_INTERRUPT_HPP
+#endif  // MODM_INTERFACE_ADC_INTERRUPT_HPP

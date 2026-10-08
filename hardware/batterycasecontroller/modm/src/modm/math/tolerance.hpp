@@ -11,18 +11,15 @@
 
 #pragma once
 
-#include <modm/math/units.hpp>
 #include <cmath>
+#include <modm/math/units.hpp>
 
-namespace modm
-{
+namespace modm {
 
 /// @ingroup modm_math
-template< typename T >
-constexpr bool
-isValueInTolerance(T reference, T actual, percent_t tolerance)
-{
-	return std::abs(1.0 - double(actual) / double(reference)) <= std::abs(double(tolerance));
+template <typename T>
+constexpr bool isValueInTolerance(T reference, T actual, percent_t tolerance) {
+  return std::abs(1.0 - double(actual) / double(reference)) <= std::abs(double(tolerance));
 }
 
-} // namespace modm
+}  // namespace modm

@@ -14,10 +14,6 @@
 #include "adc_interrupt_4.hpp"
 #include <modm/architecture/interface/interrupt.hpp>
 // ----------------------------------------------------------------------------
-modm::platform::AdcInterrupt4::Handler
-modm::platform::AdcInterrupt4::handler([]{});
+modm::platform::AdcInterrupt4::Handler modm::platform::AdcInterrupt4::handler([] {});
 
-MODM_ISR(ADC4)
-{
-	modm::platform::AdcInterrupt4::handler();
-}
+MODM_ISR(ADC4) { modm::platform::AdcInterrupt4::handler(); }

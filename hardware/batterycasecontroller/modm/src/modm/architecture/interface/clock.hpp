@@ -16,15 +16,13 @@
 
 #pragma once
 
-#include <modm/architecture/utils.hpp>
-#include <cstdint>
 #include <chrono>
+#include <cstdint>
+#include <modm/architecture/utils.hpp>
 
-namespace modm
-{
+namespace modm {
 
-namespace chrono
-{
+namespace chrono {
 
 /**
  * Returns a time_point in milliseconds.
@@ -43,17 +41,15 @@ namespace chrono
  *
  * @ingroup modm_architecture_clock
  */
-struct milli_clock
-{
-	using duration = std::chrono::duration<uint32_t, std::milli>;
-	using rep = duration::rep;
-	using period = duration::period;
-	using time_point = std::chrono::time_point<milli_clock, duration>;
+struct milli_clock {
+  using duration = std::chrono::duration<uint32_t, std::milli>;
+  using rep = duration::rep;
+  using period = duration::period;
+  using time_point = std::chrono::time_point<milli_clock, duration>;
 
-	static constexpr bool is_steady = false;
+  static constexpr bool is_steady = false;
 
-	static time_point
-	now() noexcept;
+  static time_point now() noexcept;
 };
 
 /**
@@ -73,20 +69,18 @@ struct milli_clock
  *
  * @ingroup modm_architecture_clock
  */
-struct micro_clock
-{
-	using duration = std::chrono::duration<uint32_t, std::micro>;
-	using rep = duration::rep;
-	using period = duration::period;
-	using time_point = std::chrono::time_point<micro_clock, duration>;
+struct micro_clock {
+  using duration = std::chrono::duration<uint32_t, std::micro>;
+  using rep = duration::rep;
+  using period = duration::period;
+  using time_point = std::chrono::time_point<micro_clock, duration>;
 
-	static constexpr bool is_steady = false;
+  static constexpr bool is_steady = false;
 
-	static time_point
-	now() noexcept;
+  static time_point now() noexcept;
 };
 
-} // namespace chrono
+}  // namespace chrono
 
 /// @ingroup modm_architecture_clock
 using Clock = chrono::milli_clock;
@@ -94,4 +88,4 @@ using Clock = chrono::milli_clock;
 using PreciseClock = chrono::micro_clock;
 using namespace ::std::chrono_literals;
 
-}	// namespace modm
+}  // namespace modm

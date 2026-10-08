@@ -99,56 +99,44 @@
 
 #ifdef MODM_CPU_AVR
 
-#	define MODM_ISR_NAME(vector) \
-		vector ## _vect
-#	define MODM_ISR_DECL(vector) \
-		modm_extern_c void vector ## _vect(void)
-#	define MODM_ISR_CALL(vector) \
-		vector ## _vect()
-#	define MODM_ISR(vector, ...) \
-		ISR( vector ## _vect, ##__VA_ARGS__)
+#define MODM_ISR_NAME(vector) vector##_vect
+#define MODM_ISR_DECL(vector) modm_extern_c void vector##_vect(void)
+#define MODM_ISR_CALL(vector) vector##_vect()
+#define MODM_ISR(vector, ...) ISR(vector##_vect, ##__VA_ARGS__)
 
 #elif defined MODM_CPU_ARM
 
-
 #ifdef __cplusplus
-#	include <modm/platform/core/vectors.hpp>
+#include <modm/platform/core/vectors.hpp>
 #else
-#	ifndef MODM_ISR_DISABLE_VALIDATION
-#  		define MODM_ISR_VALIDATE(vector_str, vector) \
-			_Static_assert(vector ## _IRQn > -127);
-#	else
-#   	define MODM_ISR_VALIDATE(...)
-#	endif
+#ifndef MODM_ISR_DISABLE_VALIDATION
+#define MODM_ISR_VALIDATE(vector_str, vector) _Static_assert(vector##_IRQn > -127);
+#else
+#define MODM_ISR_VALIDATE(...)
+#endif
 #endif
 
-#	define MODM_ISR_NAME(vector) \
-		vector ## _IRQHandler
-#	define MODM_ISR_DECL(vector) \
-		modm_extern_c void vector ## _IRQHandler(void)
-#	define MODM_ISR_CALL(vector) \
-		MODM_ISR_VALIDATE(#vector, vector); \
-		vector ## _IRQHandler()
-#	define MODM_ISR(vector, ...) \
-		MODM_ISR_VALIDATE(#vector, vector); \
-		modm_extern_c void vector ## _IRQHandler(void) \
-			__attribute__((externally_visible)) __VA_ARGS__; \
-		void vector ## _IRQHandler(void)
+#define MODM_ISR_NAME(vector) vector##_IRQHandler
+#define MODM_ISR_DECL(vector) modm_extern_c void vector##_IRQHandler(void)
+#define MODM_ISR_CALL(vector)         \
+  MODM_ISR_VALIDATE(#vector, vector); \
+  vector##_IRQHandler()
+#define MODM_ISR(vector, ...)                                                                   \
+  MODM_ISR_VALIDATE(#vector, vector);                                                           \
+  modm_extern_c void vector##_IRQHandler(void) __attribute__((externally_visible)) __VA_ARGS__; \
+  void vector##_IRQHandler(void)
 
 #else
 
-#	define MODM_ISR_NAME(vector) \
-		vector ## _isr
-#	define MODM_ISR_DECL(vector) \
-		modm_extern_c void vector ## _isr(void)
-#	define MODM_ISR_CALL(vector) \
-		vector ## _isr()
-#	define MODM_ISR(vector, ...) \
-		modm_extern_c void vector ## _isr(void) __VA_ARGS__; \
-		void vector ## _isr(void)
+#define MODM_ISR_NAME(vector) vector##_isr
+#define MODM_ISR_DECL(vector) modm_extern_c void vector##_isr(void)
+#define MODM_ISR_CALL(vector) vector##_isr()
+#define MODM_ISR(vector, ...)                        \
+  modm_extern_c void vector##_isr(void) __VA_ARGS__; \
+  void vector##_isr(void)
 
 #endif
 
-#endif // __DOXYGEN__
+#endif  // __DOXYGEN__
 
-#endif // MODM_INTERRUPT_HPP
+#endif  // MODM_INTERRUPT_HPP

@@ -12,43 +12,37 @@
 #pragma once
 
 #include "assert.h"
-namespace modm
-{
+namespace modm {
 
 /// @ingroup modm_architecture_assert
 /// @{
 
 /// Describes abandonment type of assertions.
-enum class
-Abandonment : uint8_t
-{
-	DontCare = 0b001,	///< Do not care about failure.
-	Ignore = 0b010,		///< Ignore this failure.
-	Fail = 0b100,		///< This failure is reason for abandonment.
-	Debug = 0x80,		///< Only set for a debug-only failure.
+enum class Abandonment : uint8_t {
+  DontCare = 0b001,  ///< Do not care about failure.
+  Ignore = 0b010,    ///< Ignore this failure.
+  Fail = 0b100,      ///< This failure is reason for abandonment.
+  Debug = 0x80,      ///< Only set for a debug-only failure.
 };
 /// Contains the superset of Abandonment behavior
 using AbandonmentBehavior = Abandonment;
 
 /// Contains information about the failed assertion.
-struct modm_packed
-AssertionInfo
-{
-	const char *name;				///< Can be used to recognize the assertion in code
+struct modm_packed AssertionInfo {
+  const char* name;  ///< Can be used to recognize the assertion in code
 #if MODM_ASSERTION_INFO_HAS_DESCRIPTION
-	const char *description;		///< Detailed failure description
+  const char* description;  ///< Detailed failure description
 #endif
-	uintptr_t context;				///< Optional context depends on assertion
-	AbandonmentBehavior behavior;	///< Can this assertion be ignored?
+  uintptr_t context;             ///< Optional context depends on assertion
+  AbandonmentBehavior behavior;  ///< Can this assertion be ignored?
 };
 
 /// Signature of the assertion handlers
-using AssertionHandler = Abandonment (*)(const AssertionInfo &info);
+using AssertionHandler = Abandonment (*)(const AssertionInfo& info);
 
 /// @}
 
-} // namespace modm
-
+}  // namespace modm
 
 #ifdef __DOXYGEN__
 
@@ -56,7 +50,7 @@ using AssertionHandler = Abandonment (*)(const AssertionInfo &info);
 /// @{
 
 /// Declares whether or not AssertionInfo has a `description` field.
-#define MODM_ASSERTION_INFO_HAS_DESCRIPTION 0/1
+#define MODM_ASSERTION_INFO_HAS_DESCRIPTION 0 / 1
 
 /**
  * This adds a function to the list of assertion handlers to execute on
@@ -80,10 +74,10 @@ using AssertionHandler = Abandonment (*)(const AssertionInfo &info);
  *
  * @note This assert is included in all builds!
  */
-[[noreturn]] void
-modm_assert(bool condition,
-			const char *name, const char *description,
-			uintptr_t context=uintptr_t(-1));
+[[noreturn]] void modm_assert(bool condition,
+                              const char* name,
+                              const char* description,
+                              uintptr_t context = uintptr_t(-1));
 
 /**
  * Abandons execution, unless overwritten by assertion handlers to resume.
@@ -91,10 +85,10 @@ modm_assert(bool condition,
  * @returns result of condition evaluation
  * @note This assert is included in all builds!
  */
-bool
-modm_assert_continue_fail(bool condition,
-						  const char *name, const char *description,
-						  uintptr_t context=uintptr_t(-1));
+bool modm_assert_continue_fail(bool condition,
+                               const char* name,
+                               const char* description,
+                               uintptr_t context = uintptr_t(-1));
 
 /**
  * Resumes execution, unless overwritten by assertion handlers to abandon.
@@ -102,10 +96,10 @@ modm_assert_continue_fail(bool condition,
  * @returns result of condition evaluation
  * @note This assert is included in all builds!
  */
-bool
-modm_assert_continue_ignore(bool condition,
-							const char *name, const char *description,
-							uintptr_t context=uintptr_t(-1));
+bool modm_assert_continue_ignore(bool condition,
+                                 const char* name,
+                                 const char* description,
+                                 uintptr_t context = uintptr_t(-1));
 
 /**
  * Abandons execution, unless overwritten by assertion handlers to resume.
@@ -114,10 +108,10 @@ modm_assert_continue_ignore(bool condition,
  *       still executed and the result is returned!
  * @returns result of condition evaluation
  */
-bool
-modm_assert_continue_fail_debug(bool condition,
-								const char *name, const char *description,
-								uintptr_t context=uintptr_t(-1));
+bool modm_assert_continue_fail_debug(bool condition,
+                                     const char* name,
+                                     const char* description,
+                                     uintptr_t context = uintptr_t(-1));
 
 /**
  * Resumes execution, unless overwritten by assertion handlers to abandon.
@@ -126,25 +120,23 @@ modm_assert_continue_fail_debug(bool condition,
  *       still executed and the result is returned!
  * @returns result of condition evaluation
  */
-bool
-modm_assert_continue_ignore_debug(bool condition,
-								  const char *name, const char *description,
-								  uintptr_t context=uintptr_t(-1));
+bool modm_assert_continue_ignore_debug(bool condition,
+                                       const char* name,
+                                       const char* description,
+                                       uintptr_t context = uintptr_t(-1));
 
 /// @}
 
 #else
 
 #ifdef MODM_DEBUG_BUILD
-#define MODM_ASSERTION_HANDLER_DEBUG(handler) \
-		MODM_ASSERTION_HANDLER(handler)
+#define MODM_ASSERTION_HANDLER_DEBUG(handler) MODM_ASSERTION_HANDLER(handler)
 #else
 #define MODM_ASSERTION_HANDLER_DEBUG(handler) \
-		static const modm::AssertionHandler [[maybe_unused]] \
-		handler ## _assertion_handler_ptr = handler
+  static const modm::AssertionHandler [[maybe_unused]] handler##_assertion_handler_ptr = handler
 #endif
 
-#endif // __DOXYGEN__
+#endif  // __DOXYGEN__
 
 /**
  * Overwriteable abandonment handler for all targets.
@@ -154,9 +146,7 @@ modm_assert_continue_ignore_debug(bool condition,
  *
  * @ingroup modm_architecture_assert
  */
-modm_extern_c void
-modm_abandon(const modm::AssertionInfo &info) modm_weak;
-
+modm_extern_c void modm_abandon(const modm::AssertionInfo& info) modm_weak;
 
 // Core must implement MODM_ASSERTION_HANDLER(handler)
 #include <modm/platform/core/assert_impl.hpp>

@@ -15,9 +15,8 @@
 constinit uint32_t modm_fastdata SystemCoreClock(modm::platform::Rcc::BootFrequency);
 modm_weak void SystemCoreClockUpdate() { /* Nothing to update */ }
 
-namespace modm::platform
-{
+namespace modm::platform {
 constinit uint16_t modm_fastdata delay_fcpu_MHz(computeDelayMhz(Rcc::BootFrequency));
 constinit uint16_t modm_fastdata delay_ns_per_loop(computeDelayNsPerLoop(Rcc::BootFrequency));
 
-}
+}  // namespace modm::platform

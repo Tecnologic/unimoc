@@ -109,7 +109,8 @@ class Unit {
    */
   template <typename OtherPeriod>
   constexpr Unit(const Unit<Rep, OtherPeriod, Tag>& other)
-      : val_(other.Value() * static_cast<Rep>(OtherPeriod::num) / OtherPeriod::den * static_cast<Rep>(Period::den) / Period::num) {}
+      : val_(other.Value() * static_cast<Rep>(OtherPeriod::num) / OtherPeriod::den *
+             static_cast<Rep>(Period::den) / Period::num) {}
 
   /**
    * @brief Assigns a value with the same tag from another period.
@@ -118,7 +119,8 @@ class Unit {
    */
   template <typename OtherPeriod>
   constexpr Unit& operator=(const Unit<Rep, OtherPeriod, Tag>& other) {
-    val_ = other.Value() * static_cast<Rep>(OtherPeriod::num) / OtherPeriod::den * static_cast<Rep>(Period::den) / Period::num;
+    val_ = other.Value() * static_cast<Rep>(OtherPeriod::num) / OtherPeriod::den *
+           static_cast<Rep>(Period::den) / Period::num;
     return *this;
   }
 
@@ -143,7 +145,8 @@ class Unit {
     // new_val = value_base * (OtherPeriod::den / OtherPeriod::num)
     // new_val = val_ * (period::num / period::den) * (OtherPeriod::den /
     // OtherPeriod::num)
-    return Unit<Rep, OtherPeriod, Tag>(val_ * static_cast<Rep>(period::num) / period::den * OtherPeriod::den / OtherPeriod::num);
+    return Unit<Rep, OtherPeriod, Tag>(val_ * static_cast<Rep>(period::num) / period::den * OtherPeriod::den /
+                                       OtherPeriod::num);
   }
 
   /**
@@ -152,7 +155,9 @@ class Unit {
    * @param max_val The maximum allowable value.
    * @return A new Unit object with the clamped value.
    */
-  constexpr Unit Clamp(const Rep& min_val, const Rep& max_val) const { return Unit(val_ < min_val ? min_val : (val_ > max_val ? max_val : val_)); }
+  [[nodiscard]] constexpr Unit Clamp(const Rep& min_val, const Rep& max_val) const {
+    return Unit(val_ < min_val ? min_val : (val_ > max_val ? max_val : val_));
+  }
 
   /**
    * @brief Clamps this unit between two values of the same unit.
@@ -160,7 +165,7 @@ class Unit {
    * @param max_val The maximum allowable value.
    * @return A new Unit object with the clamped value.
    */
-  constexpr Unit Clamp(const Unit& min_val, const Unit& max_val) const {
+  [[nodiscard]] constexpr Unit Clamp(const Unit& min_val, const Unit& max_val) const {
     return Unit(val_ < min_val.val_ ? min_val.val_ : (val_ > max_val.val_ ? max_val.val_ : val_));
   }
 
@@ -182,7 +187,8 @@ class Unit {
    * @pre `other` has the same tag and period as this unit.
    */
   constexpr Unit& operator+=(const Unit& other) {
-    static_assert(std::is_same_v<tag, typename std::remove_cvref_t<decltype(other)>::tag>, "Cannot add units of different types.");
+    static_assert(std::is_same_v<tag, typename std::remove_cvref_t<decltype(other)>::tag>,
+                  "Cannot add units of different types.");
     static_assert(std::is_same_v<period, typename std::remove_cvref_t<decltype(other)>::period>,
                   "Implicit period conversion not allowed for "
                   "addition/subtraction. Convert "
@@ -197,7 +203,8 @@ class Unit {
    * @pre `other` has the same tag and period as this unit.
    */
   constexpr Unit& operator-=(const Unit& other) {
-    static_assert(std::is_same_v<tag, typename std::remove_cvref_t<decltype(other)>::tag>, "Cannot subtract units of different types.");
+    static_assert(std::is_same_v<tag, typename std::remove_cvref_t<decltype(other)>::tag>,
+                  "Cannot subtract units of different types.");
     static_assert(std::is_same_v<period, typename std::remove_cvref_t<decltype(other)>::period>,
                   "Implicit period conversion not allowed for "
                   "addition/subtraction. Convert "
@@ -306,7 +313,8 @@ using MagneticFluxPerCurrentTime = Unit<float, std::ratio<1>, MagneticFluxPerCur
  * @return The sum with the same unit type as the operands.
  */
 template <typename Rep, typename Period, typename Tag>
-constexpr Unit<Rep, Period, Tag> operator+(const Unit<Rep, Period, Tag>& lhs, const Unit<Rep, Period, Tag>& rhs) {
+constexpr Unit<Rep, Period, Tag> operator+(const Unit<Rep, Period, Tag>& lhs,
+                                           const Unit<Rep, Period, Tag>& rhs) {
   return Unit<Rep, Period, Tag>(lhs.Value() + rhs.Value());
 }
 
@@ -315,7 +323,8 @@ constexpr Unit<Rep, Period, Tag> operator+(const Unit<Rep, Period, Tag>& lhs, co
  * @return The difference with the same unit type as the operands.
  */
 template <typename Rep, typename Period, typename Tag>
-constexpr Unit<Rep, Period, Tag> operator-(const Unit<Rep, Period, Tag>& lhs, const Unit<Rep, Period, Tag>& rhs) {
+constexpr Unit<Rep, Period, Tag> operator-(const Unit<Rep, Period, Tag>& lhs,
+                                           const Unit<Rep, Period, Tag>& rhs) {
   return Unit<Rep, Period, Tag>(lhs.Value() - rhs.Value());
 }
 
@@ -396,7 +405,8 @@ constexpr auto operator/(const Unit<Rep, P1, AngleTag>& angle, const Unit<Rep, P
  * @return Angle with the product period.
  */
 template <typename Rep, typename P1, typename P2>
-constexpr auto operator*(const Unit<Rep, P1, AngularVelocityTag>& angVel, const Unit<Rep, P2, TimeTag>& time) {
+constexpr auto operator*(const Unit<Rep, P1, AngularVelocityTag>& angVel,
+                         const Unit<Rep, P2, TimeTag>& time) {
   return Unit<Rep, std::ratio_multiply<P1, P2>, AngleTag>(angVel.Value() * time.Value());
 }
 
@@ -405,7 +415,8 @@ constexpr auto operator*(const Unit<Rep, P1, AngularVelocityTag>& angVel, const 
  * @return Angle with the product period.
  */
 template <typename Rep, typename P1, typename P2>
-constexpr auto operator*(const Unit<Rep, P1, TimeTag>& time, const Unit<Rep, P2, AngularVelocityTag>& angVel) {
+constexpr auto operator*(const Unit<Rep, P1, TimeTag>& time,
+                         const Unit<Rep, P2, AngularVelocityTag>& angVel) {
   return angVel * time;
 }
 
@@ -414,7 +425,8 @@ constexpr auto operator*(const Unit<Rep, P1, TimeTag>& time, const Unit<Rep, P2,
  * @return Time with the quotient period.
  */
 template <typename Rep, typename P1, typename P2>
-constexpr auto operator/(const Unit<Rep, P1, AngleTag>& angle, const Unit<Rep, P2, AngularVelocityTag>& angVel) {
+constexpr auto operator/(const Unit<Rep, P1, AngleTag>& angle,
+                         const Unit<Rep, P2, AngularVelocityTag>& angVel) {
   return Unit<Rep, std::ratio_divide<P1, P2>, TimeTag>(angle.Value() / angVel.Value());
 }
 
@@ -423,7 +435,8 @@ constexpr auto operator/(const Unit<Rep, P1, AngleTag>& angle, const Unit<Rep, P
  * @return Angular acceleration with the quotient period.
  */
 template <typename Rep, typename P1, typename P2>
-constexpr auto operator/(const Unit<Rep, P1, AngularVelocityTag>& angVel, const Unit<Rep, P2, TimeTag>& time) {
+constexpr auto operator/(const Unit<Rep, P1, AngularVelocityTag>& angVel,
+                         const Unit<Rep, P2, TimeTag>& time) {
   return Unit<Rep, std::ratio_divide<P1, P2>, AngularAccelerationTag>(angVel.Value() / time.Value());
 }
 
@@ -432,7 +445,8 @@ constexpr auto operator/(const Unit<Rep, P1, AngularVelocityTag>& angVel, const 
  * @return Angular velocity with the product period.
  */
 template <typename Rep, typename P1, typename P2>
-constexpr auto operator*(const Unit<Rep, P1, AngularAccelerationTag>& angAccel, const Unit<Rep, P2, TimeTag>& time) {
+constexpr auto operator*(const Unit<Rep, P1, AngularAccelerationTag>& angAccel,
+                         const Unit<Rep, P2, TimeTag>& time) {
   return Unit<Rep, std::ratio_multiply<P1, P2>, AngularVelocityTag>(angAccel.Value() * time.Value());
 }
 
@@ -441,7 +455,8 @@ constexpr auto operator*(const Unit<Rep, P1, AngularAccelerationTag>& angAccel, 
  * @return Angular velocity with the product period.
  */
 template <typename Rep, typename P1, typename P2>
-constexpr auto operator*(const Unit<Rep, P1, TimeTag>& time, const Unit<Rep, P2, AngularAccelerationTag>& angAccel) {
+constexpr auto operator*(const Unit<Rep, P1, TimeTag>& time,
+                         const Unit<Rep, P2, AngularAccelerationTag>& angAccel) {
   return angAccel * time;
 }
 
@@ -450,7 +465,8 @@ constexpr auto operator*(const Unit<Rep, P1, TimeTag>& time, const Unit<Rep, P2,
  * @return Time with the quotient period.
  */
 template <typename Rep, typename P1, typename P2>
-constexpr auto operator/(const Unit<Rep, P1, AngularVelocityTag>& angVel, const Unit<Rep, P2, AngularAccelerationTag>& angAccel) {
+constexpr auto operator/(const Unit<Rep, P1, AngularVelocityTag>& angVel,
+                         const Unit<Rep, P2, AngularAccelerationTag>& angAccel) {
   return Unit<Rep, std::ratio_divide<P1, P2>, TimeTag>(angVel.Value() / angAccel.Value());
 }
 
@@ -522,7 +538,8 @@ constexpr auto operator*(const Unit<Rep, P1, TimeTag>& time, const Unit<Rep, P2,
  * @return Magnetic flux with the product period.
  */
 template <typename Rep, typename P1, typename P2>
-constexpr auto operator*(const Unit<Rep, P1, InductanceTag>& inductance, const Unit<Rep, P2, CurrentTag>& current) {
+constexpr auto operator*(const Unit<Rep, P1, InductanceTag>& inductance,
+                         const Unit<Rep, P2, CurrentTag>& current) {
   return Unit<Rep, std::ratio_multiply<P1, P2>, MagneticFluxTag>(inductance.Value() * current.Value());
 }
 
@@ -531,7 +548,8 @@ constexpr auto operator*(const Unit<Rep, P1, InductanceTag>& inductance, const U
  * @return Magnetic flux with the product period.
  */
 template <typename Rep, typename P1, typename P2>
-constexpr auto operator*(const Unit<Rep, P1, CurrentTag>& current, const Unit<Rep, P2, InductanceTag>& inductance) {
+constexpr auto operator*(const Unit<Rep, P1, CurrentTag>& current,
+                         const Unit<Rep, P2, InductanceTag>& inductance) {
   return inductance * current;
 }
 
@@ -540,7 +558,8 @@ constexpr auto operator*(const Unit<Rep, P1, CurrentTag>& current, const Unit<Re
  * @return Time with the quotient period.
  */
 template <typename Rep, typename P1, typename P2>
-constexpr auto operator/(const Unit<Rep, P1, InductanceTag>& inductance, const Unit<Rep, P2, ResistanceTag>& resistance) {
+constexpr auto operator/(const Unit<Rep, P1, InductanceTag>& inductance,
+                         const Unit<Rep, P2, ResistanceTag>& resistance) {
   return Unit<Rep, std::ratio_divide<P1, P2>, TimeTag>(inductance.Value() / resistance.Value());
 }
 
@@ -549,7 +568,8 @@ constexpr auto operator/(const Unit<Rep, P1, InductanceTag>& inductance, const U
  * @return Current with the product period.
  */
 template <typename Rep, typename P1, typename P2>
-constexpr auto operator*(const Unit<Rep, P1, CurrentPerMagneticFluxTag>& gain, const Unit<Rep, P2, MagneticFluxTag>& flux) {
+constexpr auto operator*(const Unit<Rep, P1, CurrentPerMagneticFluxTag>& gain,
+                         const Unit<Rep, P2, MagneticFluxTag>& flux) {
   return Unit<Rep, std::ratio_multiply<P1, P2>, CurrentTag>(gain.Value() * flux.Value());
 }
 
@@ -558,7 +578,8 @@ constexpr auto operator*(const Unit<Rep, P1, CurrentPerMagneticFluxTag>& gain, c
  * @return Current with the product period.
  */
 template <typename Rep, typename P1, typename P2>
-constexpr auto operator*(const Unit<Rep, P1, MagneticFluxTag>& flux, const Unit<Rep, P2, CurrentPerMagneticFluxTag>& gain) {
+constexpr auto operator*(const Unit<Rep, P1, MagneticFluxTag>& flux,
+                         const Unit<Rep, P2, CurrentPerMagneticFluxTag>& gain) {
   return gain * flux;
 }
 
@@ -567,7 +588,8 @@ constexpr auto operator*(const Unit<Rep, P1, MagneticFluxTag>& flux, const Unit<
  * @return Current rate with the product period.
  */
 template <typename Rep, typename P1, typename P2>
-constexpr auto operator*(const Unit<Rep, P1, CurrentPerMagneticFluxTimeTag>& gain, const Unit<Rep, P2, MagneticFluxTag>& flux) {
+constexpr auto operator*(const Unit<Rep, P1, CurrentPerMagneticFluxTimeTag>& gain,
+                         const Unit<Rep, P2, MagneticFluxTag>& flux) {
   return Unit<Rep, std::ratio_multiply<P1, P2>, CurrentPerTimeTag>(gain.Value() * flux.Value());
 }
 
@@ -576,7 +598,8 @@ constexpr auto operator*(const Unit<Rep, P1, CurrentPerMagneticFluxTimeTag>& gai
  * @return Current rate with the product period.
  */
 template <typename Rep, typename P1, typename P2>
-constexpr auto operator*(const Unit<Rep, P1, MagneticFluxTag>& flux, const Unit<Rep, P2, CurrentPerMagneticFluxTimeTag>& gain) {
+constexpr auto operator*(const Unit<Rep, P1, MagneticFluxTag>& flux,
+                         const Unit<Rep, P2, CurrentPerMagneticFluxTimeTag>& gain) {
   return gain * flux;
 }
 
@@ -585,7 +608,8 @@ constexpr auto operator*(const Unit<Rep, P1, MagneticFluxTag>& flux, const Unit<
  * @return Current with the product period.
  */
 template <typename Rep, typename P1, typename P2>
-constexpr auto operator*(const Unit<Rep, P1, CurrentPerTimeTag>& current_rate, const Unit<Rep, P2, TimeTag>& time) {
+constexpr auto operator*(const Unit<Rep, P1, CurrentPerTimeTag>& current_rate,
+                         const Unit<Rep, P2, TimeTag>& time) {
   return Unit<Rep, std::ratio_multiply<P1, P2>, CurrentTag>(current_rate.Value() * time.Value());
 }
 
@@ -594,7 +618,8 @@ constexpr auto operator*(const Unit<Rep, P1, CurrentPerTimeTag>& current_rate, c
  * @return Current with the product period.
  */
 template <typename Rep, typename P1, typename P2>
-constexpr auto operator*(const Unit<Rep, P1, TimeTag>& time, const Unit<Rep, P2, CurrentPerTimeTag>& current_rate) {
+constexpr auto operator*(const Unit<Rep, P1, TimeTag>& time,
+                         const Unit<Rep, P2, CurrentPerTimeTag>& current_rate) {
   return current_rate * time;
 }
 
@@ -603,7 +628,8 @@ constexpr auto operator*(const Unit<Rep, P1, TimeTag>& time, const Unit<Rep, P2,
  * @return Time with the quotient period.
  */
 template <typename Rep, typename P1, typename P2>
-constexpr auto operator/(const Unit<Rep, P1, MagneticFluxTag>& flux, const Unit<Rep, P2, VoltageTag>& voltage) {
+constexpr auto operator/(const Unit<Rep, P1, MagneticFluxTag>& flux,
+                         const Unit<Rep, P2, VoltageTag>& voltage) {
   return Unit<Rep, std::ratio_divide<P1, P2>, TimeTag>(flux.Value() / voltage.Value());
 }
 
@@ -612,7 +638,8 @@ constexpr auto operator/(const Unit<Rep, P1, MagneticFluxTag>& flux, const Unit<
  * @return Voltage with the product period.
  */
 template <typename Rep, typename P1, typename P2>
-constexpr auto operator*(const Unit<Rep, P1, InverseTimeTag>& inverseTime, const Unit<Rep, P2, MagneticFluxTag>& flux) {
+constexpr auto operator*(const Unit<Rep, P1, InverseTimeTag>& inverseTime,
+                         const Unit<Rep, P2, MagneticFluxTag>& flux) {
   return Unit<Rep, std::ratio_multiply<P1, P2>, VoltageTag>(inverseTime.Value() * flux.Value());
 }
 
@@ -621,7 +648,8 @@ constexpr auto operator*(const Unit<Rep, P1, InverseTimeTag>& inverseTime, const
  * @return Voltage with the product period.
  */
 template <typename Rep, typename P1, typename P2>
-constexpr auto operator*(const Unit<Rep, P1, MagneticFluxTag>& flux, const Unit<Rep, P2, InverseTimeTag>& inverseTime) {
+constexpr auto operator*(const Unit<Rep, P1, MagneticFluxTag>& flux,
+                         const Unit<Rep, P2, InverseTimeTag>& inverseTime) {
   return inverseTime * flux;
 }
 
@@ -630,7 +658,8 @@ constexpr auto operator*(const Unit<Rep, P1, MagneticFluxTag>& flux, const Unit<
  * @return Voltage with the product period.
  */
 template <typename Rep, typename P1, typename P2>
-constexpr auto operator*(const Unit<Rep, P1, CurrentTag>& current, const Unit<Rep, P2, ResistanceTag>& resistance) {
+constexpr auto operator*(const Unit<Rep, P1, CurrentTag>& current,
+                         const Unit<Rep, P2, ResistanceTag>& resistance) {
   return Unit<Rep, std::ratio_multiply<P1, P2>, VoltageTag>(current.Value() * resistance.Value());
 }
 
@@ -639,7 +668,8 @@ constexpr auto operator*(const Unit<Rep, P1, CurrentTag>& current, const Unit<Re
  * @return Voltage with the product period.
  */
 template <typename Rep, typename P1, typename P2>
-constexpr auto operator*(const Unit<Rep, P1, ResistanceTag>& resistance, const Unit<Rep, P2, CurrentTag>& current) {
+constexpr auto operator*(const Unit<Rep, P1, ResistanceTag>& resistance,
+                         const Unit<Rep, P2, CurrentTag>& current) {
   return current * resistance;
 }
 
@@ -648,7 +678,8 @@ constexpr auto operator*(const Unit<Rep, P1, ResistanceTag>& resistance, const U
  * @return Current with the quotient period.
  */
 template <typename Rep, typename P1, typename P2>
-constexpr auto operator/(const Unit<Rep, P1, VoltageTag>& voltage, const Unit<Rep, P2, ResistanceTag>& resistance) {
+constexpr auto operator/(const Unit<Rep, P1, VoltageTag>& voltage,
+                         const Unit<Rep, P2, ResistanceTag>& resistance) {
   return Unit<Rep, std::ratio_divide<P1, P2>, CurrentTag>(voltage.Value() / resistance.Value());
 }
 
@@ -666,7 +697,8 @@ constexpr auto operator/(const Unit<Rep, P1, VoltageTag>& voltage, const Unit<Re
  * @return Voltage with the product period.
  */
 template <typename Rep, typename P1, typename P2>
-constexpr auto operator*(const Unit<Rep, P1, InductanceTag>& inductance, const Unit<Rep, P2, AngularVelocityTag>& angVel) {
+constexpr auto operator*(const Unit<Rep, P1, InductanceTag>& inductance,
+                         const Unit<Rep, P2, AngularVelocityTag>& angVel) {
   return Unit<Rep, std::ratio_multiply<P1, P2>, VoltageTag>(inductance.Value() * angVel.Value());
 }
 
@@ -675,7 +707,8 @@ constexpr auto operator*(const Unit<Rep, P1, InductanceTag>& inductance, const U
  * @return Voltage with the product period.
  */
 template <typename Rep, typename P1, typename P2>
-constexpr auto operator*(const Unit<Rep, P1, AngularVelocityTag>& angVel, const Unit<Rep, P2, InductanceTag>& inductance) {
+constexpr auto operator*(const Unit<Rep, P1, AngularVelocityTag>& angVel,
+                         const Unit<Rep, P2, InductanceTag>& inductance) {
   return inductance * angVel;
 }
 
@@ -684,7 +717,8 @@ constexpr auto operator*(const Unit<Rep, P1, AngularVelocityTag>& angVel, const 
  * @return Current with the quotient period.
  */
 template <typename Rep, typename P1, typename P2>
-constexpr auto operator/(const Unit<Rep, P1, VoltageTag>& voltage, const Unit<Rep, P2, InductanceTag>& inductance) {
+constexpr auto operator/(const Unit<Rep, P1, VoltageTag>& voltage,
+                         const Unit<Rep, P2, InductanceTag>& inductance) {
   return Unit<Rep, std::ratio_divide<P1, P2>, CurrentTag>(voltage.Value() / inductance.Value());
 }
 
@@ -693,7 +727,8 @@ constexpr auto operator/(const Unit<Rep, P1, VoltageTag>& voltage, const Unit<Re
  * @return Power with the product period.
  */
 template <typename Rep, typename P1, typename P2>
-constexpr auto operator*(const Unit<Rep, P1, TorqueTag>& torque, const Unit<Rep, P2, AngularVelocityTag>& angVel) {
+constexpr auto operator*(const Unit<Rep, P1, TorqueTag>& torque,
+                         const Unit<Rep, P2, AngularVelocityTag>& angVel) {
   return Unit<Rep, std::ratio_multiply<P1, P2>, PowerTag>(torque.Value() * angVel.Value());
 }
 
@@ -702,7 +737,8 @@ constexpr auto operator*(const Unit<Rep, P1, TorqueTag>& torque, const Unit<Rep,
  * @return Power with the product period.
  */
 template <typename Rep, typename P1, typename P2>
-constexpr auto operator*(const Unit<Rep, P1, AngularVelocityTag>& angVel, const Unit<Rep, P2, TorqueTag>& torque) {
+constexpr auto operator*(const Unit<Rep, P1, AngularVelocityTag>& angVel,
+                         const Unit<Rep, P2, TorqueTag>& torque) {
   return torque * angVel;
 }
 
@@ -711,7 +747,8 @@ constexpr auto operator*(const Unit<Rep, P1, AngularVelocityTag>& angVel, const 
  * @return Torque with the quotient period.
  */
 template <typename Rep, typename P1, typename P2>
-constexpr auto operator/(const Unit<Rep, P1, PowerTag>& power, const Unit<Rep, P2, AngularVelocityTag>& angVel) {
+constexpr auto operator/(const Unit<Rep, P1, PowerTag>& power,
+                         const Unit<Rep, P2, AngularVelocityTag>& angVel) {
   return Unit<Rep, std::ratio_divide<P1, P2>, TorqueTag>(power.Value() / angVel.Value());
 }
 
@@ -823,7 +860,9 @@ constexpr bool operator>=(const Unit<Rep, Period, Tag>& lhs, const Unit<Rep, Per
  * @return An angle in radians.
  */
 constexpr Angle operator""_rad(long double val) { return Angle(static_cast<float>(val)); }
-constexpr Angle operator""_deg(long double val) { return Angle(static_cast<float>(val * std::numbers::pi_v<long double> / 180.0L)); }
+constexpr Angle operator""_deg(long double val) {
+  return Angle(static_cast<float>(val * std::numbers::pi_v<long double> / 180.0L));
+}
 
 /**
  * @brief Creates an angle from a radian integer literal.
@@ -859,7 +898,9 @@ constexpr Time operator""_s(long double val) { return Time(static_cast<float>(va
  * @param val Literal value in milliseconds.
  * @return Time with a millisecond period.
  */
-constexpr Unit<float, std::milli, TimeTag> operator""_ms(long double val) { return Unit<float, std::milli, TimeTag>(static_cast<float>(val)); }
+constexpr Unit<float, std::milli, TimeTag> operator""_ms(long double val) {
+  return Unit<float, std::milli, TimeTag>(static_cast<float>(val));
+}
 
 /**
  * @brief Creates a time value from a seconds integer literal.
@@ -873,7 +914,9 @@ constexpr Time operator""_s(unsigned long long val) { return Time(static_cast<fl
  * @param val Literal value in milliseconds.
  * @return Time with a millisecond period.
  */
-constexpr Unit<float, std::milli, TimeTag> operator""_ms(unsigned long long val) { return Unit<float, std::milli, TimeTag>(static_cast<float>(val)); }
+constexpr Unit<float, std::milli, TimeTag> operator""_ms(unsigned long long val) {
+  return Unit<float, std::milli, TimeTag>(static_cast<float>(val));
+}
 
 /**
  * @brief Creates a current value from an ampere literal.
@@ -887,7 +930,9 @@ constexpr Current operator""_A(long double val) { return Current(static_cast<flo
  * @param val Literal value in milliamperes.
  * @return Current with a milliampere period.
  */
-constexpr Unit<float, std::milli, CurrentTag> operator""_mA(long double val) { return Unit<float, std::milli, CurrentTag>(static_cast<float>(val)); }
+constexpr Unit<float, std::milli, CurrentTag> operator""_mA(long double val) {
+  return Unit<float, std::milli, CurrentTag>(static_cast<float>(val));
+}
 
 /**
  * @brief Creates a current value from an ampere integer literal.
@@ -917,14 +962,18 @@ constexpr Voltage operator""_V(long double val) { return Voltage(static_cast<flo
  * @param val Literal value in millivolts.
  * @return Voltage with a millivolt period.
  */
-constexpr Unit<float, std::milli, VoltageTag> operator""_mV(long double val) { return Unit<float, std::milli, VoltageTag>(static_cast<float>(val)); }
+constexpr Unit<float, std::milli, VoltageTag> operator""_mV(long double val) {
+  return Unit<float, std::milli, VoltageTag>(static_cast<float>(val));
+}
 
 /**
  * @brief Creates a voltage value from a kilovolt literal.
  * @param val Literal value in kilovolts.
  * @return Voltage with a kilovolt period.
  */
-constexpr Unit<float, std::kilo, VoltageTag> operator""_kV(long double val) { return Unit<float, std::kilo, VoltageTag>(static_cast<float>(val)); }
+constexpr Unit<float, std::kilo, VoltageTag> operator""_kV(long double val) {
+  return Unit<float, std::kilo, VoltageTag>(static_cast<float>(val));
+}
 
 /**
  * @brief Creates a voltage value from a volt integer literal.
@@ -1009,7 +1058,9 @@ constexpr Power operator""_W(long double val) { return Power(static_cast<float>(
  * @param val Literal value in kilowatts.
  * @return Power with a kilowatt period.
  */
-constexpr Unit<float, std::kilo, PowerTag> operator""_kW(long double val) { return Unit<float, std::kilo, PowerTag>(static_cast<float>(val)); }
+constexpr Unit<float, std::kilo, PowerTag> operator""_kW(long double val) {
+  return Unit<float, std::kilo, PowerTag>(static_cast<float>(val));
+}
 
 /**
  * @brief Creates a power value from a watt integer literal.
@@ -1023,7 +1074,9 @@ constexpr Power operator""_W(unsigned long long val) { return Power(static_cast<
  * @param val Literal value in kilowatts.
  * @return Power with a kilowatt period.
  */
-constexpr Unit<float, std::kilo, PowerTag> operator""_kW(unsigned long long val) { return Unit<float, std::kilo, PowerTag>(static_cast<float>(val)); }
+constexpr Unit<float, std::kilo, PowerTag> operator""_kW(unsigned long long val) {
+  return Unit<float, std::kilo, PowerTag>(static_cast<float>(val));
+}
 
 /**
  * @brief Creates a magnetic-flux value from a weber literal.
@@ -1139,17 +1192,25 @@ constexpr Unit<float, std::milli, InductanceTag> operator""_mH(unsigned long lon
  * @param val Literal value in microseconds.
  * @return Time with a microsecond period.
  */
-constexpr Unit<float, std::micro, TimeTag> operator""_us(long double val) { return Unit<float, std::micro, TimeTag>(static_cast<float>(val)); }
+constexpr Unit<float, std::micro, TimeTag> operator""_us(long double val) {
+  return Unit<float, std::micro, TimeTag>(static_cast<float>(val));
+}
 
-constexpr Unit<float, std::micro, TimeTag> operator""_us(unsigned long long val) { return Unit<float, std::micro, TimeTag>(static_cast<float>(val)); }
+constexpr Unit<float, std::micro, TimeTag> operator""_us(unsigned long long val) {
+  return Unit<float, std::micro, TimeTag>(static_cast<float>(val));
+}
 
 /**
  * @brief Creates an angular velocity from a radians-per-second literal.
  * @param val Literal value in radians per second.
  * @return Angular velocity in radians per second.
  */
-constexpr AngularVelocity operator""_rad_per_s(long double val) { return AngularVelocity(static_cast<float>(val)); }
-constexpr AngularVelocity operator""_rad_per_s(unsigned long long val) { return AngularVelocity(static_cast<float>(val)); }
+constexpr AngularVelocity operator""_rad_per_s(long double val) {
+  return AngularVelocity(static_cast<float>(val));
+}
+constexpr AngularVelocity operator""_rad_per_s(unsigned long long val) {
+  return AngularVelocity(static_cast<float>(val));
+}
 
 /**
  * @brief Creates an angular acceleration from a radians-per-second-squared
@@ -1157,8 +1218,12 @@ constexpr AngularVelocity operator""_rad_per_s(unsigned long long val) { return 
  * @param val Literal value in radians per second squared.
  * @return Angular acceleration in radians per second squared.
  */
-constexpr AngularAcceleration operator""_rad_per_s2(long double val) { return AngularAcceleration(static_cast<float>(val)); }
-constexpr AngularAcceleration operator""_rad_per_s2(unsigned long long val) { return AngularAcceleration(static_cast<float>(val)); }
+constexpr AngularAcceleration operator""_rad_per_s2(long double val) {
+  return AngularAcceleration(static_cast<float>(val));
+}
+constexpr AngularAcceleration operator""_rad_per_s2(unsigned long long val) {
+  return AngularAcceleration(static_cast<float>(val));
+}
 
 /**
  * @brief Creates an inverse-time value from a reciprocal-second literal.
@@ -1166,7 +1231,9 @@ constexpr AngularAcceleration operator""_rad_per_s2(unsigned long long val) { re
  * @return Inverse time in reciprocal seconds.
  */
 constexpr InverseTime operator""_per_s(long double val) { return InverseTime(static_cast<float>(val)); }
-constexpr InverseTime operator""_per_s(unsigned long long val) { return InverseTime(static_cast<float>(val)); }
+constexpr InverseTime operator""_per_s(unsigned long long val) {
+  return InverseTime(static_cast<float>(val));
+}
 
 /**
  * @brief Creates a dimensionless ratio literal.
@@ -1189,72 +1256,108 @@ constexpr Inertia operator""_kg_m2(unsigned long long val) { return Inertia(stat
  * @param val Gain value in V/A.
  * @return A voltage-per-current gain.
  */
-constexpr VoltagePerCurrent operator""_V_per_A(long double val) { return VoltagePerCurrent(static_cast<float>(val)); }
-constexpr VoltagePerCurrent operator""_V_per_A(unsigned long long val) { return VoltagePerCurrent(static_cast<float>(val)); }
+constexpr VoltagePerCurrent operator""_V_per_A(long double val) {
+  return VoltagePerCurrent(static_cast<float>(val));
+}
+constexpr VoltagePerCurrent operator""_V_per_A(unsigned long long val) {
+  return VoltagePerCurrent(static_cast<float>(val));
+}
 
 /**
  * @brief Creates a voltage-per-current-per-time gain literal.
  * @param val Gain value in V/(A s).
  * @return A voltage-per-current-per-time gain.
  */
-constexpr VoltagePerCurrentTime operator""_V_per_A_s(long double val) { return VoltagePerCurrentTime(static_cast<float>(val)); }
-constexpr VoltagePerCurrentTime operator""_V_per_A_s(unsigned long long val) { return VoltagePerCurrentTime(static_cast<float>(val)); }
+constexpr VoltagePerCurrentTime operator""_V_per_A_s(long double val) {
+  return VoltagePerCurrentTime(static_cast<float>(val));
+}
+constexpr VoltagePerCurrentTime operator""_V_per_A_s(unsigned long long val) {
+  return VoltagePerCurrentTime(static_cast<float>(val));
+}
 
 /**
  * @brief Creates a current-per-flux gain literal.
  * @param val Gain value in A/Wb.
  * @return A current-per-flux gain.
  */
-constexpr CurrentPerMagneticFlux operator""_A_per_Wb(long double val) { return CurrentPerMagneticFlux(static_cast<float>(val)); }
-constexpr CurrentPerMagneticFlux operator""_A_per_Wb(unsigned long long val) { return CurrentPerMagneticFlux(static_cast<float>(val)); }
+constexpr CurrentPerMagneticFlux operator""_A_per_Wb(long double val) {
+  return CurrentPerMagneticFlux(static_cast<float>(val));
+}
+constexpr CurrentPerMagneticFlux operator""_A_per_Wb(unsigned long long val) {
+  return CurrentPerMagneticFlux(static_cast<float>(val));
+}
 
 /**
  * @brief Creates a current-per-flux-per-time gain literal.
  * @param val Gain value in A/(Wb s).
  * @return A current-per-flux-per-time gain.
  */
-constexpr CurrentPerMagneticFluxTime operator""_A_per_Wb_s(long double val) { return CurrentPerMagneticFluxTime(static_cast<float>(val)); }
-constexpr CurrentPerMagneticFluxTime operator""_A_per_Wb_s(unsigned long long val) { return CurrentPerMagneticFluxTime(static_cast<float>(val)); }
+constexpr CurrentPerMagneticFluxTime operator""_A_per_Wb_s(long double val) {
+  return CurrentPerMagneticFluxTime(static_cast<float>(val));
+}
+constexpr CurrentPerMagneticFluxTime operator""_A_per_Wb_s(unsigned long long val) {
+  return CurrentPerMagneticFluxTime(static_cast<float>(val));
+}
 
 /**
  * @brief Creates a current-rate literal.
  * @param val Rate value in A/s.
  * @return A current rate.
  */
-constexpr CurrentPerTime operator""_A_per_s(long double val) { return CurrentPerTime(static_cast<float>(val)); }
-constexpr CurrentPerTime operator""_A_per_s(unsigned long long val) { return CurrentPerTime(static_cast<float>(val)); }
+constexpr CurrentPerTime operator""_A_per_s(long double val) {
+  return CurrentPerTime(static_cast<float>(val));
+}
+constexpr CurrentPerTime operator""_A_per_s(unsigned long long val) {
+  return CurrentPerTime(static_cast<float>(val));
+}
 
 /**
  * @brief Creates a current-per-voltage-per-time gain literal.
  * @param val Gain value in A/(V s).
  * @return A current-per-voltage-per-time gain.
  */
-constexpr CurrentPerVoltageTime operator""_A_per_V_s(long double val) { return CurrentPerVoltageTime(static_cast<float>(val)); }
-constexpr CurrentPerVoltageTime operator""_A_per_V_s(unsigned long long val) { return CurrentPerVoltageTime(static_cast<float>(val)); }
+constexpr CurrentPerVoltageTime operator""_A_per_V_s(long double val) {
+  return CurrentPerVoltageTime(static_cast<float>(val));
+}
+constexpr CurrentPerVoltageTime operator""_A_per_V_s(unsigned long long val) {
+  return CurrentPerVoltageTime(static_cast<float>(val));
+}
 
 /**
  * @brief Creates an angle-per-current gain literal.
  * @param val Gain value in rad/A.
  * @return An angle-per-current gain.
  */
-constexpr AnglePerCurrent operator""_rad_per_A(long double val) { return AnglePerCurrent(static_cast<float>(val)); }
-constexpr AnglePerCurrent operator""_rad_per_A(unsigned long long val) { return AnglePerCurrent(static_cast<float>(val)); }
+constexpr AnglePerCurrent operator""_rad_per_A(long double val) {
+  return AnglePerCurrent(static_cast<float>(val));
+}
+constexpr AnglePerCurrent operator""_rad_per_A(unsigned long long val) {
+  return AnglePerCurrent(static_cast<float>(val));
+}
 
 /**
  * @brief Creates an angular-velocity-per-angle gain literal.
  * @param val Gain value in (rad/s)/rad.
  * @return An angular-velocity-per-angle gain.
  */
-constexpr AngularVelocityPerAngle operator""_rad_per_s_per_rad(long double val) { return AngularVelocityPerAngle(static_cast<float>(val)); }
-constexpr AngularVelocityPerAngle operator""_rad_per_s_per_rad(unsigned long long val) { return AngularVelocityPerAngle(static_cast<float>(val)); }
+constexpr AngularVelocityPerAngle operator""_rad_per_s_per_rad(long double val) {
+  return AngularVelocityPerAngle(static_cast<float>(val));
+}
+constexpr AngularVelocityPerAngle operator""_rad_per_s_per_rad(unsigned long long val) {
+  return AngularVelocityPerAngle(static_cast<float>(val));
+}
 
 /**
  * @brief Creates a magnetic-flux-per-current-per-time gain literal.
  * @param val Gain value in Wb/(A s).
  * @return A magnetic-flux-per-current-per-time gain.
  */
-constexpr MagneticFluxPerCurrentTime operator""_Wb_per_A_s(long double val) { return MagneticFluxPerCurrentTime(static_cast<float>(val)); }
-constexpr MagneticFluxPerCurrentTime operator""_Wb_per_A_s(unsigned long long val) { return MagneticFluxPerCurrentTime(static_cast<float>(val)); }
+constexpr MagneticFluxPerCurrentTime operator""_Wb_per_A_s(long double val) {
+  return MagneticFluxPerCurrentTime(static_cast<float>(val));
+}
+constexpr MagneticFluxPerCurrentTime operator""_Wb_per_A_s(unsigned long long val) {
+  return MagneticFluxPerCurrentTime(static_cast<float>(val));
+}
 
 /**
  * @brief Creates a temperature value from a degrees-Celsius literal.
@@ -1358,7 +1461,8 @@ struct IsFrequency : std::is_base_of<FrequencyTag, typename T::tag> {};
  */
 template <typename T1, typename T2>
 struct CommonUnitType {
-  static_assert(std::is_same_v<typename T1::tag, typename T2::tag>, "Units must have the same tag to find common type.");
+  static_assert(std::is_same_v<typename T1::tag, typename T2::tag>,
+                "Units must have the same tag to find common type.");
   /// Common unit type derived from the two input representations and periods.
   using type = Unit<std::common_type_t<typename T1::representation, typename T2::representation>,
                     std::common_type_t<typename T1::period, typename T2::period>,
@@ -1384,8 +1488,10 @@ using common_unit_type_t = CommonUnitType<T1, T2>::type;
 template <typename T1, typename T2>
 struct CommonUnitTypeDifferentTags {
   /// Common base-period type with no physical-unit tag.
-  using type = Unit<std::common_type_t<typename T1::representation, typename T2::representation>, std::ratio<1>, void>;  // Use void tag for mixed
-                                                                                                                         // types
+  using type = Unit<std::common_type_t<typename T1::representation, typename T2::representation>,
+                    std::ratio<1>,
+                    void>;  // Use void tag for mixed
+                            // types
 };
 
 /**
@@ -1407,8 +1513,9 @@ using common_unit_type_different_tags_t = CommonUnitTypeDifferentTags<T1, T2>::t
 template <typename T1, typename T2>
 struct CommonUnitTypeMixed {
   /// Common type selected according to whether the input tags match.
-  using type =
-      std::conditional_t<std::is_same_v<typename T1::tag, typename T2::tag>, common_unit_type_t<T1, T2>, common_unit_type_different_tags_t<T1, T2>>;
+  using type = std::conditional_t<std::is_same_v<typename T1::tag, typename T2::tag>,
+                                  common_unit_type_t<T1, T2>,
+                                  common_unit_type_different_tags_t<T1, T2>>;
 };
 
 /**

@@ -188,18 +188,20 @@ struct AsmFluxObserver {
     const T err_beta = i_ab.beta.Value() - i_beta_hat.Value();
 
     // --- Stator-current observer ---
-    const T di_alpha = -alpha_i * i_alpha_hat.Value() + k_flux * (inv_T_r * psi_r_alpha.Value() + omega_r * psi_r_beta.Value()) +
+    const T di_alpha = -alpha_i * i_alpha_hat.Value() +
+                       k_flux * (inv_T_r * psi_r_alpha.Value() + omega_r * psi_r_beta.Value()) +
                        inv_sLs * v_ab.alpha.Value() + g_i.Value() * err_alpha;
 
-    const T di_beta = -alpha_i * i_beta_hat.Value() + k_flux * (inv_T_r * psi_r_beta.Value() - omega_r * psi_r_alpha.Value()) +
+    const T di_beta = -alpha_i * i_beta_hat.Value() +
+                      k_flux * (inv_T_r * psi_r_beta.Value() - omega_r * psi_r_alpha.Value()) +
                       inv_sLs * v_ab.beta.Value() + g_i.Value() * err_beta;
 
     // --- Rotor-flux observer ---
-    const T dpsi_r_alpha =
-        (L_m.Value() * inv_T_r) * i_alpha_hat.Value() - inv_T_r * psi_r_alpha.Value() - omega_r * psi_r_beta.Value() + g_flux.Value() * err_alpha;
+    const T dpsi_r_alpha = (L_m.Value() * inv_T_r) * i_alpha_hat.Value() - inv_T_r * psi_r_alpha.Value() -
+                           omega_r * psi_r_beta.Value() + g_flux.Value() * err_alpha;
 
-    const T dpsi_r_beta =
-        (L_m.Value() * inv_T_r) * i_beta_hat.Value() - inv_T_r * psi_r_beta.Value() + omega_r * psi_r_alpha.Value() + g_flux.Value() * err_beta;
+    const T dpsi_r_beta = (L_m.Value() * inv_T_r) * i_beta_hat.Value() - inv_T_r * psi_r_beta.Value() +
+                          omega_r * psi_r_alpha.Value() + g_flux.Value() * err_beta;
 
     // --- Euler integration ---
     i_alpha_hat = unit::Current{i_alpha_hat.Value() + dt.Value() * di_alpha};
@@ -208,7 +210,8 @@ struct AsmFluxObserver {
     psi_r_beta = unit::MagneticFlux{psi_r_beta.Value() + dt.Value() * dpsi_r_beta};
 
     // --- Compute flux magnitude and angle ---
-    flux_magnitude = unit::MagneticFlux{std::sqrt(psi_r_alpha.Value() * psi_r_alpha.Value() + psi_r_beta.Value() * psi_r_beta.Value())};
+    flux_magnitude = unit::MagneticFlux{
+        std::sqrt(psi_r_alpha.Value() * psi_r_alpha.Value() + psi_r_beta.Value() * psi_r_beta.Value())};
     flux_angle = unit::Angle{std::atan2(psi_r_beta.Value(), psi_r_alpha.Value())};
     sin_flux = unit::Ratio{std::sin(flux_angle.Value())};
     cos_flux = unit::Ratio{std::cos(flux_angle.Value())};
@@ -220,7 +223,8 @@ struct AsmFluxObserver {
     //   sin(θ_flux − θ̂) ≈ sin(θ_flux)·cos(θ̂) − cos(θ_flux)·sin(θ̂)
     //
     // This is the same technique used in the PMSM back-EMF PLL.
-    const T angle_error = sin_flux.Value() * mech_obs.cos_theta.Value() - cos_flux.Value() * mech_obs.sin_theta.Value();
+    const T angle_error =
+        sin_flux.Value() * mech_obs.cos_theta.Value() - cos_flux.Value() * mech_obs.sin_theta.Value();
 
     mech_obs.inject_angle_error(unit::Angle{angle_error}, dt);
   }
@@ -243,7 +247,9 @@ struct AsmFluxObserver {
 
  private:
   /// Compute total leakage factor σ = 1 − L_m² / (L_s · L_r).
-  [[nodiscard]] constexpr T calc_sigma() const noexcept { return static_cast<T>(1) - (L_m.Value() * L_m.Value()) / (L_s.Value() * L_r.Value()); }
+  [[nodiscard]] constexpr T calc_sigma() const noexcept {
+    return static_cast<T>(1) - (L_m.Value() * L_m.Value()) / (L_s.Value() * L_r.Value());
+  }
 };
 
 }  // namespace observer

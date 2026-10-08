@@ -11,7 +11,6 @@
 // ----------------------------------------------------------------------------
 
 #include <modm/architecture.hpp>
-
 #include "platform/adc/adc_1.hpp"
 #include "platform/adc/adc_2.hpp"
 #include "platform/adc/adc_3.hpp"

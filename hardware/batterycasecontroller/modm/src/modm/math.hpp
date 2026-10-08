@@ -10,7 +10,7 @@
 // ----------------------------------------------------------------------------
 
 #ifndef MODM_MATH_HPP
-#define	MODM_MATH_HPP
+#define MODM_MATH_HPP
 
 #include "math/algorithm.hpp"
 #include "math/algorithm/enumerate.hpp"
@@ -29,4 +29,4 @@
 #include "math/utils/integer_traits.hpp"
 #include "math/utils/misc.hpp"
 #include "math/utils/operator.hpp"
-#endif	// MODM_MATH_HPP
+#endif  // MODM_MATH_HPP

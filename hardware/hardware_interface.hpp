@@ -87,7 +87,10 @@ class HardwareInterface {
  public:
   using CurrentControlCallback = void (*)() noexcept;
   using SlowUpdateCallback = void (*)() noexcept;
-  using InitializeCallback = bool (*)(unit::Frequency, uint32_t, CurrentControlCallback, SlowUpdateCallback) noexcept;
+  using InitializeCallback = bool (*)(unit::Frequency,
+                                      uint32_t,
+                                      CurrentControlCallback,
+                                      SlowUpdateCallback) noexcept;
   using GetPhaseCurrentsCallback = system::ThreePhase<unit::Current> (*)() noexcept;
   using GetPhaseVoltagesCallback = system::ThreePhase<unit::Voltage> (*)() noexcept;
   using GetCurrentControlSamplesCallback = CurrentControlSamples (*)() noexcept;
@@ -148,34 +151,46 @@ class HardwareInterface {
    * @brief Reads the three phase currents.
    * @return The measured phase currents.
    */
-  [[nodiscard]] system::ThreePhase<unit::Current> GetPhaseCurrents() const noexcept { return get_phase_currents_(); }
+  [[nodiscard]] system::ThreePhase<unit::Current> GetPhaseCurrents() const noexcept {
+    return get_phase_currents_();
+  }
 
   /**
    * @brief Reads the three phase voltages.
    * @return The measured phase voltages.
    */
-  [[nodiscard]] system::ThreePhase<unit::Voltage> GetPhaseVoltages() const noexcept { return get_phase_voltages_(); }
+  [[nodiscard]] system::ThreePhase<unit::Voltage> GetPhaseVoltages() const noexcept {
+    return get_phase_voltages_();
+  }
 
   /**
    * @brief Reads the ADC values used by the fast current-control loop.
    */
-  [[nodiscard]] CurrentControlSamples GetCurrentControlSamples() const noexcept { return get_current_control_samples_(); }
+  [[nodiscard]] CurrentControlSamples GetCurrentControlSamples() const noexcept {
+    return get_current_control_samples_();
+  }
 
   /**
    * @brief Reads the optional CPU, bridge, and motor temperatures.
    */
-  [[nodiscard]] TemperatureMeasurements GetTemperatureMeasurements() const noexcept { return get_temperature_measurements_(); }
+  [[nodiscard]] TemperatureMeasurements GetTemperatureMeasurements() const noexcept {
+    return get_temperature_measurements_();
+  }
 
   /**
    * @brief Reads the currently applied normalized PWM duties.
    */
-  [[nodiscard]] system::ThreePhase<unit::Ratio> GetPhaseDuties() const noexcept { return get_phase_duties_(); }
+  [[nodiscard]] system::ThreePhase<unit::Ratio> GetPhaseDuties() const noexcept {
+    return get_phase_duties_();
+  }
 
   /**
    * @brief Writes the three phase PWM duties.
    * @param duties Normalized duties for phases A, B, and C.
    */
-  void SetPhaseDuties(const system::ThreePhase<unit::Ratio>& duties) const noexcept { set_phase_duties_(duties); }
+  void SetPhaseDuties(const system::ThreePhase<unit::Ratio>& duties) const noexcept {
+    set_phase_duties_(duties);
+  }
 
   /**
    * @brief Updates the timer compare value that triggers ADC conversion.
@@ -213,7 +228,8 @@ class HardwareSettingsInterface {
    * @param profile Immutable factory settings and hardware capabilities.
    * @param storage Platform callbacks for the writable settings image.
    */
-  HardwareSettingsInterface(const settings::SettingsProfile& profile, settings::SettingsStorage storage) noexcept
+  HardwareSettingsInterface(const settings::SettingsProfile& profile,
+                            settings::SettingsStorage storage) noexcept
       : profile_{profile}, storage_{storage} {}
 
   /**

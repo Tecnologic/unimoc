@@ -12,16 +12,14 @@
  */
 // ----------------------------------------------------------------------------
 
-#ifndef	MODM_INTERFACE_ATOMIC_LOCK_HPP
-#define	MODM_INTERFACE_ATOMIC_LOCK_HPP
+#ifndef MODM_INTERFACE_ATOMIC_LOCK_HPP
+#define MODM_INTERFACE_ATOMIC_LOCK_HPP
 
 #ifdef __DOXYGEN__
 
-namespace modm
-{
+namespace modm {
 
-namespace atomic
-{
+namespace atomic {
 
 /**
  * Critical section
@@ -46,10 +44,9 @@ namespace atomic
  * @endcode
  * @ingroup	modm_architecture_atomic
  */
-class Lock
-{
-public:
-	Lock();
+class Lock {
+ public:
+  Lock();
 };
 
 /**
@@ -62,15 +59,14 @@ public:
  * times it is useful. The modm::Scheduler is an example for that.
  * @ingroup	modm_architecture_atomic
  */
-class Unlock
-{
-public:
-	Unlock();
+class Unlock {
+ public:
+  Unlock();
 };
 
-}	// namespace atomic
+}  // namespace atomic
 
-}	// namespace modm
+}  // namespace modm
 
 #else
 
@@ -80,4 +76,4 @@ public:
 
 #endif
 
-#endif	// MODM_INTERFACE_ATOMIC_LOCK_HPP
+#endif  // MODM_INTERFACE_ATOMIC_LOCK_HPP

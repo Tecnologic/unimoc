@@ -33,7 +33,8 @@ concept Dividable = requires(Numerator numerator, Denominator denominator) { num
 
 TEST(ControlObserverUnitsTest, RejectsRatioPerTime) {
   static_assert(!Dividable<unit::Ratio, unit::Time>);
-  static_assert(std::is_same_v<decltype((unit::Ratio{} * unit::Angle{}) / unit::Time{}), unit::AngularVelocity>);
+  static_assert(
+      std::is_same_v<decltype((unit::Ratio{} * unit::Angle{}) / unit::Time{}), unit::AngularVelocity>);
 }
 
 TEST(ControlObserverUnitsTest, MechanicalObserverUsesUnitTypes) {
@@ -52,11 +53,17 @@ TEST(ControlObserverUnitsTest, MotorControlPhysicalStateUsesUnitTypes) {
   static_assert(std::is_same_v<decltype(control::AsmFluxController::R_r), unit::Resistance>);
   static_assert(std::is_same_v<decltype(unit::MagneticFlux{} - unit::MagneticFlux{}), unit::MagneticFlux>);
   static_assert(std::is_same_v<decltype(unit::Inductance{} / unit::Resistance{}), unit::Time>);
-  static_assert(std::is_same_v<decltype(unit::CurrentPerMagneticFlux{} * unit::MagneticFlux{}), unit::Current>);
-  static_assert(std::is_same_v<decltype(unit::CurrentPerMagneticFluxTime{} * unit::MagneticFlux{} * unit::Time{}), unit::Current>);
-  static_assert(std::is_same_v<decltype(((unit::Inductance{} * unit::Current{}) / unit::MagneticFlux{} * unit::Angle{}) / unit::Time{}),
+  static_assert(
+      std::is_same_v<decltype(unit::CurrentPerMagneticFlux{} * unit::MagneticFlux{}), unit::Current>);
+  static_assert(
+      std::is_same_v<decltype(unit::CurrentPerMagneticFluxTime{} * unit::MagneticFlux{} * unit::Time{}),
+                     unit::Current>);
+  static_assert(std::is_same_v<decltype(((unit::Inductance{} * unit::Current{}) / unit::MagneticFlux{} *
+                                         unit::Angle{}) /
+                                        unit::Time{}),
                                unit::AngularVelocity>);
-  static_assert(std::is_same_v<decltype(observer::AsmFluxObserver<float>::flux_magnitude), unit::MagneticFlux>);
+  static_assert(
+      std::is_same_v<decltype(observer::AsmFluxObserver<float>::flux_magnitude), unit::MagneticFlux>);
   static_assert(std::is_same_v<decltype(observer::AsmFluxObserver<float>::flux_angle), unit::Angle>);
   static_assert(std::is_same_v<decltype(observer::Hfi<float>::i_d_step0), unit::Current>);
 }
@@ -68,7 +75,10 @@ TEST(ControlObserverUnitsTest, AsmAndHfiApisAcceptPhysicalUnits) {
   mechanical_observer.omega_max = 100.0_rad_per_s;
 
   observer::AsmFluxObserver<float> asm_observer;
-  asm_observer.update(system::Stator<unit::Voltage>{1.0_V, 0.0_V}, system::Stator<unit::Current>{0.0_A, 0.0_A}, 10_us, mechanical_observer);
+  asm_observer.update(system::Stator<unit::Voltage>{1.0_V, 0.0_V},
+                      system::Stator<unit::Current>{0.0_A, 0.0_A},
+                      10_us,
+                      mechanical_observer);
   EXPECT_TRUE(std::isfinite(asm_observer.flux_magnitude.Value()));
 
   control::AsmFluxController asm_controller;

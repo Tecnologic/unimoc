@@ -68,7 +68,9 @@ SettingsProfile MakeProfile() {
   return profile;
 }
 
-SettingsStorage MakeStorage(MemoryBackend& backend) { return SettingsStorage{&backend, LoadImage, SaveImage}; }
+SettingsStorage MakeStorage(MemoryBackend& backend) {
+  return SettingsStorage{&backend, LoadImage, SaveImage};
+}
 
 }  // namespace
 

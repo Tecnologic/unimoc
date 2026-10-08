@@ -10,44 +10,33 @@
  */
 // ----------------------------------------------------------------------------
 
-#include <modm/platform/device.hpp>
 #include <modm/architecture/interface/assert.hpp>
+#include <modm/platform/device.hpp>
 
-using modm::AssertionHandler;
 using modm::Abandonment;
 using modm::AbandonmentBehavior;
+using modm::AssertionHandler;
 
 extern AssertionHandler __assertion_table_start;
 extern AssertionHandler __assertion_table_end;
-extern "C"
-{
+extern "C" {
 
-void
-modm_assert_report(_modm_assertion_info *cinfo)
-{
-	auto info = reinterpret_cast<modm::AssertionInfo *>(cinfo);
-	uint8_t behavior(uint8_t(info->behavior));
+void modm_assert_report(_modm_assertion_info* cinfo) {
+  auto info = reinterpret_cast<modm::AssertionInfo*>(cinfo);
+  uint8_t behavior(uint8_t(info->behavior));
 
-	for (const AssertionHandler *handler = &__assertion_table_start;
-		 handler < &__assertion_table_end; handler++)
-	{
-		behavior |= (uint8_t)(*handler)(*info);
-	}
+  for (const AssertionHandler* handler = &__assertion_table_start; handler < &__assertion_table_end;
+       handler++) {
+    behavior |= (uint8_t)(*handler)(*info);
+  }
 
-	info->behavior = AbandonmentBehavior(behavior);
-	behavior &= ~uint8_t(Abandonment::Debug);
-	if ((behavior == uint8_t(Abandonment::DontCare)) or
-		(behavior & uint8_t(Abandonment::Fail)))
-	{
-		modm_abandon(*info);
-		NVIC_SystemReset();
-	}
+  info->behavior = AbandonmentBehavior(behavior);
+  behavior &= ~uint8_t(Abandonment::Debug);
+  if ((behavior == uint8_t(Abandonment::DontCare)) or (behavior & uint8_t(Abandonment::Fail))) {
+    modm_abandon(*info);
+    NVIC_SystemReset();
+  }
 }
 
-modm_weak
-void modm_abandon(const modm::AssertionInfo &info)
-{
-	(void)info;
-}
-
+modm_weak void modm_abandon(const modm::AssertionInfo& info) { (void)info; }
 }

@@ -218,8 +218,10 @@ struct CurrentController {
     // and when the feedforward terms alone drive the total output into
     // saturation — unlike a simple freeze which only detects total
     // saturation and cannot distinguish the two cases.
-    integrator_d = unit::Voltage{integrator_d.Value() + (ki_d.Value() * e_d + kb_d.Value() * (u_d - u_d_raw)) * dt.Value()};
-    integrator_q = unit::Voltage{integrator_q.Value() + (ki_q.Value() * e_q + kb_q.Value() * (u_q - u_q_raw)) * dt.Value()};
+    integrator_d = unit::Voltage{integrator_d.Value() +
+                                 (ki_d.Value() * e_d + kb_d.Value() * (u_d - u_d_raw)) * dt.Value()};
+    integrator_q = unit::Voltage{integrator_q.Value() +
+                                 (ki_q.Value() * e_q + kb_q.Value() * (u_q - u_q_raw)) * dt.Value()};
 
     return system::Rotor<unit::Voltage>{u_d, u_q};
   }

@@ -93,7 +93,8 @@ class Transport {
    *                 `payload_buffer`.
    * @return The receive outcome, including an empty-poll result.
    */
-  [[nodiscard]] virtual ReceiveResult Receive(std::span<std::byte> payload_buffer, Transfer& transfer) noexcept = 0;
+  [[nodiscard]] virtual ReceiveResult Receive(std::span<std::byte> payload_buffer,
+                                              Transfer& transfer) noexcept = 0;
 };
 
 }  // namespace unimoc::cyphal

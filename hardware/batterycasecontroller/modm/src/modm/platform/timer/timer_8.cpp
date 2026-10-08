@@ -17,335 +17,285 @@
 #include <modm/platform/clock/rcc.hpp>
 
 // ----------------------------------------------------------------------------
-void
-modm::platform::Timer8::enable()
-{
-	Rcc::enable<Peripheral::Tim8>();
+void modm::platform::Timer8::enable() { Rcc::enable<Peripheral::Tim8>(); }
+
+void modm::platform::Timer8::disable() {
+  TIM8->CR1 = 0;
+  TIM8->DIER = 0;
+  TIM8->CCER = 0;
+
+  Rcc::disable<Peripheral::Tim8>();
 }
 
-void
-modm::platform::Timer8::disable()
-{
-	TIM8->CR1 = 0;
-	TIM8->DIER = 0;
-	TIM8->CCER = 0;
+bool modm::platform::Timer8::isEnabled() { return Rcc::isEnabled<Peripheral::Tim8>(); }
 
-	Rcc::disable<Peripheral::Tim8>();
-}
+// ----------------------------------------------------------------------------
+void modm::platform::Timer8::setMode(Mode mode,
+                                     SlaveMode slaveMode,
+                                     SlaveModeTrigger slaveModeTrigger,
+                                     MasterMode masterMode,
+                                     bool enableOnePulseMode,
+                                     MasterMode2 masterMode2) {
+  // disable timer
+  TIM8->CR1 = 0;
+  TIM8->CR2 = 0;
 
-bool
-modm::platform::Timer8::isEnabled()
-{
-	return Rcc::isEnabled<Peripheral::Tim8>();
+  if (slaveMode == SlaveMode::Encoder1 || slaveMode == SlaveMode::Encoder2 ||
+      slaveMode == SlaveMode::Encoder3) {
+    setPrescaler(1);
+  }
+
+  // ARR Register is buffered, only Under/Overflow generates update interrupt
+  uint32_t cr1 = TIM_CR1_ARPE | TIM_CR1_URS | static_cast<uint32_t>(mode);
+  if (enableOnePulseMode) {
+    TIM8->CR1 = cr1 | TIM_CR1_OPM;
+  } else {
+    TIM8->CR1 = cr1;
+  }
+  TIM8->CR2 = static_cast<uint32_t>(masterMode) | static_cast<uint32_t>(masterMode2);
+  TIM8->SMCR = static_cast<uint32_t>(slaveMode) | static_cast<uint32_t>(slaveModeTrigger);
 }
 
 // ----------------------------------------------------------------------------
-void
-modm::platform::Timer8::setMode(Mode mode, SlaveMode slaveMode,
-		SlaveModeTrigger slaveModeTrigger, MasterMode masterMode,
-		bool enableOnePulseMode
-		, MasterMode2 masterMode2
-		)
-{
-	// disable timer
-	TIM8->CR1 = 0;
-	TIM8->CR2 = 0;
+void modm::platform::Timer8::configureInputChannel(uint32_t channel, uint8_t filter) {
+  channel -= 1;  // 1..4 -> 0..3
 
-	if (slaveMode == SlaveMode::Encoder1 ||
-		slaveMode == SlaveMode::Encoder2 ||
-		slaveMode == SlaveMode::Encoder3)
-	{
-		setPrescaler(1);
-	}
+  // disable channel
+  TIM8->CCER &= ~(TIM_CCER_CC1E << (channel * 4));
 
-	// ARR Register is buffered, only Under/Overflow generates update interrupt
-	uint32_t cr1 = TIM_CR1_ARPE | TIM_CR1_URS | static_cast<uint32_t>(mode);
-	if (enableOnePulseMode) {
-		TIM8->CR1 = cr1 | TIM_CR1_OPM;
-	} else {
-		TIM8->CR1 = cr1;
-	}
-	TIM8->CR2 = 	static_cast<uint32_t>(masterMode) |
-						static_cast<uint32_t>(masterMode2);
-	TIM8->SMCR = static_cast<uint32_t>(slaveMode) |
-						static_cast<uint32_t>(slaveModeTrigger);
+  uint32_t flags = static_cast<uint32_t>(filter & 0xf) << 4;
+
+  if (channel <= 1) {
+    const uint32_t offset = 8 * channel;
+
+    flags <<= offset;
+    flags |= TIM8->CCMR1 & ~(0xf0 << offset);
+
+    TIM8->CCMR1 = flags;
+  } else {
+    const uint32_t offset = 8 * (channel - 2);
+
+    flags <<= offset;
+    flags |= TIM8->CCMR2 & ~(0xf0 << offset);
+
+    TIM8->CCMR2 = flags;
+  }
+  TIM8->CCER |= TIM_CCER_CC1E << (channel * 4);
+}
+
+void modm::platform::Timer8::configureInputChannel(uint32_t channel,
+                                                   InputCaptureMapping input,
+                                                   InputCapturePrescaler prescaler,
+                                                   InputCapturePolarity polarity,
+                                                   uint8_t filter,
+                                                   bool xor_ch1_3) {
+  channel -= 1;  // 1..4 -> 0..3
+
+  // disable channel
+  TIM8->CCER &= ~((TIM_CCER_CC1NP | TIM_CCER_CC1P | TIM_CCER_CC1E) << (channel * 4));
+
+  uint32_t flags = static_cast<uint32_t>(input);
+  flags |= static_cast<uint32_t>(prescaler) << 2;
+  flags |= static_cast<uint32_t>(filter & 0xf) << 4;
+
+  if (channel <= 1) {
+    const uint32_t offset = 8 * channel;
+
+    flags <<= offset;
+    flags |= TIM8->CCMR1 & ~(0xff << offset);
+
+    TIM8->CCMR1 = flags;
+
+    if (channel == 0) {
+      if (xor_ch1_3)
+        TIM8->CR2 |= TIM_CR2_TI1S;
+      else
+        TIM8->CR2 &= ~TIM_CR2_TI1S;
+    }
+  } else if (channel <= 3) {
+    const uint32_t offset = 8 * (channel - 2);
+
+    flags <<= offset;
+    flags |= TIM8->CCMR2 & ~(0xff << offset);
+
+    TIM8->CCMR2 = flags;
+  } else {
+    const uint32_t offset = 8 * (channel - 4);
+
+    flags <<= offset;
+    flags |= TIM8->CCMR3 & ~(0xff << offset);
+
+    TIM8->CCMR3 = flags;
+  }
+  TIM8->CCER |= (TIM_CCER_CC1E | static_cast<uint32_t>(polarity)) << (channel * 4);
 }
 
 // ----------------------------------------------------------------------------
-void
-modm::platform::Timer8::configureInputChannel(uint32_t channel, uint8_t filter) {
-		channel -= 1;	// 1..4 -> 0..3
+void modm::platform::Timer8::configureOutputChannel(uint32_t channel,
+                                                    OutputCompareMode mode,
+                                                    Value compareValue,
+                                                    PinState out) {
+  channel -= 1;  // 1..4 -> 0..3
 
-	// disable channel
-	TIM8->CCER &= ~(TIM_CCER_CC1E << (channel * 4));
+  // disable output
+  TIM8->CCER &= ~(0xf << (channel * 4));
 
-	uint32_t flags = static_cast<uint32_t>(filter&0xf) << 4;
+  setCompareValue(channel + 1, compareValue);
 
-	if (channel <= 1)
-	{
-		const uint32_t offset = 8 * channel;
+  // enable preload (the compare value is loaded at each update event)
+  uint32_t flags = static_cast<uint32_t>(mode) | TIM_CCMR1_OC1PE;
 
-		flags <<= offset;
-		flags |= TIM8->CCMR1 & ~(0xf0 << offset);
+  if (channel <= 1) {
+    const uint32_t offset = 8 * channel;
 
-		TIM8->CCMR1 = flags;
-	}
-	else {
-		const uint32_t offset = 8 * (channel - 2);
+    flags <<= offset;
+    flags |= TIM8->CCMR1 & ~(0xff << offset);
 
-		flags <<= offset;
-		flags |= TIM8->CCMR2 & ~(0xf0 << offset);
+    TIM8->CCMR1 = flags;
+  } else if (channel <= 3) {
+    const uint32_t offset = 8 * (channel - 2);
 
-		TIM8->CCMR2 = flags;
-	}
-	TIM8->CCER |= TIM_CCER_CC1E << (channel * 4);
+    flags <<= offset;
+    flags |= TIM8->CCMR2 & ~(0xff << offset);
+
+    TIM8->CCMR2 = flags;
+  } else {
+    const uint32_t offset = 8 * (channel - 4);
+
+    flags <<= offset;
+    flags |= TIM8->CCMR3 & ~(0xff << offset);
+
+    TIM8->CCMR3 = flags;
+  }
+  if ((mode != OutputCompareMode::Inactive) and (out == PinState::Enable)) {
+    TIM8->CCER |= (TIM_CCER_CC1E) << (channel * 4);
+  }
 }
 
-void
-modm::platform::Timer8::configureInputChannel(uint32_t channel,
-		InputCaptureMapping input, InputCapturePrescaler prescaler,
-		InputCapturePolarity polarity, uint8_t filter,
-		bool xor_ch1_3)
-{
-	channel -= 1;	// 1..4 -> 0..3
-
-	// disable channel
-	TIM8->CCER &= ~((TIM_CCER_CC1NP | TIM_CCER_CC1P | TIM_CCER_CC1E) << (channel * 4));
-
-	uint32_t flags = static_cast<uint32_t>(input);
-	flags |= static_cast<uint32_t>(prescaler) << 2;
-	flags |= static_cast<uint32_t>(filter&0xf) << 4;
-
-	if (channel <= 1)
-	{
-		const uint32_t offset = 8 * channel;
-
-		flags <<= offset;
-		flags |= TIM8->CCMR1 & ~(0xff << offset);
-
-		TIM8->CCMR1 = flags;
-
-		if(channel == 0) {
-			if(xor_ch1_3)
-				TIM8->CR2 |= TIM_CR2_TI1S;
-			else
-				TIM8->CR2 &= ~TIM_CR2_TI1S;
-		}
-	}
-	else if (channel <= 3) {
-		const uint32_t offset = 8 * (channel - 2);
-
-		flags <<= offset;
-		flags |= TIM8->CCMR2 & ~(0xff << offset);
-
-		TIM8->CCMR2 = flags;
-	}
-	else {
-		const uint32_t offset = 8 * (channel - 4);
-
-		flags <<= offset;
-		flags |= TIM8->CCMR3 & ~(0xff << offset);
-
-		TIM8->CCMR3 = flags;
-	}
-	TIM8->CCER |= (TIM_CCER_CC1E | static_cast<uint32_t>(polarity)) << (channel * 4);
+void modm::platform::Timer8::configureOutputChannel(uint32_t channel,
+                                                    OutputCompareMode mode,
+                                                    Value compareValue,
+                                                    PinState out,
+                                                    OutputComparePolarity polarity,
+                                                    PinState out_n,
+                                                    OutputComparePolarity polarity_n,
+                                                    OutputComparePreload preload) {
+  // disable output
+  TIM8->CCER &= ~(0xf << ((channel - 1) * 4));
+  setCompareValue(channel, compareValue);
+  configureOutputChannel(channel, mode, out, polarity, out_n, polarity_n, preload);
 }
 
-// ----------------------------------------------------------------------------
-void
-modm::platform::Timer8::configureOutputChannel(uint32_t channel,
-		OutputCompareMode mode, Value compareValue, PinState out)
-{
-	channel -= 1;	// 1..4 -> 0..3
+void modm::platform::Timer8::configureOutputChannel(uint32_t channel,
+                                                    OutputCompareMode mode,
+                                                    PinState out,
+                                                    OutputComparePolarity polarity,
+                                                    PinState out_n,
+                                                    OutputComparePolarity polarity_n,
+                                                    OutputComparePreload preload) {
+  channel -= 1;  // 1..4 -> 0..3
 
-	// disable output
-	TIM8->CCER &= ~(0xf << (channel * 4));
+  // disable output
+  TIM8->CCER &= ~(0xf << (channel * 4));
 
-	setCompareValue(channel + 1, compareValue);
+  uint32_t flags = static_cast<uint32_t>(mode) | static_cast<uint32_t>(preload);
 
-	// enable preload (the compare value is loaded at each update event)
-	uint32_t flags = static_cast<uint32_t>(mode) | TIM_CCMR1_OC1PE;
+  if (channel <= 1) {
+    const uint32_t offset = 8 * channel;
 
-	if (channel <= 1)
-	{
-		const uint32_t offset = 8 * channel;
+    flags <<= offset;
+    flags |= TIM8->CCMR1 & ~(0xff << offset);
 
-		flags <<= offset;
-		flags |= TIM8->CCMR1 & ~(0xff << offset);
+    TIM8->CCMR1 = flags;
+  } else if (channel <= 3) {
+    const uint32_t offset = 8 * (channel - 2);
 
-		TIM8->CCMR1 = flags;
-	}
-	else if (channel <= 3) {
-		const uint32_t offset = 8 * (channel - 2);
+    flags <<= offset;
+    flags |= TIM8->CCMR2 & ~(0xff << offset);
 
-		flags <<= offset;
-		flags |= TIM8->CCMR2 & ~(0xff << offset);
+    TIM8->CCMR2 = flags;
+  } else {
+    const uint32_t offset = 8 * (channel - 4);
 
-		TIM8->CCMR2 = flags;
-	}
-	else {
-		const uint32_t offset = 8 * (channel - 4);
+    flags <<= offset;
+    flags |= TIM8->CCMR3 & ~(0xff << offset);
 
-		flags <<= offset;
-		flags |= TIM8->CCMR3 & ~(0xff << offset);
+    TIM8->CCMR3 = flags;
+  }
+  // CCER Flags (Enable/Polarity)
+  flags = (static_cast<uint32_t>(polarity_n) << 2) | (static_cast<uint32_t>(out_n) << 2) |
+          static_cast<uint32_t>(polarity) | static_cast<uint32_t>(out);
 
-		TIM8->CCMR3 = flags;
-	}
-	if ((mode != OutputCompareMode::Inactive) and (out == PinState::Enable)) {
-		TIM8->CCER |= (TIM_CCER_CC1E) << (channel * 4);
-	}
+  TIM8->CCER |= flags << (channel * 4);
 }
 
-void
-modm::platform::Timer8::configureOutputChannel(uint32_t channel,
-OutputCompareMode mode, Value compareValue,
-PinState out, OutputComparePolarity polarity,
-PinState out_n, OutputComparePolarity polarity_n,
-OutputComparePreload preload)
-{
-	// disable output
-	TIM8->CCER &= ~(0xf << ((channel-1) * 4));
-	setCompareValue(channel, compareValue);
-	configureOutputChannel(channel, mode, out, polarity, out_n, polarity_n, preload);
-}
+void modm::platform::Timer8::configureOutputChannel(uint32_t channel, uint32_t modeOutputPorts) {
+  channel -= 1;  // 1..4 -> 0..3
 
-void
-modm::platform::Timer8::configureOutputChannel(uint32_t channel,
-OutputCompareMode mode,
-PinState out, OutputComparePolarity polarity,
-PinState out_n, OutputComparePolarity polarity_n,
-OutputComparePreload preload)
-{
-	channel -= 1;	// 1..4 -> 0..3
+  {
+    uint32_t flags = modeOutputPorts & (0x70);
 
-	// disable output
-	TIM8->CCER &= ~(0xf << (channel * 4));
+    if (channel <= 1) {
+      uint32_t offset = 8 * channel;
 
-	uint32_t flags = static_cast<uint32_t>(mode) | static_cast<uint32_t>(preload);
+      flags <<= offset;
+      flags |= TIM8->CCMR1 & ~(TIM_CCMR1_OC1M << offset);
+      TIM8->CCMR1 = flags;
+    } else if (channel <= 3) {
+      uint32_t offset = 8 * (channel - 2);
 
-	if (channel <= 1)
-	{
-		const uint32_t offset = 8 * channel;
+      flags <<= offset;
+      flags |= TIM8->CCMR2 & ~(TIM_CCMR1_OC1M << offset);
 
-		flags <<= offset;
-		flags |= TIM8->CCMR1 & ~(0xff << offset);
+      TIM8->CCMR2 = flags;
+    } else {
+      uint32_t offset = 8 * (channel - 4);
 
-		TIM8->CCMR1 = flags;
-	}
-	else if (channel <= 3) {
-		const uint32_t offset = 8 * (channel - 2);
+      flags <<= offset;
+      flags |= TIM8->CCMR3 & ~(TIM_CCMR1_OC1M << offset);
 
-		flags <<= offset;
-		flags |= TIM8->CCMR2 & ~(0xff << offset);
+      TIM8->CCMR3 = flags;
+    }
+  }
 
-		TIM8->CCMR2 = flags;
-	}
-	else {
-		const uint32_t offset = 8 * (channel - 4);
-
-		flags <<= offset;
-		flags |= TIM8->CCMR3 & ~(0xff << offset);
-
-		TIM8->CCMR3 = flags;
-	}
-	// CCER Flags (Enable/Polarity)
-	flags = (static_cast<uint32_t>(polarity_n) << 2) |
-			(static_cast<uint32_t>(out_n)      << 2) |
-			 static_cast<uint32_t>(polarity) | static_cast<uint32_t>(out);
-
-	TIM8->CCER |= flags << (channel * 4);
-}
-
-void
-modm::platform::Timer8::configureOutputChannel(uint32_t channel,
-uint32_t modeOutputPorts)
-{
-	channel -= 1;	// 1..4 -> 0..3
-
-	{
-		uint32_t flags = modeOutputPorts & (0x70);
-
-		if (channel <= 1)
-		{
-			uint32_t offset = 8 * channel;
-
-			flags <<= offset;
-			flags |= TIM8->CCMR1 & ~(TIM_CCMR1_OC1M << offset);
-			TIM8->CCMR1 = flags;
-		}
-		else if (channel <= 3) {
-			uint32_t offset = 8 * (channel - 2);
-
-			flags <<= offset;
-			flags |= TIM8->CCMR2 & ~(TIM_CCMR1_OC1M << offset);
-
-			TIM8->CCMR2 = flags;
-		}
-		else {
-			uint32_t offset = 8 * (channel - 4);
-
-			flags <<= offset;
-			flags |= TIM8->CCMR3 & ~(TIM_CCMR1_OC1M << offset);
-
-			TIM8->CCMR3 = flags;
-		}
-	}
-
-	uint32_t flags = (modeOutputPorts & (0xf)) << (channel * 4);
-	flags |= TIM8->CCER & ~(0xf << (channel * 4));
-	TIM8->CCER = flags;
+  uint32_t flags = (modeOutputPorts & (0xf)) << (channel * 4);
+  flags |= TIM8->CCER & ~(0xf << (channel * 4));
+  TIM8->CCER = flags;
 }
 
 // ----------------------------------------------------------------------------
-void
-modm::platform::Timer8::enableInterruptVector(Interrupt interrupt, bool enable, uint32_t priority)
-{
-	if(interrupt & (Interrupt::Break))
-	{
-		if (enable)
-		{
-			NVIC_SetPriority(TIM8_BRK_IRQn, priority);
-			NVIC_EnableIRQ(TIM8_BRK_IRQn);
-		}
-		else
-		{
-			NVIC_DisableIRQ(TIM8_BRK_IRQn);
-		}
-	}
-	if(interrupt & (Interrupt::Update))
-	{
-		if (enable)
-		{
-			NVIC_SetPriority(TIM8_UP_IRQn, priority);
-			NVIC_EnableIRQ(TIM8_UP_IRQn);
-		}
-		else
-		{
-			NVIC_DisableIRQ(TIM8_UP_IRQn);
-		}
-	}
-	if(interrupt & (Interrupt::Trigger | Interrupt::COM))
-	{
-		if (enable)
-		{
-			NVIC_SetPriority(TIM8_TRG_COM_IRQn, priority);
-			NVIC_EnableIRQ(TIM8_TRG_COM_IRQn);
-		}
-		else
-		{
-			NVIC_DisableIRQ(TIM8_TRG_COM_IRQn);
-		}
-	}
-	if(interrupt & (Interrupt::CaptureCompare1 | Interrupt::CaptureCompare2 | Interrupt::CaptureCompare3 | Interrupt::CaptureCompare4))
-	{
-		if (enable)
-		{
-			NVIC_SetPriority(TIM8_CC_IRQn, priority);
-			NVIC_EnableIRQ(TIM8_CC_IRQn);
-		}
-		else
-		{
-			NVIC_DisableIRQ(TIM8_CC_IRQn);
-		}
-	}
+void modm::platform::Timer8::enableInterruptVector(Interrupt interrupt, bool enable, uint32_t priority) {
+  if (interrupt & (Interrupt::Break)) {
+    if (enable) {
+      NVIC_SetPriority(TIM8_BRK_IRQn, priority);
+      NVIC_EnableIRQ(TIM8_BRK_IRQn);
+    } else {
+      NVIC_DisableIRQ(TIM8_BRK_IRQn);
+    }
+  }
+  if (interrupt & (Interrupt::Update)) {
+    if (enable) {
+      NVIC_SetPriority(TIM8_UP_IRQn, priority);
+      NVIC_EnableIRQ(TIM8_UP_IRQn);
+    } else {
+      NVIC_DisableIRQ(TIM8_UP_IRQn);
+    }
+  }
+  if (interrupt & (Interrupt::Trigger | Interrupt::COM)) {
+    if (enable) {
+      NVIC_SetPriority(TIM8_TRG_COM_IRQn, priority);
+      NVIC_EnableIRQ(TIM8_TRG_COM_IRQn);
+    } else {
+      NVIC_DisableIRQ(TIM8_TRG_COM_IRQn);
+    }
+  }
+  if (interrupt & (Interrupt::CaptureCompare1 | Interrupt::CaptureCompare2 | Interrupt::CaptureCompare3 |
+                   Interrupt::CaptureCompare4)) {
+    if (enable) {
+      NVIC_SetPriority(TIM8_CC_IRQn, priority);
+      NVIC_EnableIRQ(TIM8_CC_IRQn);
+    } else {
+      NVIC_DisableIRQ(TIM8_CC_IRQn);
+    }
+  }
 }

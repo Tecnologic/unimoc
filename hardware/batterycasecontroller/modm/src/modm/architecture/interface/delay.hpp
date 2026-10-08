@@ -14,8 +14,7 @@
 
 #ifdef __DOXYGEN__
 
-namespace modm
-{
+namespace modm {
 
 /// @ingroup modm_architecture_delay
 /// @{
@@ -36,7 +35,7 @@ void delay_ns(uint32_t ns);
  * On devices with low clock speed it may not be possible to provide this
  * function with <100ns or even <1000ns accuracy.
  */
-#define MODM_DELAY_NS_IS_ACCURATE 0/1
+#define MODM_DELAY_NS_IS_ACCURATE 0 / 1
 
 /**
  * Spin for microseconds.
@@ -55,7 +54,7 @@ void delay_ms(uint32_t ms);
 
 /// @}
 
-}
+}  // namespace modm
 
 #else
 
@@ -63,42 +62,35 @@ void delay_ms(uint32_t ms);
 // there being a link-able function and delegate this choice to the platform.
 #include <modm/platform/core/delay_impl.hpp>
 
-namespace modm
-{
+namespace modm {
 
 // Forward everything to specialized functions
-template< class Rep >
-void
-delay(std::chrono::duration<Rep, std::nano> ns_)
-{
-    const auto ns{std::chrono::duration_cast<std::chrono::nanoseconds>(ns_)};
-    delay_ns(ns.count());
+template <class Rep>
+void delay(std::chrono::duration<Rep, std::nano> ns_) {
+  const auto ns{std::chrono::duration_cast<std::chrono::nanoseconds>(ns_)};
+  delay_ns(ns.count());
 }
 
-template< class Rep >
-void
-delay(std::chrono::duration<Rep, std::micro> us_)
-{
-    const auto us{std::chrono::duration_cast<std::chrono::microseconds>(us_)};
-    delay_us(us.count());
+template <class Rep>
+void delay(std::chrono::duration<Rep, std::micro> us_) {
+  const auto us{std::chrono::duration_cast<std::chrono::microseconds>(us_)};
+  delay_us(us.count());
 }
 
-template< class Rep >
-void
-delay(std::chrono::duration<Rep, std::milli> ms_)
-{
-    const auto ms{std::chrono::duration_cast<std::chrono::milliseconds>(ms_)};
-    delay_ms(ms.count());
+template <class Rep>
+void delay(std::chrono::duration<Rep, std::milli> ms_) {
+  const auto ms{std::chrono::duration_cast<std::chrono::milliseconds>(ms_)};
+  delay_ms(ms.count());
 }
 
 // Everything else is cast to milliseconds
-template<class Rep, class Period>
-inline void delay(std::chrono::duration<Rep, Period> time)
-{ delay(std::chrono::duration_cast<std::chrono::milliseconds>(time)); }
+template <class Rep, class Period>
+inline void delay(std::chrono::duration<Rep, Period> time) {
+  delay(std::chrono::duration_cast<std::chrono::milliseconds>(time));
+}
 
 using namespace ::std::chrono_literals;
 
-} // namespace modm
+}  // namespace modm
 
 #endif
-

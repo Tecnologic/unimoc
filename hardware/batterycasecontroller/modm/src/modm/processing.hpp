@@ -12,8 +12,8 @@
 // ----------------------------------------------------------------------------
 
 #ifndef MODM_PROCESSING_HPP
-#define	MODM_PROCESSING_HPP
+#define MODM_PROCESSING_HPP
 
 #include "processing/fiber.hpp"
 #include "processing/task.hpp"
-#endif	// MODM_PROCESSING_HPP
+#endif  // MODM_PROCESSING_HPP

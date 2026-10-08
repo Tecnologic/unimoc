@@ -14,6 +14,4 @@
 #include "adc_interrupt_2.hpp"
 #include <modm/architecture/interface/interrupt.hpp>
 // ----------------------------------------------------------------------------
-modm::platform::AdcInterrupt2::Handler
-modm::platform::AdcInterrupt2::handler([]{});
-
+modm::platform::AdcInterrupt2::Handler modm::platform::AdcInterrupt2::handler([] {});

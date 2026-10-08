@@ -13,182 +13,122 @@
 #define MODM_MATH_ENDIANNESS_HPP
 
 #include <stdint.h>
+#include <modm/architecture/detect.hpp>
 #include "bit_operation.hpp"
 
-#include <modm/architecture/detect.hpp>
-
-namespace modm
-{
+namespace modm {
 
 /// @ingroup modm_math_utils
 /// @{
 
 /// checks if current architecture is big endian
-constexpr bool
-isBigEndian()
-{
-	return MODM_IS_BIG_ENDIAN;
-}
+constexpr bool isBigEndian() { return MODM_IS_BIG_ENDIAN; }
 
 /// checks if current architecture is little endian
-constexpr bool
-isLittleEndian()
-{
-	return MODM_IS_LITTLE_ENDIAN;
-}
+constexpr bool isLittleEndian() { return MODM_IS_LITTLE_ENDIAN; }
 
 // MARK: - to host
-constexpr uint16_t
-fromLittleEndian(uint16_t value)
-{
+constexpr uint16_t fromLittleEndian(uint16_t value) {
 #if MODM_IS_LITTLE_ENDIAN
-	return value;
+  return value;
 #else
-	return swap(value);
+  return swap(value);
 #endif
 }
 
-constexpr int16_t
-fromLittleEndian(int16_t value)
-{
-	return int16_t(fromLittleEndian(uint16_t(value)));
-}
+constexpr int16_t fromLittleEndian(int16_t value) { return int16_t(fromLittleEndian(uint16_t(value))); }
 
-constexpr uint32_t
-fromLittleEndian(uint32_t value)
-{
+constexpr uint32_t fromLittleEndian(uint32_t value) {
 #if MODM_IS_LITTLE_ENDIAN
-	return value;
+  return value;
 #else
-	return swap(value);
+  return swap(value);
 #endif
 }
 
-constexpr int32_t
-fromLittleEndian(int32_t value)
-{
-	return int32_t(fromLittleEndian(uint32_t(value)));
-}
+constexpr int32_t fromLittleEndian(int32_t value) { return int32_t(fromLittleEndian(uint32_t(value))); }
 
-constexpr uint16_t
-fromBigEndian(uint16_t value)
-{
+constexpr uint16_t fromBigEndian(uint16_t value) {
 #if MODM_IS_BIG_ENDIAN
-	return value;
+  return value;
 #else
-	return swap(value);
+  return swap(value);
 #endif
 }
 
-constexpr int16_t
-fromBigEndian(int16_t value)
-{
-	return int16_t(fromBigEndian(uint16_t(value)));
-}
+constexpr int16_t fromBigEndian(int16_t value) { return int16_t(fromBigEndian(uint16_t(value))); }
 
-constexpr uint32_t
-fromBigEndian(uint32_t value)
-{
+constexpr uint32_t fromBigEndian(uint32_t value) {
 #if MODM_IS_BIG_ENDIAN
-	return value;
+  return value;
 #else
-	return swap(value);
+  return swap(value);
 #endif
 }
 
-constexpr int32_t
-fromBigEndian(int32_t value)
-{
-	return int32_t(fromBigEndian(uint32_t(value)));
-}
+constexpr int32_t fromBigEndian(int32_t value) { return int32_t(fromBigEndian(uint32_t(value))); }
 
 // MARK: - from host
-constexpr uint16_t
-toLittleEndian(uint16_t value)
-{
+constexpr uint16_t toLittleEndian(uint16_t value) {
 #if MODM_IS_LITTLE_ENDIAN
-	return value;
+  return value;
 #else
-	return swap(value);
+  return swap(value);
 #endif
 }
 
-constexpr int16_t
-toLittleEndian(int16_t value)
-{
-	return int16_t(toLittleEndian(uint16_t(value)));
-}
+constexpr int16_t toLittleEndian(int16_t value) { return int16_t(toLittleEndian(uint16_t(value))); }
 
-constexpr uint32_t
-toLittleEndian(uint32_t value)
-{
+constexpr uint32_t toLittleEndian(uint32_t value) {
 #if MODM_IS_LITTLE_ENDIAN
-	return value;
+  return value;
 #else
-	return swap(value);
+  return swap(value);
 #endif
 }
 
-constexpr int32_t
-toLittleEndian(int32_t value)
-{
-	return int32_t(toLittleEndian(uint32_t(value)));
-}
+constexpr int32_t toLittleEndian(int32_t value) { return int32_t(toLittleEndian(uint32_t(value))); }
 
-constexpr uint16_t
-toBigEndian(uint16_t value)
-{
+constexpr uint16_t toBigEndian(uint16_t value) {
 #if MODM_IS_BIG_ENDIAN
-	return value;
+  return value;
 #else
-	return swap(value);
+  return swap(value);
 #endif
 }
 
-constexpr int16_t
-toBigEndian(int16_t value)
-{
-	return int16_t(toBigEndian(uint16_t(value)));
-}
+constexpr int16_t toBigEndian(int16_t value) { return int16_t(toBigEndian(uint16_t(value))); }
 
-constexpr uint32_t
-toBigEndian(uint32_t value)
-{
+constexpr uint32_t toBigEndian(uint32_t value) {
 #if MODM_IS_BIG_ENDIAN
-	return value;
+  return value;
 #else
-	return swap(value);
+  return swap(value);
 #endif
 }
 
-constexpr int32_t
-toBigEndian(int32_t value)
-{
-	return int32_t(toBigEndian(uint32_t(value)));
-}
+constexpr int32_t toBigEndian(int32_t value) { return int32_t(toBigEndian(uint32_t(value))); }
 
 template <typename T>
-struct BigEndian
-{
-	T raw;
+struct BigEndian {
+  T raw;
 
-	constexpr BigEndian() : raw() {}
-	constexpr BigEndian(T value) : raw(toBigEndian(value)) {}
-	constexpr operator T() const { return fromBigEndian(raw); }
+  constexpr BigEndian() : raw() {}
+  constexpr BigEndian(T value) : raw(toBigEndian(value)) {}
+  constexpr operator T() const { return fromBigEndian(raw); }
 };
 
 template <typename T>
-struct LittleEndian
-{
-	T raw;
+struct LittleEndian {
+  T raw;
 
-	constexpr LittleEndian() : raw() {}
-	constexpr LittleEndian(T value) : raw(toLittleEndian(value)) {}
-	constexpr operator T() const { return fromLittleEndian(raw); }
+  constexpr LittleEndian() : raw() {}
+  constexpr LittleEndian(T value) : raw(toLittleEndian(value)) {}
+  constexpr operator T() const { return fromLittleEndian(raw); }
 };
 
 /// @}
 
-} // namespace modm
+}  // namespace modm
 
-#endif // MODM_MATH_ENDIANNESS_HPP
+#endif  // MODM_MATH_ENDIANNESS_HPP

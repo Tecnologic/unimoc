@@ -67,9 +67,16 @@ TEST(FieldWeakeningTest, IntegratesOnlyNegativeVoltageHeadroom) {
   field_weakening.ki = 10.0_A_per_V_s;
   field_weakening.i_d_min = -0.5_A;
 
-  EXPECT_FLOAT_EQ(field_weakening.update(unimoc::system::Stator<unimoc::unit::Voltage>{0.5_V, 0.0_V}, 0.1_s).Value(), 0.0F);
-  EXPECT_NEAR(field_weakening.update(unimoc::system::Stator<unimoc::unit::Voltage>{1.0_V, 0.0_V}, 0.1_s).Value(), -0.1F, 1.0e-6F);
-  EXPECT_FLOAT_EQ(field_weakening.update(unimoc::system::Stator<unimoc::unit::Voltage>{10.0_V, 0.0_V}, 1.0_s).Value(), -0.5F);
+  EXPECT_FLOAT_EQ(field_weakening.update(unimoc::system::Stator<unimoc::unit::Voltage>{0.5_V, 0.0_V}, 0.1_s)
+                      .Value(),
+                  0.0F);
+  EXPECT_NEAR(field_weakening.update(unimoc::system::Stator<unimoc::unit::Voltage>{1.0_V, 0.0_V}, 0.1_s)
+                  .Value(),
+              -0.1F,
+              1.0e-6F);
+  EXPECT_FLOAT_EQ(field_weakening.update(unimoc::system::Stator<unimoc::unit::Voltage>{10.0_V, 0.0_V}, 1.0_s)
+                      .Value(),
+                  -0.5F);
 
   field_weakening.reset();
   EXPECT_FLOAT_EQ(field_weakening.i_d_fw.Value(), 0.0F);
@@ -81,7 +88,8 @@ TEST(CurrentControllerTest, UnsaturatedPiStepUpdatesIntegrator) {
   controller.ki_d = 10.0_V_per_A_s;
   controller.v_max = 1.0_ratio;
 
-  const VoltageRotor output = controller.update(CurrentRotor{1.0F, 0.0F}, CurrentRotor{0.0F, 0.0F}, 0.0_rad_per_s, 0.1_s, 10.0_V);
+  const VoltageRotor output =
+      controller.update(CurrentRotor{1.0F, 0.0F}, CurrentRotor{0.0F, 0.0F}, 0.0_rad_per_s, 0.1_s, 10.0_V);
 
   EXPECT_FLOAT_EQ(output.d.Value(), 2.0F);
   EXPECT_FLOAT_EQ(output.q.Value(), 0.0F);
@@ -98,8 +106,10 @@ TEST(CurrentControllerTest, CircularLimitScalesBothAxes) {
   controller.kb_q = 0.0_per_s;
   controller.v_max = 0.1_ratio;
 
-  const VoltageRotor output = controller.update(CurrentRotor{1.0F, 1.0F}, CurrentRotor{0.0F, 0.0F}, 0.0_rad_per_s, 0.1_s, 10.0_V);
-  const float magnitude = std::sqrt(output.d.Value() * output.d.Value() + output.q.Value() * output.q.Value());
+  const VoltageRotor output =
+      controller.update(CurrentRotor{1.0F, 1.0F}, CurrentRotor{0.0F, 0.0F}, 0.0_rad_per_s, 0.1_s, 10.0_V);
+  const float magnitude =
+      std::sqrt(output.d.Value() * output.d.Value() + output.q.Value() * output.q.Value());
 
   EXPECT_NEAR(magnitude, 1.0F, 1.0e-6F);
   EXPECT_NEAR(output.d.Value(), output.q.Value(), 1.0e-6F);

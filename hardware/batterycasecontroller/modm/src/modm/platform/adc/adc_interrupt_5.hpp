@@ -13,15 +13,12 @@
 #ifndef MODM_STM32_ADC_INTERRUPT_5_HPP
 #define MODM_STM32_ADC_INTERRUPT_5_HPP
 
-#include "adc_5.hpp"
 #include <modm/architecture/interface/adc_interrupt.hpp>
+#include "adc_5.hpp"
 
+namespace modm {
 
-namespace modm
-{
-
-namespace platform
-{
+namespace platform {
 
 /**
  * ADC Interrupt module
@@ -37,20 +34,15 @@ namespace platform
  * @ingroup		modm_platform_adc_5
  * @author		Niklas Hauser
  */
-class AdcInterrupt5 : public Adc5, public modm::AdcInterrupt
-{
-public:
-	static inline void
-	attachInterruptHandler(Handler handler)
-	{
-		AdcInterrupt5::handler = handler;
-	}
+class AdcInterrupt5 : public Adc5, public modm::AdcInterrupt {
+ public:
+  static inline void attachInterruptHandler(Handler handler) { AdcInterrupt5::handler = handler; }
 
-	static Handler handler;
+  static Handler handler;
 };
 
-}	// namespace platform
+}  // namespace platform
 
-}	// namespace modm
+}  // namespace modm
 
-#endif // MODM_STM32_ADC_INTERRUPT_HPP
+#endif  // MODM_STM32_ADC_INTERRUPT_HPP

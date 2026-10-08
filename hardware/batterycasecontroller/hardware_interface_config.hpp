@@ -43,7 +43,8 @@ constexpr uint_fast8_t VERSION_MAJOR = 1;  ///< Major version of the hardware in
 constexpr uint_fast8_t VERSION_MINOR = 0;  ///< Minor version of the hardware interface
 constexpr uint_fast8_t VERSION_PATCH = 0;  ///< Patch version of the hardware interface
 
-constexpr uint_fast8_t VERSION = (VERSION_MAJOR << 16) | (VERSION_MINOR << 8) | VERSION_PATCH;  ///< Combined hardware version
+constexpr uint_fast8_t VERSION =
+    (VERSION_MAJOR << 16) | (VERSION_MINOR << 8) | VERSION_PATCH;  ///< Combined hardware version
 
 constexpr uint_fast8_t MOTORS = 1;  ///< Number of motors supported by the hardware interface
 

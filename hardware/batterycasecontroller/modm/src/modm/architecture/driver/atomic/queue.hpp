@@ -13,95 +13,81 @@
  */
 // ----------------------------------------------------------------------------
 
-#ifndef	MODM_ATOMIC_QUEUE_HPP
-#define	MODM_ATOMIC_QUEUE_HPP
+#ifndef MODM_ATOMIC_QUEUE_HPP
+#define MODM_ATOMIC_QUEUE_HPP
 
 #include <cstddef>
 #include <cstdint>
-#include <type_traits>
 #include <modm/architecture/utils.hpp>
+#include <type_traits>
 
-namespace modm
-{
-	namespace atomic
-	{
-		/**
-		 * \ingroup	modm_architecture_atomic
-		 * \brief	Interrupt save queue
-		 *
-		 * A maximum size of 254 is allowed for 8-bit microcontrollers.
-		 *
-		 * \todo	This implementation should work but could be improved
-		 */
-		template<typename T, std::size_t N>
-		class Queue
-		{
-		public:
-			// select the type of the index variables with some template magic :-)
-			using Index = std::conditional_t< (N >= 254), uint16_t, uint8_t >;
+namespace modm {
+namespace atomic {
+/**
+ * \ingroup	modm_architecture_atomic
+ * \brief	Interrupt save queue
+ *
+ * A maximum size of 254 is allowed for 8-bit microcontrollers.
+ *
+ * \todo	This implementation should work but could be improved
+ */
+template <typename T, std::size_t N>
+class Queue {
+ public:
+  // select the type of the index variables with some template magic :-)
+  using Index = std::conditional_t<(N >= 254), uint16_t, uint8_t>;
 
-			using Size = Index;
+  using Size = Index;
 
-		public:
-			Queue();
+ public:
+  Queue();
 
-			bool
-			isFull() const;
+  bool isFull() const;
 
-			bool
-			isNotFull() const { return not isFull(); }
+  bool isNotFull() const { return not isFull(); }
 
-			/**
-			 * \returns	\c false if less than three elements
-			 * 			can be stored in queue.
-			 *
-			 * Only works with queue with more than three elements.
-			 */
-			bool
-			isNearlyFull() const;
+  /**
+   * \returns	\c false if less than three elements
+   * 			can be stored in queue.
+   *
+   * Only works with queue with more than three elements.
+   */
+  bool isNearlyFull() const;
 
-			bool
-			isEmpty() const;
+  bool isEmpty() const;
 
-			bool
-			isNotEmpty() const { return not isEmpty(); }
+  bool isNotEmpty() const { return not isEmpty(); }
 
-			/**
-			 * Check if the queue is nearly empty.
-			 *
-			 * \returns	\c true if less than three elements are stored
-			 * 			in the queue, \c false otherwise.
-			 *
-			 * Only works with queue with more than three elements.
-			 * TODO: calculations are approximate and may include off-by-one errors.
-			 */
-			bool
-			isNearlyEmpty() const;
+  /**
+   * Check if the queue is nearly empty.
+   *
+   * \returns	\c true if less than three elements are stored
+   * 			in the queue, \c false otherwise.
+   *
+   * Only works with queue with more than three elements.
+   * TODO: calculations are approximate and may include off-by-one errors.
+   */
+  bool isNearlyEmpty() const;
 
-			Size
-			getMaxSize() const;
+  Size getMaxSize() const;
 
-			Size
-			getSize() const;
+  Size getSize() const;
 
-			const T&
-			get() const;
+  const T& get() const;
 
-			bool
-			push(const T& value);
+  bool push(const T& value);
 
-			void
-			pop();
+  void pop();
 
-		private:
-			volatile Index head;
-			volatile Index tail;
+ private:
+  volatile Index head;
+  volatile Index tail;
 
-			T buffer[N+1];
-		};
-	}
-}
+  T buffer[N + 1];
+};
+}  // namespace atomic
+}  // namespace modm
 
 #include "queue_impl.hpp"
 
-#endif	// MODM_ATOMIC_QUEUE_HPP
+#endif  // MODM_ATOMIC_QUEUE_HPP

@@ -14,10 +14,9 @@
 #pragma once
 
 #include <cstddef>
-#include <new>      // needed for placement new
+#include <new>  // needed for placement new
 
-namespace modm::allocator
-{
+namespace modm::allocator {
 
 // DEPRECATED: 2025q3
 /**
@@ -27,44 +26,35 @@ namespace modm::allocator
  * @author  Fabian Greif
  */
 template <typename T>
-class AllocatorBase
-{
-public:
-    /**
-     * Construct an object
-     *
-     * Constructs an object of type T (the template parameter) on the
-     * location pointed by p using its copy constructor to initialize
-     * its value to \p value.
-     *
-     * Notice that this does not allocate space for the element, it
-     * should already be available at p.
-     */
-    static inline void
-    construct(T* p, const T& value)
-    {
-        // placement new
-        ::new((void *) p) T(value);
-    }
+class AllocatorBase {
+ public:
+  /**
+   * Construct an object
+   *
+   * Constructs an object of type T (the template parameter) on the
+   * location pointed by p using its copy constructor to initialize
+   * its value to \p value.
+   *
+   * Notice that this does not allocate space for the element, it
+   * should already be available at p.
+   */
+  static inline void construct(T* p, const T& value) {
+    // placement new
+    ::new ((void*)p) T(value);
+  }
 
-    /**
-     * Destroy an object
-     *
-     * Destroys the object of type T (the template parameter) pointed
-     * by p.
-     *
-     * Notice that this does not deallocate space for the element.
-     */
-    static inline void
-    destroy(T* p)
-    {
-        p->~T();
-    }
+  /**
+   * Destroy an object
+   *
+   * Destroys the object of type T (the template parameter) pointed
+   * by p.
+   *
+   * Notice that this does not deallocate space for the element.
+   */
+  static inline void destroy(T* p) { p->~T(); }
 
-protected:
-    AllocatorBase()
-    {
-    }
+ protected:
+  AllocatorBase() {}
 };
 
 // DEPRECATED: 2025q3
@@ -78,49 +68,33 @@ protected:
  * @author  Fabian Greif
  */
 template <typename T>
-class [[deprecated("Please use std::allocator<T> instead!")]]
-Dynamic : public AllocatorBase<T>
-{
-public:
-    template <typename U>
-    struct rebind
-    {
-        typedef Dynamic<U> other;
-    };
+class [[deprecated("Please use std::allocator<T> instead!")]] Dynamic : public AllocatorBase<T> {
+ public:
+  template <typename U>
+  struct rebind {
+    typedef Dynamic<U> other;
+  };
 
-public:
-    Dynamic() :
-        AllocatorBase<T>()
-    {
-    }
+ public:
+  Dynamic() : AllocatorBase<T>() {}
 
-    Dynamic(const Dynamic& other) :
-        AllocatorBase<T>(other)
-    {
-    }
+  Dynamic(const Dynamic& other) : AllocatorBase<T>(other) {}
 
-    template <typename U>
-    Dynamic(const Dynamic<U>&) :
-        AllocatorBase<T>()
-    {
-    }
+  template <typename U>
+  Dynamic(const Dynamic<U>&) : AllocatorBase<T>() {}
 
-    T*
-    allocate(size_t n)
-    {
-        // allocate the memory without calling the constructor
-        // of the associated data-type.
-        return static_cast<T*>(::operator new(n * sizeof(T)));
-    }
+  T* allocate(size_t n) {
+    // allocate the memory without calling the constructor
+    // of the associated data-type.
+    return static_cast<T*>(::operator new(n * sizeof(T)));
+  }
 
-    void
-    deallocate(T* p)
-    {
-        // it is important to use this form here, otherwise the
-        // destructor of p will be called which is unwanted here.
-        // The destructor can be called with the destroy()-method.
-        ::operator delete(p);
-    }
+  void deallocate(T* p) {
+    // it is important to use this form here, otherwise the
+    // destructor of p will be called which is unwanted here.
+    // The destructor can be called with the destroy()-method.
+    ::operator delete(p);
+  }
 };
 
-}
+}  // namespace modm::allocator

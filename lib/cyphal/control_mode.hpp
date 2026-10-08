@@ -20,13 +20,11 @@
 /**
  * @namespace unimoc global namespace
  */
-namespace unimoc
-{
+namespace unimoc {
 /**
  * @namespace cyphal Cyphal protocol and application definitions
  */
-namespace cyphal
-{
+namespace cyphal {
 
 /**
  * @brief Active outer control loop selection.
@@ -51,17 +49,16 @@ namespace cyphal
  *   The position setpoint (PositionController::pos_ref_rad) is received via
  *   Cyphal; homing is triggered via a Cyphal service call.
  */
-enum class ControlMode : unsigned char
-{
-    /// Direct torque (q-axis current) command.
-    TORQUE,
+enum class ControlMode : unsigned char {
+  /// Direct torque (q-axis current) command.
+  TORQUE,
 
-    /// Speed PI loop — output is torque setpoint.
-    SPEED,
+  /// Speed PI loop — output is torque setpoint.
+  SPEED,
 
-    /// Cascaded position P + speed PI loops — output is torque setpoint.
-    /// PositionController and PositionTracker must be active.
-    POSITION,
+  /// Cascaded position P + speed PI loops — output is torque setpoint.
+  /// PositionController and PositionTracker must be active.
+  POSITION,
 };
 
 /**
@@ -92,29 +89,24 @@ enum class ControlMode : unsigned char
  *         unsupported setpoint.
  */
 template <std::floating_point T>
-[[nodiscard]] inline std::optional<ControlMode>
-select_control_mode_from_udral_servo_rotation(const T angular_position,
-                                              const T angular_velocity,
-                                              const T angular_acceleration,
-                                              const T torque) noexcept
-{
-    if (std::isfinite(angular_position))
-    {
-        return ControlMode::POSITION;
-    }
-    if (std::isfinite(angular_velocity))
-    {
-        return ControlMode::SPEED;
-    }
-    if (std::isfinite(angular_acceleration))
-    {
-        return std::nullopt;
-    }
-    if (std::isfinite(torque))
-    {
-        return ControlMode::TORQUE;
-    }
+[[nodiscard]] inline std::optional<ControlMode> select_control_mode_from_udral_servo_rotation(
+    const T angular_position,
+    const T angular_velocity,
+    const T angular_acceleration,
+    const T torque) noexcept {
+  if (std::isfinite(angular_position)) {
+    return ControlMode::POSITION;
+  }
+  if (std::isfinite(angular_velocity)) {
+    return ControlMode::SPEED;
+  }
+  if (std::isfinite(angular_acceleration)) {
     return std::nullopt;
+  }
+  if (std::isfinite(torque)) {
+    return ControlMode::TORQUE;
+  }
+  return std::nullopt;
 }
 
 }  // namespace cyphal

@@ -25,16 +25,16 @@
  * In that case, consider using inline assembly to manage stack access
  * manually, until the memory is enabled.
  */
-void
-__modm_initialize_platform(void)
-{
-	// Enable SYSCFG
-	RCC->APB2ENR |= RCC_APB2ENR_SYSCFGEN; __DSB();
-	// Enable power to backup domain
-	RCC->APB1ENR1 |= RCC_APB1ENR1_PWREN; __DSB();
-	PWR->CR1 |= PWR_CR1_DBP;
+void __modm_initialize_platform(void) {
+  // Enable SYSCFG
+  RCC->APB2ENR |= RCC_APB2ENR_SYSCFGEN;
+  __DSB();
+  // Enable power to backup domain
+  RCC->APB1ENR1 |= RCC_APB1ENR1_PWREN;
+  __DSB();
+  PWR->CR1 |= PWR_CR1_DBP;
 #ifdef PWR_CR2_IOSV
-	// Enable VDDIO2
-	PWR->CR2 |= PWR_CR2_IOSV;
+  // Enable VDDIO2
+  PWR->CR2 |= PWR_CR2_IOSV;
 #endif
 }

@@ -42,7 +42,8 @@ concept CanInstantiateStator = requires { typename unimoc::system::Stator<T>; };
 
 static_assert(!CanInstantiateThreePhase<float>);
 static_assert(!CanInstantiateStator<float>);
-static_assert(std::same_as<decltype(unimoc::system::ThreePhase<unimoc::unit::Current>{}.ToStator()), unimoc::system::Stator<unimoc::unit::Current>>);
+static_assert(std::same_as<decltype(unimoc::system::ThreePhase<unimoc::unit::Current>{}.ToStator()),
+                           unimoc::system::Stator<unimoc::unit::Current>>);
 
 TEST(UnitLiteralTest, ConvertsScaledValuesToBaseUnits) {
   EXPECT_FLOAT_EQ(unimoc::unit::Inductance{47.0_mH}.Value(), 47.0e-3F);

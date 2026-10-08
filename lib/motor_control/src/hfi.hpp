@@ -137,8 +137,8 @@ struct Hfi {
    * @param cos_th  cos(θ̂) from MechanicalObserver.
    * @return        Injection voltage in the α/β frame [V].
    */
-  [[nodiscard]] constexpr system::Stator<unit::Voltage> get_injection_voltage(const unit::Ratio sin_th,
-                                                                              const unit::Ratio cos_th) const noexcept {
+  [[nodiscard]] constexpr system::Stator<unit::Voltage> get_injection_voltage(
+      const unit::Ratio sin_th, const unit::Ratio cos_th) const noexcept {
     // d-axis unit vector in α/β: [cos θ̂, sin θ̂]
     // q-axis unit vector in α/β: [−sin θ̂, cos θ̂]
 

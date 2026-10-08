@@ -13,81 +13,70 @@
 #ifndef MODM_CORTEX_SYSTICK_TIMER_HPP
 #define MODM_CORTEX_SYSTICK_TIMER_HPP
 
-#include <modm/architecture/interface/peripheral.hpp>
 #include <modm/architecture/interface/clock.hpp>
+#include <modm/architecture/interface/peripheral.hpp>
 #include <modm/math/algorithm/prescaler.hpp>
 
-namespace modm::platform
-{
+namespace modm::platform {
 
 /// @ingroup modm_platform_clock
-class SysTickTimer
-{
-public:
-	/**
-	 * Initializes the SysTick to provide a timer to `modm::Clock` and
-	 * `modm::PreciseClock`.
-	 *
-	 * @tparam	SystemClock
-	 * 		the currently active system clock
-	 * @tparam	tolerance
-	 * 		the allowed tolerance for the resulting clock rate
-	 */
-	template< class SystemClock, percent_t tolerance=pct(0) >
-	static void
-	initialize()
-	{
-		static_assert(SystemClock::Frequency < (1ull << 24)*8*4,
-		              "HLCK is too fast for the SysTick to run at 4Hz!");
-		if constexpr (SystemClock::Frequency < 8'000'000)
-		{
-			constexpr auto result = Prescaler::from_linear(
-					SystemClock::Frequency, 4, 1, (1ul << 24)-1);
-			PeripheralDriver::assertBaudrateInTolerance< result.frequency, 4, tolerance >();
+class SysTickTimer {
+ public:
+  /**
+   * Initializes the SysTick to provide a timer to `modm::Clock` and
+   * `modm::PreciseClock`.
+   *
+   * @tparam	SystemClock
+   * 		the currently active system clock
+   * @tparam	tolerance
+   * 		the allowed tolerance for the resulting clock rate
+   */
+  template <class SystemClock, percent_t tolerance = pct(0)>
+  static void initialize() {
+    static_assert(SystemClock::Frequency < (1ull << 24) * 8 * 4,
+                  "HLCK is too fast for the SysTick to run at 4Hz!");
+    if constexpr (SystemClock::Frequency < 8'000'000) {
+      constexpr auto result = Prescaler::from_linear(SystemClock::Frequency, 4, 1, (1ul << 24) - 1);
+      PeripheralDriver::assertBaudrateInTolerance<result.frequency, 4, tolerance>();
 
-			us_per_Ncycles = ((1ull << Ncycles) * 1'000'000ull) / SystemClock::Frequency;
-			ms_per_Ncycles = ((1ull << Ncycles) * 1'000ull) / SystemClock::Frequency;
-			enable(result.index, true);
-		}
-		else
-		{
-			constexpr auto result = Prescaler::from_linear(
-					SystemClock::Frequency/8, 4, 1, (1ul << 24)-1);
-			PeripheralDriver::assertBaudrateInTolerance< result.frequency, 4, tolerance >();
+      us_per_Ncycles = ((1ull << Ncycles) * 1'000'000ull) / SystemClock::Frequency;
+      ms_per_Ncycles = ((1ull << Ncycles) * 1'000ull) / SystemClock::Frequency;
+      enable(result.index, true);
+    } else {
+      constexpr auto result = Prescaler::from_linear(SystemClock::Frequency / 8, 4, 1, (1ul << 24) - 1);
+      PeripheralDriver::assertBaudrateInTolerance<result.frequency, 4, tolerance>();
 
-			us_per_Ncycles = ((1ull << Ncycles) * 8'000'000ull) / SystemClock::Frequency;
-			ms_per_Ncycles = ((1ull << Ncycles) * 8'000ull) / SystemClock::Frequency;
-			enable(result.index, false);
-		}
-	}
+      us_per_Ncycles = ((1ull << Ncycles) * 8'000'000ull) / SystemClock::Frequency;
+      ms_per_Ncycles = ((1ull << Ncycles) * 8'000ull) / SystemClock::Frequency;
+      enable(result.index, false);
+    }
+  }
 
-	/**
-	 * Disables SysTick Timer.
-	 *
-	 * @warning	If the SysTick Timer is disabled, `modm::Clock` and
-	 *			`modm::PreciseClock` will stop incrementing.
-	 */
-	static void
-	disable();
+  /**
+   * Disables SysTick Timer.
+   *
+   * @warning	If the SysTick Timer is disabled, `modm::Clock` and
+   *			`modm::PreciseClock` will stop incrementing.
+   */
+  static void disable();
 
-private:
-	static void
-	enable(uint32_t reload, bool use_processor_clock);
+ private:
+  static void enable(uint32_t reload, bool use_processor_clock);
 
-public:
-	/// @cond
-	// FCPU < 8MHz
-	// 536e6/4 < 27-bit, 8e6/4 < 21-bit
-	// 2^32*1e6/536e6 < 23-bit, 2^32*1e6/8e6 = 29-bit
-	// FCPU >= 8MHz
-	// 536e6/8/4 < 24-bit, 8e6/8/4 < 18-bit
-	// 2^32*8e6/536e6 < 26-bit, 2^32*8e6/8e6 = 32-bit
-	static constexpr uint8_t Ncycles{32};
-	static inline uint32_t ms_per_Ncycles{0};
-	static inline uint32_t us_per_Ncycles{0};
-	/// @endcond
+ public:
+  /// @cond
+  // FCPU < 8MHz
+  // 536e6/4 < 27-bit, 8e6/4 < 21-bit
+  // 2^32*1e6/536e6 < 23-bit, 2^32*1e6/8e6 = 29-bit
+  // FCPU >= 8MHz
+  // 536e6/8/4 < 24-bit, 8e6/8/4 < 18-bit
+  // 2^32*8e6/536e6 < 26-bit, 2^32*8e6/8e6 = 32-bit
+  static constexpr uint8_t Ncycles{32};
+  static inline uint32_t ms_per_Ncycles{0};
+  static inline uint32_t us_per_Ncycles{0};
+  /// @endcond
 };
 
-}
+}  // namespace modm::platform
 
-#endif	//  MODM_STM32_CORTEX_TIMER_HPP
+#endif  //  MODM_STM32_CORTEX_TIMER_HPP

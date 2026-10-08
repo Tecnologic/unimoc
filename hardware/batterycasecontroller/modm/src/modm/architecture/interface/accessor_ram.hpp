@@ -11,17 +11,15 @@
  */
 // ----------------------------------------------------------------------------
 
-#ifndef	MODM_INTERFACE_ACCESSOR_RAM_HPP
-#define	MODM_INTERFACE_ACCESSOR_RAM_HPP
+#ifndef MODM_INTERFACE_ACCESSOR_RAM_HPP
+#define MODM_INTERFACE_ACCESSOR_RAM_HPP
 
 #include <cstddef>
 #include <modm/architecture/utils.hpp>
 
-namespace modm
-{
+namespace modm {
 
-namespace accessor
-{
+namespace accessor {
 
 /**
  * Pointer to RAM
@@ -29,89 +27,58 @@ namespace accessor
  * @ingroup modm_architecture_accessor
  * @author	Fabian Greif
  */
-template<typename T>
-class Ram
-{
-public:
-	Ram(const T* addr = 0) :
-		address(addr)
-	{
-	}
+template <typename T>
+class Ram {
+ public:
+  Ram(const T* addr = 0) : address(addr) {}
 
-	template <typename U>
-	explicit Ram(const Ram<U>& rhs) :
-		address((T*) rhs.address)
-	{
-	}
+  template <typename U>
+  explicit Ram(const Ram<U>& rhs) : address((T*)rhs.address) {}
 
-	const T
-	operator *() const
-	{
-		return *address;
-	}
+  const T operator*() const { return *address; }
 
-	const T
-	operator [](std::size_t index) const
-	{
-		return *(address + index);
-	}
+  const T operator[](std::size_t index) const { return *(address + index); }
 
-	Ram&
-	operator ++ ()
-	{
-		*this += 1;
-		return *this;
-	}
+  Ram& operator++() {
+    *this += 1;
+    return *this;
+  }
 
-	Ram
-	operator ++ (int)
-	{
-		Ram ret = *this;
-		++*this;
-		return ret;
-	}
+  Ram operator++(int) {
+    Ram ret = *this;
+    ++*this;
+    return ret;
+  }
 
-	Ram&
-	operator -- ()
-	{
-		*this -= 1;
-		return *this;
-	}
+  Ram& operator--() {
+    *this -= 1;
+    return *this;
+  }
 
-	Ram&
-	operator -- (int)
-	{
-		Ram ret = *this;
-		--*this;
-		return ret;
-	}
+  Ram& operator--(int) {
+    Ram ret = *this;
+    --*this;
+    return ret;
+  }
 
-	Ram&
-	operator += (std::size_t rhs)
-	{
-		address += rhs;
-		return *this;
-	}
+  Ram& operator+=(std::size_t rhs) {
+    address += rhs;
+    return *this;
+  }
 
-	Ram&
-	operator -= (std::size_t rhs)
-	{
-		address -= rhs;
-		return *this;
-	}
+  Ram& operator-=(std::size_t rhs) {
+    address -= rhs;
+    return *this;
+  }
 
-	const T*
-	getPointer() const
-	{
-		return address;
-	}
+  const T* getPointer() const { return address; }
 
-private:
-	const T* address;
+ private:
+  const T* address;
 };
 
-}	// namespace accessor
+}  // namespace accessor
 
-}	// namespace modm
+}  // namespace modm
 
-#endif	// MODM_INTERFACE_ACCESSOR_RAM_HPP
+#endif  // MODM_INTERFACE_ACCESSOR_RAM_HPP
