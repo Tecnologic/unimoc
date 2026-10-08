@@ -17,7 +17,7 @@ using namespace unit;
 class PositionControllerTest : public ::testing::Test {
  protected:
   using Ctrl = PositionController<float>;
-  using Tracker = unimoc::observer::PositionTracker<float>;
+  using Tracker = unimoc::observer::PositionTracker;
   using Angle = unimoc::unit::Angle;
   using AngularVelocity = unimoc::unit::AngularVelocity;
   using AngularAcceleration = unimoc::unit::AngularAcceleration;
@@ -39,9 +39,7 @@ class PositionControllerTest : public ::testing::Test {
   }
 };
 
-constexpr void set_home_adapter(void* ctx, int pole_pairs) {
-  static_cast<unimoc::observer::PositionTracker<float>*>(ctx)->set_home(pole_pairs);
-}
+constexpr void SetHomeAdapter(void* ctx) { static_cast<unimoc::observer::PositionTracker*>(ctx)->SetHome(); }
 
 // --- At rest, zero setpoint → zero output
 TEST_F(PositionControllerTest, ZeroSetpointZeroOutput) {
@@ -103,15 +101,15 @@ TEST_F(PositionControllerTest, HomingSearchingOutputsHomingSpeed) {
 TEST_F(PositionControllerTest, HomingTriggerZeroingAdvancesToDone) {
   auto c = make_default();
   Tracker tracker;
-  tracker.update(0.3_rad, 2);
-  c.set_home_callback(&set_home_adapter, &tracker, 2);
+  tracker.Update(unimoc::system::RotorAngle::FromAngle(0.3_rad), 2);
+  c.set_home_callback(&SetHomeAdapter, &tracker);
   c.start_homing();
   c.update(Angle{}, AngularVelocity{}, 100_us);  // SEARCHING step
   c.trigger_zeroing();
   EXPECT_EQ(c.homing_state, HomingState::ZEROING);
   c.update(Angle{}, AngularVelocity{}, 100_us);  // ZEROING step → transitions to DONE
   EXPECT_EQ(c.homing_state, HomingState::DONE);
-  EXPECT_TRUE(tracker.is_homed);
+  EXPECT_TRUE(tracker.IsHomed());
 }
 
 TEST_F(PositionControllerTest, HomingAutoZeroingOnCurrentThreshold) {

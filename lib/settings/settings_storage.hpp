@@ -57,7 +57,7 @@ class SettingsStorage {
    * @param image Destination buffer with the required image size.
    * @return The platform operation result.
    */
-  SettingsStorageStatus Load(std::span<std::byte> image) const noexcept {
+  [[nodiscard]] SettingsStorageStatus Load(std::span<std::byte> image) const noexcept {
     return load_ == nullptr ? SettingsStorageStatus::kUnavailable : load_(context_, image);
   }
 
@@ -66,7 +66,7 @@ class SettingsStorage {
    * @param image Complete serialized settings image.
    * @return The platform operation result.
    */
-  SettingsStorageStatus Save(std::span<const std::byte> image) const noexcept {
+  [[nodiscard]] SettingsStorageStatus Save(std::span<const std::byte> image) const noexcept {
     return save_ == nullptr ? SettingsStorageStatus::kUnavailable : save_(context_, image);
   }
 

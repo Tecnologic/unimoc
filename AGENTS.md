@@ -77,6 +77,11 @@ Release`; they require the ARM GCC and modm dependencies described in
 	for constants and enumerators.
 - Use C++23
 - Keep algorithms deterministic, portable, and free of HAL dependencies.
+- In embedded numeric code, keep calculations in the project's unit types and
+	use their operators instead of extracting scalar values and rebuilding units.
+	Avoid `double` and hand-written unit scale conversions unless a documented
+	precision requirement needs them and the target supports them; prefer an
+	existing typed API such as `RotorAngle::AbsoluteAngle()`.
 - Prefer small, focused changes. Preserve public APIs unless the task requires
 	a breaking change, and avoid unrelated refactors.
 - Add or update GoogleTest coverage in `tests/` for changes to control,
@@ -104,6 +109,9 @@ Before finishing a change:
 	 use the full hosted workflow only when the user expands the scope or the
 	 change requires cross-library validation.
 2. Run clang-tidy for changes that affect C++ diagnostics or public headers. Fix issues in the change or add a `NOLINT` comment with a justification.
+	Run the repository's clang-tidy workflow from the hosted-build-test skill;
+	do not treat a successful build or editor diagnostics as a substitute. If
+	the workflow cannot run, report the blocker and the checks that did run.
 3. Check the diff for accidental changes to generated files, build output, or
 	 submodules.
 4. Update `README.md` when user-visible behavior, configuration, build steps,

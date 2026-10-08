@@ -87,17 +87,17 @@ namespace settings_store_internal {
 }
 
 [[nodiscard]] inline bool IsValidEnumValues(const NvmSettings& settings) noexcept {
-  const bool valid_motor_type = settings.motor_type == system::MotorType::PMSM ||
-                                settings.motor_type == system::MotorType::ASM ||
-                                settings.motor_type == system::MotorType::EESM;
-  const bool valid_control_mode = settings.control_mode == cyphal::ControlMode::TORQUE ||
-                                  settings.control_mode == cyphal::ControlMode::SPEED ||
-                                  settings.control_mode == cyphal::ControlMode::POSITION;
-  const float pwm_frequency_hz = settings.pwm_frequency.Value();
-  const bool valid_pwm_frequency = pwm_frequency_hz == 16000.0F || pwm_frequency_hz == 20000.0F ||
-                                   pwm_frequency_hz == 24000.0F || pwm_frequency_hz == 28000.0F ||
-                                   pwm_frequency_hz == 32000.0F;
-  return valid_motor_type && valid_control_mode && valid_pwm_frequency && settings.excitation_mode <= 1U;
+  const bool kValidMotorType = settings.motor_type == system::MotorType::kPmsm ||
+                                settings.motor_type == system::MotorType::kAsm ||
+                                settings.motor_type == system::MotorType::kEesm;
+  const bool kValidControlMode = settings.control_mode == cyphal::ControlMode::kTorque ||
+                                  settings.control_mode == cyphal::ControlMode::kSpeed ||
+                                  settings.control_mode == cyphal::ControlMode::kPosition;
+  const float kPwmFrequencyHz = settings.pwm_frequency.Value();
+  const bool kValidPwmFrequency = kPwmFrequencyHz == 16000.0F || kPwmFrequencyHz == 20000.0F ||
+                                   kPwmFrequencyHz == 24000.0F || kPwmFrequencyHz == 28000.0F ||
+                                   kPwmFrequencyHz == 32000.0F;
+  return kValidMotorType && kValidControlMode && kValidPwmFrequency && settings.excitation_mode <= 1U;
 }
 
 [[nodiscard]] inline bool IsValidProfile(const SettingsProfile& profile) noexcept {
@@ -114,8 +114,9 @@ namespace settings_store_internal {
 [[nodiscard]] inline SettingsStatus Validate(const NvmSettings& settings,
                                              const HardwareCapabilities& limits) noexcept {
   if (!settings.IsValid() || !IsFinite(settings) || !IsValidEnumValues(settings) || settings.node_id > 127U ||
-      settings.pole_pairs == 0U)
+      settings.pole_pairs == 0U) {
     return SettingsStatus::kInvalidSettings;
+  }
 
   if (settings.motor_i_max.Value() < 0.0F ||
       settings.motor_i_max.Value() > limits.max_motor_current.Value() ||
@@ -123,8 +124,9 @@ namespace settings_store_internal {
       settings.battery_drive_current_max.Value() > limits.max_battery_drive_current.Value() ||
       settings.battery_charge_current_max.Value() < 0.0F ||
       settings.battery_charge_current_max.Value() > limits.max_battery_charge_current.Value() ||
-      settings.motor_omega_min.Value() > 0.0F || settings.motor_omega_max.Value() < 0.0F)
+      settings.motor_omega_min.Value() > 0.0F || settings.motor_omega_max.Value() < 0.0F) {
     return SettingsStatus::kOutOfRange;
+  }
 
   if (settings.stator_r.Value() <= 0.0F || settings.stator_l.Value() <= 0.0F ||
       settings.flux_pm.Value() < 0.0F || settings.l_d.Value() <= 0.0F || settings.l_q.Value() <= 0.0F ||
@@ -137,17 +139,19 @@ namespace settings_store_internal {
       settings.excitation_i_f_max.Value() < settings.excitation_i_f_min.Value() ||
       settings.dtc_dead_time.Value() < 0.0F || settings.dtc_f_pwm.Value() <= 0.0F ||
       settings.excitation_obs_tau.Value() <= 0.0F || settings.pos_position_tolerance.Value() < 0.0F ||
-      settings.pos_speed_tolerance.Value() < 0.0F)
+      settings.pos_speed_tolerance.Value() < 0.0F) {
     return SettingsStatus::kOutOfRange;
+  }
 
-  const auto IsRatio = [](const unit::Ratio value) { return value.Value() >= 0.0F && value.Value() <= 1.0F; };
-  if (settings.fw_v_max.Value() < 0.0F || !IsRatio(settings.current_v_max) ||
-      !IsRatio(settings.svm_duty_min) || !IsRatio(settings.svm_duty_max) ||
+  const auto kIsRatio = [](const unit::Ratio kValue) { return kValue.Value() >= 0.0F && kValue.Value() <= 1.0F; };
+  if (settings.fw_v_max.Value() < 0.0F || !kIsRatio(settings.current_v_max) ||
+      !kIsRatio(settings.svm_duty_min) || !kIsRatio(settings.svm_duty_max) ||
       settings.svm_duty_min > settings.svm_duty_max || settings.adc_gain_a.Value() <= 0.0F ||
       settings.adc_gain_b.Value() <= 0.0F || settings.adc_gain_vdc.Value() <= 0.0F ||
       settings.phase_balance_a.Value() <= 0.0F || settings.phase_balance_b.Value() <= 0.0F ||
-      settings.phase_balance_c.Value() <= 0.0F)
+      settings.phase_balance_c.Value() <= 0.0F) {
     return SettingsStatus::kOutOfRange;
+  }
 
   return SettingsStatus::kSuccess;
 }
@@ -269,24 +273,37 @@ class SettingsStore {
    * @return The load, fallback, or storage result.
    */
   SettingsStatus Load() noexcept {
-    if (!settings_store_internal::IsValidProfile(profile_)) return SettingsStatus::kInvalidSettings;
+
+    if (!settings_store_internal::IsValidProfile(profile_)) {
+      return SettingsStatus::kInvalidSettings;
+    }
 
     std::array<std::byte, kSettingsImageSize> image{};
-    const SettingsStorageStatus storage_status = storage_.Load(image);
-    if (storage_status == SettingsStorageStatus::kSuccess) {
-      NvmSettings loaded{};
-      if (!SettingsCodec::Decode(image, loaded)) return RestoreFactory(SettingsStatus::kInvalidImage);
+    const SettingsStorageStatus kStorageStatus = storage_.Load(image);
 
-      const SettingsStatus validation = settings_store_internal::Validate(loaded, profile_.capabilities);
-      if (validation != SettingsStatus::kSuccess) return RestoreFactory(validation);
+    if (kStorageStatus == SettingsStorageStatus::kSuccess) {
+      NvmSettings loaded{};
+
+      if (!SettingsCodec::Decode(image, loaded)) {
+        return RestoreFactory(SettingsStatus::kInvalidImage);
+      }
+
+      const SettingsStatus kValidation = settings_store_internal::Validate(loaded, profile_.capabilities);
+      if (kValidation != SettingsStatus::kSuccess) {
+        return RestoreFactory(kValidation);
+      }
 
       settings_ = loaded;
       return SettingsStatus::kSuccess;
     }
 
-    if (storage_status == SettingsStorageStatus::kNotFound)
+    if (kStorageStatus == SettingsStorageStatus::kNotFound) {
       return RestoreFactory(SettingsStatus::kFactoryDefaults);
-    if (storage_status == SettingsStorageStatus::kUnavailable) return SettingsStatus::kStorageUnavailable;
+    }
+
+    if (kStorageStatus == SettingsStorageStatus::kUnavailable) {
+      return SettingsStatus::kStorageUnavailable;
+    }
     return SettingsStatus::kStorageError;
   }
 
@@ -309,40 +326,55 @@ class SettingsStore {
   [[nodiscard]] const SettingsProfile& GetProfile() const noexcept { return profile_; }
 
  private:
-  SettingsStatus RestoreFactory(const SettingsStatus fallback) noexcept {
-    const SettingsStatus validation =
+  SettingsStatus RestoreFactory(const SettingsStatus kFallback) noexcept {
+    const SettingsStatus kValidation =
         settings_store_internal::Validate(profile_.factory_settings, profile_.capabilities);
-    if (validation != SettingsStatus::kSuccess) return validation;
+    if (kValidation != SettingsStatus::kSuccess) {
+      return kValidation;
+    }
 
-    const SettingsStatus save_status = Save(profile_.factory_settings);
-    if (save_status != SettingsStatus::kSuccess) return save_status;
+    const SettingsStatus kSaveStatus = Save(profile_.factory_settings);
+    if (kSaveStatus != SettingsStatus::kSuccess) {
+      return kSaveStatus;
+    }
+
     settings_ = profile_.factory_settings;
-    return fallback;
+    return kFallback;
   }
 
-  SettingsStatus Save(const NvmSettings& settings) const noexcept {
+  [[nodiscard]] SettingsStatus Save(const NvmSettings& settings)   const noexcept {
     std::array<std::byte, kSettingsImageSize> image{};
-    if (!SettingsCodec::Encode(settings, image)) return SettingsStatus::kInvalidSettings;
+    if (!SettingsCodec::Encode(settings, image)) {
+      return SettingsStatus::kInvalidSettings;
+    }
 
-    const SettingsStorageStatus status = storage_.Save(image);
-    if (status == SettingsStorageStatus::kSuccess) return SettingsStatus::kSuccess;
-    if (status == SettingsStorageStatus::kUnavailable) return SettingsStatus::kStorageUnavailable;
+    const SettingsStorageStatus kStatus = storage_.Save(image);
+    if (kStatus == SettingsStorageStatus::kSuccess) {
+      return SettingsStatus::kSuccess;
+    }
+    if (kStatus == SettingsStorageStatus::kUnavailable) {
+      return SettingsStatus::kStorageUnavailable;
+    }
     return SettingsStatus::kStorageError;
   }
 
   SettingsStatus Commit(const NvmSettings& candidate) noexcept {
-    const SettingsStatus validation = settings_store_internal::Validate(candidate, profile_.capabilities);
-    if (validation != SettingsStatus::kSuccess) return validation;
+    const SettingsStatus kValidation = settings_store_internal::Validate(candidate, profile_.capabilities);
+    if (kValidation != SettingsStatus::kSuccess) {
+      return kValidation;
+    }
 
-    const SettingsStatus save_status = Save(candidate);
-    if (save_status != SettingsStatus::kSuccess) return save_status;
+    const SettingsStatus kSaveStatus = Save(candidate);
+    if (kSaveStatus != SettingsStatus::kSuccess) {
+      return kSaveStatus;
+    }
 
     settings_ = candidate;
     return SettingsStatus::kSuccess;
   }
 
   SettingsProfile profile_{};
-  SettingsStorage storage_{};
+  SettingsStorage storage_;
   NvmSettings settings_{};
 
   friend class SettingsOperations;

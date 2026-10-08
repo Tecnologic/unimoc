@@ -18,9 +18,6 @@
 #include "units.hpp"
 
 /**
- * @namespace unimoc Global UNIMOC namespace.
- */
-/**
  * @namespace unimoc::system Coordinate-system data types.
  */
 namespace unimoc::system {

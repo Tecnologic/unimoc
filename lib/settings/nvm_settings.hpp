@@ -25,23 +25,19 @@
 // ============================================================================
 
 /**
- * @namespace unimoc global namespace
- */
-namespace unimoc {
-/**
  * @namespace settings persistent motor-control settings
  */
-namespace settings {
+namespace unimoc::settings {
 
 using namespace unit;
 
 /// Magic number stored at the start of every NvmSettings block.
 /// Used to detect an uninitialised or corrupt NVM image.
-inline constexpr uint32_t kNvmMagic = 0x554D4F43u;  // 'UMOC'
+inline constexpr uint32_t kNvmMagic = 0x554D4F43U;  // 'UMOC'
 
 /// Layout version of the NvmSettings struct.
 /// Increment whenever the struct layout changes incompatibly.
-inline constexpr uint16_t kNvmVersion = 3u;
+inline constexpr uint16_t kNvmVersion = 3U;
 
 /**
  * @brief Aggregate of all persistent (NVM-backed) UNIMOC configuration.
@@ -99,7 +95,7 @@ struct NvmSettings {
 
   /// Active motor type.
   /// Register: `unimoc.motor.type`
-  system::MotorType motor_type{system::MotorType::PMSM};
+  system::MotorType motor_type{system::MotorType::kPmsm};
 
   /// Motor pole-pair count.
   /// Register: `unimoc.motor.pole_pairs`
@@ -107,7 +103,7 @@ struct NvmSettings {
 
   /// Initial control mode after boot (overridden at runtime via Cyphal).
   /// Register: `unimoc.control.mode`
-  cyphal::ControlMode control_mode{cyphal::ControlMode::TORQUE};
+  cyphal::ControlMode control_mode{cyphal::ControlMode::kTorque};
 
   // =========================================================================
   // Stator / winding parameters (all motor types)
@@ -500,5 +496,5 @@ struct NvmSettings {
   void ResetToDefaults() noexcept { *this = NvmSettings{}; }
 };
 
-}  // namespace settings
-}  // namespace unimoc
+}  // namespace unimoc::settings
+

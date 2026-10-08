@@ -85,9 +85,9 @@ struct Svm {
     unit::Ratio duty_c = 0.5_ratio + phase_ratio_c + ratio_mid;
 
     // --- Clamp to [duty_min, duty_max] ---
-    duty_a = duty_a.Clamp(duty_min.Value(), duty_max.Value());
-    duty_b = duty_b.Clamp(duty_min.Value(), duty_max.Value());
-    duty_c = duty_c.Clamp(duty_min.Value(), duty_max.Value());
+    duty_a = duty_a.Clamp(duty_min, duty_max);
+    duty_b = duty_b.Clamp(duty_min, duty_max);
+    duty_c = duty_c.Clamp(duty_min, duty_max);
 
     return system::ThreePhase<unit::Ratio>{duty_a, duty_b, duty_c};
   }

@@ -8,141 +8,121 @@
 #include <numbers>
 #include "position_tracker.hpp"
 
-namespace unimoc {
-namespace observer {
-namespace test {
+namespace unimoc::observer::test {
 
 using namespace unit;
 
 class PositionTrackerTest : public ::testing::Test {
  protected:
-  using Tracker = PositionTracker<float>;
+  using Tracker = PositionTracker;
   using Angle = unimoc::unit::Angle;
+  using RotorAngle = unimoc::system::RotorAngle;
 
-  static constexpr float pi = std::numbers::pi_v<float>;
-  static constexpr float two_pi = 2.0f * pi;
-  static constexpr int pp = 4;  // pole pairs
+  static constexpr float kPi = std::numbers::pi_v<float>;
+  static constexpr float kTwoPi = 2.0F * kPi;
+  static constexpr int kPolePairs = 4;
 };
 
 // --- Default state
 TEST_F(PositionTrackerTest, DefaultStateIsZero) {
-  Tracker t;
-  EXPECT_EQ(t.turns, 0);
-  EXPECT_FLOAT_EQ(t.position_rad.Value(), 0.0f);
-  EXPECT_FLOAT_EQ(t.position_rev.Value(), 0.0f);
-  EXPECT_FALSE(t.is_homed);
+  Tracker tracker;
+  EXPECT_FLOAT_EQ(tracker.PositionRad().Value(), 0.0F);
+  EXPECT_FLOAT_EQ(tracker.PositionRev().Value(), 0.0F);
+  EXPECT_FALSE(tracker.IsHomed());
 }
 
-// --- No wrapping: small forward step stays at 0 turns
-TEST_F(PositionTrackerTest, NoWrapSmallStep) {
-  Tracker t;
-  t.update(0.5_rad, pp);
-  EXPECT_EQ(t.turns, 0);
+// --- The adapter uses RotorAngle's absolute electrical position
+TEST_F(PositionTrackerTest, ConvertsAbsoluteElectricalPositionToMechanical) {
+  Tracker tracker;
+  const RotorAngle kAngle = RotorAngle::FromAngle(0.5_rad);
+  tracker.Update(kAngle, kPolePairs);
+  EXPECT_NEAR(tracker.PositionRad().Value(), 0.5F / static_cast<float>(kPolePairs), 1e-6F);
+  EXPECT_EQ(kAngle, RotorAngle::FromAngle(0.5_rad));
 }
 
-// --- Positive wrap detection: cross from just below +π to just above −π
-TEST_F(PositionTrackerTest, PositiveWrapDetected) {
-  Tracker t;
-  // Start near +π
-  t.update(Angle{pi - 0.01F}, pp);
-  EXPECT_EQ(t.turns, 0);
-
-  // Cross wrap boundary (jump as if angle wrapped to −π+ε)
-  t.update(Angle{-pi + 0.01F}, pp);
-  EXPECT_EQ(t.turns, 1);
+TEST_F(PositionTrackerTest, UsesSourceRevolutionCountAcrossPositiveWrap) {
+  Tracker tracker;
+  RotorAngle angle = RotorAngle::FromAngle(Angle{kPi - 0.01F});
+  angle.Advance(0.02_rad);
+  tracker.Update(angle, kPolePairs);
+  EXPECT_EQ(angle.Revolutions(), 1);
+  EXPECT_NEAR(tracker.PositionRad().Value(), (kPi + 0.01F) / static_cast<float>(kPolePairs), 1e-5F);
 }
 
-// --- Negative wrap detection
-TEST_F(PositionTrackerTest, NegativeWrapDetected) {
-  Tracker t;
-  t.update(Angle{-pi + 0.01F}, pp);
-  EXPECT_EQ(t.turns, 0);
-
-  t.update(Angle{pi - 0.01F}, pp);
-  EXPECT_EQ(t.turns, -1);
+TEST_F(PositionTrackerTest, UsesSourceRevolutionCountAcrossNegativeWrap) {
+  Tracker tracker;
+  RotorAngle angle = RotorAngle::FromAngle(Angle{-kPi + 0.01F});
+  angle.Advance(-0.02_rad);
+  tracker.Update(angle, kPolePairs);
+  EXPECT_EQ(angle.Revolutions(), -1);
+  EXPECT_NEAR(tracker.PositionRad().Value(), (-kPi - 0.01F) / static_cast<float>(kPolePairs), 1e-5F);
 }
 
-// --- Multiple positive turns
-TEST_F(PositionTrackerTest, MultiplePositiveTurns) {
-  Tracker t;
-  float angle = 0.0f;
-  const float step = 0.1f;
-  int expected_turns = 0;
-
-  for (int i = 0; i < 400; ++i) {
-    angle += step;
-    if (angle > pi) {
-      angle -= two_pi;
-      ++expected_turns;
-    }
-    t.update(Angle{angle}, pp);
-  }
-  EXPECT_EQ(t.turns, expected_turns);
+TEST_F(PositionTrackerTest, ConvertsMultipleSourceRevolutions) {
+  Tracker tracker;
+  const RotorAngle kAngle = RotorAngle::FromRaw(0, 4 * kPolePairs);
+  tracker.Update(kAngle, kPolePairs);
+  EXPECT_NEAR(tracker.PositionRad().Value(), 4.0F * kTwoPi, 1e-5F);
+  EXPECT_NEAR(tracker.PositionRev().Value(), 4.0F, 1e-6F);
 }
 
 // --- Position formula: (turns * 2π + theta) / pole_pairs − home_offset
 TEST_F(PositionTrackerTest, PositionFormula) {
-  Tracker t;
-  t.update(Angle{pi / 2.0F}, pp);  // 0 turns, θ = π/2
-  // position_rad = (0 * 2π + π/2) / 4 = π/8
-  EXPECT_NEAR(t.position_rad.Value(), pi / 8.0F, 1e-5F);
+  Tracker tracker;
+  tracker.Update(RotorAngle::FromAngle(Angle{kPi / 2.0F}), kPolePairs);
+  EXPECT_NEAR(tracker.PositionRad().Value(), kPi / 8.0F, 1e-5F);
 }
 
-// --- set_home() zeroes position
+// --- SetHome() zeroes position
 TEST_F(PositionTrackerTest, SetHomeClearsPosition) {
-  Tracker t;
-  t.update(Angle{pi / 2.0F}, pp);
-  t.set_home(pp);
-  EXPECT_FLOAT_EQ(t.position_rad.Value(), 0.0F);
-  EXPECT_FLOAT_EQ(t.position_rev.Value(), 0.0F);
-  EXPECT_TRUE(t.is_homed);
+  Tracker tracker;
+  tracker.Update(RotorAngle::FromAngle(Angle{kPi / 2.0F}), kPolePairs);
+  tracker.SetHome();
+  EXPECT_FLOAT_EQ(tracker.PositionRad().Value(), 0.0F);
+  EXPECT_FLOAT_EQ(tracker.PositionRev().Value(), 0.0F);
+  EXPECT_TRUE(tracker.IsHomed());
 }
 
 // --- After homing, position is relative to home
 TEST_F(PositionTrackerTest, PositionRelativeToHome) {
-  Tracker t;
-  // Home at θ = 0
-  t.update(0.0_rad, pp);
-  t.set_home(pp);
+  Tracker tracker;
+  tracker.Update(RotorAngle{}, kPolePairs);
+  tracker.SetHome();
 
-  // Advance to θ = π/2 (no wrap)
-  t.update(Angle{pi / 2.0F}, pp);
-  // expected: (0*2π + π/2)/4 − home_offset_rad
-  // home_offset_rad = (0*2π + 0)/4 = 0
-  EXPECT_NEAR(t.position_rad.Value(), pi / 8.0F, 1e-5F);
+  tracker.Update(RotorAngle::FromAngle(Angle{kPi / 2.0F}), kPolePairs);
+  EXPECT_NEAR(tracker.PositionRad().Value(), kPi / 8.0F, 1e-5F);
 }
 
-// --- 4096 mechanical revolutions with 1 pole-pair
-TEST_F(PositionTrackerTest, SupportsFourThousandRevolutions) {
-  Tracker t;
-  float angle = 0.0f;
-  const float step = 0.01f;  // [rad]
-  const int pole_pairs = 1;
-
-  // Simulate forward until turns == 4096
-  while (t.turns < 4096) {
-    float next = angle + step;
-    if (next > pi) next -= two_pi;
-    t.update(Angle{next}, pole_pairs);
-    angle = next;
-  }
-  EXPECT_EQ(t.turns, 4096);
+TEST_F(PositionTrackerTest, HomeOffsetUsesMechanicalPositionAndLeavesSourceUntouched) {
+  Tracker tracker;
+  const RotorAngle kHome = RotorAngle::FromRaw(0, 12);
+  tracker.Update(kHome, 3);
+  tracker.SetHome();
+  const RotorAngle kMoved = RotorAngle::FromRaw(0, 15);
+  tracker.Update(kMoved, 3);
+  EXPECT_NEAR(tracker.PositionRad().Value(), kTwoPi, 1e-5F);
+  EXPECT_EQ(kMoved.Revolutions(), 15);
 }
 
 // --- reset() clears all state
 TEST_F(PositionTrackerTest, ResetClearsAll) {
-  Tracker t;
-  t.update(Angle{pi / 2.0F}, pp);
-  t.set_home(pp);
-  t.update(1.0_rad, pp);
-  t.reset();
-  EXPECT_EQ(t.turns, 0);
-  EXPECT_FLOAT_EQ(t.position_rad.Value(), 0.0F);
-  EXPECT_FALSE(t.is_homed);
+  Tracker tracker;
+  tracker.Update(RotorAngle::FromAngle(Angle{kPi / 2.0F}), kPolePairs);
+  tracker.SetHome();
+  tracker.Update(RotorAngle::FromAngle(1.0_rad), kPolePairs);
+  tracker.Reset();
+  EXPECT_FLOAT_EQ(tracker.PositionRad().Value(), 0.0F);
+  EXPECT_FALSE(tracker.IsHomed());
 }
 
-}  // namespace test
-}  // namespace observer
-}  // namespace unimoc
+TEST_F(PositionTrackerTest, ZeroPolePairsLeavesStateUnchanged) {
+  Tracker tracker;
+  tracker.Update(RotorAngle::FromAngle(1.0_rad), kPolePairs);
+  const auto kPosition = tracker.PositionRad();
+  tracker.Update(RotorAngle::FromAngle(2.0_rad), 0);
+  EXPECT_EQ(tracker.PositionRad(), kPosition);
+}
+
+}  // namespace unimoc::observer::test
 
 #endif /* UNIMOC_TEST_POSITION_TRACKER_H_ */

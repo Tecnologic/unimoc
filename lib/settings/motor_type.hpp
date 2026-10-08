@@ -25,13 +25,9 @@
 #pragma once
 
 /**
- * @namespace unimoc global namespace
- */
-namespace unimoc {
-/**
  * @namespace system coordinate and motor type definitions
  */
-namespace system {
+namespace unimoc::system {
 
 /**
  * @brief Supported motor types.
@@ -43,13 +39,13 @@ enum class MotorType : unsigned char {
   /// Permanent-Magnet Synchronous Motor (surface or interior magnets).
   /// Requires: back-EMF observer (MechanicalObserver), MTPA, HFI (optional),
   ///           field-weakening, dead-time compensation, SVPWM.
-  PMSM,
+  kPmsm,
 
   /// Asynchronous (Induction) Motor.
   /// Requires: rotor-flux observer (AsmFluxObserver), flux controller
   ///           (AsmFluxController), mechanical observer fed via
   ///           inject_angle_error(), SVPWM, dead-time compensation.
-  ASM,
+  kAsm,
 
   /// Electrically Excited Synchronous Machine (wound-rotor synchronous motor).
   ///
@@ -69,8 +65,8 @@ enum class MotorType : unsigned char {
   /// Cyphal interface: setpoint (current or flux) is written by the Cyphal
   /// subscription callback into ExcitationController::setpoint; the hardware
   /// driver (PWM/DAC) reads ExcitationController::i_f_ref each cycle.
-  EESM,
+  kEesm,
 };
 
-}  // namespace system
-}  // namespace unimoc
+}  // namespace unimoc::system
+

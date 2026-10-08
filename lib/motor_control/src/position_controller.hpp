@@ -47,7 +47,7 @@ using namespace unit;
  *
  * The homing sequence moves the shaft to a reference position (limit switch,
  * stall detection, or external signal) and then calls
- * PositionTracker::set_home() to latch that location as position zero.
+ * PositionTracker::SetHome() to latch that location as mechanical position zero.
  */
 enum class HomingState : unsigned char {
   /// Homing not started.  Position controller operates normally if the
@@ -60,7 +60,7 @@ enum class HomingState : unsigned char {
   SEARCHING,
 
   /// Home event detected; latch current position as zero via
-  /// PositionTracker::set_home() and transition to DONE.
+  /// PositionTracker::SetHome() and transition to DONE.
   /// This state lasts exactly one cycle.
   ZEROING,
 
@@ -113,8 +113,8 @@ enum class HomingState : unsigned char {
  *      - explicitly via trigger_zeroing(), or
  *      - automatically when |homing_current_feedback| reaches
  *        homing_block_current_threshold during SEARCHING.
- *   3. HomingState → ZEROING: set_home() is called through the configured
- *      home callback (typically PositionTracker::set_home()).
+ *   3. HomingState → ZEROING: SetHome() is called through the configured
+ *      home callback (typically PositionTracker::SetHome()).
  *   4. HomingState → DONE: normal position control resumes from pos_ref = 0
  *
  * Cyphal interface
@@ -122,14 +122,14 @@ enum class HomingState : unsigned char {
  * - pos_ref_rad is written from a Cyphal subscription callback each time a
  *   new position setpoint arrives on the bus.
  * - A Cyphal service call invokes start_homing() to initiate the sequence.
- * - HomingState, in_position, and position_rad are published as Cyphal
+ * - HomingState, in_position, and home-relative position are published as Cyphal
  *   subjects at a reduced rate by the application layer.
  *
  * @tparam T  Floating-point type (float by default).
  */
 template <std::floating_point T = float>
 struct PositionController {
-  using HomeCallback = void (*)(void*, int);
+  using HomeCallback = void (*)(void*);
 
   // -------------------------------------------------------------------------
   // Position loop
@@ -215,9 +215,6 @@ struct PositionController {
   /// Opaque callback context (typically PositionTracker*).
   void* home_callback_context{nullptr};
 
-  /// Pole pairs forwarded to the home callback.
-  int home_pole_pairs{1};
-
   // -------------------------------------------------------------------------
   // Outputs (updated by update())
   // -------------------------------------------------------------------------
@@ -234,8 +231,9 @@ struct PositionController {
    *
    * Call once per control cycle.
    *
-   * @param pos_meas_rad  Measured absolute mechanical position [rad]
-   *                      (from PositionTracker::position_rad).
+   * @param pos_meas_rad  Measured home-relative mechanical position [rad]
+   *                      (from PositionTracker::PositionRad()). This is not
+   *                      the electrical angle used by current control.
    * @param omega_meas    Measured mechanical angular velocity [rad/s]
    *                      (from MechanicalObserver::omega / pole_pairs).
    * @param dt            Control period [s].
@@ -265,7 +263,7 @@ struct PositionController {
 
     if (homing_state == HomingState::ZEROING) {
       if (home_callback != nullptr && home_callback_context != nullptr) {
-        home_callback(home_callback_context, home_pole_pairs);
+        home_callback(home_callback_context);
       }
       homing_state = HomingState::DONE;
       pos_ref_rad = unit::Angle{};
@@ -357,12 +355,10 @@ struct PositionController {
    *
    * @param callback    Function called once in ZEROING.
    * @param context     Opaque pointer passed to callback.
-   * @param pole_pairs  Pole-pair count passed to callback.
    */
-  constexpr void set_home_callback(HomeCallback callback, void* context, const int pole_pairs) noexcept {
+  constexpr void set_home_callback(HomeCallback callback, void* context) noexcept {
     home_callback = callback;
     home_callback_context = context;
-    home_pole_pairs = pole_pairs;
   }
 
   /**
@@ -380,8 +376,8 @@ struct PositionController {
    * @brief Reset controller state.
    *
    * Clears integrators, resets the homing state machine to IDLE, and
-   * zeroes all outputs.  Does NOT reset PositionTracker — call
-   * PositionTracker::reset() separately if position tracking must restart.
+   * zeroes all outputs. Does NOT reset PositionTracker; call
+   * PositionTracker::Reset() separately if position tracking must restart.
    */
   constexpr void reset() noexcept {
     pos_ref_limited = pos_ref_rad;

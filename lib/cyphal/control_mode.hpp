@@ -51,14 +51,14 @@ namespace cyphal {
  */
 enum class ControlMode : unsigned char {
   /// Direct torque (q-axis current) command.
-  TORQUE,
+  kTorque,
 
   /// Speed PI loop — output is torque setpoint.
-  SPEED,
+  kSpeed,
 
   /// Cascaded position P + speed PI loops — output is torque setpoint.
   /// PositionController and PositionTracker must be active.
-  POSITION,
+  kPosition,
 };
 
 /**
@@ -95,16 +95,16 @@ template <std::floating_point T>
     const T angular_acceleration,
     const T torque) noexcept {
   if (std::isfinite(angular_position)) {
-    return ControlMode::POSITION;
+    return ControlMode::kPosition;
   }
   if (std::isfinite(angular_velocity)) {
-    return ControlMode::SPEED;
+    return ControlMode::kSpeed;
   }
   if (std::isfinite(angular_acceleration)) {
     return std::nullopt;
   }
   if (std::isfinite(torque)) {
-    return ControlMode::TORQUE;
+    return ControlMode::kTorque;
   }
   return std::nullopt;
 }

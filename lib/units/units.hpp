@@ -13,6 +13,7 @@
  */
 #pragma once
 
+#include <algorithm>
 #include <numbers>  // For std::numbers::pi_v, C++20
 #include <ratio>
 #include <type_traits>  // For std::is_same_v, std::common_type_t
@@ -156,7 +157,7 @@ class Unit {
    * @return A new Unit object with the clamped value.
    */
   [[nodiscard]] constexpr Unit Clamp(const Rep& min_val, const Rep& max_val) const {
-    return Unit(val_ < min_val ? min_val : (val_ > max_val ? max_val : val_));
+    return Unit(std::min(std::max(val_, min_val.val_), max_val.val_));
   }
 
   /**
@@ -166,7 +167,7 @@ class Unit {
    * @return A new Unit object with the clamped value.
    */
   [[nodiscard]] constexpr Unit Clamp(const Unit& min_val, const Unit& max_val) const {
-    return Unit(val_ < min_val.val_ ? min_val.val_ : (val_ > max_val.val_ ? max_val.val_ : val_));
+    return Unit(std::min(std::max(val_, min_val.val_), max_val.val_));
   }
 
   /**
