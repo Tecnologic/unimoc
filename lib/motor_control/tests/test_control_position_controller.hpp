@@ -44,7 +44,7 @@ constexpr void SetHomeAdapter(void* ctx) { static_cast<unimoc::observer::Positio
 // --- At rest, zero setpoint → zero output
 TEST_F(PositionControllerTest, ZeroSetpointZeroOutput) {
   auto c = make_default();
-  const float out = c.update(Angle{}, AngularVelocity{}, 100_us).Value();
+  const float out = c.Update(Angle{}, AngularVelocity{}, 100_us).Value();
   EXPECT_FLOAT_EQ(out, 0.0f);
 }
 
@@ -52,7 +52,7 @@ TEST_F(PositionControllerTest, ZeroSetpointZeroOutput) {
 TEST_F(PositionControllerTest, PositiveErrorDrivesPositiveOutput) {
   auto c = make_default();
   c.pos_ref_rad = 1.0_rad;
-  const float out = c.update(Angle{}, AngularVelocity{}, 100_us).Value();
+  const float out = c.Update(Angle{}, AngularVelocity{}, 100_us).Value();
   EXPECT_GT(out, 0.0f);
 }
 
@@ -60,7 +60,7 @@ TEST_F(PositionControllerTest, LargeJumpUsesTrapezoidPlanning) {
   auto c = make_default();
   c.trapezoid_jump_threshold = 0.2_rad;
   c.pos_ref_rad = 10.0_rad;
-  c.update(Angle{}, AngularVelocity{}, 1_ms);
+  c.Update(Angle{}, AngularVelocity{}, 1_ms);
   EXPECT_LT(c.pos_ref_limited, c.pos_ref_rad);
 }
 
@@ -68,7 +68,7 @@ TEST_F(PositionControllerTest, LargeJumpUsesTrapezoidPlanning) {
 TEST_F(PositionControllerTest, OutputClampedToSpeedLimit) {
   auto c = make_default();
   c.pos_ref_rad = 1000.0_rad;  // huge error
-  for (int i = 0; i < 1000; ++i) c.update(Angle{}, AngularVelocity{}, 1_ms);
+  for (int i = 0; i < 1000; ++i) c.Update(Angle{}, AngularVelocity{}, 1_ms);
   EXPECT_LE(std::abs(c.omega_ref.Value()), c.speed_limit.Value());
 }
 
@@ -76,7 +76,7 @@ TEST_F(PositionControllerTest, OutputClampedToSpeedLimit) {
 TEST_F(PositionControllerTest, InPositionFlagSet) {
   auto c = make_default();
   c.pos_ref_rad = Angle{};
-  c.update(Angle{}, AngularVelocity{}, 100_us);
+  c.Update(Angle{}, AngularVelocity{}, 100_us);
   EXPECT_TRUE(c.in_position);
 }
 
@@ -84,66 +84,66 @@ TEST_F(PositionControllerTest, InPositionFlagSet) {
 TEST_F(PositionControllerTest, InPositionFlagClearWhenFar) {
   auto c = make_default();
   c.pos_ref_rad = 10.0_rad;
-  c.update(Angle{}, AngularVelocity{}, 100_us);
+  c.Update(Angle{}, AngularVelocity{}, 100_us);
   EXPECT_FALSE(c.in_position);
 }
 
 // --- Homing: SEARCHING state outputs homing_speed
 TEST_F(PositionControllerTest, HomingSearchingOutputsHomingSpeed) {
   auto c = make_default();
-  c.start_homing();
-  EXPECT_EQ(c.homing_state, HomingState::SEARCHING);
-  const float out = c.update(Angle{}, AngularVelocity{}, 100_us).Value();
+  c.StartHoming();
+  EXPECT_EQ(c.homing_state, HomingState::kSearching);
+  const float out = c.Update(Angle{}, AngularVelocity{}, 100_us).Value();
   EXPECT_FLOAT_EQ(out, c.homing_speed.Value());
 }
 
-// --- Homing: trigger_zeroing advances to ZEROING then DONE
+// --- Homing: TriggerZeroing advances to ZEROING then DONE
 TEST_F(PositionControllerTest, HomingTriggerZeroingAdvancesToDone) {
   auto c = make_default();
   Tracker tracker;
   tracker.Update(unimoc::system::RotorAngle::FromAngle(0.3_rad), 2);
-  c.set_home_callback(&SetHomeAdapter, &tracker);
-  c.start_homing();
-  c.update(Angle{}, AngularVelocity{}, 100_us);  // SEARCHING step
-  c.trigger_zeroing();
-  EXPECT_EQ(c.homing_state, HomingState::ZEROING);
-  c.update(Angle{}, AngularVelocity{}, 100_us);  // ZEROING step → transitions to DONE
-  EXPECT_EQ(c.homing_state, HomingState::DONE);
+  c.SetHomeCallback(&SetHomeAdapter, &tracker);
+  c.StartHoming();
+  c.Update(Angle{}, AngularVelocity{}, 100_us);  // SEARCHING step
+  c.TriggerZeroing();
+  EXPECT_EQ(c.homing_state, HomingState::kZeroing);
+  c.Update(Angle{}, AngularVelocity{}, 100_us);  // ZEROING step → transitions to DONE
+  EXPECT_EQ(c.homing_state, HomingState::kDone);
   EXPECT_TRUE(tracker.IsHomed());
 }
 
 TEST_F(PositionControllerTest, HomingAutoZeroingOnCurrentThreshold) {
   auto c = make_default();
   c.homing_block_current_threshold = 5.0_A;
-  c.start_homing();
-  EXPECT_EQ(c.homing_state, HomingState::SEARCHING);
-  c.update(Angle{}, AngularVelocity{}, 100_us, 5.1_A);
-  EXPECT_EQ(c.homing_state, HomingState::DONE);
+  c.StartHoming();
+  EXPECT_EQ(c.homing_state, HomingState::kSearching);
+  c.Update(Angle{}, AngularVelocity{}, 100_us, 5.1_A);
+  EXPECT_EQ(c.homing_state, HomingState::kDone);
 }
 
-// --- trigger_zeroing ignored when not SEARCHING
+// --- TriggerZeroing ignored when not SEARCHING
 TEST_F(PositionControllerTest, TriggerZeroingIgnoredWhenNotSearching) {
   auto c = make_default();
-  c.trigger_zeroing();  // in IDLE
-  EXPECT_EQ(c.homing_state, HomingState::IDLE);
+  c.TriggerZeroing();  // in IDLE
+  EXPECT_EQ(c.homing_state, HomingState::kIdle);
 }
 
-// --- fault() transitions to FAULT and zeroes output
+// --- Fault() transitions to FAULT and zeroes output
 TEST_F(PositionControllerTest, FaultTransitionAndZeroOutput) {
   auto c = make_default();
-  c.start_homing();
-  c.fault();
-  EXPECT_EQ(c.homing_state, HomingState::FAULT);
+  c.StartHoming();
+  c.Fault();
+  EXPECT_EQ(c.homing_state, HomingState::kFault);
   EXPECT_FLOAT_EQ(c.omega_ref.Value(), 0.0F);
 }
 
-// --- reset() returns to IDLE
+// --- Reset() returns to IDLE
 TEST_F(PositionControllerTest, ResetReturnsToIdle) {
   auto c = make_default();
-  c.start_homing();
-  c.fault();
-  c.reset();
-  EXPECT_EQ(c.homing_state, HomingState::IDLE);
+  c.StartHoming();
+  c.Fault();
+  c.Reset();
+  EXPECT_EQ(c.homing_state, HomingState::kIdle);
   EXPECT_FLOAT_EQ(c.speed_integrator.Value(), 0.0F);
   EXPECT_FLOAT_EQ(c.omega_ref.Value(), 0.0F);
 }
@@ -157,7 +157,7 @@ TEST_F(PositionControllerTest, ConvergesToSetpoint) {
   c.pos_ref_rad = 2.0_rad;  // 2 rad target
 
   for (int i = 0; i < 50000; ++i) {
-    const float omega_cmd = c.update(Angle{pos}, AngularVelocity{vel}, 100_us).Value();
+    const float omega_cmd = c.Update(Angle{pos}, AngularVelocity{vel}, 100_us).Value();
     // Simple first-order motor model
     vel += 0.01f * (omega_cmd - vel);
     pos += vel * 1e-4f;
