@@ -35,8 +35,6 @@ namespace {
 
 // JEXTSEL 10 selects TIM8_TRGO2 on ADC1..5 (LL_ADC_INJ_TRIG_EXT_TIM8_TRGO2).
 constexpr uint32_t kInjectedTriggerTim8Trgo2 = 10U;
-// Sample time register code 3: 24.5 ADC clock cycles.
-constexpr uint32_t kSampleTime24Cycles5 = 3U;
 constexpr uint32_t kCalibrationTimeoutLoops = 1'000'000U;
 
 // TRGO2 pulses on a rising OC4REF or a rising OC6REF (MMS2 = 0b1100,
@@ -65,10 +63,10 @@ ADC_Common_TypeDef* CommonOf(const ADC_TypeDef* adc) noexcept {
   return (adc == ADC1 || adc == ADC2) ? ADC12_COMMON : ADC345_COMMON;
 }
 
-void SetSampleTime(ADC_TypeDef* adc, const uint32_t channel) noexcept {
+void SetSampleTime(ADC_TypeDef* adc, const uint32_t channel, const uint32_t code) noexcept {
   volatile uint32_t& reg = (channel < 10U) ? adc->SMPR1 : adc->SMPR2;
   const uint32_t shift = 3U * ((channel < 10U) ? channel : channel - 10U);
-  reg = (reg & ~(7U << shift)) | (kSampleTime24Cycles5 << shift);
+  reg = (reg & ~(7U << shift)) | (code << shift);
 }
 
 bool WaitWhile(const volatile uint32_t& reg, const uint32_t mask, const bool until_set) noexcept {
@@ -108,8 +106,8 @@ bool InitAdc(const AdcDescription& description, const bool fast_interrupt) noexc
   }
   adc->ISR = ADC_ISR_ADRDY;
 
-  SetSampleTime(adc, description.channel_rank0);
-  SetSampleTime(adc, description.channel_rank1);
+  SetSampleTime(adc, description.channel_rank0, description.sample_time_rank0);
+  SetSampleTime(adc, description.channel_rank1, description.sample_time_rank1);
 
   adc->JSQR = (1U << ADC_JSQR_JL_Pos) |  // two conversions
               (kInjectedTriggerTim8Trgo2 << ADC_JSQR_JEXTSEL_Pos) | (1U << ADC_JSQR_JEXTEN_Pos) |  // rising

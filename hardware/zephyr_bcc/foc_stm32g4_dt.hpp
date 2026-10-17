@@ -47,22 +47,41 @@ struct AdcDescription {
   uintptr_t base;
   uint8_t channel_rank0;
   uint8_t channel_rank1;
+  uint8_t sample_time_rank0;  ///< SMP register code (0 = 2.5 cycles ... 7 = 640.5 cycles)
+  uint8_t sample_time_rank1;
   struct stm32_pclken pclken;
 };
 
-#define UNIMOC_FOC_ADC_PAIR(first, second)                                                        \
-  AdcDescription {                                                                                \
-    DT_REG_ADDR(UNIMOC_FOC_ADC(first)), UNIMOC_FOC_ADC_CH(first), UNIMOC_FOC_ADC_CH(second),      \
-        UNIMOC_CLOCK_INFO(0, UNIMOC_FOC_ADC(first))                                                \
+// Position of a signal in io-channel-names / sample-times. Plain numbers:
+// the devicetree macros paste them into identifiers.
+#define UNIMOC_SIG_IA 0
+#define UNIMOC_SIG_VA 1
+#define UNIMOC_SIG_IB 2
+#define UNIMOC_SIG_VB 3
+#define UNIMOC_SIG_IC 4
+#define UNIMOC_SIG_VC 5
+#define UNIMOC_SIG_VDC 6
+#define UNIMOC_SIG_CRANK_TORQUE 7
+#define UNIMOC_SIG_MOTOR_TEMPERATURE 8
+#define UNIMOC_SIG_BRIDGE_TEMPERATURE 9
+#define UNIMOC_SIG_COUNT 10
+
+#define UNIMOC_FOC_SAMPLE_CODE(index) DT_ENUM_IDX_BY_IDX(UNIMOC_FOC, sample_times, index)
+
+#define UNIMOC_FOC_ADC_PAIR(first, second, first_index, second_index)                        \
+  AdcDescription {                                                                           \
+    DT_REG_ADDR(UNIMOC_FOC_ADC(first)), UNIMOC_FOC_ADC_CH(first), UNIMOC_FOC_ADC_CH(second), \
+        UNIMOC_FOC_SAMPLE_CODE(first_index), UNIMOC_FOC_SAMPLE_CODE(second_index),           \
+        UNIMOC_CLOCK_INFO(0, UNIMOC_FOC_ADC(first))                                          \
   }
 
 // Current / phase voltage of one phase share an ADC; the pairs below fix the
 // injected ranks: rank 0 is the first name, rank 1 the second.
-inline constexpr AdcDescription kAdcPhaseA = UNIMOC_FOC_ADC_PAIR(ia, va);
-inline constexpr AdcDescription kAdcPhaseB = UNIMOC_FOC_ADC_PAIR(ib, vb);
-inline constexpr AdcDescription kAdcPhaseC = UNIMOC_FOC_ADC_PAIR(ic, vc);
-inline constexpr AdcDescription kAdcDcLink = UNIMOC_FOC_ADC_PAIR(vdc, crank_torque);
-inline constexpr AdcDescription kAdcTemperature = UNIMOC_FOC_ADC_PAIR(motor_temperature, bridge_temperature);
+inline constexpr AdcDescription kAdcPhaseA = UNIMOC_FOC_ADC_PAIR(ia, va, UNIMOC_SIG_IA, UNIMOC_SIG_VA);
+inline constexpr AdcDescription kAdcPhaseB = UNIMOC_FOC_ADC_PAIR(ib, vb, UNIMOC_SIG_IB, UNIMOC_SIG_VB);
+inline constexpr AdcDescription kAdcPhaseC = UNIMOC_FOC_ADC_PAIR(ic, vc, UNIMOC_SIG_IC, UNIMOC_SIG_VC);
+inline constexpr AdcDescription kAdcDcLink = UNIMOC_FOC_ADC_PAIR(vdc, crank_torque, UNIMOC_SIG_VDC, UNIMOC_SIG_CRANK_TORQUE);
+inline constexpr AdcDescription kAdcTemperature = UNIMOC_FOC_ADC_PAIR(motor_temperature, bridge_temperature, UNIMOC_SIG_MOTOR_TEMPERATURE, UNIMOC_SIG_BRIDGE_TEMPERATURE);
 
 static_assert(DT_REG_ADDR(UNIMOC_FOC_ADC(ia)) == DT_REG_ADDR(UNIMOC_FOC_ADC(va)), "ia and va share one ADC");
 static_assert(DT_REG_ADDR(UNIMOC_FOC_ADC(ib)) == DT_REG_ADDR(UNIMOC_FOC_ADC(vb)), "ib and vb share one ADC");
@@ -72,6 +91,9 @@ static_assert(DT_REG_ADDR(UNIMOC_FOC_ADC(vdc)) == DT_REG_ADDR(UNIMOC_FOC_ADC(cra
 static_assert(DT_REG_ADDR(UNIMOC_FOC_ADC(motor_temperature)) ==
                   DT_REG_ADDR(UNIMOC_FOC_ADC(bridge_temperature)),
               "motor and bridge temperature share one ADC");
+
+static_assert(DT_PROP_LEN(UNIMOC_FOC, sample_times) == UNIMOC_SIG_COUNT, "one sample time per io-channel");
+static_assert(DT_PROP_LEN(UNIMOC_FOC, io_channel_names) == UNIMOC_SIG_COUNT, "signal order of SignalIndex");
 
 inline constexpr uintptr_t kTimerBase = DT_REG_ADDR(UNIMOC_FOC_TIMER);
 inline constexpr unsigned kTimerUpdateIrq = DT_IRQ_BY_NAME(UNIMOC_FOC_TIMER, up, irq);

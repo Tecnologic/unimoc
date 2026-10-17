@@ -29,3 +29,21 @@ properties:
     type: string-array
     required: true
     description: Signal name of each entry in io-channels.
+
+  sample-times:
+    type: string-array
+    required: true
+    description: |
+      Sampling time in ADC clock cycles of each entry in io-channels, same
+      order. Choose per source impedance: the INA240 current channels settle
+      fast and can use short times, resistive dividers and NTCs need longer
+      ones. The sum of both ranks sets the length of the injected sequence.
+    enum:
+      - "2.5"
+      - "6.5"
+      - "12.5"
+      - "24.5"
+      - "47.5"
+      - "92.5"
+      - "247.5"
+      - "640.5"

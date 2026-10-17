@@ -34,9 +34,15 @@ GoogleTest on native_sim, one twister scenario per file.
 `adc_trigger_offset` of the control core is the lead in timer ticks before
 peak and valley. With the duty limited to 5 %..95 % nothing switches within
 5 % of ARR after the valley / before the peak; the sample is centered there.
-At 20 kHz that quiet window is about 1.25 us on each side of a boundary while
-two injected conversions take about 1.7 us, so the fast ISR cannot finish
-inside it yet; tighten once its run time is known.
+Sample times are set per channel in `sample-times` of the foc0 node: 2.5 cycles
+for the INA240 current channels, 24.5 for dividers, torque and NTCs. At 42.5 MHz
+ADC clock the sequence (2.5 + 24.5 + 2 x 12.5 cycles plus trigger sync) takes
+about 1.3 us after the trigger, the current sample itself happens within the
+first 0.1 us. At 20 kHz the quiet window is about 1.25 us on each side of a
+boundary, so a lead of roughly 15-20 ticks centers the current sample and
+leaves only a few 100 ns of the window for the fast ISR. The core's default
+lead is 1 us and is tuned by the startup sweep. Tighten once the ISR run time
+is known. All figures are estimates, not measurements.
 
 Both BCC interrupts are zero-latency direct ISRs (`IRQ_ZERO_LATENCY`,
 `CONFIG_ZERO_LATENCY_IRQS`): never masked by `irq_lock()`, no kernel calls and
