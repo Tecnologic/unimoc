@@ -1,0 +1,11 @@
+identifier: bcc
+name: UNIMOC Battery Case Controller
+type: mcu
+arch: arm
+toolchain:
+  - zephyr
+  - gnuarmemb
+ram: 128
+flash: 128
+supported:
+  - gpio

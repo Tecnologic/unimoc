@@ -1,0 +1,7 @@
+tests:
+  unimoc.app.build:
+    build_only: true
+    platform_allow:
+      - native_sim/native/64
+      - bcc
+    tags: unimoc app

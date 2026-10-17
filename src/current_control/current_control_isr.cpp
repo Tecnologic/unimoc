@@ -12,6 +12,8 @@
  *    See the repository LICENSE file for details.
  */
 #include "current_control_isr.hpp"
+
+#include <algorithm>
 #include <cmath>
 #include "hardware_interface.hpp"
 #include "nvm_settings.hpp"
@@ -228,9 +230,12 @@ void CurrentControlIsr::on_jeoc() noexcept {
 // =============================================================================
 
 void CurrentControlIsr::force_duty(float da, float db, float dc) noexcept {
-  forced_duties.a = unit::Ratio{da}.Clamp(svm.duty_min.Value(), svm.duty_max.Value());
-  forced_duties.b = unit::Ratio{db}.Clamp(svm.duty_min.Value(), svm.duty_max.Value());
-  forced_duties.c = unit::Ratio{dc}.Clamp(svm.duty_min.Value(), svm.duty_max.Value());
+  const auto clamp_duty = [this](float duty) noexcept {
+    return unit::Ratio{std::clamp(duty, svm.duty_min.Value(), svm.duty_max.Value())};
+  };
+  forced_duties.a = clamp_duty(da);
+  forced_duties.b = clamp_duty(db);
+  forced_duties.c = clamp_duty(dc);
   force_duty_active = true;
 }
 

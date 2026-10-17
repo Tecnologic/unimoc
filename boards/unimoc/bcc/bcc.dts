@@ -1,0 +1,108 @@
+/*
+ * UNIMOC Battery Case Controller (BCC), STM32G473CBT6.
+ *
+ * Pin and peripheral assignment of the FOC power stage lives in the foc0
+ * node below. The hardware layer (hardware/zephyr_bcc) derives timers, ADCs,
+ * pins and interrupts from it; nothing is hard-coded in C++.
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
+/dts-v1/;
+#include <st/g4/stm32g473Xb.dtsi>
+#include <st/g4/stm32g473c(b-c-e)tx-pinctrl.dtsi>
+
+/ {
+	model = "UNIMOC Battery Case Controller";
+	compatible = "unimoc,bcc";
+
+	chosen {
+		zephyr,sram = &sram0;
+		zephyr,flash = &flash0;
+		zephyr,code-partition = &slot0_partition;
+	};
+
+	/*
+	 * Three-phase power stage.
+	 *
+	 * TIM8 generates centre-aligned PWM on CH1..CH3 (+ complementary
+	 * outputs). Its CH4 compare event (ADC injected trigger Event9) starts
+	 * the injected conversion of ADC1..ADC5. The ADC1 injected end of
+	 * conversion (JEOC) interrupt anchors the fast current control.
+	 */
+	foc0: foc-power-stage {
+		compatible = "unimoc,foc-stm32g4";
+		status = "okay";
+
+		timer = <&timers8>;
+
+		/* Gate driver outputs: high side CHx, low side CHxN. */
+		pinctrl-0 = <&tim8_ch1_pb6 &tim8_ch1n_pa7
+			     &tim8_ch2_pb8 &tim8_ch2n_pb0
+			     &tim8_ch3_pb9 &tim8_ch3n_pb5
+			     &analog_pa0 &analog_pa2
+			     &analog_pa1 &analog_pa6
+			     &analog_pb1 &analog_pb13
+			     &analog_pb12 &analog_pb14
+			     &analog_pa8 &analog_pa9>;
+		pinctrl-names = "default";
+
+		/*
+		 * Injected conversion sequence of every ADC: first the current
+		 * channel, then the second channel of the same ADC.
+		 */
+		io-channels = <&adc1 1>, <&adc1 3>,   /* PA0 ia,  PA2 va   */
+			      <&adc2 2>, <&adc2 3>,   /* PA1 ib,  PA6 vb   */
+			      <&adc3 1>, <&adc3 5>,   /* PB1 ic,  PB13 vc  */
+			      <&adc4 3>, <&adc4 4>,   /* PB12 vdc, PB14 crank torque */
+			      <&adc5 1>, <&adc5 2>;   /* PA8 motor temp, PA9 bridge temp */
+		io-channel-names = "ia", "va",
+				   "ib", "vb",
+				   "ic", "vc",
+				   "vdc", "crank-torque",
+				   "motor-temperature", "bridge-temperature";
+	};
+};
+
+&clk_hse {
+	/* External oscillator input (bypass), 8 MHz. */
+	clock-frequency = <DT_FREQ_M(8)>;
+	hse-bypass;
+	status = "okay";
+};
+
+&pll {
+	/* 8 MHz / 2 * 85 / 2 = 170 MHz */
+	div-m = <2>;
+	mul-n = <85>;
+	div-r = <2>;
+	clocks = <&clk_hse>;
+	status = "okay";
+};
+
+&rcc {
+	clocks = <&pll>;
+	clock-frequency = <DT_FREQ_M(170)>;
+	ahb-prescaler = <1>;
+	apb1-prescaler = <1>;
+	apb2-prescaler = <1>;
+};
+
+&flash0 {
+	partitions {
+		compatible = "fixed-partitions";
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		slot0_partition: partition@0 {
+			label = "image-0";
+			reg = <0x00000000 DT_SIZE_K(120)>;
+		};
+
+		/* Settings image (NvmSettings). */
+		storage_partition: partition@1e000 {
+			label = "storage";
+			reg = <0x0001e000 DT_SIZE_K(8)>;
+		};
+	};
+};

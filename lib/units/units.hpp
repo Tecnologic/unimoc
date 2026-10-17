@@ -157,7 +157,7 @@ class Unit {
    * @return A new Unit object with the clamped value.
    */
   [[nodiscard]] constexpr Unit Clamp(const Rep& min_val, const Rep& max_val) const {
-    return Unit(std::min(std::max(val_, min_val.val_), max_val.val_));
+    return Unit(std::min(std::max(val_, min_val), max_val));
   }
 
   /**

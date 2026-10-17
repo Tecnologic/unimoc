@@ -1,0 +1,37 @@
+# West manifest for UNIMOC.
+#
+# This repository is the manifest repository of the workspace. Initialise with
+#   west init -l <path-to-this-repo> && west update
+# Zephyr and the required modules are checked out next to this repository.
+manifest:
+  version: "0.13"
+
+  remotes:
+    - name: zephyrproject-rtos
+      url-base: https://github.com/zephyrproject-rtos
+    - name: google
+      url-base: https://github.com/google
+
+  projects:
+    - name: zephyr
+      remote: zephyrproject-rtos
+      revision: v4.4.0
+      import:
+        # Only the modules UNIMOC needs. Extend when a feature requires one.
+        name-allowlist:
+          - cmsis
+          - cmsis_6
+          - hal_stm32
+          - picolibc
+          - segger
+
+    # GoogleTest runs the existing lib/ tests unchanged under twister
+    # (tests/twister). Same version as the hosted CMake build.
+    - name: googletest
+      remote: google
+      repo-path: googletest
+      revision: v1.18.0
+      path: modules/lib/googletest
+
+  self:
+    path: unimoc

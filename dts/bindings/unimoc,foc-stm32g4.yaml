@@ -1,0 +1,31 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+description: |
+  UNIMOC three-phase FOC power stage on an STM32G4.
+
+  One PWM timer drives the half bridges. An output compare channel of the
+  same timer triggers the injected conversions of the listed ADCs. All pins
+  are listed in pinctrl-0, all ADC channels in io-channels.
+
+compatible: "unimoc,foc-stm32g4"
+
+include: [base.yaml, pinctrl-device.yaml]
+
+properties:
+  timer:
+    type: phandle
+    required: true
+    description: |
+      PWM timer (st,stm32-timers). Its update interrupt and compare registers
+      are used directly by the hardware layer.
+
+  io-channels:
+    type: phandle-array
+    required: true
+    description: |
+      Injected ADC channels in sequence order, two per ADC.
+
+  io-channel-names:
+    type: string-array
+    required: true
+    description: Signal name of each entry in io-channels.

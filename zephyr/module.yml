@@ -1,0 +1,6 @@
+name: unimoc
+build:
+  settings:
+    # Out-of-tree boards in boards/ and devicetree bindings in dts/bindings/.
+    board_root: .
+    dts_root: .
