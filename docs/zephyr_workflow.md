@@ -53,9 +53,15 @@ other. `tests/twister/sim_irq_cadence` checks the 1/4 cadence of the simulation.
 
 - `control_mode_test` and `nvm_settings_test` are skipped: they still use the
   old enumerator names (`POSITION`, `PMSM`) and do not compile against the lib.
-- BCC pins for CAN-FD, USB, LEDs and gate-driver enables are not yet in the
-  devicetree. TIM8 dead time and break input are not configured (as in the
-  modm code); MOE is set at init. Not run on hardware yet.
+- Pins were taken from the KiCad netlist (Tecnologic/battery-case-controller).
+  LEDs, CAN slope, break, hall and pulse signals are in the devicetree; FDCAN3
+  and USB have pinctrl but stay disabled until their steps. The gate drivers
+  (LM5109B) have no enable pin. The break input (PA10 = TIM8_BKIN) is not
+  configured, nor is dead time (as in the modm code); MOE is set at init.
+  Not run on hardware yet.
+- The schematic symbol of U43 is an STM32G491CxT, the firmware targets the
+  STM32G473CBT6 (FDCAN3 on PB3/PB4 and ADC4/ADC5 only exist there).
+- The CAN transceiver is a SN65HVD230 (classic CAN, no CAN FD).
 - Settings are kept in RAM only (`ram_settings_storage.hpp`) until a flash
   backend exists.
 - The sim analog side is a stub (zero currents, 48 V DC link).

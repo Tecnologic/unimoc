@@ -1,6 +1,10 @@
 /*
  * UNIMOC Battery Case Controller (BCC), STM32G473CBT6.
  *
+ * Pin assignment taken from the KiCad netlist of Tecnologic/battery-case-controller.
+ * Note: the schematic symbol U43 is an STM32G491CxT, but CAN on PB3/PB4 is FDCAN3
+ * and the ADC4/ADC5 inputs only exist on the G473/G474 family.
+ *
  * Pin and peripheral assignment of the FOC power stage lives in the foc0
  * node below. The hardware layer (hardware/zephyr_bcc) derives timers, ADCs,
  * pins and interrupts from it; nothing is hard-coded in C++.
@@ -20,6 +24,40 @@
 		zephyr,sram = &sram0;
 		zephyr,flash = &flash0;
 		zephyr,code-partition = &slot0_partition;
+	};
+
+	/* Status LEDs, anode at the MCU pin through 470 R, cathode at GND. */
+	leds {
+		compatible = "gpio-leds";
+		led_run: led-run {
+			gpios = <&gpioa 3 GPIO_ACTIVE_HIGH>;
+			label = "RUN";
+		};
+		led_error: led-error {
+			gpios = <&gpioa 4 GPIO_ACTIVE_HIGH>;
+			label = "ERROR";
+		};
+		led_pwm: led-pwm {
+			gpios = <&gpioa 15 GPIO_ACTIVE_HIGH>;
+			label = "PWM";
+		};
+	};
+
+	/*
+	 * Further board signals. Names are the net names of the schematic.
+	 * The hardware layer does not use them yet.
+	 */
+	zephyr,user {
+		/* SN65HVD230 Rs pin (net CAN_SLP): low = high speed, high = standby. */
+		can-slope-gpios = <&gpiob 7 GPIO_ACTIVE_HIGH>;
+		/* Enable input (opto) on the net PWM_BREAK; PA10 is also TIM8_BKIN. */
+		break-gpios = <&gpioa 10 GPIO_ACTIVE_HIGH>, <&gpiob 11 GPIO_ACTIVE_HIGH>;
+		/* Hall sensors A, B, C (RC filtered, 3k3 / 2n2). */
+		hall-gpios = <&gpioc 13 GPIO_ACTIVE_HIGH>,
+			     <&gpioc 14 GPIO_ACTIVE_HIGH>,
+			     <&gpioc 15 GPIO_ACTIVE_HIGH>;
+		/* Pulse inputs: PULSE_CRK (crank), PULSE_MOT (motor aux). */
+		pulse-gpios = <&gpioa 5 GPIO_ACTIVE_HIGH>, <&gpiob 2 GPIO_ACTIVE_HIGH>;
 	};
 
 	/*
@@ -83,9 +121,8 @@
 };
 
 &clk_hse {
-	/* External oscillator input (bypass), 8 MHz. */
+	/* 8 MHz crystal X31 with 15 pF load capacitors (no bypass). */
 	clock-frequency = <DT_FREQ_M(8)>;
-	hse-bypass;
 	status = "okay";
 };
 
@@ -109,6 +146,24 @@
 /* Used by the foc0 driver: enables the timer and its IRQ vectors (NUM_IRQS). */
 &timers8 {
 	status = "okay";
+};
+
+/*
+ * CAN: SN65HVD230 on FDCAN3 (PB3 RX, PB4 TX). That transceiver is a classic
+ * CAN part (up to 1 Mbit/s), not a CAN FD transceiver. The controller is
+ * enabled in the CAN step; it needs a PLLQ based FDCAN clock first.
+ */
+&fdcan3 {
+	pinctrl-0 = <&fdcan3_rx_pb3 &fdcan3_tx_pb4>;
+	pinctrl-names = "default";
+	status = "disabled";
+};
+
+/* USB full speed on PA11/PA12 (debug connector J42). Enabled in the USB step. */
+&usb {
+	pinctrl-0 = <&usb_dm_pa11 &usb_dp_pa12>;
+	pinctrl-names = "default";
+	status = "disabled";
 };
 
 &flash0 {
