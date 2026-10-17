@@ -26,11 +26,12 @@
 	 * Three-phase power stage.
 	 *
 	 * TIM8 generates centre-aligned PWM on CH1..CH3 (+ complementary
-	 * outputs). OC4REF (toggled by the CH4 compare) is TRGO and starts the
-	 * injected conversion of ADC1..ADC5 (JEXTSEL 9). The end of the ADC1
-	 * injected sequence anchors the fast current control (zero-latency IRQ).
-	 * The TIM8 update event, with a repetition counter for every 4th period,
-	 * is the second zero-latency IRQ (slow update).
+	 * outputs). TRGO2 (rising OC4REF / rising OC6REF) starts the injected
+	 * conversion of ADC1..ADC5 (JEXTSEL 10) a lead before the peak (CC4) and
+	 * before the valley (CC6), i.e. centered on the 5 %/95 % duty-limit
+	 * window. The end of the ADC1 injected sequence anchors the fast current
+	 * control (zero-latency IRQ, once per half period). The TIM8 update event
+	 * with RCR = 3 is the second zero-latency IRQ (slow update, every 4th).
 	 *
 	 * The ADC nodes stay disabled on purpose: the Zephyr ADC driver would
 	 * claim the peripherals. Their registers, clocks and IRQ numbers are

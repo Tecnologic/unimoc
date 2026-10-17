@@ -27,8 +27,16 @@ GoogleTest on native_sim, one twister scenario per file.
 
 | | BCC (`hardware/zephyr_bcc`) | native_sim (`hardware/zephyr_sim`) |
 |---|---|---|
-| fast (current control) | ADC1 end of injected sequence (JEOS), once per PWM period, ADC1..5 triggered by TIM8 TRGO (OC4REF) | kernel timer in simulated time, once per PWM period |
-| slow (every 4th) | TIM8 update event, RCR = 2 * 4 - 1 (center aligned counts half periods) | every 4th timer expiry, after the fast callback |
+| ADC trigger | TIM8 TRGO2 = rising OC4REF (CC4 = ARR - lead, before the peak) or rising OC6REF (CC6 = lead, before the valley); ADC1..5 JEXTSEL 10 | - |
+| fast (current control) | ADC1 end of injected sequence (JEOS), once per half PWM period | kernel timer in simulated time, once per half PWM period |
+| slow (every 4th) | TIM8 update event, RCR = 3 (update every RCR + 1 half periods), on the peak | every 4th timer expiry, after the fast callback |
+
+`adc_trigger_offset` of the control core is the lead in timer ticks before
+peak and valley. With the duty limited to 5 %..95 % nothing switches within
+5 % of ARR after the valley / before the peak; the sample is centered there.
+At 20 kHz that quiet window is about 1.25 us on each side of a boundary while
+two injected conversions take about 1.7 us, so the fast ISR cannot finish
+inside it yet; tighten once its run time is known.
 
 Both BCC interrupts are zero-latency direct ISRs (`IRQ_ZERO_LATENCY`,
 `CONFIG_ZERO_LATENCY_IRQS`): never masked by `irq_lock()`, no kernel calls and

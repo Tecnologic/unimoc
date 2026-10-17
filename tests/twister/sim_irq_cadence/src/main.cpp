@@ -38,8 +38,8 @@ ZTEST(sim_irq_cadence, test_slow_irq_every_fourth_fast_irq) {
   const uint32_t misaligned = g_misaligned_slow;
   irq_unlock(key);
 
-  // 100 ms at 20 kHz.
-  zassert_between_inclusive(fast, 1999U, 2001U, "fast=%u", fast);
+  // 100 ms at 20 kHz PWM, two fast steps per period.
+  zassert_between_inclusive(fast, 3999U, 4001U, "fast=%u", fast);
   zassert_equal(slow, fast / kSlowUpdateDivider, "fast=%u slow=%u", fast, slow);
   zassert_equal(misaligned, 0U);
 }

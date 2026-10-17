@@ -9,7 +9,7 @@
  *    @brief Simulation (native_sim) hardware interface.
  *
  *    Counterpart of hardware/zephyr_bcc. A kernel timer in simulated time
- *    stands in for the PWM period: every expiry runs the fast callback (BCC:
+ *    stands in for the PWM half period: every expiry runs the fast callback (BCC:
  *    ADC1 end of injected sequence) and every kSlowUpdateDivider-th expiry the
  *    slow callback (BCC: TIM8 update event with repetition counter), the fast
  *    one first, as on the target. The analog side is a constant stub for now:
@@ -48,11 +48,11 @@ const settings::SettingsStorage kSettingsStorage = g_ram_settings_storage.Adapte
 HardwareInterface::CurrentControlCallback g_fast_callback = nullptr;
 HardwareInterface::SlowUpdateCallback g_slow_callback = nullptr;
 uint32_t g_fast_count = 0U;
-struct k_timer g_pwm_period_timer;
+struct k_timer g_pwm_half_period_timer;
 
 // Runs in the (simulated) timer interrupt, like the BCC interrupts: no kernel
 // calls, no logging in the callbacks.
-void OnPwmPeriod(struct k_timer*) {
+void OnPwmHalfPeriod(struct k_timer*) {
   g_fast_callback();
   if (++g_fast_count >= kSlowUpdateDivider) {
     g_fast_count = 0U;
@@ -70,9 +70,10 @@ bool Initialize(Frequency pwm_frequency,
   g_slow_callback = slow_update;
   g_fast_count = 0U;
 
-  const k_timeout_t period = K_NSEC(1'000'000'000ULL / pwm_hz);
-  k_timer_init(&g_pwm_period_timer, OnPwmPeriod, nullptr);
-  k_timer_start(&g_pwm_period_timer, period, period);
+  // One fast step per half PWM period, as on the BCC.
+  const k_timeout_t period = K_NSEC(500'000'000ULL / pwm_hz);
+  k_timer_init(&g_pwm_half_period_timer, OnPwmHalfPeriod, nullptr);
+  k_timer_start(&g_pwm_half_period_timer, period, period);
   return true;
 }
 

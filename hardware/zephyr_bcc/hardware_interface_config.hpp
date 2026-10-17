@@ -44,7 +44,7 @@ inline constexpr bool kMotorTemperatureAvailable = true;
 // sit on the same NVIC level, so they do not preempt each other; the sum of
 // both execution times must stay below one PWM period.
 //
-//   fast: ADC1 end of injected sequence, once per PWM period (current control)
+//   fast: ADC1 end of injected sequence, once per PWM half period (current control)
 //   slow: TIM8 update event, once every kSlowUpdateDivider fast interrupts
 inline constexpr uint32_t kSlowUpdateDivider = 4U;
 

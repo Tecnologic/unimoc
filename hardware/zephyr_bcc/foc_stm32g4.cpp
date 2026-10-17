@@ -33,18 +33,21 @@ namespace unimoc::hardware::foc_stm32g4 {
 
 namespace {
 
-// JEXTSEL 9 selects TIM8_TRGO on ADC1..5 (RM0440, injected trigger table).
-constexpr uint32_t kInjectedTriggerTim8Trgo = 9U;
+// JEXTSEL 10 selects TIM8_TRGO2 on ADC1..5 (LL_ADC_INJ_TRIG_EXT_TIM8_TRGO2).
+constexpr uint32_t kInjectedTriggerTim8Trgo2 = 10U;
 // Sample time register code 3: 24.5 ADC clock cycles.
 constexpr uint32_t kSampleTime24Cycles5 = 3U;
 constexpr uint32_t kCalibrationTimeoutLoops = 1'000'000U;
 
-// OC4REF is TRGO (MMS = 0b0111); TRGO2 is the update event (MMS2 = 0b0010).
-constexpr uint32_t kMasterModeCompareOc4 = TIM_CR2_MMS_0 | TIM_CR2_MMS_1 | TIM_CR2_MMS_2;
-constexpr uint32_t kMasterMode2Update = TIM_CR2_MMS2_1;
+// TRGO2 pulses on a rising OC4REF or a rising OC6REF (MMS2 = 0b1100,
+// LL_TIM_TRGO2_OC4_RISING_OC6_RISING). OC4 is the trigger before the peak,
+// OC6 the trigger before the valley, see InitTimer().
+constexpr uint32_t kMasterMode2Oc4Oc6Rising = TIM_CR2_MMS2_3 | TIM_CR2_MMS2_2;
 
-// Update every N periods in center aligned mode: RCR counts half periods.
-constexpr uint32_t kRepetitionCounter = 2U * kSlowUpdateDivider - 1U;
+// Center aligned: the counter repeats at every overflow and underflow, so an
+// update event comes every RCR + 1 half periods. The fast interrupt runs once
+// per half period, the slow one every kSlowUpdateDivider-th.
+constexpr uint32_t kRepetitionCounter = kSlowUpdateDivider - 1U;
 
 TIM_TypeDef* const kTim = reinterpret_cast<TIM_TypeDef*>(kTimerBase);
 ADC_TypeDef* const kAdcFast = reinterpret_cast<ADC_TypeDef*>(kAdcPhaseA.base);
@@ -109,7 +112,7 @@ bool InitAdc(const AdcDescription& description, const bool fast_interrupt) noexc
   SetSampleTime(adc, description.channel_rank1);
 
   adc->JSQR = (1U << ADC_JSQR_JL_Pos) |  // two conversions
-              (kInjectedTriggerTim8Trgo << ADC_JSQR_JEXTSEL_Pos) | (1U << ADC_JSQR_JEXTEN_Pos) |  // rising
+              (kInjectedTriggerTim8Trgo2 << ADC_JSQR_JEXTSEL_Pos) | (1U << ADC_JSQR_JEXTEN_Pos) |  // rising
               (static_cast<uint32_t>(description.channel_rank0) << ADC_JSQR_JSQ1_Pos) |
               (static_cast<uint32_t>(description.channel_rank1) << ADC_JSQR_JSQ2_Pos);
 
@@ -134,6 +137,14 @@ ISR_DIRECT_DECLARE(SlowIsr) {
   return 0;
 }
 
+void ApplyTriggerLead(const uint32_t ticks) noexcept {
+  // At least one tick, at most a quarter period, so both triggers stay in
+  // their own half period.
+  const uint32_t lead = std::clamp(ticks, 1U, g_auto_reload / 2U);
+  kTim->CCR4 = g_auto_reload - lead;
+  kTim->CCR6 = lead;
+}
+
 bool InitTimer(const uint32_t pwm_hz, const uint32_t trigger_offset) noexcept {
   struct stm32_pclken pclken = UNIMOC_CLOCK_INFO(0, UNIMOC_FOC_TIMER);
   if (clock_control_on(kRcc, reinterpret_cast<clock_control_subsys_t>(&pclken)) != 0) return false;
@@ -150,16 +161,21 @@ bool InitTimer(const uint32_t pwm_hz, const uint32_t trigger_offset) noexcept {
   kTim->PSC = 0U;
   kTim->ARR = g_auto_reload;
   kTim->RCR = kRepetitionCounter;
-  kTim->CR2 = kMasterModeCompareOc4 | kMasterMode2Update;
+  kTim->CR2 = kMasterMode2Oc4Oc6Rising;
 
   // CH1..CH3: PWM mode 1, no CCR preload. The compare values are written
-  // between update events (the update event only occurs every N periods).
+  // between update events (the update event only occurs every N half periods).
+  // CH4 (PWM mode 2) and CH6 (PWM mode 1) have no pin; they only generate the
+  // ADC triggers:
+  //   OC4REF rises while counting up at CCR4 = ARR - lead  (lead before the peak)
+  //   OC6REF rises while counting down at CCR6 = lead      (lead before the valley)
   kTim->CCMR1 = (6U << TIM_CCMR1_OC1M_Pos) | (6U << TIM_CCMR1_OC2M_Pos);
-  kTim->CCMR2 = (6U << TIM_CCMR2_OC3M_Pos) | (3U << TIM_CCMR2_OC4M_Pos);  // CH4: toggle, no pin
+  kTim->CCMR2 = (6U << TIM_CCMR2_OC3M_Pos) | (7U << TIM_CCMR2_OC4M_Pos);
+  kTim->CCMR3 = (6U << TIM_CCMR3_OC6M_Pos);
   kTim->CCR1 = 0U;
   kTim->CCR2 = 0U;
   kTim->CCR3 = 0U;
-  kTim->CCR4 = std::min(trigger_offset, g_auto_reload);
+  ApplyTriggerLead(trigger_offset);
   kTim->CCER = TIM_CCER_CC1E | TIM_CCER_CC1NE | TIM_CCER_CC2E | TIM_CCER_CC2NE | TIM_CCER_CC3E | TIM_CCER_CC3NE;
 
   kTim->EGR = TIM_EGR_UG;  // load ARR, RCR; written before CEN: odd RCR updates at the peak
@@ -210,8 +226,7 @@ void SetCompare(const uint32_t channel, const uint32_t ticks) noexcept {
   switch (channel) {
     case 1U: kTim->CCR1 = value; break;
     case 2U: kTim->CCR2 = value; break;
-    case 3U: kTim->CCR3 = value; break;
-    default: kTim->CCR4 = value; break;
+    default: kTim->CCR3 = value; break;
   }
 }
 
@@ -219,10 +234,11 @@ uint32_t GetCompare(const uint32_t channel) noexcept {
   switch (channel) {
     case 1U: return kTim->CCR1;
     case 2U: return kTim->CCR2;
-    case 3U: return kTim->CCR3;
-    default: return kTim->CCR4;
+    default: return kTim->CCR3;
   }
 }
+
+void SetTriggerLead(const uint32_t ticks) noexcept { ApplyTriggerLead(ticks); }
 
 RawSamples ReadRaw() noexcept {
   const ADC_TypeDef* const a = Adc(kAdcPhaseA);

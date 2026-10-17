@@ -116,7 +116,7 @@ void SetPhaseDuties(const system::ThreePhase<Ratio>& duties) noexcept {
   foc_stm32g4::SetCompare(3U, DutyToTicks(duties.c, reload));
 }
 
-void SetAdcTriggerOffset(uint32_t offset) noexcept { foc_stm32g4::SetCompare(4U, offset); }
+void SetAdcTriggerOffset(uint32_t offset) noexcept { foc_stm32g4::SetTriggerLead(offset); }
 
 uint32_t GetTimerClockFrequency() noexcept {
   // Needed before Initialize() to derive the PWM period; fixed by the clock tree in bcc.dts.
