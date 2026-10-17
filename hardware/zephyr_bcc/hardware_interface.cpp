@@ -8,29 +8,33 @@
  *    @file hardware_interface.cpp
  *    @brief Battery case controller (STM32G473) hardware interface.
  *
- *    Skeleton: the motor callbacks are placeholders. The next step brings up
- *    TIM8 and ADC1..ADC5 from the foc0 devicetree node, with the ADC1 JEOC
- *    interrupt and the TIM8 update interrupt as zero-latency IRQs.
+ *    Glue between the portable HardwareInterface and the TIM8 / ADC1..5 driver
+ *    (foc_stm32g4). Pins, timer and ADC channels come from the foc0 node of the
+ *    board devicetree.
  *
  *    This file is part of UNIMOC and is licensed under GPL-3.0-or-later.
  *    See the repository LICENSE file for details.
  */
 
 #include "hardware_interface.hpp"
+#include "ram_settings_storage.hpp"
+
+#include <algorithm>
+
+#include "analog_scaling.hpp"
+#include "current_control_isr.hpp"
+#include "foc_stm32g4.hpp"
+#include "foc_stm32g4_dt.hpp"
 
 namespace unimoc::hardware {
 
 using namespace unit;
 
+// The slow interrupt consumes one complete sub-step cycle of the fast one.
+static_assert(kSlowUpdateDivider == current_control::NUM_SUB_STEPS,
+              "slow update must run once per current control sub-step cycle");
+
 namespace {
-
-settings::SettingsStorageStatus LoadSettings(void* const, const std::span<std::byte>) noexcept {
-  return settings::SettingsStorageStatus::kUnavailable;
-}
-
-settings::SettingsStorageStatus SaveSettings(void* const, const std::span<const std::byte>) noexcept {
-  return settings::SettingsStorageStatus::kUnavailable;
-}
 
 const settings::SettingsProfile kSettingsProfile = [] {
   settings::SettingsProfile profile{};
@@ -44,30 +48,81 @@ const settings::SettingsProfile kSettingsProfile = [] {
   return profile;
 }();
 
-const settings::SettingsStorage kSettingsStorage{nullptr, LoadSettings, SaveSettings};
+RamSettingsStorage g_ram_settings_storage;
+const settings::SettingsStorage kSettingsStorage = g_ram_settings_storage.Adapter();
 
-bool Initialize(Frequency, uint32_t, HardwareInterface::CurrentControlCallback,
-                HardwareInterface::SlowUpdateCallback) noexcept {
-  return true;
+bool Initialize(Frequency pwm_frequency,
+                uint32_t adc_trigger_offset,
+                HardwareInterface::CurrentControlCallback current_control,
+                HardwareInterface::SlowUpdateCallback slow_update) noexcept {
+  return foc_stm32g4::Initialize(pwm_frequency, adc_trigger_offset, current_control, slow_update);
 }
 
-system::ThreePhase<Current> GetPhaseCurrents() noexcept { return {}; }
+// The public vector has an exact zero-sequence component: the common-mode
+// error of the three sensors is removed and the last phase is reconstructed.
+system::ThreePhase<Current> PhaseCurrents(const foc_stm32g4::RawSamples& raw) noexcept {
+  const float a = analog::CountsToCurrent(raw.ia);
+  const float b = analog::CountsToCurrent(raw.ib);
+  const float c = analog::CountsToCurrent(raw.ic);
+  const float zero_sequence = (a + b + c) / 3.0F;
+  const Current corrected_a{a - zero_sequence};
+  const Current corrected_b{b - zero_sequence};
+  return {corrected_a, corrected_b, Current{-corrected_a.Value() - corrected_b.Value()}};
+}
 
-system::ThreePhase<Voltage> GetPhaseVoltages() noexcept { return {}; }
+system::ThreePhase<Current> GetPhaseCurrents() noexcept { return PhaseCurrents(foc_stm32g4::ReadRaw()); }
 
-CurrentControlSamples GetCurrentControlSamples() noexcept { return {}; }
+system::ThreePhase<Voltage> GetPhaseVoltages() noexcept {
+  const auto raw = foc_stm32g4::ReadRaw();
+  return {Voltage{analog::CountsToVoltage(raw.va)},
+          Voltage{analog::CountsToVoltage(raw.vb)},
+          Voltage{analog::CountsToVoltage(raw.vc)}};
+}
 
-TemperatureMeasurements GetTemperatureMeasurements() noexcept { return {}; }
+CurrentControlSamples GetCurrentControlSamples() noexcept {
+  const auto raw = foc_stm32g4::ReadRaw();
+  return CurrentControlSamples{PhaseCurrents(raw), Voltage{analog::CountsToVoltage(raw.vdc)}};
+}
 
-system::ThreePhase<Ratio> phase_duties{0.5_ratio, 0.5_ratio, 0.5_ratio};
+TemperatureMeasurements GetTemperatureMeasurements() noexcept {
+  const auto raw = foc_stm32g4::ReadRaw();
+  TemperatureMeasurements measurements{};
+  if constexpr (kBridgeTemperatureAvailable) {
+    measurements.bridge = Temperature{analog::CountsToTemperature(raw.bridge_temperature)};
+  }
+  if constexpr (kMotorTemperatureAvailable) {
+    measurements.motor = Temperature{analog::CountsToTemperature(raw.motor_temperature)};
+  }
+  return measurements;
+}
 
-system::ThreePhase<Ratio> GetPhaseDuties() noexcept { return phase_duties; }
+system::ThreePhase<Ratio> GetPhaseDuties() noexcept {
+  const uint32_t reload = foc_stm32g4::TimerAutoReload();
+  if (reload == 0U) return {0.5_ratio, 0.5_ratio, 0.5_ratio};
+  const float scale = 1.0F / static_cast<float>(reload);
+  return {Ratio{static_cast<float>(foc_stm32g4::GetCompare(1U)) * scale},
+          Ratio{static_cast<float>(foc_stm32g4::GetCompare(2U)) * scale},
+          Ratio{static_cast<float>(foc_stm32g4::GetCompare(3U)) * scale}};
+}
 
-void SetPhaseDuties(const system::ThreePhase<Ratio>& duties) noexcept { phase_duties = duties; }
+uint32_t DutyToTicks(const Ratio duty, const float reload) noexcept {
+  return static_cast<uint32_t>(std::clamp(duty.Value(), 0.0F, 1.0F) * reload);
+}
 
-void SetAdcTriggerOffset(uint32_t) noexcept {}
+void SetPhaseDuties(const system::ThreePhase<Ratio>& duties) noexcept {
+  const auto reload = static_cast<float>(foc_stm32g4::TimerAutoReload());
+  foc_stm32g4::SetCompare(1U, DutyToTicks(duties.a, reload));
+  foc_stm32g4::SetCompare(2U, DutyToTicks(duties.b, reload));
+  foc_stm32g4::SetCompare(3U, DutyToTicks(duties.c, reload));
+}
 
-uint32_t GetTimerClockFrequency() noexcept { return 170'000'000U; }
+void SetAdcTriggerOffset(uint32_t offset) noexcept { foc_stm32g4::SetCompare(4U, offset); }
+
+uint32_t GetTimerClockFrequency() noexcept {
+  // Needed before Initialize() to derive the PWM period; fixed by the clock tree in bcc.dts.
+  const uint32_t running = foc_stm32g4::TimerClockFrequency();
+  return running != 0U ? running : static_cast<uint32_t>(DT_PROP(DT_NODELABEL(rcc), clock_frequency));
+}
 
 }  // namespace
 

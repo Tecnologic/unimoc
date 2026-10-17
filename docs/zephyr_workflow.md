@@ -23,10 +23,29 @@ Platform selection is done by the build (board -> Kconfig `UNIMOC_PLATFORM_*` ->
 `tests/twister/lib_tests` runs every `lib/*/tests/*_test.cpp` unchanged under
 GoogleTest on native_sim, one twister scenario per file.
 
+## Interrupt architecture
+
+| | BCC (`hardware/zephyr_bcc`) | native_sim (`hardware/zephyr_sim`) |
+|---|---|---|
+| fast (current control) | ADC1 end of injected sequence (JEOS), once per PWM period, ADC1..5 triggered by TIM8 TRGO (OC4REF) | kernel timer in simulated time, once per PWM period |
+| slow (every 4th) | TIM8 update event, RCR = 2 * 4 - 1 (center aligned counts half periods) | every 4th timer expiry, after the fast callback |
+
+Both BCC interrupts are zero-latency direct ISRs (`IRQ_ZERO_LATENCY`,
+`CONFIG_ZERO_LATENCY_IRQS`): never masked by `irq_lock()`, no kernel calls and
+no logging in the callbacks. They share one NVIC level and do not preempt each
+other. `tests/twister/sim_irq_cadence` checks the 1/4 cadence of the simulation.
+
 ## Known issues
 
 - `control_mode_test` and `nvm_settings_test` are skipped: they still use the
   old enumerator names (`POSITION`, `PMSM`) and do not compile against the lib.
-- The hardware layers are skeletons; BCC pins for CAN-FD, USB, LEDs and
-  gate-driver enables are not yet in the devicetree.
+- BCC pins for CAN-FD, USB, LEDs and gate-driver enables are not yet in the
+  devicetree. TIM8 dead time and break input are not configured (as in the
+  modm code); MOE is set at init. Not run on hardware yet.
+- Settings are kept in RAM only (`ram_settings_storage.hpp`) until a flash
+  backend exists.
+- The sim analog side is a stub (zero currents, 48 V DC link).
+- The phase between the control core's sub-step counter and the TIM8 update
+  event is not synchronised; `SlowUpdate` polls `samples_ready`, so this only
+  costs jitter.
 - `cymon` needs C++23/CMake 4 and is not linked yet.

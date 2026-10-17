@@ -10,6 +10,7 @@ unimoc_zephyr_libraries()
 # --- Platform selection (Kconfig symbol chosen by the board) ----------------
 if(CONFIG_UNIMOC_PLATFORM_BCC)
   set(UNIMOC_PLATFORM_DIR ${UNIMOC_ROOT}/hardware/zephyr_bcc)
+  set(UNIMOC_PLATFORM_EXTRA_SOURCES foc_stm32g4.cpp)
 elseif(CONFIG_UNIMOC_PLATFORM_SIM)
   set(UNIMOC_PLATFORM_DIR ${UNIMOC_ROOT}/hardware/zephyr_sim)
 else()
@@ -34,7 +35,11 @@ target_sources(app PRIVATE
   ${UNIMOC_ROOT}/src/main.cpp
   ${UNIMOC_ROOT}/hardware/zephyr_common/system_interface.cpp
   ${UNIMOC_PLATFORM_DIR}/hardware_interface.cpp)
+foreach(unimoc_platform_source IN LISTS UNIMOC_PLATFORM_EXTRA_SOURCES)
+  target_sources(app PRIVATE ${UNIMOC_PLATFORM_DIR}/${unimoc_platform_source})
+endforeach()
 target_include_directories(app PRIVATE
   ${UNIMOC_ROOT}/src/current_control
+  ${UNIMOC_ROOT}/hardware/zephyr_common
   ${UNIMOC_PLATFORM_DIR})
 target_link_libraries(app PRIVATE unimoc_core unimoc_lib)

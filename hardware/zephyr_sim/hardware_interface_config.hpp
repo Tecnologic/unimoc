@@ -39,8 +39,8 @@ inline constexpr bool kCpuTemperatureAvailable = false;
 inline constexpr bool kBridgeTemperatureAvailable = false;
 inline constexpr bool kMotorTemperatureAvailable = false;
 
-// Lower numeric values represent higher NVIC priority on Cortex-M.
-inline constexpr uint32_t kCurrentControlIrqPriority = 5U;
-inline constexpr uint32_t kSlowUpdateIrqPriority = 10U;
+// The simulation emulates the same cadence as the BCC: one fast interrupt per
+// PWM period and one slow interrupt every kSlowUpdateDivider fast interrupts.
+inline constexpr uint32_t kSlowUpdateDivider = 4U;
 
 }  // namespace unimoc::hardware

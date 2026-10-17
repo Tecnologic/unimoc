@@ -39,8 +39,13 @@ inline constexpr bool kCpuTemperatureAvailable = false;
 inline constexpr bool kBridgeTemperatureAvailable = true;
 inline constexpr bool kMotorTemperatureAvailable = true;
 
-// Lower numeric values represent higher NVIC priority on Cortex-M.
-inline constexpr uint32_t kCurrentControlIrqPriority = 5U;
-inline constexpr uint32_t kSlowUpdateIrqPriority = 10U;
+// Both interrupts run as Zephyr zero-latency IRQs (IRQ_ZERO_LATENCY): they are
+// never masked by irq_lock() and neither uses a configurable priority. They
+// sit on the same NVIC level, so they do not preempt each other; the sum of
+// both execution times must stay below one PWM period.
+//
+//   fast: ADC1 end of injected sequence, once per PWM period (current control)
+//   slow: TIM8 update event, once every kSlowUpdateDivider fast interrupts
+inline constexpr uint32_t kSlowUpdateDivider = 4U;
 
 }  // namespace unimoc::hardware

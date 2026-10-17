@@ -26,9 +26,15 @@
 	 * Three-phase power stage.
 	 *
 	 * TIM8 generates centre-aligned PWM on CH1..CH3 (+ complementary
-	 * outputs). Its CH4 compare event (ADC injected trigger Event9) starts
-	 * the injected conversion of ADC1..ADC5. The ADC1 injected end of
-	 * conversion (JEOC) interrupt anchors the fast current control.
+	 * outputs). OC4REF (toggled by the CH4 compare) is TRGO and starts the
+	 * injected conversion of ADC1..ADC5 (JEXTSEL 9). The end of the ADC1
+	 * injected sequence anchors the fast current control (zero-latency IRQ).
+	 * The TIM8 update event, with a repetition counter for every 4th period,
+	 * is the second zero-latency IRQ (slow update).
+	 *
+	 * The ADC nodes stay disabled on purpose: the Zephyr ADC driver would
+	 * claim the peripherals. Their registers, clocks and IRQ numbers are
+	 * still read from the nodes by the driver in hardware/zephyr_bcc.
 	 */
 	foc0: foc-power-stage {
 		compatible = "unimoc,foc-stm32g4";
@@ -86,6 +92,11 @@
 	ahb-prescaler = <1>;
 	apb1-prescaler = <1>;
 	apb2-prescaler = <1>;
+};
+
+/* Used by the foc0 driver: enables the timer and its IRQ vectors (NUM_IRQS). */
+&timers8 {
+	status = "okay";
 };
 
 &flash0 {
