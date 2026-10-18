@@ -16,6 +16,7 @@
 #include <algorithm>
 #include <cmath>
 #include "hardware_interface.hpp"
+#include "power_stage_interface.hpp"
 #include "nvm_settings.hpp"
 #include "sin_cos.hpp"
 #include "three_phase_system.hpp"
@@ -114,7 +115,29 @@ void CurrentControlIsr::on_jeoc() noexcept {
   state.raw_vdc = unit::Voltage{v_dc};
 
   // -------------------------------------------------------------------------
-  // 1b. Force-duty mode: write fixed CCR values and skip the control loop.
+  // 1b. Hard overcurrent limit. Runs before any control computation: a
+  //     runaway controller is cut by the hardware break, and the loop stays
+  //     frozen at neutral duties until the trip is acknowledged.
+  // -------------------------------------------------------------------------
+  if (!state.overcurrent_tripped) {
+    const float limit = state.overcurrent_limit_A;
+    if (std::abs(phase_currents.a.Value()) > limit || std::abs(phase_currents.b.Value()) > limit ||
+        std::abs(phase_currents.c.Value()) > limit) {
+      hardware::power_stage.Trip();
+      state.overcurrent_tripped = true;
+    }
+  }
+  if (state.overcurrent_tripped) {
+    set_phase_duties(system::ThreePhase<unit::Ratio>{0.5_ratio, 0.5_ratio, 0.5_ratio});
+    sub_step_ = (sub_step_ + 1u) & 3u;
+    if (sub_step_ == 0u) {
+      state.samples_ready = true;
+    }
+    return;
+  }
+
+  // -------------------------------------------------------------------------
+  // 1c. Force-duty mode: write fixed CCR values and skip the control loop.
   //     ADC samples are stored above so the startup FSM can still monitor
   //     them for over-current protection.
   // -------------------------------------------------------------------------

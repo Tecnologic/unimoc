@@ -95,6 +95,7 @@ static_assert(DT_REG_ADDR(UNIMOC_FOC_ADC(motor_temperature)) ==
 static_assert(DT_PROP_LEN(UNIMOC_FOC, sample_times) == UNIMOC_SIG_COUNT, "one sample time per io-channel");
 static_assert(DT_PROP_LEN(UNIMOC_FOC, io_channel_names) == UNIMOC_SIG_COUNT, "signal order of SignalIndex");
 
+inline constexpr uint32_t kDeadTimeNs = DT_PROP(UNIMOC_FOC, dead_time_ns);
 inline constexpr uintptr_t kTimerBase = DT_REG_ADDR(UNIMOC_FOC_TIMER);
 inline constexpr unsigned kTimerUpdateIrq = DT_IRQ_BY_NAME(UNIMOC_FOC_TIMER, up, irq);
 /// The fast interrupt is the end of the injected sequence of the first ADC (phase A).

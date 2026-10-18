@@ -81,6 +81,12 @@
 
 		timer = <&timers8>;
 
+		/*
+		 * BSC040N08 with 22 R gate resistors (tau about 100 ns): turn-off
+		 * about 250 ns, plus reserve. Estimate, to be tuned on the scope.
+		 */
+		dead-time-ns = <400>;
+
 		/* Gate driver outputs: high side CHx, low side CHxN. */
 		pinctrl-0 = <&tim8_ch1_pb6 &tim8_ch1n_pa7
 			     &tim8_ch2_pb8 &tim8_ch2n_pb0

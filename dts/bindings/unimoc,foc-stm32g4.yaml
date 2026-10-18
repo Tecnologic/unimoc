@@ -19,6 +19,16 @@ properties:
       PWM timer (st,stm32-timers). Its update interrupt and compare registers
       are used directly by the hardware layer.
 
+  dead-time-ns:
+    type: int
+    required: true
+    description: |
+      Dead time between the high side and the low side gate signal of each
+      half bridge, in nanoseconds. It must cover the turn-off time of the
+      MOSFET through its gate resistor plus the delay mismatch of the gate
+      driver. The hardware layer rounds it up to the next step the timer can
+      generate (6 ns at 170 MHz up to 747 ns, coarser above).
+
   io-channels:
     type: phandle-array
     required: true

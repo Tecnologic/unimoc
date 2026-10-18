@@ -1,0 +1,4 @@
+tests:
+  unimoc.sim.overcurrent:
+    platform_allow: native_sim/native/64
+    tags: unimoc sim

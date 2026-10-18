@@ -62,6 +62,25 @@ hardware, and `Enable()` fails while it is missing or a fault is latched.
 States: disabled, enabled, fault, blocked. The simulation mirrors this and
 offers `sim::SetExternalEnable()`.
 
+**Dead time.** `dead-time-ns` in the foc0 node (400 ns on the BCC: BSC040N08
+with 22 R gate resistors, turn-off about 250 ns plus reserve; an estimate, to
+be tuned with the scope). The BCC layer rounds it up to a DTG step
+(`hardware/zephyr_bcc/dead_time.hpp`, 5.9 ns steps up to 747 ns) and fails
+`Initialize()` if it is longer than the field can encode. Two parallel
+MOSFETs per switch would need roughly twice the value.
+
+**Hooks in the core.** `CurrentControlIsr::on_jeoc()` checks every phase
+current against `set_overcurrent_limit()` (main passes
+`max_phase_current` of the hardware profile) before any control computation.
+Over the limit it calls `power_stage.Trip()`, latches
+`state.overcurrent_tripped` and holds the duties at 50 % until
+`clear_overcurrent_trip()`. `HwStartup::request_run()` is the explicit
+acknowledgement: it clears a latched break and the trip, then calls
+`Enable()`; without the external enable the run is not started and the FSM
+stays IDLE. While a run is active `run_once()` leaves for FAULT as soon as the
+stage is no longer enabled (trip, external break, e-stop), and
+`enter_fault()` calls `Disable()`. `tests/twister/sim_overcurrent` covers these paths.
+
 ## Known issues
 
 - `control_mode_test` and `nvm_settings_test` are skipped: they still use the
@@ -69,9 +88,13 @@ offers `sim::SetExternalEnable()`.
 - Pins were taken from the KiCad netlist (Tecnologic/battery-case-controller).
   LEDs, CAN slope, break, hall and pulse signals are in the devicetree; FDCAN3
   and USB have pinctrl but stay disabled until their steps. The gate drivers
-  (LM5109B) have no enable pin. Dead time is not configured (as in the modm
-  code), the complementary outputs switch without a gap unless the gate
-  circuit provides one. Not run on hardware yet.
+  (LM5109B) have no enable pin. Not run on hardware yet.
+- The hard overcurrent limit is the profile's `max_phase_current` (100 A on the
+  BCC), but the INA240A2 chain (25 mV/A, 3.3 V) saturates at about +-66 A, so
+  that limit can never fire. Set the profile to a value inside the sensor range.
+- Nothing watches the power stage after the startup run is DONE except the
+  ISR overcurrent trip; the hardware break still works. The analog watchdog is
+  not configured.
 - The schematic symbol of U43 is an STM32G491CxT, the firmware targets the
   STM32G473CBT6 (FDCAN3 on PB3/PB4 and ADC4/ADC5 only exist there).
 - The CAN transceiver is a SN65HVD230 (classic CAN, no CAN FD).

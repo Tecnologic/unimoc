@@ -18,4 +18,7 @@ namespace unimoc::hardware::sim {
 /// External enable (jumper, e-stop). Dropping it while enabled breaks like the hardware does.
 void SetExternalEnable(bool present) noexcept;
 
+/// Phase currents [A] that the simulated current sensors report.
+void SetPhaseCurrents(float a, float b, float c) noexcept;
+
 }  // namespace unimoc::hardware::sim

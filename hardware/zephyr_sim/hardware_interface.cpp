@@ -85,8 +85,10 @@ system::ThreePhase<Voltage> GetPhaseVoltages() noexcept { return {}; }
 
 constexpr float kSimDcLinkVoltage = 48.0F;
 
+system::ThreePhase<Current> g_stub_currents{};
+
 CurrentControlSamples GetCurrentControlSamples() noexcept {
-  return CurrentControlSamples{{}, Voltage{kSimDcLinkVoltage}};
+  return CurrentControlSamples{g_stub_currents, Voltage{kSimDcLinkVoltage}};
 }
 
 TemperatureMeasurements GetTemperatureMeasurements() noexcept { return {}; }
@@ -143,6 +145,10 @@ namespace sim {
 void SetExternalEnable(const bool present) noexcept {
   g_power_stage.external_enable = present;
   if (!present) PowerStageTrip();  // the break input latches, like BIF
+}
+
+void SetPhaseCurrents(const float a, const float b, const float c) noexcept {
+  g_stub_currents = system::ThreePhase<Current>{Current{a}, Current{b}, Current{c}};
 }
 
 }  // namespace sim

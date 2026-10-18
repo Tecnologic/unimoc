@@ -40,6 +40,7 @@ int main() {
     auto& slow_update = unimoc::current_control::SlowUpdate::instance();
     current_control.init(settings_snapshot.Get(), motor, motor.GetTimerClockFrequency());
     slow_update.init(settings_snapshot.Get(), current_control);
+    current_control.set_overcurrent_limit(unimoc::hardware::settings.GetSettingsProfile().capabilities.max_phase_current);
     if (!motor.Initialize(settings_snapshot.Get().pwm_frequency,
                           current_control.state.adc_trigger_offset,
                           CurrentControlInterrupt,

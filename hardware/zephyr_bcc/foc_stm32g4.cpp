@@ -25,6 +25,7 @@
 
 #include <algorithm>
 
+#include "dead_time.hpp"
 #include "foc_stm32g4_dt.hpp"
 #include "hardware_interface_config.hpp"
 
@@ -187,8 +188,12 @@ bool InitTimer(const uint32_t pwm_hz, const uint32_t trigger_offset) noexcept {
   ApplyTriggerLead(trigger_offset);
   kTim->CCER = TIM_CCER_CC1E | TIM_CCER_CC1NE | TIM_CCER_CC2E | TIM_CCER_CC2NE | TIM_CCER_CC3E | TIM_CCER_CC3NE;
 
+  // Dead time: t_DTS = t_CK_INT (CKD = 0), the timer clock.
+  const auto dtg = EncodeDeadTime(DeadTimeTicks(kDeadTimeNs, g_timer_clock_hz));
+  if (!dtg.has_value()) return false;
+
   // Break on, outputs held in the idle (off) state. MOE stays 0 until PowerStageEnable().
-  kTim->BDTR = kBreakConfig;
+  kTim->BDTR = kBreakConfig | *dtg;
 
   kTim->EGR = TIM_EGR_UG;  // load ARR, RCR; written before CEN: odd RCR updates at the peak
   kTim->SR = 0U;

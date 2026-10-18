@@ -15,6 +15,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <limits>
 #include "SubStepBuffer.hpp"
 #include "current_controller.hpp"
 #include "dead_time_compensation.hpp"
@@ -119,6 +120,14 @@ struct CurrentControlState {
   /// startup FSM). The phase-current vector preserves ia + ib + ic = 0.
   system::ThreePhase<unit::Current> raw_phase_currents{};
   unit::Voltage raw_vdc{};
+
+  /// Hard phase-current limit [A]. Any |phase current| above it trips the
+  /// power stage from inside on_jeoc(). Infinity disables the check.
+  float overcurrent_limit_A{std::numeric_limits<float>::infinity()};
+
+  /// Set by on_jeoc() when the limit was exceeded; the control loop stays
+  /// frozen at neutral duties until clear_overcurrent_trip().
+  volatile bool overcurrent_tripped{false};
 };
 
 /**
@@ -279,6 +288,21 @@ class CurrentControlIsr {
    * @param offset  New trigger offset [timer ticks from PWM peak/trough].
    */
   void set_adc_trigger_offset(uint32_t offset) noexcept;
+
+  /**
+   * @brief Set the hard phase-current limit that trips the power stage.
+   *
+   * Checked on every sample, before any control computation. On exceeding it
+   * on_jeoc() calls hardware::power_stage.Trip() (hardware break, outputs off)
+   * and freezes the control loop at neutral duties.
+   */
+  void set_overcurrent_limit(unit::Current limit) noexcept { state.overcurrent_limit_A = limit.Value(); }
+
+  /// Acknowledges an overcurrent trip. The power stage fault is cleared separately (power_stage.ClearFault()).
+  void clear_overcurrent_trip() noexcept {
+    cc.reset();
+    state.overcurrent_tripped = false;
+  }
 
   // =========================================================================
   // Shared state (accessed by SlowUpdate)

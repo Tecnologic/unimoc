@@ -17,6 +17,7 @@
 #include <cstdarg>
 #include <cstdio>
 #include "hardware_interface.hpp"
+#include "power_stage_interface.hpp"
 
 namespace unimoc {
 namespace startup {
@@ -61,6 +62,12 @@ void HwStartup::request_run() noexcept {
   ext_current_A_ = 0.0f;
   ext_vdc_V_ = 0.0f;
 
+  // A new run is the explicit acknowledgement of a latched break and of an
+  // overcurrent trip. The external enable must still be present (Enable() checks).
+  if (hardware::power_stage.GetState() == hardware::PowerStageState::kFault) hardware::power_stage.ClearFault();
+  cc_.clear_overcurrent_trip();
+  cc_.force_duty(0.5f, 0.5f, 0.5f);  // neutral before the outputs are released
+
   LogInfo(
       "[STARTUP] ================================================\n"
       "[STARTUP] Hardware bring-up sequence started.\n"
@@ -68,6 +75,16 @@ void HwStartup::request_run() noexcept {
       "[STARTUP] Advance each step by writing 1 to\n"
       "[STARTUP]   unimoc.startup.step\n"
       "[STARTUP] ================================================\n");
+
+  // Release the outputs at neutral duty. Without the external enable (jumper,
+  // e-stop) this fails.
+  // The run does not start in that case; the FSM stays IDLE so it can be requested again.
+  if (!hardware::power_stage.Enable()) {
+    cc_.release_force_duty();
+    LogFormatted(hardware::LogLevel::kError,
+                 "[STARTUP] Power stage not released (external enable missing or break active). Not started.\n");
+    return;
+  }
 
   transition_to(FsmState::PWM_DISABLE);
 }
@@ -101,6 +118,14 @@ void HwStartup::run_once() noexcept {
   cc_.state.samples_ready = false;
 
   // OC check applies to all Phase-2 states
+  // The stage is released for the whole run. If it is not any more (hard
+  // overcurrent trip in the ISR, external break, e-stop), stop here.
+  if (state_ != FsmState::IDLE && state_ != FsmState::DONE && state_ != FsmState::FAULT &&
+      hardware::power_stage.GetState() != hardware::PowerStageState::kEnabled) {
+    enter_fault(cc_.state.overcurrent_tripped ? "hard over-current trip" : "power stage broken or blocked");
+    return;
+  }
+
   if (state_ >= FsmState::CONNECT_MOTOR && state_ < FsmState::DONE) {
     if (check_motor_oc()) return;  // enter_fault already called
   }
@@ -246,6 +271,7 @@ void HwStartup::enter_fault(const char* reason) noexcept {
   state_ = FsmState::FAULT;
   results.current_state = FsmState::FAULT;
   cc_.force_duty(0.5f, 0.5f, 0.5f);  // safe neutral
+  hardware::power_stage.Disable();   // outputs off, whatever the duties do
   LogFormatted(hardware::LogLevel::kError, "[STARTUP] *** FAULT: %s ***\n", reason);
 }
 
