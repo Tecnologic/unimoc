@@ -43,41 +43,82 @@ Annahme für die Vorberechnung: Drehzahl konstant über die vier Halbperioden
 - Keine Hall-Erfassung, kein Drehzahlregler im Kern (nur `PositionController`
   in der Lib).
 
-## 3. Entscheidungen, die du treffen musst
+## 3. Entscheidungen
 
-**D1 Preload und synchroner Viertel-IRQ (Empfehlung: ja).** Heute schreibt der
-Hotpath die CCR ohne Preload in den laufenden Zähler. Dadurch muss er fertig
-sein, bevor der Zähler die neue Vergleichsstelle erreicht, bei 95 % Duty etwa
-1,25 µs nach dem Peak. Das schafft kein Code, der mehr tut als die CCR
-schreiben. Mit RCR=0 und CCR-Preload wirken die neuen Werte erst an der nächsten
-Grenze (Peak oder Valley), die Frist ist dann eine Halbperiode (25 µs) und der
-Hotpath kann ruhig 2 bis 3 µs brauchen. Der Preis ist eine Halbperiode mehr
-Totzeit im Regelkreis. Den Viertel-IRQ setzt dann der Hotpath im Sub-Schritt 3
-per `NVIC_SetPendingIRQ` selbst. Er läuft danach direkt, ohne Race zum
-Sub-Schritt-Zähler, und das Polling von `samples_ready` entfällt. Das ändert die
-frühere Vorgabe "Update-IRQ mit RCR=4" ab, die Phase ist aber deterministisch.
+**D1 Preload und synchroner Viertel-IRQ (Empfehlung: ja, wartet auf Bestätigung).**
+Heute schreibt der Hotpath die CCR ohne Preload in den laufenden Zähler. Mit
+RCR=0 und CCR-Preload wirken die neuen Werte erst an der nächsten Grenze (Peak
+oder Valley, in Center-Aligned-Mode erzeugt RCR=0 an beiden ein Update-Ereignis).
+Den Viertel-IRQ setzt der Hotpath im Sub-Schritt 3 per `NVIC_SetPendingIRQ`
+selbst, damit ist die Phase deterministisch und das Polling von `samples_ready`
+entfällt. Das ändert die frühere Vorgabe "Update-IRQ mit RCR=4" ab. Begründung
+siehe Abschnitt 3.1.
 
-**D2 Änderungen in `lib/motor_control` (brauchen deine Freigabe).**
+**D2 Lib-Änderungen (freigegeben).**
 - `MechanicalObserver`: Kovarianzprädiktion und Messupdate trennen
   (`PredictCovariance(dt)`, `UpdateAngle(ε, R)`). `inject_angle_error()` bleibt
-  als Kombination erhalten. Nötig, damit Flussbeobachter und Hall im selben
-  Zyklus je eine Messung mit eigenem R einspeisen, ohne die Kovarianz doppelt
-  zu propagieren.
-- `PmsmFluxObserver::calculate()`: den Winkelfehler zurückgeben statt selbst
-  einzuspeisen (alte Variante als dünner Wrapper behalten).
-- Optional: `std::sin/cos` im Beobachter durch die vorhandene `SinCos`-Tabelle
-  ersetzen.
+  als Kombination erhalten.
+- `PmsmFluxObserver::calculate()` gibt den Winkelfehler zurück (alte Variante
+  als Wrapper).
+- Optional: `std::sin/cos` im Beobachter durch die `SinCos`-Tabelle ersetzen.
+- Der Flussbeobachter läuft **immer**, auch mit angeschlossenem Geber. Er wird
+  nicht abgeschaltet, nur über sein R gewichtet. Messquellen für den Kalman-Filter:
+  Fluss (immer), Hall (wenn vorhanden), optional Geber (kleines R). Mit Geber
+  liefert der Flussbeobachter zusätzlich eine Plausibilitätsprüfung (Fluss-ε
+  gegen Geber-ε). Die Drift des Spannungsmodells im Stillstand muss in M6
+  abgesichert werden (Integratorhaltung oder Leckterm bei kleiner Drehzahl).
 
-**D3 Entkopplung aus welchem Strom (Empfehlung: Mittelwert des letzten
-Viertel-Zyklus).** Heute geht der gemessene Strom ein. Vorberechnet kommt nur
-Strom aus dem letzten Mittel oder aus dem Sollwert in Frage. Im stationären Fall
-ist das gleich, bei schnellen Sollwertsprüngen entkoppelt der Sollwert besser,
-der Mittelwert ist robuster.
+**D3 Entkopplung (entschieden):** aus dem Mittelwert des letzten Zyklus.
 
-**D4 Eigene Sinus/Cosinus-Tabelle für die Ausgangsseite (Empfehlung: ja).** Der
-Inverse Park nutzt heute denselben Winkel wie der Park der Messung. Die Spannung
-wirkt aber etwa 1,5 Halbperioden später (Rechenzeit, Preload, Halten). Mit
-`sc_out[k]` bei θ + ω·(k + Verzögerung)·dt kostet das nichts im Hotpath.
+**D4 Eigene Winkeltabelle für die Ausgangsseite (folgt aus D1).** Mit Preload
+wirkt die Spannung im Mittel 1,5 Halbperioden nach der Messung. Der Winkel
+dafür ist θ + ω·(k + 1,5)·dt, die Verzögerung als Parameter, auf dem Board
+abgestimmt. Kostet im Hotpath nichts.
+
+**Hall (entschieden):** Standard 120°. Polpaare spielen keine Rolle, der
+mechanische Beobachter und Hall arbeiten im elektrischen Winkel.
+
+### 3.1 Hintergrund zu D1
+
+**Ganzzahlarithmetik: nein.** Auf Cortex-M4F kosten Float-Multiplikation und
+-Addition je einen Zyklus (wie ihre Ganzzahl-Pendants), nur Multiply-Accumulate
+(3), Division und Wurzel (14) sind teurer. Q15/Q31 bringt in den Rechenzyklen
+kaum etwas und kostet Skalierung, Überlaufprüfung und die Umstellung der
+float-basierten Lib (`units`). Die Zeit steckt in den Funktionszeigern, dem
+Zurücklesen der CCR, `sqrtf` und den Divisionen. Das fixt M3 ohne Ganzzahl.
+Der Winkel ist schon Festkomma (`RotorAngle`, Sinustabelle).
+
+**Direktes CCR-Schreiben mit der heutigen Strommessung.** Der früheste Zeitpunkt
+für einen Schreibzugriff ist Trigger + Wandlungsdauer (etwa 1,3 µs) + ISR-Zeit,
+also etwa 2,5 µs nach der Messung. Eine Phase mit 90 % Duty schaltet aber schon
+2,5 µs nach dem Peak (25 µs · (1 − 0,9)), eine mit 95 % nach 1,25 µs. Dann:
+- Nur ein Teil der drei Kanäle wirkt noch in dieser Halbperiode, die anderen
+  erst in der nächsten. Das verfälscht die Leiterspannungen.
+- Das Ergebnis hängt vom ISR-Jitter ab (Viertel-IRQ vor dem Hotpath, Flash-Wartezustände).
+- Der nutzbare Duty-Bereich schrumpft auf etwa 10 bis 90 %.
+
+Gewinn des direkten Schreibens: eine Halbperiode weniger Verzögerung (25 µs bei
+20 kHz, 12,5 µs bei 40 kHz). Mit Preload gilt 1,5 Halbperioden bis zum Mittel
+der Wirkung, direkt etwa 0,5 plus ISR-Zeit.
+
+**Wirkung auf die Zielmotoren.** Hoverboard-Nabenmotoren (36 V, Phaseninduktivität
+etwa im mH-Bereich): die Verzögerung spielt keine Rolle. Modellbau-Outrunner
+(200 kV, Induktivität typisch 10 bis 50 µH, elektrisch bis über 1 kHz): bei
+20 kHz sind 37,5 µs bei 1,5 kHz Regelbandbreite etwa 20° Phase, die D4 beim
+Winkel ausgleicht. Bei so kleiner Induktivität ist 20 kHz ohnehin knapp: der
+Stromrippel liegt größenordnungsmäßig bei 10 A Spitze-Spitze (25 V, 20 µH). Es
+wird sich eine höhere PWM-Frequenz lohnen, und dann halbiert sich das Budget
+einer Halbperiode. Das spricht zusätzlich für Preload, weil dort die Frist die
+ganze Halbperiode ist.
+
+**STM32H7.** Das Budget einer Halbperiode steigt von 4250 auf etwa 12000 Zyklen
+(480 MHz) beziehungsweise 13750 (550 MHz bei H723/H725/H73x). Der Cortex-M7 hat
+zwei Pipelines und eine FPU. Auf dem H7 würde ich Code und Hotpath-Daten in
+ITCM/DTCM legen (deterministisch, keine Flash-Wartezustände) und aufpassen,
+dass der Compiler keine Double-Konstanten erzeugt (`-fsingle-precision-constant`).
+Das Konzept (Advanced Timer mit Break, ADC-Injected-Trigger über TRGO) ist
+dasselbe. Auch dort ist Preload sinnvoll, aber wegen des Budgets weniger
+zwingend.
 
 ## 4. Datenfluss
 
@@ -160,11 +201,12 @@ Viertel-IRQ wäre zu grob: bei 333 Hz elektrisch sind 100 µs etwa 12° Fehler.
   Sektorgrenze. Das verhindert, dass der Sektormittelpunkt den Beobachter
   verzieht, und hält ihn im Stillstand im richtigen Sektor ohne Drift.
 
-**Fusion mit dem Flussbeobachter.** Der Flussbeobachter liefert bei kleiner
-Drehzahl kein Signal (Gegen-EMK etwa 0). Sein R wird mit der Drehzahl
-skaliert (R_flux = R0 + k/ω², oder hartes Abschalten unterhalb einer
-Schwelle). Hall bleibt auch bei hoher Drehzahl aktiv und bremst die
-Drift des Flussbeobachters. Im Stillstand und nahe null führt allein Hall.
+**Fusion mit dem Flussbeobachter.** Der Flussbeobachter läuft immer. Bei
+kleiner Drehzahl liefert er kein Signal (Gegen-EMK etwa 0), sein R wird deshalb
+mit der Drehzahl skaliert (R_flux = R0 + k/ω²), er wird nicht abgeschaltet.
+Hall bleibt auch bei hoher Drehzahl aktiv und bremst die Drift des
+Flussbeobachters. Im Stillstand und nahe null führt Hall. Ein angeschlossener
+Geber wird als dritte Messquelle mit kleinem R eingespeist.
 
 **Tabelle der Flankenwinkel.** Nominal 60° Schritte mit einem Offset. Exakt
 bestimmt man sie einmal mit einem Offener-Regelkreis-Lauf (V/f oder
@@ -197,7 +239,7 @@ Jeder Meilenstein baut für BCC und native_sim und lässt den twister grün.
 | M8 | Board: ADC-Ausrichtung, Offset, Hall-Tabelle per Offener-Regelkreis-Lauf, dann geschlossener Stromregler mit 50-A-Limit, Messung der ISR-Zeiten. | Messwerte, Oszilloskop |
 
 Reihenfolge: M0 und M1 zuerst, weil D1 entscheidet, wie viel Zeit der Hotpath
-hat. M2 bis M3 dann gemeinsam. M4 braucht deine Freigabe für die Lib. M5/M6
+hat. M2 bis M3 dann gemeinsam. M4 (Lib-Änderung ist freigegeben). M5/M6
 können nach M4 parallel zu M7 laufen.
 
 ## 7. Risiken und offene Punkte
@@ -217,6 +259,6 @@ können nach M4 parallel zu M7 laufen.
 - **Anlauf.** Im Stillstand kennt die Fusion nur den Sektor (±30°). Das reicht
   für den Anlauf mit etwa 87 % Drehmoment (cos 30°). Das Kalman-Filter konvergiert
   an den ersten Flanken.
-- **Motordaten fehlen.** Polpaarzahl, Hall-Anordnung (120° oder 60°),
-  maximale Drehzahl und Strombelastbarkeit sind nötig für R, die Schwellen und
-  die Tabelle.
+- **Motordaten fehlen.** Maximale elektrische Drehfrequenz, Induktivität und
+  Widerstand der Zielmotoren sind nötig für R, die Schwellen, die Reglerparameter
+  und die PWM-Frequenz (Stromrippel bei kleiner Induktivität).
