@@ -89,9 +89,11 @@ stage is no longer enabled (trip, external break, e-stop), and
   LEDs, CAN slope, break, hall and pulse signals are in the devicetree; FDCAN3
   and USB have pinctrl but stay disabled until their steps. The gate drivers
   (LM5109B) have no enable pin. Not run on hardware yet.
-- The hard overcurrent limit is the profile's `max_phase_current` (100 A on the
-  BCC), but the INA240A2 chain (25 mV/A, 3.3 V) saturates at about +-66 A, so
-  that limit can never fire. Set the profile to a value inside the sensor range.
+- Limits (BCC and sim profile): `max_phase_current` 60 A is the hard trip
+  limit of the power stage (the INA240A2 chain saturates at about +-66 A, so
+  it stays inside the sensor range), `max_motor_current` and the factory
+  `motor_i_max` 50 A limit the current controller. The battery current limits
+  are still the old values.
 - Nothing watches the power stage after the startup run is DONE except the
   ISR overcurrent trip; the hardware break still works. The analog watchdog is
   not configured.

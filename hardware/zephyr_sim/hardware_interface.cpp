@@ -34,11 +34,11 @@ namespace {
 
 const settings::SettingsProfile kSettingsProfile = [] {
   settings::SettingsProfile profile{};
-  profile.factory_settings.motor_i_max = 80.0_A;
+  profile.factory_settings.motor_i_max = 50.0_A;  // current controller limit
   profile.factory_settings.battery_drive_current_max = 50.0_A;
   profile.factory_settings.battery_charge_current_max = 20.0_A;
-  profile.capabilities.max_phase_current = 100.0_A;
-  profile.capabilities.max_motor_current = 80.0_A;
+  profile.capabilities.max_phase_current = 60.0_A;  // hard trip limit of the power stage
+  profile.capabilities.max_motor_current = 50.0_A;
   profile.capabilities.max_battery_drive_current = 50.0_A;
   profile.capabilities.max_battery_charge_current = 20.0_A;
   return profile;
