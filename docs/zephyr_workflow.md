@@ -49,6 +49,19 @@ Both BCC interrupts are zero-latency direct ISRs (`IRQ_ZERO_LATENCY`,
 no logging in the callbacks. They share one NVIC level and do not preempt each
 other. `tests/twister/sim_irq_cadence` checks the 1/4 cadence of the simulation.
 
+## Power stage release
+
+`PowerStageInterface` (`hardware/power_stage_interface.hpp`): the outputs stay
+off after init (MOE = 0, idle level driven). The controller releases them with
+`Enable()`; `Disable()` and `Trip()` (overcurrent in the fast ISR, analog
+watchdog, runaway controller) switch them off, `Trip()` also latches a fault
+until `ClearFault()`. On the BCC the external enable is the break input
+TIM8_BKIN (PA10, active low, internal pull-down): the Enable connector only
+ties it to 3V3 through 1k and does not supply the logic. Removing it breaks in
+hardware, and `Enable()` fails while it is missing or a fault is latched.
+States: disabled, enabled, fault, blocked. The simulation mirrors this and
+offers `sim::SetExternalEnable()`.
+
 ## Known issues
 
 - `control_mode_test` and `nvm_settings_test` are skipped: they still use the
@@ -56,9 +69,9 @@ other. `tests/twister/sim_irq_cadence` checks the 1/4 cadence of the simulation.
 - Pins were taken from the KiCad netlist (Tecnologic/battery-case-controller).
   LEDs, CAN slope, break, hall and pulse signals are in the devicetree; FDCAN3
   and USB have pinctrl but stay disabled until their steps. The gate drivers
-  (LM5109B) have no enable pin. The break input (PA10 = TIM8_BKIN) is not
-  configured, nor is dead time (as in the modm code); MOE is set at init.
-  Not run on hardware yet.
+  (LM5109B) have no enable pin. Dead time is not configured (as in the modm
+  code), the complementary outputs switch without a gap unless the gate
+  circuit provides one. Not run on hardware yet.
 - The schematic symbol of U43 is an STM32G491CxT, the firmware targets the
   STM32G473CBT6 (FDCAN3 on PB3/PB4 and ADC4/ADC5 only exist there).
 - The CAN transceiver is a SN65HVD230 (classic CAN, no CAN FD).

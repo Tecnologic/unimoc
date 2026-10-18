@@ -18,6 +18,7 @@
 
 #include <zephyr/device.h>
 #include <zephyr/drivers/clock_control.h>
+#include <zephyr/drivers/gpio.h>
 #include <zephyr/drivers/pinctrl.h>
 #include <zephyr/irq.h>
 #include <zephyr/kernel.h>
@@ -49,6 +50,13 @@ constexpr uint32_t kRepetitionCounter = kSlowUpdateDivider - 1U;
 
 TIM_TypeDef* const kTim = reinterpret_cast<TIM_TypeDef*>(kTimerBase);
 ADC_TypeDef* const kAdcFast = reinterpret_cast<ADC_TypeDef*>(kAdcPhaseA.base);
+
+// Break input (net PWM_BREAK): the external enable. High = released, low or open = break.
+const struct gpio_dt_spec kEnableInput = GPIO_DT_SPEC_GET_BY_IDX(DT_PATH(zephyr_user), break_gpios, 0);
+
+// BDTR: break input on, active low, 3 = 8 samples at f_DTS filter (about 50 ns);
+// idle level (low) is driven while MOE = 0 (OSSI/OSSR), no automatic re-enable.
+constexpr uint32_t kBreakConfig = TIM_BDTR_BKE | (3U << TIM_BDTR_BKF_Pos) | TIM_BDTR_OSSI | TIM_BDTR_OSSR;
 
 const struct device* const kRcc = DEVICE_DT_GET(STM32_CLOCK_CONTROL_NODE);
 
@@ -143,6 +151,8 @@ void ApplyTriggerLead(const uint32_t ticks) noexcept {
   kTim->CCR6 = lead;
 }
 
+bool ExternalEnablePresent() noexcept { return gpio_pin_get_raw(kEnableInput.port, kEnableInput.pin) > 0; }
+
 bool InitTimer(const uint32_t pwm_hz, const uint32_t trigger_offset) noexcept {
   struct stm32_pclken pclken = UNIMOC_CLOCK_INFO(0, UNIMOC_FOC_TIMER);
   if (clock_control_on(kRcc, reinterpret_cast<clock_control_subsys_t>(&pclken)) != 0) return false;
@@ -170,11 +180,15 @@ bool InitTimer(const uint32_t pwm_hz, const uint32_t trigger_offset) noexcept {
   kTim->CCMR1 = (6U << TIM_CCMR1_OC1M_Pos) | (6U << TIM_CCMR1_OC2M_Pos);
   kTim->CCMR2 = (6U << TIM_CCMR2_OC3M_Pos) | (7U << TIM_CCMR2_OC4M_Pos);
   kTim->CCMR3 = (6U << TIM_CCMR3_OC6M_Pos);
-  kTim->CCR1 = 0U;
-  kTim->CCR2 = 0U;
-  kTim->CCR3 = 0U;
+  // Neutral (50 %) start: enabling must not brake the phases.
+  kTim->CCR1 = g_auto_reload / 2U;
+  kTim->CCR2 = g_auto_reload / 2U;
+  kTim->CCR3 = g_auto_reload / 2U;
   ApplyTriggerLead(trigger_offset);
   kTim->CCER = TIM_CCER_CC1E | TIM_CCER_CC1NE | TIM_CCER_CC2E | TIM_CCER_CC2NE | TIM_CCER_CC3E | TIM_CCER_CC3NE;
+
+  // Break on, outputs held in the idle (off) state. MOE stays 0 until PowerStageEnable().
+  kTim->BDTR = kBreakConfig;
 
   kTim->EGR = TIM_EGR_UG;  // load ARR, RCR; written before CEN: odd RCR updates at the peak
   kTim->SR = 0U;
@@ -210,9 +224,29 @@ bool Initialize(const unit::Frequency pwm_frequency,
   irq_enable(kFastIrq);
   irq_enable(kTimerUpdateIrq);
 
-  kTim->BDTR |= TIM_BDTR_MOE;  // outputs live; dead time and break are not configured yet
   kTim->CR1 |= TIM_CR1_CEN;
   return true;
+}
+
+bool PowerStageEnable() noexcept {
+  if ((kTim->BDTR & TIM_BDTR_MOE) != 0U) return true;
+  if (!ExternalEnablePresent()) return false;
+  if ((kTim->SR & TIM_SR_BIF) != 0U) return false;  // fault latched
+  kTim->BDTR |= TIM_BDTR_MOE;  // ignored by the hardware while the break input is active
+  return (kTim->BDTR & TIM_BDTR_MOE) != 0U;
+}
+
+void PowerStageDisable() noexcept { kTim->BDTR &= ~TIM_BDTR_MOE; }
+
+void PowerStageTrip() noexcept { kTim->EGR = TIM_EGR_BG; }  // clears MOE, sets BIF
+
+void PowerStageClearFault() noexcept { kTim->SR = ~TIM_SR_BIF; }  // rc_w0
+
+PowerStageState GetPowerStageState() noexcept {
+  if ((kTim->BDTR & TIM_BDTR_MOE) != 0U) return PowerStageState::kEnabled;
+  if (!ExternalEnablePresent()) return PowerStageState::kBlocked;
+  if ((kTim->SR & TIM_SR_BIF) != 0U) return PowerStageState::kFault;
+  return PowerStageState::kDisabled;
 }
 
 uint32_t TimerClockFrequency() noexcept { return g_timer_clock_hz; }

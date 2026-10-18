@@ -3,6 +3,8 @@
 #include <zephyr/ztest.h>
 
 #include "hardware_interface.hpp"
+#include "power_stage_interface.hpp"
+#include "sim_control.hpp"
 
 namespace {
 
@@ -43,5 +45,53 @@ ZTEST(sim_irq_cadence, test_slow_irq_every_fourth_fast_irq) {
   zassert_equal(slow, fast / kSlowUpdateDivider, "fast=%u slow=%u", fast, slow);
   zassert_equal(misaligned, 0U);
 }
+
+ZTEST(sim_power_stage, test_enable_needs_external_enable) {
+  using unimoc::hardware::PowerStageState;
+  using unimoc::hardware::power_stage;
+  unimoc::hardware::sim::SetExternalEnable(false);
+  power_stage.ClearFault();
+  zassert_equal(power_stage.GetState(), PowerStageState::kBlocked);
+  zassert_false(power_stage.Enable());
+
+  unimoc::hardware::sim::SetExternalEnable(true);
+  zassert_equal(power_stage.GetState(), PowerStageState::kFault, "break from the removed enable stays latched");
+  zassert_false(power_stage.Enable());
+  power_stage.ClearFault();
+  zassert_equal(power_stage.GetState(), PowerStageState::kDisabled);
+  zassert_true(power_stage.Enable());
+  zassert_equal(power_stage.GetState(), PowerStageState::kEnabled);
+}
+
+ZTEST(sim_power_stage, test_trip_latches_until_cleared) {
+  using unimoc::hardware::PowerStageState;
+  using unimoc::hardware::power_stage;
+  unimoc::hardware::sim::SetExternalEnable(true);
+  power_stage.ClearFault();
+  zassert_true(power_stage.Enable());
+
+  power_stage.Trip();
+  zassert_equal(power_stage.GetState(), PowerStageState::kFault);
+  zassert_false(power_stage.Enable());
+  power_stage.ClearFault();
+  zassert_true(power_stage.Enable());
+
+  power_stage.Disable();
+  zassert_equal(power_stage.GetState(), PowerStageState::kDisabled);
+}
+
+ZTEST(sim_power_stage, test_enable_removed_while_running_breaks) {
+  using unimoc::hardware::PowerStageState;
+  using unimoc::hardware::power_stage;
+  unimoc::hardware::sim::SetExternalEnable(true);
+  power_stage.ClearFault();
+  zassert_true(power_stage.Enable());
+  unimoc::hardware::sim::SetExternalEnable(false);
+  zassert_equal(power_stage.GetState(), PowerStageState::kBlocked);
+  unimoc::hardware::sim::SetExternalEnable(true);
+  zassert_equal(power_stage.GetState(), PowerStageState::kFault);
+}
+
+ZTEST_SUITE(sim_power_stage, nullptr, nullptr, nullptr, nullptr, nullptr);
 
 ZTEST_SUITE(sim_irq_cadence, nullptr, nullptr, nullptr, nullptr, nullptr);

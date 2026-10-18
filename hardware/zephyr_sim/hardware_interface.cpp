@@ -20,7 +20,9 @@
  */
 
 #include "hardware_interface.hpp"
+#include "power_stage_interface.hpp"
 #include "ram_settings_storage.hpp"
+#include "sim_control.hpp"
 
 #include <zephyr/kernel.h>
 
@@ -100,6 +102,53 @@ void SetAdcTriggerOffset(uint32_t) noexcept {}
 uint32_t GetTimerClockFrequency() noexcept { return 170'000'000U; }
 
 }  // namespace
+
+namespace {
+
+// Mirrors the BCC: the external enable only allows the release, a break
+// switches off and latches until it is acknowledged.
+struct SimPowerStage {
+  volatile bool external_enable = true;
+  volatile bool enabled = false;
+  volatile bool fault = false;
+} g_power_stage;
+
+bool PowerStageEnable() noexcept {
+  if (g_power_stage.enabled) return true;
+  if (!g_power_stage.external_enable || g_power_stage.fault) return false;
+  g_power_stage.enabled = true;
+  return true;
+}
+
+void PowerStageDisable() noexcept { g_power_stage.enabled = false; }
+
+void PowerStageTrip() noexcept {
+  g_power_stage.enabled = false;
+  g_power_stage.fault = true;
+}
+
+// An active break input latches again, as BIF does on the hardware.
+void PowerStageClearFault() noexcept { g_power_stage.fault = !g_power_stage.external_enable; }
+
+PowerStageState GetPowerStageState() noexcept {
+  if (g_power_stage.enabled) return PowerStageState::kEnabled;
+  if (!g_power_stage.external_enable) return PowerStageState::kBlocked;
+  return g_power_stage.fault ? PowerStageState::kFault : PowerStageState::kDisabled;
+}
+
+}  // namespace
+
+namespace sim {
+
+void SetExternalEnable(const bool present) noexcept {
+  g_power_stage.external_enable = present;
+  if (!present) PowerStageTrip();  // the break input latches, like BIF
+}
+
+}  // namespace sim
+
+PowerStageInterface power_stage{
+    PowerStageEnable, PowerStageDisable, PowerStageTrip, PowerStageClearFault, GetPowerStageState};
 
 HardwareSettingsInterface settings{kSettingsProfile, kSettingsStorage};
 

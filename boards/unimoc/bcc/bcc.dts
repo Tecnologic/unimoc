@@ -85,6 +85,7 @@
 		pinctrl-0 = <&tim8_ch1_pb6 &tim8_ch1n_pa7
 			     &tim8_ch2_pb8 &tim8_ch2n_pb0
 			     &tim8_ch3_pb9 &tim8_ch3n_pb5
+			     &tim8_bkin_pa10
 			     &analog_pa0 &analog_pa2
 			     &analog_pa1 &analog_pa6
 			     &analog_pb1 &analog_pb13
@@ -118,6 +119,15 @@
 			       "24.5", "24.5",   /* vdc, crank torque */
 			       "24.5", "24.5";   /* motor temp, bridge temp */
 	};
+};
+
+/*
+ * Break input = external enable (net PWM_BREAK). The Enable connector ties it
+ * to 3V3 through 1k when bridged; open it floats, so pull it down: no jumper,
+ * no release.
+ */
+&tim8_bkin_pa10 {
+	bias-pull-down;
 };
 
 &clk_hse {

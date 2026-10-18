@@ -16,6 +16,7 @@
 #include <cstdint>
 
 #include "hardware_interface.hpp"
+#include "power_stage_interface.hpp"
 
 namespace unimoc::hardware::foc_stm32g4 {
 
@@ -41,6 +42,8 @@ namespace unimoc::hardware::foc_stm32g4 {
  * fast interrupt should be written before the first compare match after the
  * boundary.
  *
+ * The outputs are held off (idle level, MOE = 0) until PowerStageEnable().
+ *
  * Both interrupts are zero-latency IRQs: they run outside of the kernel and
  * the callbacks must not use any kernel API (no logging, no k_* calls).
  *
@@ -54,6 +57,21 @@ namespace unimoc::hardware::foc_stm32g4 {
                               uint32_t adc_trigger_offset,
                               HardwareInterface::CurrentControlCallback current_control,
                               HardwareInterface::SlowUpdateCallback slow_update) noexcept;
+
+/**
+ * @name Power stage release
+ * The outputs stay off after Initialize(). The external enable is the break
+ * input TIM8_BKIN (active low, internal pull-down): when it drops, the timer
+ * clears MOE in hardware and latches BIF. PowerStageTrip() generates the same
+ * break from software. All of these are plain register accesses.
+ * @{
+ */
+[[nodiscard]] bool PowerStageEnable() noexcept;
+void PowerStageDisable() noexcept;
+void PowerStageTrip() noexcept;
+void PowerStageClearFault() noexcept;
+[[nodiscard]] PowerStageState GetPowerStageState() noexcept;
+/** @} */
 
 [[nodiscard]] uint32_t TimerClockFrequency() noexcept;
 

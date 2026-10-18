@@ -128,6 +128,12 @@ uint32_t GetTimerClockFrequency() noexcept {
 
 HardwareSettingsInterface settings{kSettingsProfile, kSettingsStorage};
 
+PowerStageInterface power_stage{foc_stm32g4::PowerStageEnable,
+                                foc_stm32g4::PowerStageDisable,
+                                foc_stm32g4::PowerStageTrip,
+                                foc_stm32g4::PowerStageClearFault,
+                                foc_stm32g4::GetPowerStageState};
+
 HardwareInterface motor[MOTORS] = {HardwareInterface(Initialize,
                                                      GetPhaseCurrents,
                                                      GetPhaseVoltages,
