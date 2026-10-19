@@ -1,4 +1,52 @@
 {
     "version": "0.2.0",
-    "configurations": []
+    "configurations": [
+        {
+            "name": "Debug native_sim (Zephyr)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/../build/sim/zephyr/zephyr.exe",
+            "args": [],
+            "cwd": "${workspaceFolder}/../build/sim",
+            "stopAtEntry": false,
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "miDebuggerPath": "/usr/bin/gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
+            "name": "Debug BCC (Zephyr)",
+            "type": "cortex-debug",
+            "request": "launch",
+            "cwd": "${workspaceFolder}/../build/bcc",
+            "executable": "${workspaceFolder}/../build/bcc/zephyr/zephyr.elf",
+            "servertype": "jlink",
+            "device": "STM32G473CB",
+            "interface": "swd",
+            "armToolchainPath": "/home/alex/zephyr-sdk-1.0.1/gnu/arm-zephyr-eabi/bin",
+            "runToEntryPoint": "main",
+            "breakAfterReset": true,
+            "rttConfig": {
+                "enabled": true,
+                "address": "auto",
+                "decoders": [
+                    {
+                        "label": "Zephyr log",
+                        "port": 0,
+                        "type": "console"
+                    }
+                ]
+            },
+            "liveWatch": {
+                "enabled": true,
+                "samplesPerSecond": 4
+            }
+        }
+    ]
 }

@@ -101,7 +101,7 @@
 			"--background-index",
 			"--completion-style=detailed",
 			"--header-insertion=never",
-			"--query-driver=/home/alex/.zephyr_ide/toolchains/**/*"
+			"--query-driver=/home/alex/.zephyr_ide/toolchains/**/*,/home/alex/zephyr-sdk-1.0.1/**/*"
 		],
 		"C_Cpp.intelliSenseEngine": "disabled",
 		"editor.formatOnSaveMode": "modificationsIfAvailable",
@@ -122,7 +122,8 @@
 			"/^ctest\\b/": true,
 			"/^clang-format\\b/": true,
 			"/^clang-tidy\\b/": true,
-			"/^arm-none-eabi-.*/": true,
+			"/^arm-zephyr-eabi-.*/": true,
+			"/^west\\b/": true,
 			"/^git\\s+(status|diff|log)/": true
 		},
 		"terminal.integrated.defaultProfile.linux": "Zephyr IDE Terminal",
