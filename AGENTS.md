@@ -27,6 +27,9 @@ Read `README.md` for the supported motor types and public features, and
 - `lib/motor_control/` contains the portable coordinate systems, control
   algorithms, and observers. Its public headers live in `src/` and focused
   tests live in `tests/`.
+- `lib/sim/` is the portable motor plant simulation (`MotorSimulation`: inverter,
+  motor models, shaft, Hall sensors) for `native_sim` and hosted tests. It is
+  not part of `unimoc_lib`.
 - `lib/settings/`, `lib/units/`, and `lib/cyphal/` are separate library
   dependencies. The Zephyr build links them through `unimoc_lib`
   (`cmake/UnimocZephyr.cmake`).
