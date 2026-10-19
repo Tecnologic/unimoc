@@ -6,7 +6,6 @@ function(enable_doxygen)
     set(DOXYGEN_EXTRACT_ALL YES)
     set(DOXYGEN_EXCLUDE_PATTERNS
         "*/cymon/*"
-        "*/gitversion/*"
         "*/_deps/*"
         "*/build/*")
     find_package(Doxygen REQUIRED dot)

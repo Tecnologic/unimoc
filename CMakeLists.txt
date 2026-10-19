@@ -44,12 +44,6 @@ if(HARDWARE_DIRECTORY)
     target_compile_definitions(project_options INTERFACE RUNNING_ON_HOST)
   else ()
     target_compile_definitions(project_options INTERFACE RUNNING_ON_TARGET)
-
-    # gitversion is only needed for firmware targets; include the local
-    # vendored tool here so hosted/test builds do not invoke it.
-    INCLUDE(${CMAKE_SOURCE_DIR}/lib/gitversion/cmake.cmake)
-    # attach gitversion to the firmware executable created by the hardware directory
-    TARGET_GIT_VERSION_INIT(${CMAKE_PROJECT_NAME})
   endif()
 else()
   # Even without a hardware implementation directory, expose the hardware/

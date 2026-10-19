@@ -18,6 +18,8 @@
 #include <cstring>
 #include <string_view>
 
+#include "cyphal/sw_version.hpp"
+
 /**
  * @namespace unimoc global namespace
  */
@@ -34,14 +36,6 @@ inline constexpr uint8_t NODE_NAME_MAX_LEN = 50;
 /// Length of the hardware unique-ID array (bytes).
 /// Matches the UAVCAN/Cyphal GetInfo response layout.
 inline constexpr uint8_t UNIQUE_ID_LEN = 16;
-
-#ifndef UNIMOC_SW_VERSION_MAJOR
-#define UNIMOC_SW_VERSION_MAJOR 1
-#endif
-
-#ifndef UNIMOC_SW_VERSION_MINOR
-#define UNIMOC_SW_VERSION_MINOR 0
-#endif
 
 /**
  * @brief Node identity record for a UNIMOC drive node.

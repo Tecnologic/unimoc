@@ -52,7 +52,7 @@ Read `README.md` for the supported motor types and public features, and
   unchanged on `native_sim`, and simulation checks cover IRQ cadence and
   overcurrent handling.
 - `docs/` contains the plans and the workflow notes. `TODO.md` lists open topics.
-- `lib/cymon/` is a submodule; `lib/gitversion/` is vendored project code.
+- `lib/cymon/` is a submodule.
   Do not modify `lib/cymon/` unless the task explicitly concerns that
   dependency.
 
