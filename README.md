@@ -693,7 +693,9 @@ beginning.
 
 ### Building the Hosted Tests
 
-Requirements: GCC ≥ 13, Ninja, Python ≥ 3.8, CMake 4.x (`pip install cmake`).
+Requirements: GCC ≥ 13, Ninja, Python ≥ 3.8, CMake ≥ 3.25 (`pip install cmake`).
+The project files require CMake 3.20 (Zephyr's minimum); the presets need 3.25
+for the workflow presets.
 
 ```bash
 # Install CMake 4.x
@@ -735,7 +737,7 @@ contains only UNIMOC-owned C++ code.
 ### Building Firmware (Zephyr)
 
 Requirements: Zephyr 4.4.0 with the Zephyr SDK 1.0.1 (`arm-zephyr-eabi`),
-CMake ≥ 4.0, Ninja, Python 3 with `west`.  On Windows, run the build in WSL2.
+CMake ≥ 3.20 (Zephyr's minimum), Ninja, Python 3 with `west`.  On Windows, run the build in WSL2.
 The setup steps are in [`docs/zephyr_workflow.md`](docs/zephyr_workflow.md).
 
 Run these from the west workspace root, which contains `unimoc/` and `zephyr/`:

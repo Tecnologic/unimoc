@@ -14,7 +14,7 @@ Platform selection is done by the build (board -> Kconfig `UNIMOC_PLATFORM_*` ->
     python3 -m venv .zvenv && . .zvenv/bin/activate && pip install west
     mkdir ws && cd ws && west init -l ../unimoc   # or: west init -m <repo> --mr feature/zephyr-port ws
     west update && west packages pip --install
-    # Zephyr SDK 1.0.1 (arm-zephyr-eabi) and CMake >= 4.0 required
+    # Zephyr SDK 1.0.1 (arm-zephyr-eabi) and CMake >= 3.20 required (Zephyr's minimum)
 
 ## Build
 

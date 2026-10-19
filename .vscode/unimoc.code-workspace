@@ -1,11 +1,13 @@
 {
 	"folders": [
 		{
-			"name": "unimoc",
-			"path": ".."
+			"name": "zephyr-ws",
+			"path": "../.."
 		}
 	],
 	"settings": {
+		"zephyr-ide.zephyrBaseOverride": "zephyr",
+		"zephyr-ide.useClangd": true,
 		"files.associations": {
 			"array": "cpp",
 			"atomic": "cpp",
@@ -101,7 +103,7 @@
 			"--background-index",
 			"--completion-style=detailed",
 			"--header-insertion=never",
-			"--query-driver=/home/alex/.zephyr_ide/toolchains/**/*,/home/alex/zephyr-sdk-1.0.1/**/*"
+			"--query-driver=/home/alex/.zephyr_ide/toolchains/**/*"
 		],
 		"C_Cpp.intelliSenseEngine": "disabled",
 		"editor.formatOnSaveMode": "modificationsIfAvailable",
