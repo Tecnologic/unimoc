@@ -56,22 +56,7 @@
 				"$base"
 			],
 			"ZEPHYR_BASE": "/home/alex/zephyr-ws/zephyr",
-			"ZEPHYR_TOOLCHAIN_VARIANT": "zephyr",
 			"ZEPHYR_SDK_INSTALL_DIR": "/home/alex/zephyr-sdk-1.0.1"
-		},
-		"nrf-connect.buildConfigurations": {
-			"${workspaceFolder}/app": [
-				{
-					"name": "sim",
-					"board": "native_sim/native/64",
-					"buildDir": "${workspaceFolder}/app/build/sim"
-				},
-				{
-					"name": "bcc",
-					"board": "bcc",
-					"buildDir": "${workspaceFolder}/app/build/bcc"
-				}
-			]
 		},
 		"nrf-connect.debugging.bindings": {
 			"${workspaceFolder}/app/build/sim": "Debug native_sim (Zephyr)",

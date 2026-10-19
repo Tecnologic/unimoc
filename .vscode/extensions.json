@@ -3,6 +3,7 @@
         "llvm-vs-code-extensions.vscode-clangd",
         "ms-vscode.cmake-tools",
         "nordic-semiconductor.nrf-connect",
-        "marus25.cortex-debug"
+        "marus25.cortex-debug",
+        "actboy168.tasks"
     ]
 }
