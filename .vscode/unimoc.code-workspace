@@ -41,6 +41,33 @@
 			"/^git\\s+(status|diff|log)/": true
 		},
 		"cmake.configureOnOpen": false,
+		"VsCodeTaskButtons.showCounter": false,
+		"VsCodeTaskButtons.tasks": [
+			{
+				"label": "$(tools) Build all",
+				"task": "Zephyr: build all",
+				"tooltip": "Build native_sim and BCC"
+			},
+			{
+				"label": "$(play) Run sim",
+				"task": "Zephyr: run sim",
+				"tooltip": "Build and run native_sim on the host"
+			},
+			{
+				"label": "$(beaker) Test",
+				"task": "Zephyr: twister (native_sim + bcc)",
+				"tooltip": "Run twister for native_sim and BCC"
+			},
+			{
+				"label": "$(folder) Unimoc",
+				"tooltip": "More Zephyr tasks",
+				"tasks": [
+					{ "label": "Build sim", "task": "Zephyr: build sim" },
+					{ "label": "Build BCC", "task": "Zephyr: build bcc" },
+					{ "label": "Flash BCC", "task": "Zephyr: flash bcc" }
+				]
+			}
+		],
 		"nrf-connect.applications": [
 			"${workspaceFolder}/app"
 		],

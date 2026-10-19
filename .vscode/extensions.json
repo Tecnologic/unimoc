@@ -4,6 +4,6 @@
         "ms-vscode.cmake-tools",
         "nordic-semiconductor.nrf-connect",
         "marus25.cortex-debug",
-        "actboy168.tasks"
+        "spencerwmiles.vscode-task-buttons"
     ]
 }

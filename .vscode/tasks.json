@@ -14,24 +14,14 @@
             "type": "shell",
             "command": "west build -b native_sim/native/64 unimoc/app -d unimoc/app/build/sim",
             "problemMatcher": "$gcc",
-            "group": "build",
-            "options": {
-                "statusbar": {
-                    "label": "$(gear) Sim"
-                }
-            }
+            "group": "build"
         },
         {
             "label": "Zephyr: build bcc",
             "type": "shell",
             "command": "west build -b bcc unimoc/app -d unimoc/app/build/bcc",
             "problemMatcher": "$gcc",
-            "group": "build",
-            "options": {
-                "statusbar": {
-                    "label": "$(gear) BCC"
-                }
-            }
+            "group": "build"
         },
         {
             "label": "Zephyr: build all",
@@ -44,11 +34,6 @@
             "group": {
                 "kind": "build",
                 "isDefault": true
-            },
-            "options": {
-                "statusbar": {
-                    "label": "$(tools) Build all"
-                }
             }
         },
         {
@@ -57,12 +42,7 @@
             "command": "west build -d unimoc/app/build/sim -t run",
             "dependsOn": "Zephyr: build sim",
             "problemMatcher": [],
-            "isBackground": false,
-            "options": {
-                "statusbar": {
-                    "label": "$(play) Run sim"
-                }
-            }
+            "isBackground": false
         },
         {
             "label": "Zephyr: twister (native_sim + bcc)",
@@ -72,11 +52,6 @@
             "group": {
                 "kind": "test",
                 "isDefault": true
-            },
-            "options": {
-                "statusbar": {
-                    "label": "$(beaker) Test"
-                }
             }
         },
         {
@@ -84,12 +59,7 @@
             "type": "shell",
             "command": "west flash -d unimoc/app/build/bcc",
             "dependsOn": "Zephyr: build bcc",
-            "problemMatcher": [],
-            "options": {
-                "statusbar": {
-                    "label": "$(zap) Flash"
-                }
-            }
+            "problemMatcher": []
         }
     ]
 }
