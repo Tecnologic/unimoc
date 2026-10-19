@@ -744,10 +744,10 @@ Run these from the west workspace root, which contains `unimoc/` and `zephyr/`:
 
 ```bash
 # Linux host simulation (native_sim)
-west build -b native_sim/native/64 unimoc/app
+west build -b native_sim/native/64 unimoc/app -d unimoc/app/build/sim
 
 # Battery Case Controller (STM32G473)
-west build -b bcc unimoc/app
+west build -b bcc unimoc/app -d unimoc/app/build/bcc
 
 # Zephyr test scenarios (lib tests on native_sim, simulation checks)
 west twister -T unimoc -p native_sim/native/64 -p bcc

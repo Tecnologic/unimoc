@@ -36,6 +36,7 @@
 # build folder
 build/*
 build_test/
+app/build/
 .venv/
 
 # CMake Tools compilation database for clangd

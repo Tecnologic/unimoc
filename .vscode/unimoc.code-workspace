@@ -1,13 +1,11 @@
 {
 	"folders": [
 		{
-			"name": "zephyr-ws",
-			"path": "../.."
+			"name": "unimoc",
+			"path": ".."
 		}
 	],
 	"settings": {
-		"zephyr-ide.zephyrBaseOverride": "zephyr",
-		"zephyr-ide.useClangd": true,
 		"files.associations": {
 			"array": "cpp",
 			"atomic": "cpp",
@@ -99,11 +97,11 @@
 		"cmake.copyCompileCommands": "${workspaceFolder}/compile_commands.json",
 		"cmake.autoSelectActiveFolder": false,
 		"clangd.arguments": [
-			"--compile-commands-dir=${workspaceFolder}",
+			"--compile-commands-dir=${workspaceFolder}/app/build/bcc",
 			"--background-index",
 			"--completion-style=detailed",
 			"--header-insertion=never",
-			"--query-driver=/home/alex/.zephyr_ide/toolchains/**/*"
+			"--query-driver=/home/alex/zephyr-sdk-1.0.1/**/*"
 		],
 		"C_Cpp.intelliSenseEngine": "disabled",
 		"editor.formatOnSaveMode": "modificationsIfAvailable",
@@ -128,7 +126,24 @@
 			"/^west\\b/": true,
 			"/^git\\s+(status|diff|log)/": true
 		},
-		"terminal.integrated.defaultProfile.linux": "Zephyr IDE Terminal",
-		"cmake.configureOnOpen": false
+		"cmake.configureOnOpen": false,
+		"nrf-connect.applications": [
+			"${workspaceFolder}/app"
+		],
+		"nrf-connect.boardRoots": [
+			"${workspaceFolder}"
+		],
+		"nrf-connect.west.env": {
+			"$base": "terminal",
+			"PATH": [
+				"/home/alex/zephyr-ws/.venv/bin",
+				"$base"
+			],
+			"ZEPHYR_SDK_INSTALL_DIR": "/home/alex/zephyr-sdk-1.0.1"
+		},
+		"nrf-connect.debugging.bindings": {
+			"${workspaceFolder}/app/build/sim": "Debug native_sim (Zephyr)",
+			"${workspaceFolder}/app/build/bcc": "Debug BCC (Zephyr)"
+		}
 	}
 }

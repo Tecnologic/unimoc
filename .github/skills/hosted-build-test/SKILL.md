@@ -105,8 +105,8 @@ changes, build the target the change touches from the west workspace root,
 after confirming the Zephyr SDK and west setup in `docs/zephyr_workflow.md`:
 
 ```text
-west build -b native_sim/native/64 unimoc/app
-west build -b bcc unimoc/app
+west build -b native_sim/native/64 unimoc/app -d unimoc/app/build/sim
+west build -b bcc unimoc/app -d unimoc/app/build/bcc
 ```
 
 Hosted tests do not prove hardware

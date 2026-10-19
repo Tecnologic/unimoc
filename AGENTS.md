@@ -103,8 +103,8 @@ Run these from the west workspace root, which contains `unimoc/` and `zephyr/`.
 Setup is in `docs/zephyr_workflow.md`. On Windows the Zephyr builds run in WSL2.
 
 ```sh
-west build -b native_sim/native/64 unimoc/app   # host simulation
-west build -b bcc unimoc/app                    # battery case controller
+west build -b native_sim/native/64 unimoc/app -d unimoc/app/build/sim   # host simulation
+west build -b bcc unimoc/app -d unimoc/app/build/bcc                      # battery case controller
 west twister -T unimoc -p native_sim/native/64 -p bcc
 ```
 
@@ -176,7 +176,8 @@ Before finishing a change:
 	 do not treat a successful build or editor diagnostics as a substitute. If
 	 the workflow cannot run, report the blocker and the checks that did run.
 3. Check the diff for accidental changes to generated files, build output, or
-	 submodules. The west workspace (`zephyr/`, `modules/`, `build/`) is not part of this repository.
+	 submodules. The west workspace (`zephyr/`, `modules/`, `build/`) is not part of this repository,
+	 and the Zephyr build folders in `app/build/` are git-ignored.
 4. Update `README.md`, `CONTEXT.md`, and the affected `docs/` plan when
 	 user-visible behavior, configuration, build steps, hardware bring-up
 	 behavior, or a planned decision changes.

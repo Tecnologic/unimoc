@@ -18,8 +18,8 @@ Platform selection is done by the build (board -> Kconfig `UNIMOC_PLATFORM_*` ->
 
 ## Build
 
-    west build -b native_sim/native/64 unimoc/app   # host simulation
-    west build -b bcc unimoc/app                    # battery case controller
+    west build -b native_sim/native/64 unimoc/app -d unimoc/app/build/sim   # host simulation
+    west build -b bcc unimoc/app -d unimoc/app/build/bcc                      # battery case controller
 
 ## Tests
 
