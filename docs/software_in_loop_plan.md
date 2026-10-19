@@ -1,5 +1,11 @@
 # Host Software-in-the-Loop Plan
 
+> **Status (2026-10-19):** partly superseded. The single-motor host runtime is
+> the Zephyr `native_sim` platform (`hardware/zephyr_sim/`, see
+> `docs/zephyr_port_plan.md`, Phase 2), not `hardware/host/`. The portable
+> simulation library, the multi-motor coordinator and the Python GUI plans
+> still apply. Where this file says `hardware/host`, read `hardware/zephyr_sim`.
+
 ## Goal
 
 Build a deterministic software-in-the-loop (SIL) environment that runs the real UNIMOC control runtime against simulated motors on the host. The environment should support repeatable virtual-time experiments, integration tests, a Python command-and-control GUI, Cyphal/UDP access, and multiple motors running together for applications such as vehicle torque vectoring.
@@ -18,7 +24,7 @@ The GUI and network interface come after this vertical slice works.
 - **Host topology:** one C++ simulator process containing N independent motor nodes and one coordinator. Process-per-motor hosting is deferred.
 - **Network interface:** the Python GUI is the command-and-control application and communicates with the simulator using real Cyphal/UDP semantics.
 - **Protocol:** use standard Cyphal DSDL for registers, setpoints, telemetry, and heartbeat. Add a small vendor-specific simulation-control namespace for reset and virtual-time commands.
-- **Separation:** motor equations belong in the simulation library, not in `hardware/host/hardware_interface.cpp`. The host hardware layer only binds callbacks and settings to the simulator.
+- **Separation:** motor equations belong in the simulation library, not in `hardware/zephyr_sim/hardware_interface.cpp`. The host hardware layer only binds callbacks and settings to the simulator.
 
 ## Current Repository Boundary
 
@@ -26,9 +32,9 @@ The existing code has three relevant layers:
 
 1. `lib/` contains portable control algorithms, observers, coordinate transforms, units, and settings types.
 2. `src/current_control/` contains the actual current-control ISR and slow update implementation. Its ADC, PWM, trigger, and timer operations are supplied by `HardwareInterface` callbacks.
-3. `hardware/` contains target-specific hardware implementations. `hardware/host/hardware_interface.cpp` provides zero-value host stubs for the public `HardwareInterface` callbacks.
+3. `hardware/` contains target-specific hardware implementations. `hardware/zephyr_sim/` binds the public `HardwareInterface` callbacks for `native_sim`; the older `hardware/host/` provides zero-value stubs for the hosted build.
 
-The current-control ISR now calls the public hardware boundary for ADC samples, PWM duties, trigger timing, and applied-duty inspection. The target implementation binds those operations to modm peripherals, while the host implementation supplies stubs that can later be connected to the simulator plant.
+The current-control ISR now calls the public hardware boundary for ADC samples, PWM duties, trigger timing, and applied-duty inspection. The BCC implementation binds those operations to STM32G4 peripherals through Zephyr's devicetree and LL drivers. The `native_sim` implementation drives the simulator plant. The hosted `hardware/host` stubs remain for the hosted build.
 
 Hosted tests currently link the portable `unimoc_lib` and do not compile the firmware executable or host hardware source when `ENABLE_TESTS` is enabled. A reusable current-control runtime target is therefore a prerequisite for runtime SIL tests.
 
@@ -120,7 +126,7 @@ Keep `HardwareInterface` as the public hardware boundary. The host adapter shoul
 - ISR ADC reads to the same simulated measurement source.
 - ISR timer writes to a captured PWM command source.
 
-`hardware/host/hardware_interface.cpp` should connect these pieces and retain file-backed settings behavior, but should not contain motor equations.
+`hardware/zephyr_sim/hardware_interface.cpp` should connect these pieces and retain file-backed settings behavior, but should not contain motor equations.
 
 ## Implementation Phases
 

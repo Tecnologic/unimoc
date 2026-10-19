@@ -117,7 +117,8 @@
 		/*
 		 * ADC clock cycles per channel, same order. Phase currents come
 		 * from INA240 amplifiers (low output impedance): short. Dividers
-		 * and the NTCs keep the longer time of the modm code.
+		 * and the NTCs keep the longer time carried over from the
+		 * previous firmware.
 		 */
 		sample-times = "2.5",  "24.5",   /* ia (INA240),  va  */
 			       "2.5",  "24.5",   /* ib (INA240),  vb  */

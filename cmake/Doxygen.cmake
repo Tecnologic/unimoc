@@ -5,7 +5,6 @@ function(enable_doxygen)
     set(DOXYGEN_CALL_GRAPH YES)
     set(DOXYGEN_EXTRACT_ALL YES)
     set(DOXYGEN_EXCLUDE_PATTERNS
-        "*/modm/*"
         "*/cymon/*"
         "*/gitversion/*"
         "*/_deps/*"

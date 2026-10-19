@@ -1,5 +1,27 @@
 # TODO list for open topics
 
+## Zephyr port and hot path
+
+See [docs/zephyr_port_plan.md](docs/zephyr_port_plan.md) for the decisions and
+phases, [docs/zephyr_workflow.md](docs/zephyr_workflow.md) for the build and
+interrupt layout, and [docs/hotpath_plan.md](docs/hotpath_plan.md) for the
+hot-path design.
+
+### P0 - Decisions
+
+ - [ ] Decide whether the quarter-cycle update (`SlowUpdate`, TIM8) stays a zero-latency IRQ or becomes a Zephyr thread. The scope rule says thread; `docs/hotpath_plan.md` and the code say IRQ.
+ - [ ] Confirm the CAN-FD transceiver change for the BCC (the board has an SN65HVD230, classic CAN).
+
+### P1 - Integration
+
+ - [x] Align the root `CMakeLists.txt` with the C++20 baseline.
+ - [ ] Replace the RTT wording in the comment of `src/startup/StartupResults.hpp` with the Zephyr log.
+ - [ ] Enable the USB CDC-ACM console and Zephyr logging on the BCC.
+ - [ ] Add a Zephyr flash backend (NVS or ZMS) for `SettingsStorage`; until then settings are RAM only.
+ - [ ] Integrate Cyphal over CAN-FD (libcanard, DSDL, register service, PnP, heartbeat, GetInfo).
+ - [ ] Delete the legacy firmware in `hardware/batterycasecontroller/`, `cmake/Modm.cmake`, `cmake/ToolChain.cmake`, `requirements.txt`, and `.github/workflows/ci-firmware.yml` once the Zephyr BCC target builds. Its presets, CMake references, and launch config are already removed.
+ - [ ] Implement the hot-path milestones M0 to M8 from `docs/hotpath_plan.md`.
+
 ## Prioritized software-in-the-loop plan
 
 See [docs/software_in_loop_plan.md](docs/software_in_loop_plan.md) for the

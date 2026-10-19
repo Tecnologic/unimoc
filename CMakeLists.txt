@@ -15,12 +15,11 @@ target_compile_options(project_options INTERFACE -fdiagnostics-color=never)
 add_library(project_warnings INTERFACE)
 include(cmake/Cache.cmake)
 
-# recomended warniings for modm projects
 include(cmake/CompilerWarnings.cmake)
 set_project_warnings(project_warnings)
 
 set(CMAKE_C_STANDARD 23)
-set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -31,7 +30,7 @@ include(cmake/Doxygen.cmake)
 enable_doxygen()
 
 option(ENABLE_TESTS "Enable tests" OFF)
-option(HARDWARE_DIRECTORY "Directory for hardware files" "${CMAKE_SOURCE_DIR}/hardware/batterycasecontroller")
+option(HARDWARE_DIRECTORY "Directory for hardware files" "${CMAKE_SOURCE_DIR}/hardware/host")
 option(RUNNING_ON_HOST "Set to ON if running on host (not on target)" OFF)
 
 if(HARDWARE_DIRECTORY)

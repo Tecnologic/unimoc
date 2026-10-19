@@ -13,9 +13,25 @@ external API requires different wording.
 | **controller** | A software control algorithm or, when the context is explicit, the drive electronics. Prefer **drive** for the complete device. |
 | **motor** | The electromechanical machine being controlled. Do not use **motor** for the drive electronics. |
 | **portable library** | The HAL-free code in `lib/`, intended to work on the host and on embedded targets. |
-| **firmware** | The target application and runtime integration in `src/` and `hardware/`. |
+| **firmware** | The Zephyr application in `app/` and the code it builds from `src/`, `hardware/`, and `boards/`. |
+| **Zephyr** | The RTOS that runs the firmware. It is the primary OS for everything outside the hot path. |
 | **hosted build** | A build that runs the portable code and GoogleTest on the development machine rather than on the STM32 target. |
-| **hardware layer** | Platform-specific code that connects the portable library to ADCs, PWM, timers, NVM, gate drivers, and other peripherals. |
+| **native_sim** | Zephyr's Linux simulation target. It runs the firmware application against the PMSM plant on the host. |
+| **hardware layer** | Platform-specific code that connects the portable library to ADCs, PWM, timers, NVM, gate drivers, and other peripherals. Its platform is `zephyr_bcc` or `zephyr_sim`. |
+| **BCC** | The battery case controller: the STM32G473 board, built with `-b bcc`. |
+| **power stage** | The inverter output stage behind `PowerStageInterface`: enable, disable, trip, and a latched fault. |
+
+## Runtime Terms
+
+| Preferred term | Meaning and usage |
+|---|---|
+| **hot path** | The FOC work that runs once per half PWM period in a zero-latency IRQ: current read, Park, PI, SVM, and duty write. Only this runs at zero latency. |
+| **zero-latency IRQ** | An interrupt that bypasses the Zephyr scheduler and kernel locking (`IRQ_ZERO_LATENCY`). It may not call kernel APIs, log, or lock. |
+| **fast ISR** | The current-control interrupt, the end of the injected ADC sequence (JEOS). It is the hot path. |
+| **quarter-cycle update** | The TIM8 update interrupt, every fourth half period. It runs the observers and precomputes the next four half periods. It is `SlowUpdate` in code. Its zero-latency status is open. |
+| **Zephyr thread** | Any work outside the zero-latency IRQs: logging, shell, USB, Cyphal, settings, and startup sequencing. |
+| **trip** | An overcurrent or fault stop that switches the power stage off. A trip latches a fault until it is cleared. |
+| **dead time** | The gap between the switching edges of a half-bridge that prevents shoot-through. It is set in the `foc0` devicetree node. |
 
 ## Motor-Control Terms
 

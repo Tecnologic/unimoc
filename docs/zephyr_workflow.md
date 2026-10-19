@@ -1,5 +1,10 @@
 # Zephyr workflow (skeleton)
 
+Scope: Zephyr is the primary OS. Logging, shell, USB, Cyphal, settings and
+startup run in Zephyr threads. Only the FOC hot path (the fast current ISR) runs
+in zero-latency IRQs. The quarter-cycle update is also zero-latency today; that
+is an open decision (`docs/zephyr_port_plan.md`, Decisions).
+
 Platform selection is done by the build (board -> Kconfig `UNIMOC_PLATFORM_*` ->
 `app/CMakeLists.txt`), never by `#ifdef`. Pinout and mapping live in
 `boards/unimoc/bcc/bcc.dts` (node `foc0`, binding `unimoc,foc-stm32g4`).
@@ -44,7 +49,8 @@ leaves only a few 100 ns of the window for the fast ISR. The core's default
 lead is 1 us and is tuned by the startup sweep. Tighten once the ISR run time
 is known. All figures are estimates, not measurements.
 
-Both BCC interrupts are zero-latency direct ISRs (`IRQ_ZERO_LATENCY`,
+Both BCC interrupts are zero-latency direct ISRs (the fast one is the hot path;
+the slow one is open, see Scope above; `IRQ_ZERO_LATENCY`,
 `CONFIG_ZERO_LATENCY_IRQS`): never masked by `irq_lock()`, no kernel calls and
 no logging in the callbacks. They share one NVIC level and do not preempt each
 other. `tests/twister/sim_irq_cadence` checks the 1/4 cadence of the simulation.
@@ -83,6 +89,9 @@ stage is no longer enabled (trip, external break, e-stop), and
 
 ## Known issues
 
+- Not integrated yet: the Cyphal stack, the USB CDC-ACM console and the Zephyr
+  flash settings backend. Logging goes to the Zephyr log; the BCC USB stays
+  disabled (`docs/zephyr_port_plan.md`, Phases 4 and 5).
 - `control_mode_test` and `nvm_settings_test` are skipped: they still use the
   old enumerator names (`POSITION`, `PMSM`) and do not compile against the lib.
 - Pins were taken from the KiCad netlist (Tecnologic/battery-case-controller).
@@ -106,4 +115,4 @@ stage is no longer enabled (trip, external break, e-stop), and
 - The phase between the control core's sub-step counter and the TIM8 update
   event is not synchronised; `SlowUpdate` polls `samples_ready`, so this only
   costs jitter.
-- `cymon` needs C++23/CMake 4 and is not linked yet.
+- `cymon` needs CMake 4 and is not linked yet. Its C++ standard is unverified.

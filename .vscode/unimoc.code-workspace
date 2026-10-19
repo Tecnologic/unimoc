@@ -98,7 +98,10 @@
 		"cmake.autoSelectActiveFolder": false,
 		"clangd.arguments": [
 			"--compile-commands-dir=${workspaceFolder}",
-			"--background-index"
+			"--background-index",
+			"--completion-style=detailed",
+			"--header-insertion=never",
+			"--query-driver=/home/alex/.zephyr_ide/toolchains/**/*"
 		],
 		"C_Cpp.intelliSenseEngine": "disabled",
 		"editor.formatOnSaveMode": "modificationsIfAvailable",
@@ -121,6 +124,8 @@
 			"/^clang-tidy\\b/": true,
 			"/^arm-none-eabi-.*/": true,
 			"/^git\\s+(status|diff|log)/": true
-		}
+		},
+		"terminal.integrated.defaultProfile.linux": "Zephyr IDE Terminal",
+		"cmake.configureOnOpen": false
 	}
 }

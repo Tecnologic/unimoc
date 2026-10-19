@@ -2,13 +2,19 @@
 
 [![CI](https://github.com/Tecnologic/unimoc/actions/workflows/ci.yml/badge.svg)](https://github.com/Tecnologic/unimoc/actions/workflows/ci.yml)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
-[![C++ Standard](https://img.shields.io/badge/C%2B%2B-23-blue.svg)](https://en.cppreference.com/w/cpp/23)
+[![C++ Standard](https://img.shields.io/badge/C%2B%2B-20-blue.svg)](https://en.cppreference.com/w/cpp/20)
 
-**UNIMOC** (**UNI**versal **MO**tor **C**ontrol) is a platform-independent,
-header-only C++23 library for Field-Oriented Control (FOC) of multi-phase
-electric motors.  It targets embedded micro-controllers (STM32 series) but the
-algorithm headers are fully portable and tested on x86-64 Linux via
+**UNIMOC** (**UNI**versal **MO**tor **C**ontrol) is a platform-independent
+C++ library and [Zephyr RTOS](https://zephyrproject.org/) firmware for
+Field-Oriented Control (FOC) of multi-phase electric motors.  It targets
+embedded micro-controllers (STM32 series, first the STM32G473 battery case
+controller).  The algorithm code is portable and tested on x86-64 Linux via
 [Google Test](https://github.com/google/googletest).
+
+Zephyr is the primary OS: logging, shell, USB, Cyphal, and settings run in
+Zephyr threads.  Only the FOC hot path runs in zero-latency interrupts.  The
+same firmware runs on Linux through Zephyr's `native_sim` with a motor
+simulation.
 
 ---
 
@@ -33,7 +39,7 @@ algorithm headers are fully portable and tested on x86-64 Linux via
 7. [Getting Started](#getting-started)
    - [Building the Hosted Tests](#building-the-hosted-tests)
    - [Generating the API Documentation](#generating-the-api-documentation)
-   - [Building Firmware (STM32)](#building-firmware-stm32)
+   - [Building Firmware (Zephyr)](#building-firmware-zephyr)
 8. [Contributing](#contributing)
 9. [License](#license)
 
@@ -48,9 +54,10 @@ algorithm headers are fully portable and tested on x86-64 Linux via
 | **Control** | MTPA, field-weakening, ASM flux PI, EESM excitation PI (current or flux mode) |
 | **Position** | Absolute multi-turn tracker (±4096+ rev), cascaded P+PI position controller, homing state machine |
 | **Modulation** | Space Vector PWM (SVPWM), dead-time compensation |
-| **Network** | Full Cyphal (UAVCAN v1) register map — every setting configurable over the bus |
-| **Persistence** | All settings stored in NVM; survive power cycles; validated with magic + version check |
-| **Platform** | Header-only algorithms; HAL-free; tested on Linux x86-64 with GTest |
+| **Network** | Cyphal (UAVCAN v1) register map — every setting configurable over the bus (planned, see [Cyphal](#cyphal-uavcan-v1-interface)) |
+| **Persistence** | Settings validated with magic + version check; stored in NVM once the Zephyr flash backend exists (RAM only until then) |
+| **Platform** | HAL-free algorithms; tested on Linux x86-64 with GTest; Zephyr firmware for the BCC (STM32G473) and `native_sim` |
+| **Runtime** | Zephyr threads for logging, shell, USB, Cyphal, and settings; zero-latency IRQs only for the FOC hot path |
 
 ---
 
@@ -118,11 +125,33 @@ lib/
 
 ---
 
+## Firmware Architecture
+
+The firmware is one Zephyr application (`app/`) with two execution contexts:
+
+| Context | Runs | Latency |
+|---|---|---|
+| Fast ISR (ADC end of injected sequence, once per half PWM period) | FOC hot path: current read, Park, PI, SVM, duty write, overcurrent check | Zero-latency IRQ |
+| Quarter-cycle update (TIM8 update, every fourth half period) | Observers and precomputation for the next four half periods (`SlowUpdate`) | Zero-latency IRQ today; open decision, see [`docs/hotpath_plan.md`](docs/hotpath_plan.md) |
+| Zephyr threads | Logging, shell, USB console, Cyphal, settings, startup sequencing | Normal scheduling |
+
+Zero-latency handlers may not call kernel APIs, log, or lock.  The
+hardware-specific parts are selected by the board and Kconfig, not by
+`#ifdef`.  The integration status and the open items are in
+[`docs/zephyr_port_plan.md`](docs/zephyr_port_plan.md) and
+[`docs/zephyr_workflow.md`](docs/zephyr_workflow.md).
+
 ## Cyphal (UAVCAN v1) Interface
 
 UNIMOC exposes its complete configuration and runtime control via
 [Cyphal](https://opencyphal.org/) (UAVCAN v1).  No physical access to the
 hardware is required after initial deployment.
+
+> **Status:** the Cyphal stack is not integrated in the Zephyr build yet.  The
+> repository has the identifiers, the register and subject names, and the
+> heartbeat serialization.  DSDL, the register service, plug-and-play, and
+> the CAN-FD and UDP transports are planned (`docs/zephyr_port_plan.md`,
+> Phases 5 and 6).  The sections below describe the target interface.
 
 ### Node ID and Plug-and-Play
 
@@ -276,7 +305,8 @@ All settings are aggregated in `unimoc::settings::NvmSettings`
   drive configuration.
 - **Platform-agnostic** — the hardware layer supplies an immutable profile and
    load/save callbacks. Hosted builds can use a file; targets can use a
-   dedicated flash section.
+   dedicated flash section.  On the BCC and `native_sim` the settings are kept
+   in RAM only until the Zephyr flash backend (NVS/ZMS) exists.
 - **Read-only to application code** — control code receives a
    `SettingsSnapshot`; only an explicitly passed `SettingsOperations` capability
    can commit changes.
@@ -314,6 +344,11 @@ to raise those capabilities.
 
 ## Hardware Bring-Up Guide
 
+> **Status:** not runnable yet.  The procedure needs the Cyphal registers and the
+> USB console, and neither is integrated in the Zephyr build yet
+> (`docs/zephyr_port_plan.md`).  The steps below describe the target behavior.
+> Log lines go to the Zephyr log, shown on the USB CDC-ACM console once it is enabled.
+
 `HwStartup` is a step-by-step bring-up wizard for commissioning a new UNIMOC
 board.  It verifies the ADC signal chain, gate drivers, and DC-link voltage
 measurement **before** any motor is connected, then performs current-sense and
@@ -321,7 +356,7 @@ ADC-trigger calibration with the motor attached.  All calibration results are
 committed to NVM automatically when the sequence completes.
 
 The FSM **never advances on its own**.  Each step completes its measurement,
-logs the result via RTT, then pauses and waits for the user to write `1` to
+logs the result through the Zephyr log, then pauses and waits for the user to write `1` to
 `unimoc.startup.step` before moving on.  This gives you time to review scope
 traces and enter external meter readings.
 
@@ -365,7 +400,7 @@ The FSM immediately enters **PWM_DISABLE**.
 
 #### Step 1 — PWM_DISABLE
 
-All gate-driver outputs are held at 50 % neutral duty.  The RTT log confirms
+All gate-driver outputs are held at 50 % neutral duty.  The log confirms
 the duty is applied and invites you to verify on a scope.
 
 **Action:** Confirm PWM signals are toggling correctly on the scope, then
@@ -382,7 +417,7 @@ unimoc.startup.step = 1
 The firmware samples 1024 ADC readings on both current-sense channels
 (phases A and B) with zero current flowing and computes the mean offset.
 
-The RTT log reports:
+The log reports:
 
 ```
 [STARTUP] ADC_OFFSET_CAL: offset_a=<value> A, offset_b=<value> A
@@ -407,7 +442,7 @@ unimoc.startup.step = 1
 computed for each channel and compared against `noise_threshold_A` (default
 0.1 A).
 
-The RTT log reports:
+The log reports:
 
 ```
 [STARTUP] ADC_NOISE_FLOOR: rms_a=<value> A, rms_b=<value> A
@@ -430,7 +465,7 @@ Three forced-duty steps (5 %, 50 %, 95 %) check that the gate driver and
 bootstrap circuit produce valid PWM across the full duty range.  Each step
 holds the duty for 1000 samples, then waits.
 
-The RTT log reports the applied duty:
+The log reports the applied duty:
 
 ```
 [STARTUP] DUTY_FORCE_LOW: duty=0.05 — verify current/scope. Press NEXT to continue.
@@ -476,7 +511,7 @@ The firmware briefly disables then re-enables the gate-driver enable signal
 while measuring the ADC response on the current-sense inputs.  This confirms
 that the enable pin is wired correctly and that the gate driver is live.
 
-The RTT log reports:
+The log reports:
 
 ```
 [STARTUP] GATE_DRIVER_ENABLE_CHECK: delta_ia=<value> A — gate driver responding.
@@ -502,7 +537,7 @@ unimoc.startup.step = 1
 > 3. **Power on** again.
 > 4. Ensure the motor shaft is **free to rotate**.
 
-The RTT log prints a prominent warning:
+The log prints a prominent warning:
 
 ```
 [STARTUP] !! PHASE 1 COMPLETE — PREPARE FOR PHASE 2 !!
@@ -526,7 +561,9 @@ unimoc.startup.step = 1
 > ⚠️ **Caution:** Phase 2 injects live voltages into the motor windings.  An
 > over-current (OC) trip limit equal to `oc_fraction × max_phase_current_A`
 > (default 10 %) is active throughout.  The FSM transitions immediately to
-> FAULT if this limit is exceeded.
+> FAULT if this limit is exceeded.  Independently, the fast ISR trips the power
+> stage at the hard limit `max_phase_current` (60 A on the BCC) and latches a
+> fault until it is cleared.
 
 ---
 
@@ -537,7 +574,7 @@ The firmware sweeps the ADC trigger offset by ±5 µs in 0.5 µs steps
 noise at each position.  The position with the lowest noise is selected as the
 optimal ADC sampling instant.
 
-The RTT log reports:
+The log reports:
 
 ```
 [STARTUP] PHASE_ADC_ALIGNMENT: best_pos=<n>, optimal_ticks=<value>
@@ -603,7 +640,7 @@ calibration through its authorized `SettingsOperations` capability:
    failure leaves the active settings unchanged and puts the startup FSM into
    `FAULT`.
 
-3. Prints a full summary to RTT:
+3. Prints a full summary to the Zephyr log:
    ```
    [STARTUP] HARDWARE STARTUP AID — SUMMARY
    [STARTUP]   PWM_DISABLE:               PASS
@@ -695,23 +732,26 @@ cmake --workflow --preset "Generate Doxygen documentation"
 The generated HTML documentation is placed in `build/doxygen/html/` and
 contains only UNIMOC-owned C++ code.
 
-### Building Firmware (STM32)
+### Building Firmware (Zephyr)
 
-Requirements: ARM GCC toolchain (`arm-none-eabi-gcc`), Ninja, CMake 4.x,
-Python 3 with `modm` dependencies (`pip install -r requirements.txt`).
+Requirements: Zephyr 4.4.0 with the Zephyr SDK 1.0.1 (`arm-zephyr-eabi`),
+CMake ≥ 4.0, Ninja, Python 3 with `west`.  On Windows, run the build in WSL2.
+The setup steps are in [`docs/zephyr_workflow.md`](docs/zephyr_workflow.md).
+
+Run these from the west workspace root, which contains `unimoc/` and `zephyr/`:
 
 ```bash
-# Battery Case Controller (STM32G473) — debug
-cmake --preset "BatteryCaseController Debug"
-cmake --build --preset "BatteryCaseController Debug"
+# Linux host simulation (native_sim)
+west build -b native_sim/native/64 unimoc/app
 
-# Battery Case Controller — release
-cmake --preset "BatteryCaseController Release"
-cmake --build --preset "BatteryCaseController Release"
+# Battery Case Controller (STM32G473)
+west build -b bcc unimoc/app
+
+# Zephyr test scenarios (lib tests on native_sim, simulation checks)
+west twister -T unimoc -p native_sim/native/64 -p bcc
 ```
 
-The firmware binary and `.hex` file are placed in
-`build/batterycasecontroller-{debug,release}/`.
+The BCC has not run on hardware yet.
 
 ---
 

@@ -15,7 +15,7 @@ The following commands must be available on `PATH`:
 
 - CMake 4.x
 - Ninja
-- A C++23 host compiler
+- A C++20 host compiler
 - GoogleTest dependencies resolved by the CMake project
 
 For static analysis, also require `clang++` and `clang-tidy`. For formatting,
@@ -100,11 +100,17 @@ git diff --name-only --diff-filter=ACMR -- '*.c' '*.cc' '*.cpp' '*.h' '*.hh' '*.
 
 ## Firmware boundary
 
-This skill validates hosted code only. For firmware changes, also use the
-appropriate `BatteryCaseController Debug` or `BatteryCaseController Release`
-preset after confirming the ARM GCC and modm prerequisites in `README.md`.
-Hosted tests do not prove hardware behavior, PWM safety, startup behavior, or
-NVM persistence.
+This skill validates hosted code only. For Zephyr firmware or simulation
+changes, build the target the change touches from the west workspace root,
+after confirming the Zephyr SDK and west setup in `docs/zephyr_workflow.md`:
+
+```text
+west build -b native_sim/native/64 unimoc/app
+west build -b bcc unimoc/app
+```
+
+Hosted tests do not prove hardware
+behavior, PWM safety, startup behavior, or NVM persistence.
 
 ## Completion
 

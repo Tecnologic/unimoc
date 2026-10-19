@@ -1,14 +1,21 @@
 # Zephyr Port Plan
 
-Status: proposal. Architecture and phase order are open for discussion.
+Status (2026-10-19): direction accepted. The Zephyr application (`app/`),
+the `native_sim` platform and the BCC platform code exist (see
+`docs/zephyr_workflow.md`). The Cyphal stack, the USB console and the flash
+settings backend do not exist yet. The phase order below is the plan.
 
 ## Goals
 
-- Move all high-level functionality to Zephyr: logging and shell over USB,
-  Cyphal over CAN-FD (battery case controller), later Cyphal/UDP on an STM32H7.
+- Zephyr is the primary OS. Logging, shell, USB, Cyphal, settings and startup
+  run in Zephyr threads: logging and shell over USB, Cyphal over CAN-FD
+  (battery case controller), later Cyphal/UDP on an STM32H7.
+- Only the FOC hot path runs in zero-latency IRQs. The fast current ISR is the
+  hot path. The quarter-cycle update is open (see Decisions). Nothing else runs
+  at zero latency.
 - Run the simulation on the host with Zephyr `native_sim`.
 - Primary host is Linux. Windows uses WSL2 for the simulation.
-- Remove modm completely.
+- Remove the legacy firmware completely.
 - Keep the FOC core in `lib/` untouched. Controllers there are not final, but
   code quality and style (see `lib/units/units.hpp`) are the reference.
 - C++20 is the baseline for all project code.
@@ -17,10 +24,12 @@ Status: proposal. Architecture and phase order are open for discussion.
 
 | Topic | Decision |
 |---|---|
-| Zephyr version | 4.4.0, pinned in `west.yml`. 4.5 is not released yet (working draft, planned for October 2026); upgrade later via the migration guide. |
-| modm | Removed. `hardware/batterycasecontroller/modm`, `cmake/Modm.cmake`, `requirements.txt` and `cmake/ToolChain.cmake` go away once the Zephyr target builds. |
+| Zephyr version | 4.4.0 (released 2026-04-14), pinned in `west.yml`. A 4.5.0 release was not confirmed as of 2026-10-19; upgrade later via the migration guide. |
+| Legacy firmware | Presets, CMake glue and launch config are removed. `hardware/batterycasecontroller/`, `cmake/Modm.cmake`, `cmake/ToolChain.cmake`, `requirements.txt` and `.github/workflows/ci-firmware.yml` are still to be deleted once the Zephyr target builds. |
 | Repository layout | Same repository. Zephyr application in `app/`, `lib/` consumed via `add_subdirectory`. |
-| Language standard | C++20 (`CONFIG_STD_CPP20`). Align `CMakeLists.txt` and `AGENTS.md`, which currently say C++23. |
+| Language standard | C++20 (`CONFIG_STD_CPP20`). `AGENTS.md`, `README.md` and the root `CMakeLists.txt` say C++20. |
+| Runtime scope | Zephyr is the primary OS. Only the FOC hot path runs at zero latency. Logging, shell, USB, Cyphal, settings and startup run in threads. |
+| Quarter-cycle update | Open. `docs/hotpath_plan.md` and the current code keep it zero-latency (observers and precomputation). The scope rule above says a thread. The decision needs the user. |
 
 ## Review Findings Driving the Plan
 
@@ -67,10 +76,12 @@ Status: proposal. Architecture and phase order are open for discussion.
 - `HardwareSystemInterface::Log` maps to Zephyr logging.
 - Shell commands: settings, startup FSM, status, cymon control.
 - `SettingsStorage` callbacks map to NVS/ZMS.
-- Threads: slow update, Cyphal, shell. No `main()` wait loop.
+- Threads: Cyphal, shell, logging, settings. No `main()` wait loop. The slow
+  update stays in the quarter-cycle IRQ until the open decision is made (see
+  Decisions).
 
 ### Phase 4 - STM32G473 target
-- Custom board with devicetree, no modm.
+- Custom board with devicetree, no legacy code.
 - Fast loop: ADC injected conversion (JEOC) and TIM8 via STM32 LL, connected
   with `IRQ_ZERO_LATENCY`. Spike required: the Zephyr ADC API is unlikely to
   cover injected conversions.
@@ -107,3 +118,9 @@ Status: proposal. Architecture and phase order are open for discussion.
 - ZLI constraints on the callbacks behind `HardwareInterface`.
 - Zephyr 4.4 -> 4.5 upgrade: expected to be a migration-guide exercise; no
   4.5 feature is currently required.
+- **CAN-FD on the BCC:** the transceiver is an SN65HVD230 (classic CAN, no CAN
+  FD). Phase 5 needs a CAN-FD transceiver on the board, or it runs at classic
+  CAN rates.
+- **Quarter-cycle IRQ:** if it stays zero-latency, its observer and Hall work
+  must fit the budget in `docs/hotpath_plan.md` section 7. If it moves to a
+  thread, the plan needs a deadline, and the double buffer must still hold.

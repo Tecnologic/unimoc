@@ -1,264 +1,248 @@
-# Plan: Hotpath, Viertel-IRQ und Hall-Sensorfusion
+# Plan: Hot Path, Quarter-Cycle IRQ and Hall Sensor Fusion
 
-Stand: 2026-10-18. Alle Zeiten und Zyklen in diesem Dokument sind Schätzungen aus
-dem Code, nichts davon ist auf dem Board gemessen (Meilenstein M0 ändert das).
+Status: 2026-10-18. All times and cycle counts in this document are estimates from
+the code. None of them is measured on the board (milestone M0 changes that).
 
-Zeitbasis bei 20 kHz PWM und 170 MHz: eine Halbperiode (ein JEOS-Interrupt) sind
-25 µs = 4250 Zyklen, ein Viertel-Zyklus (vier Halbperioden) 100 µs = 17000 Zyklen.
+Timing base at 20 kHz PWM and 170 MHz: one half period (one JEOS interrupt) is
+25 µs = 4250 cycles, one quarter cycle (four half periods) is 100 µs = 17000 cycles.
 
-## 1. Ziel
+## 1. Goal
 
-| Kontext | Rate | Inhalt |
+| Context | Rate | Content |
 |---|---|---|
-| Hotpath (JEOS, Zero-Latency) | 40 kHz | nur was vom aktuellen Strom abhängt: Park, PI, Inverse Park, SVM, CCR |
-| Viertel-IRQ (TIM8-Update, Zero-Latency) | 10 kHz | alles Vorberechnen für die nächsten 4 Halbperioden, Beobachter, Hall-Fusion |
-| Regelthread (Zephyr, normale Priorität) | 1 bis 2 kHz | Drehzahlregler, später Lageregler, MTPA, Feldschwächung, Sollwertbegrenzung |
-| Hall-Flanken (EXTI, normale Priorität) | bei Flanke | nur Zeitstempel und Hall-Code erfassen |
+| Hot path (JEOS, zero latency) | 40 kHz | Only what depends on the current measurement: Park, PI, inverse Park, SVM, CCR |
+| Quarter-cycle IRQ (TIM8 update, zero latency) | 10 kHz | Precompute everything for the next four half periods, observer, Hall fusion |
+| Control thread (Zephyr, normal priority) | 1 to 2 kHz | Speed controller, later position controller, MTPA, field weakening, setpoint limiting |
+| Hall edges (EXTI, normal priority) | on edge | Only capture timestamp and Hall code |
 
-Annahme für die Vorberechnung: Drehzahl konstant über die vier Halbperioden
-(100 µs). Beschleunigung wird nicht modelliert.
+Assumption for the precomputation: speed is constant over the four half periods
+(100 µs). Acceleration is not modeled.
 
-## 2. Ist-Zustand im Code
+**Scope note.** The project rule says only the hot path runs in zero-latency IRQs and
+everything else runs in Zephyr threads (`docs/zephyr_port_plan.md`). This plan, and the
+current code, keep the quarter-cycle IRQ (observers, Hall fusion, plan build) as a
+zero-latency IRQ. That is an open decision, see section 7.
 
-- `CurrentControlIsr::on_jeoc()` (980 Byte) macht heute alles in einem Zug:
-  ADC lesen über Funktionszeiger, Überstromcheck, Bereichsprüfung der Duties
-  (liest die CCR über einen weiteren Funktionszeiger zurück), Clarke, Park,
-  PI mit Entkopplung aus dem **gemessenen** Strom, Inverse Park, HFI-Spannung,
-  Totzeitkompensation, SVM, Schreiben der Duties (nicht inline).
-- Der Aufruf von `std::sqrt` im Spannungsbegrenzer wird als libm-Aufruf
-  `sqrtf` übersetzt (errno-Behandlung), nicht als `vsqrt`.
-- `SlowUpdate::run_once()` (928 Byte) läuft heute im TIM8-Update-Callback,
-  pollt `samples_ready`, parkt die vier Proben neu, mittelt, ruft Flussbeobachter,
-  Kalman-Prädiktion, HFI und berechnet `sc[0..3]` für den nächsten Zyklus
-  (Doppelpuffer mit `active`-Flip).
-- `MechanicalObserver` ist ein Kalman-Filter mit den Zuständen ω, θ und
-  Lastmoment, nur eine skalare Winkelmessung pro Aufruf von
-  `inject_angle_error()`. Dieser führt **jedes Mal auch** die
-  Kovarianzprädiktion aus. `PmsmFluxObserver::calculate()` ruft
-  `inject_angle_error()` selbst am Ende auf. Die Kommentare nennen Hall-Sensoren,
-  im Code gibt es dafür nichts. Der Winkelfehler wird nicht auf (-π, π] gewrappt.
-  Prädiktion und Korrektur rechnen `std::sin/cos` (zwei Aufrufe pro Zyklus).
-- Phase zwischen Viertel-Zähler des Kerns (`sub_step_`) und TIM8-Update ist nicht
-  synchronisiert. Das Update liegt am Peak, die CCR1 bis 3 sind ohne Preload.
-- Keine Hall-Erfassung, kein Drehzahlregler im Kern (nur `PositionController`
-  in der Lib).
+## 2. Current State in the Code
 
-## 3. Entscheidungen
+- `CurrentControlIsr::on_jeoc()` (980 bytes) does everything in one pass today:
+  reads the ADC through function pointers, overcurrent check, duty range check (reads
+  the CCR back through another function pointer), Clarke, Park, PI with decoupling from the
+  **measured** current, inverse Park, HFI voltage, dead-time compensation, SVM, and writes the
+  duties (not inline).
+- The call to `std::sqrt` in the voltage limiter is compiled to the libm call
+  `sqrtf` (errno handling), not to `vsqrt`.
+- `SlowUpdate::run_once()` (928 bytes) runs today in the TIM8 update callback,
+  polls `samples_ready`, re-parks the four samples, averages them, calls the flux observer,
+  Kalman prediction, HFI, and computes `sc[0..3]` for the next cycle
+  (double buffer with an `active` flip).
+- `MechanicalObserver` is a Kalman filter with the states ω, θ and load torque, with
+  one scalar angle measurement per call to `inject_angle_error()`. Each call **also** runs
+  the covariance prediction. `PmsmFluxObserver::calculate()` calls
+  `inject_angle_error()` itself at the end. The comments mention Hall sensors, but the code
+  has nothing for them. The angle error is not wrapped to (-π, π]. Prediction and
+  correction compute `std::sin/cos` (two calls per cycle).
+- The phase between the core's quarter-cycle counter (`sub_step_`) and the TIM8 update is
+  not synchronized. The update sits at the peak, and CCR1 to 3 have no preload.
+- No Hall capture and no speed controller in the core (only `PositionController`
+  in the library).
 
-**D1 Preload und synchroner Viertel-IRQ (Empfehlung: ja, wartet auf Bestätigung).**
-Heute schreibt der Hotpath die CCR ohne Preload in den laufenden Zähler. Mit
-RCR=0 und CCR-Preload wirken die neuen Werte erst an der nächsten Grenze (Peak
-oder Valley, in Center-Aligned-Mode erzeugt RCR=0 an beiden ein Update-Ereignis).
-Den Viertel-IRQ setzt der Hotpath im Sub-Schritt 3 per `NVIC_SetPendingIRQ`
-selbst, damit ist die Phase deterministisch und das Polling von `samples_ready`
-entfällt. Das ändert die frühere Vorgabe "Update-IRQ mit RCR=4" ab. Begründung
-siehe Abschnitt 3.1.
+## 3. Decisions
 
-**D2 Lib-Änderungen (freigegeben).**
-- `MechanicalObserver`: Kovarianzprädiktion und Messupdate trennen
-  (`PredictCovariance(dt)`, `UpdateAngle(ε, R)`). `inject_angle_error()` bleibt
-  als Kombination erhalten.
-- `PmsmFluxObserver::calculate()` gibt den Winkelfehler zurück (alte Variante
-  als Wrapper).
-- Optional: `std::sin/cos` im Beobachter durch die `SinCos`-Tabelle ersetzen.
-- Der Flussbeobachter läuft **immer**, auch mit angeschlossenem Geber. Er wird
-  nicht abgeschaltet, nur über sein R gewichtet. Messquellen für den Kalman-Filter:
-  Fluss (immer), Hall (wenn vorhanden), optional Geber (kleines R). Mit Geber
-  liefert der Flussbeobachter zusätzlich eine Plausibilitätsprüfung (Fluss-ε
-  gegen Geber-ε). Die Drift des Spannungsmodells im Stillstand muss in M6
-  abgesichert werden (Integratorhaltung oder Leckterm bei kleiner Drehzahl).
+**D1 Preload and synchronous quarter-cycle IRQ (recommendation: yes, awaiting confirmation).**
+Today the hot path writes the CCR without preload into the running counter. With RCR=0
+and CCR preload, the new values only take effect at the next boundary (peak or valley;
+in center-aligned mode RCR=0 generates an update event at both). The hot path sets the
+quarter-cycle IRQ pending itself in sub-step 3 via `NVIC_SetPendingIRQ`, so the phase is
+deterministic and the polling of `samples_ready` goes away. This changes the earlier
+requirement "update IRQ with RCR=4". See section 3.1 for the reasoning.
 
-**D3 Entkopplung (entschieden):** aus dem Mittelwert des letzten Zyklus.
+**D2 Library changes (approved).**
+- `MechanicalObserver`: separate covariance prediction and measurement update
+  (`PredictCovariance(dt)`, `UpdateAngle(ε, R)`). `inject_angle_error()` stays as the
+  combination of the two.
+- `PmsmFluxObserver::calculate()` returns the angle error (the old variant as a wrapper).
+- Optional: replace `std::sin/cos` in the observer with the `SinCos` table.
+- The flux observer runs **always**, also with an encoder connected. It is not switched off,
+  only weighted through its R. Measurement sources for the Kalman filter: flux (always),
+  Hall (if present), optional encoder (small R). With an encoder the flux observer also gives
+  a plausibility check (flux ε against encoder ε). The drift of the voltage model at standstill
+  must be handled in M6 (integrator hold or leakage term at low speed).
 
-**D4 Eigene Winkeltabelle für die Ausgangsseite (folgt aus D1).** Mit Preload
-wirkt die Spannung im Mittel 1,5 Halbperioden nach der Messung. Der Winkel
-dafür ist θ + ω·(k + 1,5)·dt, die Verzögerung als Parameter, auf dem Board
-abgestimmt. Kostet im Hotpath nichts.
+**D3 Decoupling (decided):** computed from the mean of the last cycle.
 
-**Hall (entschieden):** Standard 120°. Polpaare spielen keine Rolle, der
-mechanische Beobachter und Hall arbeiten im elektrischen Winkel.
+**D4 Dedicated angle table for the output side (follows from D1).** With preload, the voltage
+takes effect on average 1.5 half periods after the measurement. The angle for that is
+θ + ω·(k + 1.5)·dt, with the delay as a parameter, tuned on the board. It costs nothing in the
+hot path.
 
-### 3.1 Hintergrund zu D1
+**Hall (decided):** standard 120°. Pole pairs do not matter: the mechanical observer and Hall
+both work in the electrical angle.
 
-**Ganzzahlarithmetik: nein.** Auf Cortex-M4F kosten Float-Multiplikation und
--Addition je einen Zyklus (wie ihre Ganzzahl-Pendants), nur Multiply-Accumulate
-(3), Division und Wurzel (14) sind teurer. Q15/Q31 bringt in den Rechenzyklen
-kaum etwas und kostet Skalierung, Überlaufprüfung und die Umstellung der
-float-basierten Lib (`units`). Die Zeit steckt in den Funktionszeigern, dem
-Zurücklesen der CCR, `sqrtf` und den Divisionen. Das fixt M3 ohne Ganzzahl.
-Der Winkel ist schon Festkomma (`RotorAngle`, Sinustabelle).
+### 3.1 Background on D1
 
-**Direktes CCR-Schreiben mit der heutigen Strommessung.** Der früheste Zeitpunkt
-für einen Schreibzugriff ist Trigger + Wandlungsdauer (etwa 1,3 µs) + ISR-Zeit,
-also etwa 2,5 µs nach der Messung. Eine Phase mit 90 % Duty schaltet aber schon
-2,5 µs nach dem Peak (25 µs · (1 − 0,9)), eine mit 95 % nach 1,25 µs. Dann:
-- Nur ein Teil der drei Kanäle wirkt noch in dieser Halbperiode, die anderen
-  erst in der nächsten. Das verfälscht die Leiterspannungen.
-- Das Ergebnis hängt vom ISR-Jitter ab (Viertel-IRQ vor dem Hotpath, Flash-Wartezustände).
-- Der nutzbare Duty-Bereich schrumpft auf etwa 10 bis 90 %.
+**Integer arithmetic: no.** On Cortex-M4F a float multiplication and addition each cost one
+cycle (like their integer counterparts). Only multiply-accumulate (3), division and square
+root (14) are more expensive. Q15/Q31 brings little in the computation cycles and costs
+scaling, overflow checks and rewriting the float-based library (`units`). The time is spent
+in the function pointers, the CCR read-back, `sqrtf` and the divisions. Fixing those fixes M3,
+without integers. The angle is already fixed point (`RotorAngle`, sine table).
 
-Gewinn des direkten Schreibens: eine Halbperiode weniger Verzögerung (25 µs bei
-20 kHz, 12,5 µs bei 40 kHz). Mit Preload gilt 1,5 Halbperioden bis zum Mittel
-der Wirkung, direkt etwa 0,5 plus ISR-Zeit.
+**Writing the CCR directly with the current measurement.** The earliest point for a write is
+trigger plus conversion time (about 1.3 µs) plus ISR time, so about 2.5 µs after the
+measurement. But a phase at 90 % duty switches already 2.5 µs after the peak
+(25 µs · (1 − 0.9)), and one at 95 % after 1.25 µs. Then:
+- Only part of the three channels takes effect in this half period, the rest in the next.
+  That distorts the line voltages.
+- The result depends on the ISR jitter (quarter-cycle IRQ before the hot path, flash wait states).
+- The usable duty range shrinks to about 10 to 90 %.
 
-**Wirkung auf die Zielmotoren.** Hoverboard-Nabenmotoren (36 V, Phaseninduktivität
-etwa im mH-Bereich): die Verzögerung spielt keine Rolle. Modellbau-Outrunner
-(200 kV, Induktivität typisch 10 bis 50 µH, elektrisch bis über 1 kHz): bei
-20 kHz sind 37,5 µs bei 1,5 kHz Regelbandbreite etwa 20° Phase, die D4 beim
-Winkel ausgleicht. Bei so kleiner Induktivität ist 20 kHz ohnehin knapp: der
-Stromrippel liegt größenordnungsmäßig bei 10 A Spitze-Spitze (25 V, 20 µH). Es
-wird sich eine höhere PWM-Frequenz lohnen, und dann halbiert sich das Budget
-einer Halbperiode. Das spricht zusätzlich für Preload, weil dort die Frist die
-ganze Halbperiode ist.
+The gain from writing directly: one half period less delay (25 µs at 20 kHz, 12.5 µs at 40 kHz).
+With preload it is 1.5 half periods until the mean effect, directly about 0.5 plus ISR time.
 
-**STM32H7.** Das Budget einer Halbperiode steigt von 4250 auf etwa 12000 Zyklen
-(480 MHz) beziehungsweise 13750 (550 MHz bei H723/H725/H73x). Der Cortex-M7 hat
-zwei Pipelines und eine FPU. Auf dem H7 würde ich Code und Hotpath-Daten in
-ITCM/DTCM legen (deterministisch, keine Flash-Wartezustände) und aufpassen,
-dass der Compiler keine Double-Konstanten erzeugt (`-fsingle-precision-constant`).
-Das Konzept (Advanced Timer mit Break, ADC-Injected-Trigger über TRGO) ist
-dasselbe. Auch dort ist Preload sinnvoll, aber wegen des Budgets weniger
-zwingend.
+**Effect on the target motors.** Hoverboard hub motors (36 V, phase inductance in the mH range):
+the delay does not matter. Hobby outrunners (200 kV, inductance typically 10 to 50 µH, electrically
+above 1 kHz): at 20 kHz, 37.5 µs at 1.5 kHz control bandwidth is about 20° of phase, which D4
+compensates in the angle. At such a small inductance 20 kHz is tight anyway: the current ripple is
+on the order of 10 A peak-to-peak (25 V, 20 µH). A higher PWM frequency will pay off, and then the
+budget of one half period halves. That also argues for preload, because there the deadline is the
+whole half period.
 
-## 4. Datenfluss
+**STM32H7.** The budget of one half period rises from 4250 to about 12000 cycles (480 MHz) or
+13750 (550 MHz on H723/H725/H73x). The Cortex-M7 has two pipelines and an FPU. On the H7 I would
+place code and hot-path data in ITCM/DTCM (deterministic, no flash wait states) and make sure the
+compiler does not generate double constants (`-fsingle-precision-constant`). The concept (advanced
+timer with break, ADC injected trigger via TRGO) is the same. Preload is also useful there, but
+less essential because of the budget.
 
-Der Viertel-IRQ füllt pro Zyklus einen Plan (Doppelpuffer wie `SubStepBuffer`,
-Flip mit release/acquire) für die nächsten vier Halbperioden:
+## 4. Data Flow
+
+The quarter-cycle IRQ fills one plan per cycle (double buffer like `SubStepBuffer`,
+flip with release/acquire) for the next four half periods:
 
 ```
 struct HotpathPlan {
-  SinCos sc_in[4];          // Park des gemessenen Stroms
-  SinCos sc_out[4];         // Inverse Park der Sollspannung (D4)
-  Rotor<Voltage> ff;        // Entkopplung, konstant über den Zyklus (ω konstant)
-  Stator<Voltage> v_inj[4]; // HFI-Einspeisung pro Sub-Schritt
-  Rotor<Current> i_ref;     // Sollwert, hier gelatcht (keine zerrissene d/q-Paarung)
-  float inv_vdc;            // 1/V_dc, geglättet, für SVM
-  float v_limit_sq;         // (v_max * V_dc)^2 für den Kreisbegrenzer
-  float ki_dt_d, ki_dt_q, kb_dt_d, kb_dt_q;  // Integratorfaktoren inkl. dt
+  SinCos sc_in[4];          // Park of the measured current
+  SinCos sc_out[4];         // inverse Park of the demanded voltage (D4)
+  Rotor<Voltage> ff;        // decoupling, constant over the cycle (ω constant)
+  Stator<Voltage> v_inj[4]; // HFI injection per sub-step
+  Rotor<Current> i_ref;     // setpoint, latched here (no torn d/q pair)
+  float inv_vdc;            // 1/V_dc, smoothed, for SVM
+  float v_limit_sq;         // (v_max * V_dc)^2 for the circle limiter
+  float ki_dt_d, ki_dt_q, kb_dt_d, kb_dt_q;  // integrator factors incl. dt
   float kp_d, kp_q;
 };
 ```
 
-Der Hotpath liest nur den Plan und schreibt zurück: `i_ab[k]`, `u_dq_last`,
-Duties. Der Regelthread schreibt Sollwerte in eine Mailbox, die der Viertel-IRQ
-beim Planbau einliest (Seqlock oder Doppelpuffer). Aufgerufen werden aus den
-Zero-Latency-Kontexten keine Kernel-Funktionen.
+The hot path only reads the plan and writes back: `i_ab[k]`, `u_dq_last`, duties. The control
+thread writes setpoints into a mailbox, which the quarter-cycle IRQ reads when it builds the plan
+(seqlock or double buffer). No kernel functions are called from the zero-latency contexts.
 
-### Hotpath (pro Halbperiode, Ziel 400 Zyklen, 2,4 µs)
+### Hot path (per half period, target 400 cycles, 2.4 µs)
 
-1. Zwei Shunt-Kanäle lesen, mit Offset und Gain skalieren, dritte Phase aus
+1. Read two shunt channels, scale with offset and gain, derive the third phase from
    ia + ib + ic = 0.
-2. Clarke und Park verschmolzen mit `plan.sc_in[k]`.
-3. Fehler, PI mit `kp`, Integrator mit `ki_dt`, plus `plan.ff`.
-4. Kreisbegrenzer über `v_limit_sq`, Wurzel nur bei Sättigung (`__builtin_sqrtf`,
-   Build mit `-fno-math-errno`).
-5. Inverse Park mit `plan.sc_out[k]`, plus `plan.v_inj[k]`.
-6. Totzeitkompensation (Vorzeichen des Stroms, Parameter aus dem Plan), SVM mit
-   `plan.inv_vdc` statt Division.
-7. Duties begrenzen auf 5 bis 95 %, die CCR direkt schreiben. Kein
-   Zurücklesen, keine Funktionszeiger. Das Hardware-Zugriffsobjekt wird über
-   CMake gewählt und inline eingebunden.
-8. Überstromcheck bleibt vor allem anderen (60 A, `power_stage.Trip()`).
-9. Im Sub-Schritt 3: Viertel-IRQ pending setzen.
+2. Clarke and Park merged with `plan.sc_in[k]`.
+3. Error, PI with `kp`, integrator with `ki_dt`, plus `plan.ff`.
+4. Circle limiter via `v_limit_sq`, square root only when saturated (`__builtin_sqrtf`,
+   build with `-fno-math-errno`).
+5. Inverse Park with `plan.sc_out[k]`, plus `plan.v_inj[k]`.
+6. Dead-time compensation (sign of the current, parameters from the plan), SVM with
+   `plan.inv_vdc` instead of a division.
+7. Clamp duties to 5 to 95 %, write the CCR directly. No read-back, no function pointers. The
+   hardware access object is chosen via CMake and included inline.
+8. The overcurrent check stays before everything else (60 A, `power_stage.Trip()`).
+9. In sub-step 3: set the quarter-cycle IRQ pending.
 
-### Viertel-IRQ (alle 100 µs, Budget etwa 15 µs, Ziel 2500 Zyklen)
+### Quarter-cycle IRQ (every 100 µs, budget about 15 µs, target 2500 cycles)
 
-1. Proben des letzten Zyklus einlesen (mit `sc_in` des Zyklus erneut parken,
-   mitteln wie heute).
-2. Mechanische Prädiktion mit dem mittleren Strom (Drehmoment aus i_d, i_q).
-3. Kovarianzprädiktion einmal, danach Messupdates: Flussbeobachter, Hall,
-   optional HFI. Jedes mit eigenem R und auf (-π, π] gewrapptem Fehler.
-4. Plan für den nächsten Zyklus bauen: θ_k = θ + k·ω·dt, `sc_in`, `sc_out`,
-   `ff`, `v_inj`, `inv_vdc`, `v_limit_sq`, Integratorfaktoren, `i_ref`.
-5. Zustandsüberwachung der Endstufe (Fault, Blocked), Zähler für Zeitmessung.
+1. Read the samples of the last cycle (re-park them with the `sc_in` of the cycle, average as today).
+2. Mechanical prediction with the mean current (torque from i_d, i_q).
+3. Covariance prediction once, then measurement updates: flux observer, Hall, optional HFI.
+   Each with its own R and an error wrapped to (-π, π].
+4. Build the plan for the next cycle: θ_k = θ + k·ω·dt, `sc_in`, `sc_out`, `ff`, `v_inj`,
+   `inv_vdc`, `v_limit_sq`, integrator factors, `i_ref`.
+5. Power-stage state monitoring (fault, blocked), counters for timing measurement.
 
-### Regelthread (1 bis 2 kHz)
+### Control thread (1 to 2 kHz)
 
-Drehzahlregler (PI mit Anti-Windup), später Lageregler (`PositionController`),
-MTPA, Feldschwächung, Begrenzung des Stromsollwerts (Betrag auf `motor_i_max`,
-50 A). Ausgabe: `i_ref` in die Mailbox. Eingang: ω und θ aus einem Snapshot des
-Beobachters.
+Speed controller (PI with anti-windup), later position controller (`PositionController`),
+MTPA, field weakening, limiting of the current setpoint (magnitude to `motor_i_max`, 50 A).
+Output: `i_ref` into the mailbox. Input: ω and θ from a snapshot of the observer.
 
-## 5. Hall-Sensorfusion
+## 5. Hall Sensor Fusion
 
-Hardware: drei Hall-Signale auf PC13, PC14, PC15 (RC-gefiltert 3k3/2n2,
-Zeitkonstante etwa 7 µs). Das sind keine Timer-Eingänge, also kein
-Hall-Interface des Timers: GPIO mit EXTI (Leitung 13 bis 15) und Zeitstempel
-über den DWT-Zyklenzähler.
+Hardware: three Hall signals on PC13, PC14, PC15 (RC-filtered 3k3/2n2, time constant about
+7 µs). These are not timer inputs, so the timer's Hall interface is not used: GPIO with EXTI
+(lines 13 to 15) and timestamps from the DWT cycle counter.
 
-**Erfassung.** Der EXTI-Handler (normale Priorität, Zero-Latency-IRQs
-unterbrechen ihn) speichert Hall-Code und Zeitstempel in einen kleinen Puffer.
-Ungültige Codes (000, 111) werden als Fehler gezählt. Ein 10-kHz-Polling im
-Viertel-IRQ wäre zu grob: bei 333 Hz elektrisch sind 100 µs etwa 12° Fehler.
+**Capture.** The EXTI handler (normal priority, zero-latency IRQs preempt it) stores the Hall code
+and timestamp in a small buffer. Invalid codes (000, 111) are counted as errors. A 10 kHz polling
+in the quarter-cycle IRQ would be too coarse: at 333 Hz electrical, 100 µs is about 12° of error.
 
-**Messmodell** (beides aus demselben Hall-Code):
-- *Flanke:* Der Winkel der Flanke ist aus einer Tabelle mit sechs Winkeln
-  (steigend/fallend je Hall) bekannt. Der Viertel-IRQ rechnet den Zeitstempel
-  zurück: ε = wrap(θ_Flanke + ω̂·Alter − θ̂). Das Alter enthält die Filterverzögerung.
-  R aus der Ausrichtungstoleranz (z. B. ±3° elektrisch).
-- *Sektor:* ohne Flanke gilt nur "Winkel liegt im 60°-Sektor". Der Innovationsterm
-  ist 0, solange θ̂ im Sektor liegt, sonst der Abstand zur nächsten
-  Sektorgrenze. Das verhindert, dass der Sektormittelpunkt den Beobachter
-  verzieht, und hält ihn im Stillstand im richtigen Sektor ohne Drift.
+**Measurement model** (both from the same Hall code):
+- *Edge:* the angle of the edge is known from a table of six angles (rising/falling per Hall).
+  The quarter-cycle IRQ converts the timestamp back: ε = wrap(θ_edge + ω̂·age − θ̂). The age includes
+  the filter delay. R comes from the alignment tolerance (for example ±3° electrical).
+- *Sector:* without an edge only "the angle lies in the 60° sector" is known. The innovation term
+  is 0 as long as θ̂ lies in the sector, otherwise the distance to the nearest sector boundary. This
+  prevents the sector center from pulling the observer and keeps it in the right sector at standstill
+  without drift.
 
-**Fusion mit dem Flussbeobachter.** Der Flussbeobachter läuft immer. Bei
-kleiner Drehzahl liefert er kein Signal (Gegen-EMK etwa 0), sein R wird deshalb
-mit der Drehzahl skaliert (R_flux = R0 + k/ω²), er wird nicht abgeschaltet.
-Hall bleibt auch bei hoher Drehzahl aktiv und bremst die Drift des
-Flussbeobachters. Im Stillstand und nahe null führt Hall. Ein angeschlossener
-Geber wird als dritte Messquelle mit kleinem R eingespeist.
+**Fusion with the flux observer.** The flux observer always runs. At low speed it provides no signal
+(back-EMF about 0), so its R is scaled with speed (R_flux = R0 + k/ω²); it is not switched off. Hall
+stays active at high speed and damps the drift of the flux observer. At standstill and near zero, Hall
+leads. A connected encoder enters as a third measurement source with a small R.
 
-**Tabelle der Flankenwinkel.** Nominal 60° Schritte mit einem Offset. Exakt
-bestimmt man sie einmal mit einem Offener-Regelkreis-Lauf (V/f oder
-vorgegebener Winkel) und Mitschrieb der Flanken, abgelegt als Einstellung
-(Flash-Backend steht noch aus, bis dahin RAM und Shell).
+**Table of edge angles.** Nominally 60° steps with an offset. The exact values are determined once with an
+open-loop run (V/f or a predefined angle) and logging of the edges, and stored as a setting (flash backend
+still pending, until then RAM and shell).
 
-**Position.** Aus dem fusionierten θ und der Polpaarzahl liefert
-`PositionTracker`/`RotorAngle` die mechanische Position. Absolute Referenz
-bleibt eine Anwendungsfrage (Homing).
+**Position.** From the fused θ and the pole-pair count, `PositionTracker`/`RotorAngle` gives the mechanical
+position. The absolute reference remains an application question (homing).
 
-**Simulation.** Für native_sim ein einfaches PMSM-Streckenmodell
-(ω, θ aus Drehmoment, Ströme aus Spannungen) in der Sim-Hardware, das Ströme und
-Hall-Flanken erzeugt. Damit läuft der Hotpath samt Fusion im twister
-geschlossen.
+**Simulation.** For native_sim, a simple PMSM plant model (ω, θ from torque, currents from voltages) in the
+sim hardware, which generates currents and Hall edges. This runs the hot path including fusion in the twister
+in a closed loop.
 
-## 6. Meilensteine
+## 6. Milestones
 
-Jeder Meilenstein baut für BCC und native_sim und lässt den twister grün.
+Each milestone builds for BCC and native_sim and keeps the twister green.
 
-| M | Inhalt | Nachweis |
+| M | Content | Evidence |
 |---|---|---|
-| M0 | Zeitmessung: DWT-Zyklen um Hotpath und Viertel-IRQ, Min/Mittel/Max in Ringpuffer, Ausgabe per Log/Shell. Baseline des heutigen Codes. | Zahlen vom Board |
-| M1 | D1 umsetzen: RCR=0, CCR-Preload, Viertel-IRQ vom Hotpath gepended, `samples_ready`-Polling entfällt. Sim spiegelt das. | Test für Reihenfolge und Kadenz |
-| M2 | `HotpathPlan` und Planbau im Viertel-IRQ (`sc_in`, `sc_out`, `ff`, `v_inj`, `inv_vdc`, Begrenzer). | Golden-Test: gleiche Eingänge, Duties wie vorher innerhalb Toleranz |
-| M3 | Hotpath verschlanken: verschmolzenes Park, keine Funktionszeiger, `-fno-math-errno`, Sättigung ohne libm-Aufruf. | Zyklen gegen Baseline aus M0 |
-| M4 | Beobachter-API nach D2, Wrap des Fehlers, getrenntes R. | gtest mit synthetischen Verläufen (konstantes ω, Rampe, Rauschen) |
-| M5 | Hall-Treiber (EXTI, Zeitstempel, Plausibilität) und Sim-Hall aus dem Streckenmodell. | ztest mit gestellten Flanken |
-| M6 | Fusion im Viertel-IRQ: Sektor- und Flankenmessung, Geschwindigkeits-Gating. | Tests: Stillstand ohne Drift, Hoch- und Runterlauf, Hall-Ausfall, Wechsel zu Fluss-only |
-| M7 | Regelthread mit Drehzahlregler, Sollwertbegrenzung und Mailbox. | Sim-Test: Sprung auf ω, Strombegrenzung greift |
-| M8 | Board: ADC-Ausrichtung, Offset, Hall-Tabelle per Offener-Regelkreis-Lauf, dann geschlossener Stromregler mit 50-A-Limit, Messung der ISR-Zeiten. | Messwerte, Oszilloskop |
+| M0 | Timing measurement: DWT cycles around the hot path and the quarter-cycle IRQ, min/mean/max in a ring buffer, output via log/shell. Baseline of today's code. | Numbers from the board |
+| M1 | Implement D1: RCR=0, CCR preload, quarter-cycle IRQ pended by the hot path, `samples_ready` polling removed. The sim mirrors this. | Test for order and cadence |
+| M2 | `HotpathPlan` and plan build in the quarter-cycle IRQ (`sc_in`, `sc_out`, `ff`, `v_inj`, `inv_vdc`, limiter). | Golden test: same inputs, duties as before within tolerance |
+| M3 | Slim the hot path: merged Park, no function pointers, `-fno-math-errno`, saturation without a libm call. | Cycles against the M0 baseline |
+| M4 | Observer API per D2, error wrap, separate R. | gtest with synthetic profiles (constant ω, ramp, noise) |
+| M5 | Hall driver (EXTI, timestamp, plausibility) and sim Hall from the plant model. | ztest with generated edges |
+| M6 | Fusion in the quarter-cycle IRQ: sector and edge measurement, speed gating. | Tests: standstill without drift, acceleration and deceleration, Hall failure, switch to flux-only |
+| M7 | Control thread with speed controller, setpoint limiting and mailbox. | Sim test: step in ω, current limit takes effect |
+| M8 | Board: ADC alignment, offset, Hall table via open-loop run, then closed current controller with the 50 A limit, measurement of the ISR times. | Measurements, oscilloscope |
 
-Reihenfolge: M0 und M1 zuerst, weil D1 entscheidet, wie viel Zeit der Hotpath
-hat. M2 bis M3 dann gemeinsam. M4 (Lib-Änderung ist freigegeben). M5/M6
-können nach M4 parallel zu M7 laufen.
+Order: M0 and M1 first, because D1 decides how much time the hot path has. M2 to M3 then together.
+M4 (library change approved). M5/M6 can run in parallel with M7 after M4.
 
-## 7. Risiken und offene Punkte
+## 7. Risks and Open Points
 
-- **ISR-Zeit.** Die Abschätzung (Hotpath etwa 400 Zyklen, Viertel-IRQ etwa 2500)
-  ist nicht gemessen. Wenn Hotpath plus Viertel-IRQ in einer Halbperiode nicht
-  fertig werden, verschiebt sich der Hotpath-Start und die Regelung verliert
-  eine Halbperiode. M0 klärt das früh. Reicht es nicht: PWM-Frequenz senken
-  oder Viertel-Arbeit auf zwei Halbperioden verteilen.
-- **Code und Daten im Flash.** Bei 170 MHz hat der Flash Wartezustände (ART-Cache
-  mildert das). Falls der Jitter stört: Hotpath und Plan in das CCM-SRAM legen
-  (Zephyr `CODE_DATA_RELOCATION`). Erst nach der Messung.
-- **FPU in Zero-Latency-ISRs.** Lazy Stacking kostet Zyklen, wenn ein Thread die
-  FPU nutzt. Im M0 mitmessen.
-- **Hall-Ausrichtung.** Ohne kalibrierte Tabelle sind Winkelfehler bis etwa
-  ±10° möglich. Flanken-R muss dazu passen.
-- **Anlauf.** Im Stillstand kennt die Fusion nur den Sektor (±30°). Das reicht
-  für den Anlauf mit etwa 87 % Drehmoment (cos 30°). Das Kalman-Filter konvergiert
-  an den ersten Flanken.
-- **Motordaten fehlen.** Maximale elektrische Drehfrequenz, Induktivität und
-  Widerstand der Zielmotoren sind nötig für R, die Schwellen, die Reglerparameter
-  und die PWM-Frequenz (Stromrippel bei kleiner Induktivität).
+- **Scope rule (open, decision needed).** The project rule keeps only the hot path in zero-latency
+  IRQs and everything else in Zephyr threads. This plan and the current code keep the quarter-cycle
+  IRQ (observers, Hall fusion, plan build) as a zero-latency IRQ. Either it stays an IRQ and the rule
+  gets an exception, or it becomes a thread with a deadline. The second option changes the double
+  buffer and the one-quarter-cycle timing. Until a decision is made, the plan stands as written.
+- **ISR time.** The estimate (hot path about 400 cycles, quarter-cycle IRQ about 2500) is not measured.
+  If hot path plus quarter-cycle IRQ do not finish within one half period, the hot path start shifts
+  and the control loses a half period. M0 clarifies this early. If it is not enough: lower the PWM
+  frequency or spread the quarter-cycle work over two half periods.
+- **Code and data in flash.** At 170 MHz the flash has wait states (the ART cache mitigates them). If the
+  jitter is a problem: place the hot path and the plan in CCM SRAM (Zephyr `CODE_DATA_RELOCATION`). Only
+  after measuring.
+- **FPU in zero-latency ISRs.** Lazy stacking costs cycles when a thread uses the FPU. Measure it in M0.
+- **Hall alignment.** Without a calibrated table, angle errors of up to about ±10° are possible. The edge R
+  must match.
+- **Start-up.** At standstill the fusion only knows the sector (±30°). That is enough for the start with
+  about 87 % torque (cos 30°). The Kalman filter converges at the first edges.
+- **Motor data missing.** Maximum electrical rotation frequency, inductance and resistance of the target
+  motors are needed for R, the thresholds, the controller parameters and the PWM frequency (current ripple
+  at small inductance).
