@@ -60,6 +60,12 @@
             "command": "west flash -d unimoc/app/build/bcc",
             "dependsOn": "Zephyr: build bcc",
             "problemMatcher": []
+        },
+        {
+            "label": "Zephyr: pristine build all",
+            "type": "shell",
+            "command": "west build -p always -b native_sim/native/64 unimoc/app -d unimoc/app/build/sim && west build -p always -b bcc unimoc/app -d unimoc/app/build/bcc",
+            "problemMatcher": "$gcc"
         }
     ]
 }

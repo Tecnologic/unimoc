@@ -64,7 +64,8 @@
 				"tasks": [
 					{ "label": "Build sim", "task": "Zephyr: build sim" },
 					{ "label": "Build BCC", "task": "Zephyr: build bcc" },
-					{ "label": "Flash BCC", "task": "Zephyr: flash bcc" }
+					{ "label": "Flash BCC", "task": "Zephyr: flash bcc" },
+					{ "label": "Pristine build all", "task": "Zephyr: pristine build all" }
 				]
 			}
 		],
