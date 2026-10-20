@@ -8,6 +8,8 @@
  *	@file units.hpp
  *	@brief Strongly typed SI units, unit arithmetic, literals, and type traits.
  *
+ *	SPDX-License-Identifier: GPL-3.0-or-later
+ *
  *	This file is part of UNIMOC and is licensed under GPL-3.0-or-later.
  *	See the repository LICENSE file for details.
  */
@@ -77,6 +79,8 @@ struct AnglePerCurrentTag;
 struct AngularVelocityPerAngleTag;
 /// Tag identifying magnetic-flux-per-current-per-time observer gains.
 struct MagneticFluxPerCurrentTimeTag;
+/// Tag identifying viscous rotational damping [N m s/rad].
+struct TorquePerAngularVelocityTag;
 
 /**
  * @brief A generic class for representing a unit of measurement.
@@ -157,7 +161,7 @@ class Unit {
    * @return A new Unit object with the clamped value.
    */
   [[nodiscard]] constexpr Unit Clamp(const Rep& min_val, const Rep& max_val) const {
-    return Unit(std::min(std::max(val_, min_val.val_), max_val.val_));
+    return Unit(std::min(std::max(val_, min_val), max_val));
   }
 
   /**
@@ -306,6 +310,8 @@ using AnglePerCurrent = Unit<float, std::ratio<1>, AnglePerCurrentTag>;
 using AngularVelocityPerAngle = Unit<float, std::ratio<1>, AngularVelocityPerAngleTag>;
 /// Magnetic flux per current per time observer gain [Wb/(A s)].
 using MagneticFluxPerCurrentTime = Unit<float, std::ratio<1>, MagneticFluxPerCurrentTimeTag>;
+/// Viscous rotational damping, torque per angular velocity [N m s/rad].
+using TorquePerAngularVelocity = Unit<float, std::ratio<1>, TorquePerAngularVelocityTag>;
 
 // --- Operators for units ---
 
@@ -406,9 +412,9 @@ constexpr auto operator/(const Unit<Rep, P1, AngleTag>& angle, const Unit<Rep, P
  * @return Angle with the product period.
  */
 template <typename Rep, typename P1, typename P2>
-constexpr auto operator*(const Unit<Rep, P1, AngularVelocityTag>& angVel,
+constexpr auto operator*(const Unit<Rep, P1, AngularVelocityTag>& ang_vel,
                          const Unit<Rep, P2, TimeTag>& time) {
-  return Unit<Rep, std::ratio_multiply<P1, P2>, AngleTag>(angVel.Value() * time.Value());
+  return Unit<Rep, std::ratio_multiply<P1, P2>, AngleTag>(ang_vel.Value() * time.Value());
 }
 
 /**
@@ -417,8 +423,8 @@ constexpr auto operator*(const Unit<Rep, P1, AngularVelocityTag>& angVel,
  */
 template <typename Rep, typename P1, typename P2>
 constexpr auto operator*(const Unit<Rep, P1, TimeTag>& time,
-                         const Unit<Rep, P2, AngularVelocityTag>& angVel) {
-  return angVel * time;
+                         const Unit<Rep, P2, AngularVelocityTag>& ang_vel) {
+  return ang_vel * time;
 }
 
 /**
@@ -427,8 +433,8 @@ constexpr auto operator*(const Unit<Rep, P1, TimeTag>& time,
  */
 template <typename Rep, typename P1, typename P2>
 constexpr auto operator/(const Unit<Rep, P1, AngleTag>& angle,
-                         const Unit<Rep, P2, AngularVelocityTag>& angVel) {
-  return Unit<Rep, std::ratio_divide<P1, P2>, TimeTag>(angle.Value() / angVel.Value());
+                         const Unit<Rep, P2, AngularVelocityTag>& ang_vel) {
+  return Unit<Rep, std::ratio_divide<P1, P2>, TimeTag>(angle.Value() / ang_vel.Value());
 }
 
 /**
@@ -436,9 +442,9 @@ constexpr auto operator/(const Unit<Rep, P1, AngleTag>& angle,
  * @return Angular acceleration with the quotient period.
  */
 template <typename Rep, typename P1, typename P2>
-constexpr auto operator/(const Unit<Rep, P1, AngularVelocityTag>& angVel,
+constexpr auto operator/(const Unit<Rep, P1, AngularVelocityTag>& ang_vel,
                          const Unit<Rep, P2, TimeTag>& time) {
-  return Unit<Rep, std::ratio_divide<P1, P2>, AngularAccelerationTag>(angVel.Value() / time.Value());
+  return Unit<Rep, std::ratio_divide<P1, P2>, AngularAccelerationTag>(ang_vel.Value() / time.Value());
 }
 
 /**
@@ -446,9 +452,9 @@ constexpr auto operator/(const Unit<Rep, P1, AngularVelocityTag>& angVel,
  * @return Angular velocity with the product period.
  */
 template <typename Rep, typename P1, typename P2>
-constexpr auto operator*(const Unit<Rep, P1, AngularAccelerationTag>& angAccel,
+constexpr auto operator*(const Unit<Rep, P1, AngularAccelerationTag>& ang_accel,
                          const Unit<Rep, P2, TimeTag>& time) {
-  return Unit<Rep, std::ratio_multiply<P1, P2>, AngularVelocityTag>(angAccel.Value() * time.Value());
+  return Unit<Rep, std::ratio_multiply<P1, P2>, AngularVelocityTag>(ang_accel.Value() * time.Value());
 }
 
 /**
@@ -457,8 +463,8 @@ constexpr auto operator*(const Unit<Rep, P1, AngularAccelerationTag>& angAccel,
  */
 template <typename Rep, typename P1, typename P2>
 constexpr auto operator*(const Unit<Rep, P1, TimeTag>& time,
-                         const Unit<Rep, P2, AngularAccelerationTag>& angAccel) {
-  return angAccel * time;
+                         const Unit<Rep, P2, AngularAccelerationTag>& ang_accel) {
+  return ang_accel * time;
 }
 
 /**
@@ -466,9 +472,9 @@ constexpr auto operator*(const Unit<Rep, P1, TimeTag>& time,
  * @return Time with the quotient period.
  */
 template <typename Rep, typename P1, typename P2>
-constexpr auto operator/(const Unit<Rep, P1, AngularVelocityTag>& angVel,
-                         const Unit<Rep, P2, AngularAccelerationTag>& angAccel) {
-  return Unit<Rep, std::ratio_divide<P1, P2>, TimeTag>(angVel.Value() / angAccel.Value());
+constexpr auto operator/(const Unit<Rep, P1, AngularVelocityTag>& ang_vel,
+                         const Unit<Rep, P2, AngularAccelerationTag>& ang_accel) {
+  return Unit<Rep, std::ratio_divide<P1, P2>, TimeTag>(ang_vel.Value() / ang_accel.Value());
 }
 
 /**
@@ -639,9 +645,9 @@ constexpr auto operator/(const Unit<Rep, P1, MagneticFluxTag>& flux,
  * @return Voltage with the product period.
  */
 template <typename Rep, typename P1, typename P2>
-constexpr auto operator*(const Unit<Rep, P1, InverseTimeTag>& inverseTime,
+constexpr auto operator*(const Unit<Rep, P1, InverseTimeTag>& inverse_time,
                          const Unit<Rep, P2, MagneticFluxTag>& flux) {
-  return Unit<Rep, std::ratio_multiply<P1, P2>, VoltageTag>(inverseTime.Value() * flux.Value());
+  return Unit<Rep, std::ratio_multiply<P1, P2>, VoltageTag>(inverse_time.Value() * flux.Value());
 }
 
 /**
@@ -650,8 +656,8 @@ constexpr auto operator*(const Unit<Rep, P1, InverseTimeTag>& inverseTime,
  */
 template <typename Rep, typename P1, typename P2>
 constexpr auto operator*(const Unit<Rep, P1, MagneticFluxTag>& flux,
-                         const Unit<Rep, P2, InverseTimeTag>& inverseTime) {
-  return inverseTime * flux;
+                         const Unit<Rep, P2, InverseTimeTag>& inverse_time) {
+  return inverse_time * flux;
 }
 
 /**
@@ -699,8 +705,8 @@ constexpr auto operator/(const Unit<Rep, P1, VoltageTag>& voltage, const Unit<Re
  */
 template <typename Rep, typename P1, typename P2>
 constexpr auto operator*(const Unit<Rep, P1, InductanceTag>& inductance,
-                         const Unit<Rep, P2, AngularVelocityTag>& angVel) {
-  return Unit<Rep, std::ratio_multiply<P1, P2>, VoltageTag>(inductance.Value() * angVel.Value());
+                         const Unit<Rep, P2, AngularVelocityTag>& ang_vel) {
+  return Unit<Rep, std::ratio_multiply<P1, P2>, VoltageTag>(inductance.Value() * ang_vel.Value());
 }
 
 /**
@@ -708,9 +714,9 @@ constexpr auto operator*(const Unit<Rep, P1, InductanceTag>& inductance,
  * @return Voltage with the product period.
  */
 template <typename Rep, typename P1, typename P2>
-constexpr auto operator*(const Unit<Rep, P1, AngularVelocityTag>& angVel,
+constexpr auto operator*(const Unit<Rep, P1, AngularVelocityTag>& ang_vel,
                          const Unit<Rep, P2, InductanceTag>& inductance) {
-  return inductance * angVel;
+  return inductance * ang_vel;
 }
 
 /**
@@ -729,8 +735,8 @@ constexpr auto operator/(const Unit<Rep, P1, VoltageTag>& voltage,
  */
 template <typename Rep, typename P1, typename P2>
 constexpr auto operator*(const Unit<Rep, P1, TorqueTag>& torque,
-                         const Unit<Rep, P2, AngularVelocityTag>& angVel) {
-  return Unit<Rep, std::ratio_multiply<P1, P2>, PowerTag>(torque.Value() * angVel.Value());
+                         const Unit<Rep, P2, AngularVelocityTag>& ang_vel) {
+  return Unit<Rep, std::ratio_multiply<P1, P2>, PowerTag>(torque.Value() * ang_vel.Value());
 }
 
 /**
@@ -738,9 +744,9 @@ constexpr auto operator*(const Unit<Rep, P1, TorqueTag>& torque,
  * @return Power with the product period.
  */
 template <typename Rep, typename P1, typename P2>
-constexpr auto operator*(const Unit<Rep, P1, AngularVelocityTag>& angVel,
+constexpr auto operator*(const Unit<Rep, P1, AngularVelocityTag>& ang_vel,
                          const Unit<Rep, P2, TorqueTag>& torque) {
-  return torque * angVel;
+  return torque * ang_vel;
 }
 
 /**
@@ -749,8 +755,8 @@ constexpr auto operator*(const Unit<Rep, P1, AngularVelocityTag>& angVel,
  */
 template <typename Rep, typename P1, typename P2>
 constexpr auto operator/(const Unit<Rep, P1, PowerTag>& power,
-                         const Unit<Rep, P2, AngularVelocityTag>& angVel) {
-  return Unit<Rep, std::ratio_divide<P1, P2>, TorqueTag>(power.Value() / angVel.Value());
+                         const Unit<Rep, P2, AngularVelocityTag>& ang_vel) {
+  return Unit<Rep, std::ratio_divide<P1, P2>, TorqueTag>(power.Value() / ang_vel.Value());
 }
 
 /**
@@ -796,6 +802,127 @@ constexpr auto operator*(const Unit<Rep, P1, AngleTag>& angle, const Unit<Rep, P
 template <typename Rep, typename P1, typename P2>
 constexpr auto operator*(const Unit<Rep, P1, FrequencyTag>& freq, const Unit<Rep, P2, AngleTag>& angle) {
   return angle * freq;
+}
+
+/**
+ * @brief Multiplies angular velocity by magnetic flux to obtain voltage (back-EMF).
+ * @return Voltage with the product period.
+ */
+template <typename Rep, typename P1, typename P2>
+constexpr auto operator*(const Unit<Rep, P1, AngularVelocityTag>& ang_vel,
+                         const Unit<Rep, P2, MagneticFluxTag>& flux) {
+  return Unit<Rep, std::ratio_multiply<P1, P2>, VoltageTag>(ang_vel.Value() * flux.Value());
+}
+
+/**
+ * @brief Multiplies magnetic flux by angular velocity to obtain voltage (back-EMF).
+ * @return Voltage with the product period.
+ */
+template <typename Rep, typename P1, typename P2>
+constexpr auto operator*(const Unit<Rep, P1, MagneticFluxTag>& flux,
+                         const Unit<Rep, P2, AngularVelocityTag>& ang_vel) {
+  return ang_vel * flux;
+}
+
+/**
+ * @brief Divides magnetic flux by inductance to obtain current.
+ * @return Current with the quotient period.
+ */
+template <typename Rep, typename P1, typename P2>
+constexpr auto operator/(const Unit<Rep, P1, MagneticFluxTag>& flux,
+                         const Unit<Rep, P2, InductanceTag>& inductance) {
+  return Unit<Rep, std::ratio_divide<P1, P2>, CurrentTag>(flux.Value() / inductance.Value());
+}
+
+/**
+ * @brief Multiplies resistance by time to obtain inductance.
+ * @return Inductance with the product period.
+ */
+template <typename Rep, typename P1, typename P2>
+constexpr auto operator*(const Unit<Rep, P1, ResistanceTag>& resistance, const Unit<Rep, P2, TimeTag>& time) {
+  return Unit<Rep, std::ratio_multiply<P1, P2>, InductanceTag>(resistance.Value() * time.Value());
+}
+
+/**
+ * @brief Multiplies time by resistance to obtain inductance.
+ * @return Inductance with the product period.
+ */
+template <typename Rep, typename P1, typename P2>
+constexpr auto operator*(const Unit<Rep, P1, TimeTag>& time, const Unit<Rep, P2, ResistanceTag>& resistance) {
+  return resistance * time;
+}
+
+/**
+ * @brief Multiplies magnetic flux by current to obtain torque.
+ * @return Torque with the product period.
+ *
+ * @note The result is the torque of one flux/current pair. Machine torque
+ * equations add the pole-pair count and the 3/2 factor of the
+ * amplitude-invariant Clarke transform as scalars.
+ */
+template <typename Rep, typename P1, typename P2>
+constexpr auto operator*(const Unit<Rep, P1, MagneticFluxTag>& flux,
+                         const Unit<Rep, P2, CurrentTag>& current) {
+  return Unit<Rep, std::ratio_multiply<P1, P2>, TorqueTag>(flux.Value() * current.Value());
+}
+
+/**
+ * @brief Multiplies current by magnetic flux to obtain torque.
+ * @return Torque with the product period.
+ */
+template <typename Rep, typename P1, typename P2>
+constexpr auto operator*(const Unit<Rep, P1, CurrentTag>& current,
+                         const Unit<Rep, P2, MagneticFluxTag>& flux) {
+  return flux * current;
+}
+
+/**
+ * @brief Divides torque by rotational inertia to obtain angular acceleration.
+ * @return Angular acceleration with the quotient period.
+ */
+template <typename Rep, typename P1, typename P2>
+constexpr auto operator/(const Unit<Rep, P1, TorqueTag>& torque, const Unit<Rep, P2, InertiaTag>& inertia) {
+  return Unit<Rep, std::ratio_divide<P1, P2>, AngularAccelerationTag>(torque.Value() / inertia.Value());
+}
+
+/**
+ * @brief Multiplies rotational inertia by angular acceleration to obtain torque.
+ * @return Torque with the product period.
+ */
+template <typename Rep, typename P1, typename P2>
+constexpr auto operator*(const Unit<Rep, P1, InertiaTag>& inertia,
+                         const Unit<Rep, P2, AngularAccelerationTag>& ang_accel) {
+  return Unit<Rep, std::ratio_multiply<P1, P2>, TorqueTag>(inertia.Value() * ang_accel.Value());
+}
+
+/**
+ * @brief Multiplies angular acceleration by rotational inertia to obtain torque.
+ * @return Torque with the product period.
+ */
+template <typename Rep, typename P1, typename P2>
+constexpr auto operator*(const Unit<Rep, P1, AngularAccelerationTag>& ang_accel,
+                         const Unit<Rep, P2, InertiaTag>& inertia) {
+  return inertia * ang_accel;
+}
+
+/**
+ * @brief Multiplies viscous damping by angular velocity to obtain torque.
+ * @return Torque with the product period.
+ */
+template <typename Rep, typename P1, typename P2>
+constexpr auto operator*(const Unit<Rep, P1, TorquePerAngularVelocityTag>& damping,
+                         const Unit<Rep, P2, AngularVelocityTag>& ang_vel) {
+  return Unit<Rep, std::ratio_multiply<P1, P2>, TorqueTag>(damping.Value() * ang_vel.Value());
+}
+
+/**
+ * @brief Multiplies angular velocity by viscous damping to obtain torque.
+ * @return Torque with the product period.
+ */
+template <typename Rep, typename P1, typename P2>
+constexpr auto operator*(const Unit<Rep, P1, AngularVelocityTag>& ang_vel,
+                         const Unit<Rep, P2, TorquePerAngularVelocityTag>& damping) {
+  return damping * ang_vel;
 }
 
 /**
@@ -1358,6 +1485,18 @@ constexpr MagneticFluxPerCurrentTime operator""_Wb_per_A_s(long double val) {
 }
 constexpr MagneticFluxPerCurrentTime operator""_Wb_per_A_s(unsigned long long val) {
   return MagneticFluxPerCurrentTime(static_cast<float>(val));
+}
+
+/**
+ * @brief Creates a viscous rotational damping literal.
+ * @param val Damping value in N m s/rad.
+ * @return A torque-per-angular-velocity value.
+ */
+constexpr TorquePerAngularVelocity operator""_Nm_s_per_rad(long double val) {
+  return TorquePerAngularVelocity(static_cast<float>(val));
+}
+constexpr TorquePerAngularVelocity operator""_Nm_s_per_rad(unsigned long long val) {
+  return TorquePerAngularVelocity(static_cast<float>(val));
 }
 
 /**

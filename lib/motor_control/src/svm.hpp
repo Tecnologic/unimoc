@@ -8,6 +8,8 @@
  *    @file svm.hpp
  *    @brief Unit-typed space-vector PWM modulator.
  *
+ *    SPDX-License-Identifier: GPL-3.0-or-later
+ *
  *    This file is part of UNIMOC and is licensed under GPL-3.0-or-later.
  *    See the repository LICENSE file for details.
  */
@@ -93,6 +95,19 @@ struct Svm {
   }
 
   /**
+   * @brief Reciprocal of the DC-link voltage for CalculateWithInverseDcLinkVoltage().
+   *
+   * Lets a caller that modulates several voltages with the same DC-link
+   * voltage (one control cycle) pay for the division once.
+   *
+   * @param dc_link_voltage DC-link voltage; values below 1 V are treated as 1 V to avoid division by zero.
+   * @return 1 / V_dc [1/V].
+   */
+  [[nodiscard]] static constexpr float InverseDcLinkVoltage(unit::Voltage dc_link_voltage) noexcept {
+    return 1.0F / std::max(dc_link_voltage.Value(), 1.0F);
+  }
+
+  /**
    * @brief Compute duty cycles from an alpha/beta voltage, the DC-link voltage and a dead-time correction.
    *
    * Normalises with a single reciprocal, adds the correction, applies the inverse
@@ -107,10 +122,25 @@ struct Svm {
       const system::Stator<unit::Voltage>& voltage,
       unit::Voltage dc_link_voltage,
       const system::Stator<unit::Ratio>& dead_time_ratio) const noexcept {
-    const float kInverseDcVoltage = 1.0F / std::max(dc_link_voltage.Value(), 1.0F);
-    const system::Stator<unit::Ratio> kVoltageRatio{(voltage.alpha.Value() * kInverseDcVoltage) +
+    return CalculateWithInverseDcLinkVoltage(voltage, InverseDcLinkVoltage(dc_link_voltage), dead_time_ratio);
+  }
+
+  /**
+   * @brief Same as CalculateWithDeadTimeCompensation(), with a precomputed 1 / V_dc.
+   *
+   * @param voltage                 Stationary-frame voltage vector.
+   * @param inverse_dc_link_voltage Result of InverseDcLinkVoltage() [1/V].
+   * @param dead_time_ratio         Dead-time compensation in the alpha/beta frame, already normalised by
+   * V_dc.
+   * @return   Three-phase duty cycles [0, 1] clamped to [duty_min, duty_max].
+   */
+  [[nodiscard]] constexpr system::ThreePhase<unit::Ratio> CalculateWithInverseDcLinkVoltage(
+      const system::Stator<unit::Voltage>& voltage,
+      const float inverse_dc_link_voltage,
+      const system::Stator<unit::Ratio>& dead_time_ratio) const noexcept {
+    const system::Stator<unit::Ratio> kVoltageRatio{(voltage.alpha.Value() * inverse_dc_link_voltage) +
                                                         dead_time_ratio.alpha.Value(),
-                                                    (voltage.beta.Value() * kInverseDcVoltage) +
+                                                    (voltage.beta.Value() * inverse_dc_link_voltage) +
                                                         dead_time_ratio.beta.Value()};
 
     return Calculate(kVoltageRatio.ToThreePhase());

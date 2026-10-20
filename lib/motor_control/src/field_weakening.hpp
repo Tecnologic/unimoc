@@ -1,31 +1,19 @@
 /*
-       __  ___   ________  _______  ______
-      / / / / | / /  _/  |/  / __ \/ ____/
-     / / / /  |/ // // /|_/ / / / / /
-    / /_/ / /|  // // /  / / /_/ / /___
-    \____/_/ |_/___/_/  /_/\____/\____/
-
-    Universal Motor Control  2026 Alexander <tecnologic86@gmail.com> Evers
-
-    This file is part of UNIMOC.
-
-    UNIMOC is free software: you can redistribute it and/or modify
-    it under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    This program is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU General Public License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ *       __  ___   ________  _______  ______
+ *      / / / / | / /  _/  |/  / __ \/ ____/
+ *     / / / /  |/ // // /|_/ / / / / /
+ *    / /_/ / /|  // // /  / / / /___
+ *    \____/_/ |_/___/_/  /_/\____/\____/
+ *
+ *    @file field_weakening.hpp
+ *    @brief Field-weakening controller that lowers the d-axis current above base speed.
+ *
+ *    SPDX-License-Identifier: GPL-3.0-or-later
+ *
+ *    This file is part of UNIMOC and is licensed under GPL-3.0-or-later.
+ *    See the repository LICENSE file for details.
  */
 #pragma once
-
-#ifndef UNIMOC_CONTROL_FIELD_WEAKENING_H_
-#define UNIMOC_CONTROL_FIELD_WEAKENING_H_
 
 #include <cmath>
 #include <concepts>
@@ -33,13 +21,9 @@
 #include "units.hpp"
 
 /**
- * @namespace unimoc global namespace
+ * @namespace unimoc::control control algorithms namespace
  */
-namespace unimoc {
-/**
- * @namespace control control algorithms namespace
- */
-namespace control {
+namespace unimoc::control {
 
 using namespace unit;
 
@@ -83,7 +67,7 @@ struct FieldWeakening {
   // -------------------------------------------------------------------------
 
   /// Integrator state: field-weakening d-axis current [A].
-  unit::Current i_d_fw{};
+  unit::Current i_d_fw;
 
   /**
    * @brief Update the field-weakening integrator and return the i_d correction.
@@ -95,14 +79,14 @@ struct FieldWeakening {
    * @param dt   Control cycle period [s].
   /// @return     Field-weakening i_d correction [A] (≤ 0).
    */
-  constexpr unit::Current update(const system::Stator<unit::Voltage>& v_s, const unit::Time dt) noexcept {
-    const T v_alpha = static_cast<T>(v_s.alpha.Value());
-    const T v_beta = static_cast<T>(v_s.beta.Value());
-    const unit::Voltage v_mag{std::sqrt(v_alpha * v_alpha + v_beta * v_beta)};
-    const T error = v_max.Value() - v_mag.Value();
+  constexpr unit::Current Update(const system::Stator<unit::Voltage>& v_s, const unit::Time dt) noexcept {
+    const T kVAlpha = static_cast<T>(v_s.alpha.Value());
+    const T kVBeta = static_cast<T>(v_s.beta.Value());
+    const unit::Voltage kVMag{std::sqrt(kVAlpha * kVAlpha + kVBeta * kVBeta)};
+    const T kError = v_max.Value() - kVMag.Value();
 
     // Integrate voltage headroom error into i_d correction
-    i_d_fw = unit::Current{i_d_fw.Value() + ki.Value() * error * dt.Value()};
+    i_d_fw = unit::Current{i_d_fw.Value() + ki.Value() * kError * dt.Value()};
 
     // Clamp: i_d_fw must remain in [i_d_min, 0]
     i_d_fw = unit::Current{i_d_fw.Value()}.Clamp(i_d_min.Value(), 0.0F);
@@ -111,10 +95,7 @@ struct FieldWeakening {
   }
 
   /// Reset integrator state (call on enable / mode transitions).
-  constexpr void reset() noexcept { i_d_fw = unit::Current{}; }
+  constexpr void Reset() noexcept { i_d_fw = unit::Current{}; }
 };
 
-}  // namespace control
-}  // namespace unimoc
-
-#endif /* UNIMOC_CONTROL_FIELD_WEAKENING_H_ */
+}  // namespace unimoc::control

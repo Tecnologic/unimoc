@@ -1,26 +1,17 @@
 /*
-       __  ___   ________  _______  ______
-      / / / / | / /  _/  |/  / __ \/ ____/
-     / / / /  |/ // // /|_/ / / / / /
-    / /_/ / /|  // // /  / / /_/ / /___
-    \____/_/ |_/___/_/  /_/\____/\____/
-
-    Universal Motor Control  2026 Alexander <tecnologic86@gmail.com> Evers
-
-    This file is part of UNIMOC.
-
-    UNIMOC is free software: you can redistribute it and/or modify
-    it under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    This program is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU General Public License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ *       __  ___   ________  _______  ______
+ *      / / / / | / /  _/  |/  / __ \/ ____/
+ *     / / / /  |/ // // /|_/ / / / / /
+ *    / /_/ / /|  // // /  / / / /___
+ *    \____/_/ |_/___/_/  /_/\____/\____/
+ *
+ *    @file position_tracker.hpp
+ *    @brief Mechanical position and homing adapter for an electrical RotorAngle.
+ *
+ *    SPDX-License-Identifier: GPL-3.0-or-later
+ *
+ *    This file is part of UNIMOC and is licensed under GPL-3.0-or-later.
+ *    See the repository LICENSE file for details.
  */
 #pragma once
 
@@ -61,17 +52,17 @@ struct PositionTracker {
    * Call once per control cycle before the position controller update. A zero
    * pole-pair count is ignored and leaves the last calculated position intact.
    *
-   * @param kElectricalAngle Source angle; its phase and revolution count are
+   * @param electrical_angle Source angle; its phase and revolution count are
    *                         never modified by this adapter.
-   * @param kPolePairs       Positive number of electrical revolutions per
+   * @param pole_pairs       Positive number of electrical revolutions per
    *                         mechanical revolution.
    */
-  constexpr void Update(const system::RotorAngle& kElectricalAngle, const std::uint8_t kPolePairs) noexcept {
-    if (kPolePairs == 0) {
+  constexpr void Update(const system::RotorAngle& electrical_angle, const std::uint8_t pole_pairs) noexcept {
+    if (pole_pairs == 0) {
       return;
     }
 
-    raw_position_rad_ = kElectricalAngle.AbsoluteAngle() / static_cast<float>(kPolePairs);
+    raw_position_rad_ = electrical_angle.AbsoluteAngle() / static_cast<float>(pole_pairs);
     UpdatePosition();
   }
 

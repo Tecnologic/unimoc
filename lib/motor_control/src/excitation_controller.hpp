@@ -1,44 +1,28 @@
 /*
-       __  ___   ________  _______  ______
-      / / / / | / /  _/  |/  / __ \/ ____/
-     / / / /  |/ // // /|_/ / / / / /
-    / /_/ / /|  // // /  / / /_/ / /___
-    \____/_/ |_/___/_/  /_/\____/\____/
-
-    Universal Motor Control  2026 Alexander <tecnologic86@gmail.com> Evers
-
-    This file is part of UNIMOC.
-
-    UNIMOC is free software: you can redistribute it and/or modify
-    it under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    This program is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU General Public License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ *       __  ___   ________  _______  ______
+ *      / / / / | / /  _/  |/  / __ \/ ____/
+ *     / / / /  |/ // // /|_/ / / / / /
+ *    / /_/ / /|  // // /  / / / /___
+ *    \____/_/ |_/___/_/  /_/\____/\____/
+ *
+ *    @file excitation_controller.hpp
+ *    @brief Excitation current and flux controller for EESM.
+ *
+ *    SPDX-License-Identifier: GPL-3.0-or-later
+ *
+ *    This file is part of UNIMOC and is licensed under GPL-3.0-or-later.
+ *    See the repository LICENSE file for details.
  */
 #pragma once
-
-#ifndef UNIMOC_CONTROL_EXCITATION_CONTROLLER_H_
-#define UNIMOC_CONTROL_EXCITATION_CONTROLLER_H_
 
 #include <cmath>
 #include <concepts>
 #include "units.hpp"
 
 /**
- * @namespace unimoc global namespace
+ * @namespace unimoc::control control algorithms namespace
  */
-namespace unimoc {
-/**
- * @namespace control control algorithms namespace
- */
-namespace control {
+namespace unimoc::control {
 
 using namespace unit;
 
@@ -51,13 +35,13 @@ using namespace unit;
 enum class ExcitationMode : unsigned char {
   /// Regulate rotor excitation current I_f [A] directly.
   /// The setpoint is interpreted as a current reference in amperes.
-  CurrentMode,
+  kCurrentMode,
 
   /// Regulate effective rotor flux linkage ψ_f = L_m · I_f [Wb].
   /// The setpoint is interpreted as a flux reference in weber.
   /// The controller internally converts the flux setpoint to a current
   /// setpoint via  I_f* = ψ_f* / L_m  before running the PI loop.
-  FluxMode,
+  kFluxMode,
 };
 
 /**
@@ -93,7 +77,7 @@ struct ExcitationController {
   // -------------------------------------------------------------------------
 
   /// Active control mode (CurrentMode or FluxMode).
-  ExcitationMode mode{ExcitationMode::CurrentMode};
+  ExcitationMode mode{ExcitationMode::kCurrentMode};
 
   /// Mutual (magnetising) inductance L_m [H].
   /// Used only in FluxMode to convert a flux setpoint to a current setpoint.
@@ -115,7 +99,7 @@ struct ExcitationController {
 
   /// Minimum rotor excitation current i_f_ref [A] (≥ 0 for unidirectional
   /// exciters; may be negative for reversible H-bridge drives).
-  unit::Current i_f_min{};
+  unit::Current i_f_min;
 
   /// Maximum rotor excitation current i_f_ref [A].
   unit::Current i_f_max{10.0_A};
@@ -131,18 +115,18 @@ struct ExcitationController {
   ///  - FluxMode:    desired effective flux linkage ψ_f* [Wb].
   ///
   /// Write this member from the Cyphal subscription callback in CurrentMode.
-  unit::Current current_setpoint{};
+  unit::Current current_setpoint;
 
   /// Flux-mode rotor field setpoint [Wb].
   /// Write this member from the Cyphal subscription callback in FluxMode.
-  unit::MagneticFlux flux_setpoint{};
+  unit::MagneticFlux flux_setpoint;
 
   // -------------------------------------------------------------------------
   // State
   // -------------------------------------------------------------------------
 
   /// PI integrator state [A].
-  unit::Current integrator{};
+  unit::Current integrator;
 
   // -------------------------------------------------------------------------
   // Output (read by hardware excitation driver each cycle)
@@ -152,7 +136,7 @@ struct ExcitationController {
   ///
   /// Feed this value into the hardware excitation driver (H-bridge duty
   /// cycle, DAC voltage, or brushless exciter current command) every cycle.
-  unit::Current i_f_ref{};
+  unit::Current i_f_ref;
 
   /**
    * @brief Update the excitation controller.
@@ -165,34 +149,31 @@ struct ExcitationController {
    * @param dt        Control period [s].
    * @return          Updated rotor excitation current reference i_f* [A].
    */
-  constexpr unit::Current update(const unit::Current i_f_meas, const unit::Time dt) noexcept {
+  constexpr unit::Current Update(const unit::Current i_f_meas, const unit::Time dt) noexcept {
     // Convert setpoint to a current reference depending on the active mode.
     T i_f_setpoint;
-    if (mode == ExcitationMode::FluxMode && L_m.Value() > 1.0e-9F) {
+    if (mode == ExcitationMode::kFluxMode && L_m.Value() > 1.0e-9F) {
       i_f_setpoint = flux_setpoint.Value() / L_m.Value();
     } else {
       i_f_setpoint = current_setpoint.Value();
     }
 
     // PI loop
-    const T error = i_f_setpoint - i_f_meas.Value();
+    const T kError = i_f_setpoint - i_f_meas.Value();
 
-    integrator = unit::Current{integrator.Value() + ki.Value() * error * dt.Value()}.Clamp(i_f_min.Value(),
-                                                                                           i_f_max.Value());
+    integrator = unit::Current{integrator.Value() + ki.Value() * kError * dt.Value()}.Clamp(i_f_min.Value(),
+                                                                                            i_f_max.Value());
 
-    i_f_ref = unit::Current{kp.Value() * error + integrator.Value()}.Clamp(i_f_min.Value(), i_f_max.Value());
+    i_f_ref = unit::Current{kp.Value() * kError + integrator.Value()}.Clamp(i_f_min.Value(), i_f_max.Value());
 
     return i_f_ref;
   }
 
   /// Reset controller state (call on enable or fault recovery).
-  constexpr void reset() noexcept {
+  constexpr void Reset() noexcept {
     integrator = unit::Current{};
     i_f_ref = unit::Current{};
   }
 };
 
-}  // namespace control
-}  // namespace unimoc
-
-#endif /* UNIMOC_CONTROL_EXCITATION_CONTROLLER_H_ */
+}  // namespace unimoc::control

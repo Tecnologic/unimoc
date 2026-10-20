@@ -2,31 +2,47 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Debug STM32G473CBT6",
-            "cwd": "${workspaceFolder}",
-            "executable": "build/batterycasecontroller-debug/hardware/batterycasecontroller/unimoc.elf",
+            "name": "Debug native_sim (Zephyr)",
+            "type": "cppdbg",
             "request": "launch",
+            "program": "${workspaceFolder}/app/build/sim/zephyr/zephyr.exe",
+            "args": [],
+            "cwd": "${workspaceFolder}/app/build/sim",
+            "stopAtEntry": false,
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "miDebuggerPath": "/usr/bin/gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
+            "name": "Debug BCC (Zephyr)",
             "type": "cortex-debug",
+            "request": "launch",
+            "cwd": "${workspaceFolder}/app/build/bcc",
+            "executable": "${workspaceFolder}/app/build/bcc/zephyr/zephyr.elf",
             "servertype": "jlink",
             "device": "STM32G473CB",
+            "interface": "swd",
+            "armToolchainPath": "/home/alex/zephyr-sdk-1.0.1/gnu/arm-zephyr-eabi/bin",
+            "runToEntryPoint": "main",
             "breakAfterReset": true,
-            "configFiles": [
-                "modm/openocd.cfg",
-            ],
             "rttConfig": {
                 "enabled": true,
                 "address": "auto",
                 "decoders": [
                     {
-                        "label": "",
+                        "label": "Zephyr log",
                         "port": 0,
                         "type": "console"
-                    },
-
+                    }
                 ]
             },
-            "runToEntryPoint": "main",
-            "preLaunchTask": "build batterycasecontroller-debug",
             "liveWatch": {
                 "enabled": true,
                 "samplesPerSecond": 4

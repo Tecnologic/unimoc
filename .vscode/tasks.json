@@ -1,0 +1,71 @@
+{
+    "version": "2.0.0",
+    "options": {
+        "cwd": "/home/alex/zephyr-ws",
+        "env": {
+            "ZEPHYR_BASE": "/home/alex/zephyr-ws/zephyr",
+            "ZEPHYR_SDK_INSTALL_DIR": "/home/alex/zephyr-sdk-1.0.1",
+            "PATH": "/home/alex/zephyr-ws/.venv/bin:${env:PATH}"
+        }
+    },
+    "tasks": [
+        {
+            "label": "Zephyr: build sim",
+            "type": "shell",
+            "command": "west build -b native_sim/native/64 unimoc/app -d unimoc/app/build/sim",
+            "problemMatcher": "$gcc",
+            "group": "build"
+        },
+        {
+            "label": "Zephyr: build bcc",
+            "type": "shell",
+            "command": "west build -b bcc unimoc/app -d unimoc/app/build/bcc",
+            "problemMatcher": "$gcc",
+            "group": "build"
+        },
+        {
+            "label": "Zephyr: build all",
+            "dependsOn": [
+                "Zephyr: build sim",
+                "Zephyr: build bcc"
+            ],
+            "dependsOrder": "sequence",
+            "problemMatcher": [],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            }
+        },
+        {
+            "label": "Zephyr: run sim",
+            "type": "shell",
+            "command": "west build -d unimoc/app/build/sim -t run",
+            "dependsOn": "Zephyr: build sim",
+            "problemMatcher": [],
+            "isBackground": false
+        },
+        {
+            "label": "Zephyr: twister (native_sim + bcc)",
+            "type": "shell",
+            "command": "west twister -T unimoc -p native_sim/native/64 -p bcc",
+            "problemMatcher": "$gcc",
+            "group": {
+                "kind": "test",
+                "isDefault": true
+            }
+        },
+        {
+            "label": "Zephyr: flash bcc",
+            "type": "shell",
+            "command": "west flash -d unimoc/app/build/bcc",
+            "dependsOn": "Zephyr: build bcc",
+            "problemMatcher": []
+        },
+        {
+            "label": "Zephyr: pristine build all",
+            "type": "shell",
+            "command": "west build -p always -b native_sim/native/64 unimoc/app -d unimoc/app/build/sim && west build -p always -b bcc unimoc/app -d unimoc/app/build/bcc",
+            "problemMatcher": "$gcc"
+        }
+    ]
+}

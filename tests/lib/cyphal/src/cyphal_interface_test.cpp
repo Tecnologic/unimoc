@@ -1,0 +1,246 @@
+/*
+ *       __  ___   ________  _______  ______
+ *      / / / / | / /  _/  |/  / __ \/ ____/
+ *     / / / /  |/ // // /|_/ / / / / /
+ *    / /_/ / /|  // // /  / / / /___
+ *    \____/_/ |_/___/_/  /_/\____/\____/
+ *
+ *    @file cyphal_interface_test.cpp
+ *    @brief ztest coverage for Cyphal identifiers and command ranges.
+ *
+ *    SPDX-License-Identifier: GPL-3.0-or-later
+ *
+ *    This file is part of UNIMOC and is licensed under GPL-3.0-or-later.
+ *    See the repository LICENSE file for details.
+ */
+
+/**
+ * @file test_cyphal_interface.hpp
+ * @brief Test fixture and cases for Cyphal interface identifiers.
+ */
+#include "cyphal/cyphal_interface.hpp"
+#include <zephyr/ztest.h>
+#include <array>
+#include "unimoc_test.hpp"
+
+namespace unimoc::cyphal::test {
+
+// --- Standard command codes match Cyphal specification §5.3.4 ---
+
+ZTEST(cyphal_interface, test_standard_command_restart) { zexpect_equal(cmd::kCommandRestart, 65535U); }
+
+ZTEST(cyphal_interface, test_standard_command_power_off) { zexpect_equal(cmd::kCommandPowerOff, 65534U); }
+
+ZTEST(cyphal_interface, test_standard_command_begin_software_update) {
+  zexpect_equal(cmd::kCommandBeginSoftwareUpdate, 65533U);
+}
+
+ZTEST(cyphal_interface, test_standard_command_factory_reset) {
+  zexpect_equal(cmd::kCommandFactoryReset, 65532U);
+}
+
+ZTEST(cyphal_interface, test_standard_command_emergency_stop) {
+  zexpect_equal(cmd::kCommandEmergencyStop, 65531U);
+}
+
+ZTEST(cyphal_interface, test_standard_command_store_persistent_states) {
+  zexpect_equal(cmd::kCommandStorePersistentStates, 65530U);
+}
+
+// --- Standard command codes are in the reserved range (≥ 0xFF00) ---
+
+ZTEST(cyphal_interface, test_standard_commands_in_reserved_range) {
+  zexpect_true((cmd::kCommandRestart) >= (0xFF00U));
+  zexpect_true((cmd::kCommandPowerOff) >= (0xFF00U));
+  zexpect_true((cmd::kCommandBeginSoftwareUpdate) >= (0xFF00U));
+  zexpect_true((cmd::kCommandFactoryReset) >= (0xFF00U));
+  zexpect_true((cmd::kCommandEmergencyStop) >= (0xFF00U));
+  zexpect_true((cmd::kCommandStorePersistentStates) >= (0xFF00U));
+}
+
+// --- Vendor-specific measurement commands are in the vendor range (< 0x8000) ---
+
+ZTEST(cyphal_interface, test_measurement_commands_in_vendor_range) {
+  zexpect_true((cmd::kCmdGetRotorAngle) < (0x8000U));
+  zexpect_true((cmd::kCmdGetRotorSpeed) < (0x8000U));
+  zexpect_true((cmd::kCmdGetShaftPosition) < (0x8000U));
+  zexpect_true((cmd::kCmdGetInPosition) < (0x8000U));
+  zexpect_true((cmd::kCmdGetHomingState) < (0x8000U));
+  zexpect_true((cmd::kCmdGetDcVoltage) < (0x8000U));
+  zexpect_true((cmd::kCmdGetPhaseCurrent) < (0x8000U));
+  zexpect_true((cmd::kCmdGetExcitationCurrent) < (0x8000U));
+}
+
+// --- All vendor-specific measurement commands are non-zero ---
+
+ZTEST(cyphal_interface, test_measurement_commands_non_zero) {
+  zexpect_not_equal(cmd::kCmdGetRotorAngle, 0U);
+  zexpect_not_equal(cmd::kCmdGetRotorSpeed, 0U);
+  zexpect_not_equal(cmd::kCmdGetShaftPosition, 0U);
+  zexpect_not_equal(cmd::kCmdGetInPosition, 0U);
+  zexpect_not_equal(cmd::kCmdGetHomingState, 0U);
+  zexpect_not_equal(cmd::kCmdGetDcVoltage, 0U);
+  zexpect_not_equal(cmd::kCmdGetPhaseCurrent, 0U);
+  zexpect_not_equal(cmd::kCmdGetExcitationCurrent, 0U);
+}
+
+// --- All vendor-specific measurement commands are unique ---
+
+ZTEST(cyphal_interface, test_measurement_commands_unique) {
+  const std::array<uint16_t, 8> kCodes = {
+      cmd::kCmdGetRotorAngle,
+      cmd::kCmdGetRotorSpeed,
+      cmd::kCmdGetShaftPosition,
+      cmd::kCmdGetInPosition,
+      cmd::kCmdGetHomingState,
+      cmd::kCmdGetDcVoltage,
+      cmd::kCmdGetPhaseCurrent,
+      cmd::kCmdGetExcitationCurrent,
+  };
+  constexpr std::size_t kCount = kCodes.size();
+  for (std::size_t i = 0; i < kCount; ++i) {
+    for (std::size_t j = i + 1; j < kCount; ++j) {
+      zexpect_not_equal(kCodes[i],
+                        kCodes[j],
+                        "Duplicate command code at indices %d and %d",
+                        static_cast<int>(i),
+                        static_cast<int>(j));
+    }
+  }
+}
+
+// --- Identification result publisher port IDs ---
+
+ZTEST(cyphal_interface, test_meas_result_port_ids_above_telemetry) {
+  // All measurement result ports must be above the last telemetry port (207)
+  zexpect_true((kPubMeasRs) > (kPubExcitationCurrent));
+  zexpect_true((kPubMeasLdLq) > (kPubExcitationCurrent));
+  zexpect_true((kPubMeasPsi) > (kPubExcitationCurrent));
+  zexpect_true((kPubMeasBalance) > (kPubExcitationCurrent));
+}
+
+ZTEST(cyphal_interface, test_meas_result_port_ids_unique) {
+  const std::array<uint16_t, 4> kPorts = {
+      kPubMeasRs,
+      kPubMeasLdLq,
+      kPubMeasPsi,
+      kPubMeasBalance,
+  };
+  constexpr std::size_t kCount = kPorts.size();
+  for (std::size_t i = 0; i < kCount; ++i) {
+    for (std::size_t j = i + 1; j < kCount; ++j) {
+      zexpect_not_equal(kPorts[i],
+                        kPorts[j],
+                        "Duplicate port ID at indices %d and %d",
+                        static_cast<int>(i),
+                        static_cast<int>(j));
+    }
+  }
+}
+
+// --- Motor identification command codes ---
+
+ZTEST(cyphal_interface, test_identification_commands_in_vendor_range) {
+  zexpect_true((cmd::kCmdMeasureRs) < (0x8000U));
+  zexpect_true((cmd::kCmdMeasureLdLq) < (0x8000U));
+  zexpect_true((cmd::kCmdMeasurePsi) < (0x8000U));
+  zexpect_true((cmd::kCmdMeasureBalance) < (0x8000U));
+}
+
+ZTEST(cyphal_interface, test_identification_commands_in_expected_subrange) {
+  // CMD_MEASURE_* commands live in 0x0100..0x01FF
+  zexpect_true((cmd::kCmdMeasureRs) >= (0x0100U));
+  zexpect_true((cmd::kCmdMeasureLdLq) >= (0x0100U));
+  zexpect_true((cmd::kCmdMeasurePsi) >= (0x0100U));
+  zexpect_true((cmd::kCmdMeasureBalance) >= (0x0100U));
+  zexpect_true((cmd::kCmdMeasureRs) <= (0x01FFU));
+  zexpect_true((cmd::kCmdMeasureLdLq) <= (0x01FFU));
+  zexpect_true((cmd::kCmdMeasurePsi) <= (0x01FFU));
+  zexpect_true((cmd::kCmdMeasureBalance) <= (0x01FFU));
+}
+
+ZTEST(cyphal_interface, test_identification_commands_unique) {
+  const std::array<uint16_t, 4> kCodes = {
+      cmd::kCmdMeasureRs,
+      cmd::kCmdMeasureLdLq,
+      cmd::kCmdMeasurePsi,
+      cmd::kCmdMeasureBalance,
+  };
+  constexpr std::size_t kCount = kCodes.size();
+  for (std::size_t i = 0; i < kCount; ++i) {
+    for (std::size_t j = i + 1; j < kCount; ++j) {
+      zexpect_not_equal(kCodes[i],
+                        kCodes[j],
+                        "Duplicate command code at indices %d and %d",
+                        static_cast<int>(i),
+                        static_cast<int>(j));
+    }
+  }
+}
+
+ZTEST(cyphal_interface, test_identification_commands_dont_overlap_get_commands) {
+  // No CMD_MEASURE_* should share a value with any CMD_GET_*
+  const std::array<uint16_t, 8> kGetCodes = {
+      cmd::kCmdGetRotorAngle,
+      cmd::kCmdGetRotorSpeed,
+      cmd::kCmdGetShaftPosition,
+      cmd::kCmdGetInPosition,
+      cmd::kCmdGetHomingState,
+      cmd::kCmdGetDcVoltage,
+      cmd::kCmdGetPhaseCurrent,
+      cmd::kCmdGetExcitationCurrent,
+  };
+  const std::array<uint16_t, 4> kMeasureCodes = {
+      cmd::kCmdMeasureRs,
+      cmd::kCmdMeasureLdLq,
+      cmd::kCmdMeasurePsi,
+      cmd::kCmdMeasureBalance,
+  };
+  for (auto get_code : kGetCodes) {
+    for (auto measure_code : kMeasureCodes) {
+      zexpect_not_equal(get_code, measure_code);
+    }
+  }
+}
+
+// --- Parameter bitmask flags ---
+
+ZTEST(cyphal_interface, test_param_apply_to_ram_is_bit0) { zexpect_equal(cmd::kParamApplyToRam, 0x0001U); }
+
+ZTEST(cyphal_interface, test_param_persist_to_nvm_is_bit1) {
+  zexpect_equal(cmd::kParamPersistToNvm, 0x0002U);
+}
+
+ZTEST(cyphal_interface, test_param_flags_are_distinct_bits) {
+  // The two flags must not share any bit
+  zexpect_equal(cmd::kParamApplyToRam & cmd::kParamPersistToNvm, 0U);
+}
+
+// --- Response status codes ---
+
+ZTEST(cyphal_interface, test_status_success) { zexpect_equal(cmd::kStatusSuccess, 0U); }
+
+ZTEST(cyphal_interface, test_status_codes_unique) {
+  const std::array<uint8_t, 6> kStatuses = {
+      cmd::kStatusSuccess,
+      cmd::kStatusFailure,
+      cmd::kStatusNotAuthorized,
+      cmd::kStatusBadState,
+      cmd::kStatusBadParameter,
+      cmd::kStatusBadCommand,
+  };
+  constexpr std::size_t kCount = kStatuses.size();
+  for (std::size_t i = 0; i < kCount; ++i) {
+    for (std::size_t j = i + 1; j < kCount; ++j) {
+      zexpect_not_equal(kStatuses[i],
+                        kStatuses[j],
+                        "Duplicate status code at indices %d and %d",
+                        static_cast<int>(i),
+                        static_cast<int>(j));
+    }
+  }
+}
+
+}  // namespace unimoc::cyphal::test
+
+ZTEST_SUITE(cyphal_interface, nullptr, nullptr, nullptr, nullptr, nullptr);

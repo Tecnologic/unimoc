@@ -1,31 +1,19 @@
 /*
-       __  ___   ________  _______  ______
-      / / / / | / /  _/  |/  / __ \/ ____/
-     / / / /  |/ // // /|_/ / / / / /
-    / /_/ / /|  // // /  / / /_/ / /___
-    \____/_/ |_/___/_/  /_/\____/\____/
-
-    Universal Motor Control  2026 Alexander <tecnologic86@gmail.com> Evers
-
-    This file is part of UNIMOC.
-
-    UNIMOC is free software: you can redistribute it and/or modify
-    it under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    This program is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU General Public License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ *       __  ___   ________  _______  ______
+ *      / / / / | / /  _/  |/  / __ \/ ____/
+ *     / / / /  |/ // // /|_/ / / / / /
+ *    / /_/ / /|  // // /  / / / /___
+ *    \____/_/ |_/___/_/  /_/\____/\____/
+ *
+ *    @file pmsm_flux_observer.hpp
+ *    @brief Voltage-model PMSM flux observer with closed-loop angle feedback.
+ *
+ *    SPDX-License-Identifier: GPL-3.0-or-later
+ *
+ *    This file is part of UNIMOC and is licensed under GPL-3.0-or-later.
+ *    See the repository LICENSE file for details.
  */
 #pragma once
-
-#ifndef UNIMOC_OBSERVER_PMSM_FLUX_OBSERVER_H_
-#define UNIMOC_OBSERVER_PMSM_FLUX_OBSERVER_H_
 
 #include <cmath>
 #include <concepts>
@@ -35,13 +23,9 @@
 #include "stator_system.hpp"
 
 /**
- * @namespace unimoc global namespace
+ * @namespace unimoc::observer observer algorithms namespace
  */
-namespace unimoc {
-/**
- * @namespace observer observer algorithms namespace
- */
-namespace observer {
+namespace unimoc::observer {
 
 /**
  * @brief Voltage-model PMSM flux observer with closed-loop feedback correction.
@@ -96,7 +80,7 @@ namespace observer {
  * Feeding the MechanicalObserver Kalman filter
  * ---------------------------------------------
  * The estimated angle error derived from the flux vector is injected into
- * the MechanicalObserver via inject_angle_error(), so both estimators share
+ * the MechanicalObserver via InjectAngleError(), so both estimators share
  * the same rotor-angle reference.
  *
  * @tparam T  Floating-point type (float by default).
@@ -108,13 +92,13 @@ struct PmsmFluxObserver {
   // =========================================================================
 
   /// Stator phase resistance R_s [Ω].
-  unit::Resistance rs{};
+  unit::Resistance rs;
 
   /// d-axis inductance L_d [H].
-  unit::Inductance L_d{};
+  unit::Inductance L_d;
 
   /// q-axis inductance L_q [H].
-  unit::Inductance L_q{};
+  unit::Inductance L_q;
 
   // =========================================================================
   // Feedback (anti-drift) gains
@@ -122,36 +106,36 @@ struct PmsmFluxObserver {
 
   /// d-axis feedback gain C_d [1/s].  Larger values reduce drift faster but
   /// also damp transient response.
-  unit::InverseTime C_d{};
+  unit::InverseTime C_d;
 
   /// q-axis feedback gain C_q [1/s].
-  unit::InverseTime C_q{};
+  unit::InverseTime C_q;
 
   // =========================================================================
   // Observer state
   // =========================================================================
 
   /// Stator-frame integrated flux α-component ψ_α [Wb].
-  unit::MagneticFlux psi_alpha{};
+  unit::MagneticFlux psi_alpha;
 
   /// Stator-frame integrated flux β-component ψ_β [Wb].
-  unit::MagneticFlux psi_beta{};
+  unit::MagneticFlux psi_beta;
 
   /// Rotor-frame d-axis back-EMF feedback term fb_d [V].
-  unit::Voltage fb_d{};
+  unit::Voltage fb_d;
 
   /// Rotor-frame q-axis back-EMF feedback term fb_q [V].
-  unit::Voltage fb_q{};
+  unit::Voltage fb_q;
 
   // =========================================================================
   // Outputs (updated by calculate())
   // =========================================================================
 
   /// Estimated PM flux in the rotor d-axis [Wb] (after inductance subtraction).
-  unit::MagneticFlux psi_pm_d{};
+  unit::MagneticFlux psi_pm_d;
 
   /// Estimated PM flux in the rotor q-axis [Wb] (after inductance subtraction).
-  unit::MagneticFlux psi_pm_q{};
+  unit::MagneticFlux psi_pm_q;
 
   // =========================================================================
   // Public API
@@ -165,13 +149,13 @@ struct PmsmFluxObserver {
    *
    * @param settings Validated NVM settings.
    */
-  constexpr void init(const settings::NvmSettings& settings) noexcept {
+  constexpr void Init(const settings::NvmSettings& settings) noexcept {
     rs = settings.stator_r;
     L_d = settings.l_d;
     L_q = settings.l_q;
     C_d = settings.pmsm_flux_obs_c_d;
     C_q = settings.pmsm_flux_obs_c_q;
-    reset();
+    Reset();
   }
 
   /**
@@ -190,48 +174,48 @@ struct PmsmFluxObserver {
    * @param mech_obs MechanicalObserver whose Kalman filter receives the
    *                 flux-derived angle correction.
    */
-  constexpr void calculate(const system::Rotor<unit::Voltage>& u_dq,
+  constexpr void Calculate(const system::Rotor<unit::Voltage>& u_dq,
                            const system::Rotor<unit::Current>& i_dq,
                            const system::Rotor<unit::MagneticFlux>& set_flux,
                            const unit::Time dt,
                            MechanicalObserver<T>& mech_obs) noexcept {
     // Snapshot sin/cos from the mechanical observer
-    const T sn = mech_obs.sin_theta.Value();
-    const T cs = mech_obs.cos_theta.Value();
+    const T kSn = mech_obs.sin_theta.Value();
+    const T kCs = mech_obs.cos_theta.Value();
 
     // -----------------------------------------------------------------
     // Rotor-frame back-EMF (voltage model + feedback)
     // -----------------------------------------------------------------
-    const unit::Voltage bemf_d = u_dq.d - rs * i_dq.d + fb_d;
-    const unit::Voltage bemf_q = u_dq.q - rs * i_dq.q + fb_q;
+    const unit::Voltage kBemfD = u_dq.d - rs * i_dq.d + fb_d;
+    const unit::Voltage kBemfQ = u_dq.q - rs * i_dq.q + fb_q;
 
     // -----------------------------------------------------------------
     // Inverse Park: rotor → stator frame
     //   e_α = bemf_d · cos θ̂ − bemf_q · sin θ̂
     //   e_β = bemf_d · sin θ̂ + bemf_q · cos θ̂
     // -----------------------------------------------------------------
-    const unit::Voltage bemf_alpha{bemf_d.Value() * cs - bemf_q.Value() * sn};
-    const unit::Voltage bemf_beta{bemf_d.Value() * sn + bemf_q.Value() * cs};
+    const unit::Voltage kBemfAlpha{kBemfD.Value() * kCs - kBemfQ.Value() * kSn};
+    const unit::Voltage kBemfBeta{kBemfD.Value() * kSn + kBemfQ.Value() * kCs};
 
     // -----------------------------------------------------------------
     // Stator-frame flux integration
     // -----------------------------------------------------------------
-    psi_alpha += bemf_alpha * dt;
-    psi_beta += bemf_beta * dt;
+    psi_alpha += kBemfAlpha * dt;
+    psi_beta += kBemfBeta * dt;
 
     // -----------------------------------------------------------------
     // Park: stator → rotor frame
     //   ψ_d =  ψ_α · cos θ̂ + ψ_β · sin θ̂
     //   ψ_q = −ψ_α · sin θ̂ + ψ_β · cos θ̂
     // -----------------------------------------------------------------
-    const unit::MagneticFlux psi_d{psi_alpha.Value() * cs + psi_beta.Value() * sn};
-    const unit::MagneticFlux psi_q{-psi_alpha.Value() * sn + psi_beta.Value() * cs};
+    const unit::MagneticFlux kPsiD{psi_alpha.Value() * kCs + psi_beta.Value() * kSn};
+    const unit::MagneticFlux kPsiQ{-psi_alpha.Value() * kSn + psi_beta.Value() * kCs};
 
     // -----------------------------------------------------------------
     // Subtract inductance-induced flux to get PM flux estimate
     // -----------------------------------------------------------------
-    psi_pm_d = psi_d - L_d * i_dq.d;
-    psi_pm_q = psi_q - L_q * i_dq.q;
+    psi_pm_d = kPsiD - L_d * i_dq.d;
+    psi_pm_q = kPsiQ - L_q * i_dq.q;
 
     // -----------------------------------------------------------------
     // Closed-loop feedback update
@@ -248,8 +232,8 @@ struct PmsmFluxObserver {
     //
     // We negate it so the convention matches: positive ε → advance θ̂.
     // -----------------------------------------------------------------
-    const unit::Angle angle_error{-psi_pm_q.Value()};
-    mech_obs.inject_angle_error(angle_error, dt);
+    const unit::Angle kAngleError{-psi_pm_q.Value()};
+    mech_obs.InjectAngleError(kAngleError, dt);
   }
 
   /**
@@ -257,7 +241,7 @@ struct PmsmFluxObserver {
    *
    * Call on fault recovery or control-mode transitions.
    */
-  constexpr void reset() noexcept {
+  constexpr void Reset() noexcept {
     psi_alpha = unit::MagneticFlux{};
     psi_beta = unit::MagneticFlux{};
     fb_d = unit::Voltage{};
@@ -267,7 +251,4 @@ struct PmsmFluxObserver {
   }
 };
 
-}  // namespace observer
-}  // namespace unimoc
-
-#endif /* UNIMOC_OBSERVER_PMSM_FLUX_OBSERVER_H_ */
+}  // namespace unimoc::observer

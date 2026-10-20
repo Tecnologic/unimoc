@@ -1,31 +1,19 @@
 /*
-       __  ___   ________  _______  ______
-      / / / / | / /  _/  |/  / __ \/ ____/
-     / / / /  |/ // // /|_/ / / / / /
-    / /_/ / /|  // // /  / / /_/ / /___
-    \____/_/ |_/___/_/  /_/\____/\____/
-
-    Universal Motor Control  2026 Alexander <tecnologic86@gmail.com> Evers
-
-    This file is part of UNIMOC.
-
-    UNIMOC is free software: you can redistribute it and/or modify
-    it under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    This program is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU General Public License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ *       __  ___   ________  _______  ______
+ *      / / / / | / /  _/  |/  / __ \/ ____/
+ *     / / / /  |/ // // /|_/ / / / / /
+ *    / /_/ / /|  // // /  / / / /___
+ *    \____/_/ |_/___/_/  /_/\____/\____/
+ *
+ *    @file excitation_observer.hpp
+ *    @brief Rotor excitation current observer for EESM.
+ *
+ *    SPDX-License-Identifier: GPL-3.0-or-later
+ *
+ *    This file is part of UNIMOC and is licensed under GPL-3.0-or-later.
+ *    See the repository LICENSE file for details.
  */
 #pragma once
-
-#ifndef UNIMOC_OBSERVER_EXCITATION_OBSERVER_H_
-#define UNIMOC_OBSERVER_EXCITATION_OBSERVER_H_
 
 #include <algorithm>
 #include <cmath>
@@ -33,13 +21,9 @@
 #include "units.hpp"
 
 /**
- * @namespace unimoc global namespace
+ * @namespace unimoc::observer observer algorithms namespace
  */
-namespace unimoc {
-/**
- * @namespace observer observer algorithms namespace
- */
-namespace observer {
+namespace unimoc::observer {
 
 using namespace unit;
 
@@ -97,10 +81,10 @@ struct ExcitationObserver {
   // -------------------------------------------------------------------------
 
   /// Estimated (filtered) rotor excitation current î_f [A].
-  unit::Current i_f_hat{};
+  unit::Current i_f_hat;
 
   /// Estimated effective rotor flux linkage ψ̂_f = L_m · î_f [Wb].
-  unit::MagneticFlux psi_f_hat{};
+  unit::MagneticFlux psi_f_hat;
 
   /**
    * @brief Update the excitation observer.
@@ -112,11 +96,11 @@ struct ExcitationObserver {
    *                  ExcitationController::i_f_ref as an open-loop estimate.
    * @param dt        Control period [s].
    */
-  constexpr void update(const unit::Current i_f_meas, const unit::Time dt) noexcept {
+  constexpr void Update(const unit::Current i_f_meas, const unit::Time dt) noexcept {
     // First-order low-pass: i_f_hat += (dt / tau) * (i_f_meas - i_f_hat)
     if (tau.Value() > 1.0e-12F) {
-      const T alpha = dt.Value() / tau.Value();
-      i_f_hat = unit::Current{i_f_hat.Value() + alpha * (i_f_meas.Value() - i_f_hat.Value())};
+      const T kAlpha = dt.Value() / tau.Value();
+      i_f_hat = unit::Current{i_f_hat.Value() + kAlpha * (i_f_meas.Value() - i_f_hat.Value())};
     } else {
       // Zero time constant — pass through immediately
       i_f_hat = i_f_meas;
@@ -132,13 +116,10 @@ struct ExcitationObserver {
    *
    * @param i_f_init  Optional initial current estimate [A] (default 0).
    */
-  constexpr void reset(const unit::Current i_f_init = unit::Current{}) noexcept {
+  constexpr void Reset(const unit::Current i_f_init = unit::Current{}) noexcept {
     i_f_hat = i_f_init;
     psi_f_hat = L_m * i_f_hat;
   }
 };
 
-}  // namespace observer
-}  // namespace unimoc
-
-#endif /* UNIMOC_OBSERVER_EXCITATION_OBSERVER_H_ */
+}  // namespace unimoc::observer

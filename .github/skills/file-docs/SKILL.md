@@ -13,6 +13,8 @@ This skill documents an existing C++ file with focused Doxygen comments. Analyze
 - For a source file, document the file purpose and significant file-scope functions or implementation details. Do not add `#pragma once` to a source file.
 - Document private or local variables and functions only when their purpose or invariants are not clear from the code.
 - Preserve existing comments and improve them only when they are incomplete or inaccurate.
+- Do not document vendored or external code: `lib/cymon/`, the legacy firmware in `hardware/batterycasecontroller/`, or Zephyr and west workspace sources.
+- Do not document Zephyr glue (`app/`, `hardware/zephyr_*`) as portable API. Describe only what the file does on its target.
 
 ## File header
 
@@ -20,7 +22,7 @@ Do not add or change a license or copyright header unless the user explicitly re
 
 When a project header is required, replace all placeholders such as `<year>` and `file_name.h/cpp` with real values. The file description should use the `@file` tag and briefly describe the file's purpose and contents.
 
-The repository's UNIMOC header format is:
+The repository's UNIMOC header format is below. The `SPDX-License-Identifier` line is part of it (Zephyr convention). Non-C++ sources (CMake, YAML, shell) carry the same tag as a first-line `# SPDX-License-Identifier: GPL-3.0-or-later` comment.
 
 ```
 /*
@@ -32,6 +34,8 @@ The repository's UNIMOC header format is:
  *
  *	@file actual_file_name.hpp
  *	@brief Brief description of the file's purpose and contents.
+ *
+ *	SPDX-License-Identifier: GPL-3.0-or-later
  *
  *	This file is part of UNIMOC and is licensed under GPL-3.0-or-later.
  *	See the repository LICENSE file for details.

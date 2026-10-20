@@ -8,6 +8,8 @@
  *    @file slow_update.hpp
  *    @brief Background current-control update interface.
  *
+ *    SPDX-License-Identifier: GPL-3.0-or-later
+ *
  *    This file is part of UNIMOC and is licensed under GPL-3.0-or-later.
  *    See the repository LICENSE file for details.
  */
@@ -21,61 +23,47 @@
 /**
  * @namespace unimoc global namespace
  */
-namespace unimoc {
+
 /**
  * @namespace current_control current-control subsystem namespace
  */
-namespace current_control {
+namespace unimoc::current_control {
 
 /**
- * @brief Background observer update that runs outside the ISR context.
+ * @brief Observer update that runs after each control cycle, below the control cycle.
  *
  * Overview
  * --------
  * `SlowUpdate` owns the `PmsmFluxObserver` and drives the `MechanicalObserver`
- * prediction step.  It wakes whenever the ISR signals that a new set of four
- * current samples is ready (via `CurrentControlIsr::state.samples_ready`),
- * then:
+ * prediction step. After every control cycle (signalled through
+ * `CurrentControlIsr::state.observer_pending`) it:
  *
- *  1. Snapshots the four I_αβ samples and pre-computed sin/cos pairs from the
- *     active double-buffer — the buffer that the ISR was writing to during
- *     the previous four sub-steps.
- *  2. Applies the per-sub-step angle to each sample (angle-advance correction)
- *     and computes the mean d/q current.
- *  3. Calls the PMSM flux observer and the mechanical Kalman predict step.
- *  4. Computes the next four sin/cos pairs (projected forward by `omega × dt_fast`)
- *     and stores them in the **inactive** double-buffer.
- *  5. Atomically flips the double-buffer so the ISR picks up the new values
- *     at the start of the next 4-step cycle.
+ *  1. Takes the mean d/q current and the voltage demand of the cycle from the
+ *     buffer the control cycle used.
+ *  2. Calls the PMSM flux observer and the mechanical Kalman predict step,
+ *     and feeds the four samples to the HFI observer when HFI is active.
+ *  3. Computes the angles of the next cycle (Park angle of each sample and
+ *     inverse-Park angle of each duty entry, projected forward by
+ *     `omega × dt_fast`) into the **inactive** buffer.
+ *  4. Atomically flips the double buffer so the next control cycle uses them.
  *
  * Execution model
  * ---------------
- * The caller is responsible for scheduling `run()` in a loop at a priority
- * lower than the ADC JEOC ISR.  `run()` polls `samples_ready` and does
- * nothing until it is set.  On a FreeRTOS system the caller can yield between
- * polls; on a bare-metal system a simple busy wait is safe because the ISR
- * will still preempt it.
- *
- * Thread-safety
- * -------------
- * See the ownership protocol in `SubStepBuffer.hpp`.  After `run()` flips
- * the active buffer the ISR begins reading from the new (formerly inactive)
- * buffer.  The old buffer (now inactive) is then owned by SlowUpdate and is
- * safe to write without synchronisation until the next flip.
+ * The platform runs `RunOnce()` after each control cycle at a priority
+ * below the sampling interrupt (BCC: a software-pended normal-priority
+ * interrupt; native_sim: directly after the control callback). It must finish
+ * before the next control cycle, one cycle (62.5 µs at 16 kHz) later;
+ * `state.observer_overruns` counts the cycles where it did not.
  *
  * Usage
  * -----
  * @code
- *   // One-time setup:
- *   auto& isr   = unimoc::current_control::CurrentControlIsr::instance();
- *   auto& slow  = unimoc::current_control::SlowUpdate::instance();
- *   slow.init(settings, isr);
+ *   auto& isr   = unimoc::current_control::CurrentControlIsr::Instance();
+ *   auto& slow  = unimoc::current_control::SlowUpdate::Instance();
+ *   slow.Init(settings, isr);
  *
- *   // Background loop (low-priority task or main thread):
- *   for (;;) {
- *       slow.run_once();   // returns immediately if samples not yet ready
- *       // yield / sleep here if available
- *   }
+ *   // Observer interrupt, after each control cycle:
+ *   slow.RunOnce();
  * @endcode
  */
 class SlowUpdate {
@@ -85,7 +73,7 @@ class SlowUpdate {
   // =========================================================================
 
   /// Return the single global instance.
-  static SlowUpdate& instance() noexcept {
+  static SlowUpdate& Instance() noexcept {
     static SlowUpdate obj;
     return obj;
   }
@@ -97,13 +85,13 @@ class SlowUpdate {
   /**
    * @brief Initialise the slow-update task from NVM settings.
    *
-   * Must be called after `CurrentControlIsr::init()`.
+   * Must be called after `CurrentControlIsr::Init()`.
    *
    * @param settings  NVM settings (motor params, observer gains).
    * @param isr       Reference to the ISR instance whose shared state and
    *                  `MechanicalObserver` this task will update.
    */
-  void init(const settings::NvmSettings& settings, CurrentControlIsr& isr) noexcept;
+  void Init(const settings::NvmSettings& settings, CurrentControlIsr& isr) noexcept;
 
   // =========================================================================
   // Setpoint interface (called from outer control loop)
@@ -115,45 +103,43 @@ class SlowUpdate {
    * Typically set_flux.d = ψ_PM (nominal permanent-magnet flux) and
    * set_flux.q = 0 for field-oriented control without field weakening.
    *
-   * @param sp  Flux setpoint in the rotor frame [Wb].
+   * @param setpoint  Flux setpoint in the rotor frame [Wb].
    */
-  void set_flux_setpoint(const system::Rotor<unit::MagneticFlux>& sp) noexcept { flux_setpoint_ = sp; }
+  void SetFluxSetpoint(const system::Rotor<unit::MagneticFlux>& setpoint) noexcept {
+    flux_setpoint_ = setpoint;
+  }
 
   // =========================================================================
   // Main execution
   // =========================================================================
 
   /**
-   * @brief Attempt one observer update cycle.
+   * @brief Run one observer update for the control cycle that just finished.
    *
-   * Returns immediately (no-op) if `samples_ready` is not set.  Otherwise
-   * runs the full observer pipeline and prepares the next set of sub-step
-   * sin/cos values.
-   *
-   * The caller should call this in a tight loop (yielding between calls when
-   * possible) at a priority lower than the ADC JEOC ISR.
+   * Returns immediately (no-op) if no cycle is pending. Otherwise runs the
+   * observer pipeline and prepares the angles of the next cycle.
    *
    * @return true   if an update was performed this call.
-   * @return false  if samples were not yet ready.
+   * @return false  if no control cycle was pending.
    */
-  bool run_once() noexcept;
+  bool RunOnce() noexcept;
 
   // =========================================================================
   // Observer instance (public so outer loop can read psi_pm_d etc.)
   // =========================================================================
 
   /// PMSM voltage-model flux observer owned by the slow-update task.
+  // NOLINTNEXTLINE(cppcoreguidelines-non-private-member-variables-in-classes): read by the outer loop.
   observer::PmsmFluxObserver<float> flux_obs{};
 
  private:
   SlowUpdate() = default;
 
-  /// Pointer to the ISR instance set by init().
+  /// Pointer to the ISR instance set by Init().
   CurrentControlIsr* isr_{nullptr};
 
-  /// Flux setpoint used by flux_obs.calculate() — written by outer loop.
-  system::Rotor<unit::MagneticFlux> flux_setpoint_{0.0f, 0.0f};
+  /// Flux setpoint used by flux_obs.Calculate() — written by outer loop.
+  system::Rotor<unit::MagneticFlux> flux_setpoint_{0.0F, 0.0F};
 };
 
-}  // namespace current_control
-}  // namespace unimoc
+}  // namespace unimoc::current_control

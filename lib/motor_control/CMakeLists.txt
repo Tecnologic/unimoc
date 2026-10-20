@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 set(UNIMOC_MOTOR_CONTROL_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
 add_library(unimoc_motor_control_system INTERFACE)
@@ -36,7 +38,3 @@ add_library(unimoc::motor_control::system ALIAS unimoc_motor_control_system)
 add_library(unimoc::motor_control::observer ALIAS unimoc_motor_control_observer)
 add_library(unimoc::motor_control::control ALIAS unimoc_motor_control_control)
 add_library(unimoc::motor_control ALIAS unimoc_motor_control)
-
-if(ENABLE_TESTS)
-    add_subdirectory(tests)
-endif()

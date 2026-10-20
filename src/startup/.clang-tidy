@@ -1,0 +1,6 @@
+# The startup FSM formats its log text printf-style (LogFormatted, checked at
+# compile time through the format attribute). Calling it is a C vararg call by
+# definition; everything else of the repository configuration applies.
+InheritParentConfig: true
+Checks: >
+  -cppcoreguidelines-pro-type-vararg

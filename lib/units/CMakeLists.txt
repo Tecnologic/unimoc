@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 add_library(unimoc_units INTERFACE)
 
 target_include_directories(unimoc_units INTERFACE

@@ -1,44 +1,28 @@
 /*
-       __  ___   ________  _______  ______
-      / / / / | / /  _/  |/  / __ \/ ____/
-     / / / /  |/ // // /|_/ / / / / /
-    / /_/ / /|  // // /  / / /_/ / /___
-    \____/_/ |_/___/_/  /_/\____/\____/
-
-    Universal Motor Control  2026 Alexander <tecnologic86@gmail.com> Evers
-
-    This file is part of UNIMOC.
-
-    UNIMOC is free software: you can redistribute it and/or modify
-    it under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    This program is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU General Public License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ *       __  ___   ________  _______  ______
+ *      / / / / | / /  _/  |/  / __ \/ ____/
+ *     / / / /  |/ // // /|_/ / / / / /
+ *    / /_/ / /|  // // /  / / / /___
+ *    \____/_/ |_/___/_/  /_/\____/\____/
+ *
+ *    @file mtpa.hpp
+ *    @brief Maximum-torque-per-ampere current split for interior PMSM.
+ *
+ *    SPDX-License-Identifier: GPL-3.0-or-later
+ *
+ *    This file is part of UNIMOC and is licensed under GPL-3.0-or-later.
+ *    See the repository LICENSE file for details.
  */
 #pragma once
-
-#ifndef UNIMOC_CONTROL_MTPA_H_
-#define UNIMOC_CONTROL_MTPA_H_
 
 #include <cmath>
 #include <concepts>
 #include "units.hpp"
 
 /**
- * @namespace unimoc global namespace
+ * @namespace unimoc::control control algorithms namespace
  */
-namespace unimoc {
-/**
- * @namespace control control algorithms namespace
- */
-namespace control {
+namespace unimoc::control {
 
 using namespace unit;
 
@@ -65,7 +49,7 @@ using namespace unit;
 template <std::floating_point T = float>
 struct Mtpa {
   /// Permanent-magnet flux linkage ψ_PM [Wb].
-  unit::MagneticFlux flux_pm{};
+  unit::MagneticFlux flux_pm;
 
   /// d-axis inductance L_d [H].
   unit::Inductance L_d{1.0_mH};
@@ -81,27 +65,24 @@ struct Mtpa {
    * @return     Optimal d-axis current i_d* [A].
    *             For SPMSM (L_d == L_q) or trivial flux this returns 0.
    */
-  [[nodiscard]] constexpr unit::Current calculate(const unit::Current i_s) const noexcept {
-    const T delta_L = L_d.Value() - L_q.Value();
+  [[nodiscard]] constexpr unit::Current Calculate(const unit::Current i_s) const noexcept {
+    const T kDeltaL = L_d.Value() - L_q.Value();
 
     // Avoid division by zero (surface PMSM or no saliency)
-    if (std::abs(delta_L) < static_cast<T>(1e-9)) {
+    if (std::abs(kDeltaL) < static_cast<T>(1e-9)) {
       return unit::Current{};
     }
 
     // Half-saliency denominator term
-    const T xi = flux_pm.Value() / (static_cast<T>(2) * delta_L);
-    const T i_s_2 = i_s.Value() * static_cast<T>(0.5);
+    const T kXi = flux_pm.Value() / (static_cast<T>(2) * kDeltaL);
+    const T kIS2 = i_s.Value() * static_cast<T>(0.5);
 
     // MTPA closed-form solution
-    const T i_d = xi - std::copysign(std::sqrt(xi * xi + i_s_2 * i_s_2), static_cast<T>(1));
+    const T kID = kXi - std::copysign(std::sqrt(kXi * kXi + kIS2 * kIS2), static_cast<T>(1));
 
     // Limit to current magnitude (i_d must not exceed i_s in absolute value)
-    return unit::Current{i_d}.Clamp(-i_s.Value(), static_cast<T>(0));
+    return unit::Current{kID}.Clamp(-i_s.Value(), static_cast<T>(0));
   }
 };
 
-}  // namespace control
-}  // namespace unimoc
-
-#endif /* UNIMOC_CONTROL_MTPA_H_ */
+}  // namespace unimoc::control

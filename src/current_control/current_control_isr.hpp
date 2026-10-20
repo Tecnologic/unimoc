@@ -8,6 +8,8 @@
  *    @file current_control_isr.hpp
  *    @brief Current-control ISR interface and state.
  *
+ *    SPDX-License-Identifier: GPL-3.0-or-later
+ *
  *    This file is part of UNIMOC and is licensed under GPL-3.0-or-later.
  *    See the repository LICENSE file for details.
  */
@@ -15,110 +17,137 @@
 
 #include <atomic>
 #include <cstdint>
-#include "SubStepBuffer.hpp"
+#include <limits>
 #include "current_controller.hpp"
 #include "dead_time_compensation.hpp"
+#include "hardware_interface.hpp"
 #include "hfi.hpp"
 #include "mechanical_observer.hpp"
 #include "nvm_settings.hpp"
 #include "rotor_system.hpp"
 #include "stator_system.hpp"
+#include "sub_step_buffer.hpp"
 #include "svm.hpp"
-
-namespace unimoc::hardware {
-class HardwareInterface;
-}
 
 /**
  * @namespace unimoc global namespace
  */
-namespace unimoc {
+
 /**
  * @namespace current_control current-control subsystem namespace
  */
-namespace current_control {
+namespace unimoc::current_control {
 
 using namespace unit;
+
+static_assert(kNumSubSteps == hardware::kHalfPeriodsPerCycle,
+              "one control cycle covers the half periods of one hardware cycle");
 
 /**
  * @brief Timer period in seconds derived from a PWM frequency.
  *
- * Returns the period of one PWM half-period (i.e. the ISR interval), which
+ * Returns the period of one PWM half-period (i.e. the sample interval), which
  * is 1 / (2 × f_pwm).
  *
  * @param freq  PWM frequency selection.
  * @return      dt_fast [s].
  */
-[[nodiscard]] constexpr float dt_fast_from_pwm_frequency(unit::Frequency freq) noexcept {
-  return 1.0f / (2.0f * freq.Value());
+[[nodiscard]] constexpr float DtFastFromPwmFrequency(unit::Frequency freq) noexcept {
+  return 1.0F / (2.0F * freq.Value());
 }
 
 /**
- * @brief Slow-update period [s] = NUM_SUB_STEPS × dt_fast.
+ * @brief Control-cycle period [s] = kNumSubSteps × dt_fast.
  */
-[[nodiscard]] constexpr float dt_slow_from_pwm_frequency(unit::Frequency freq) noexcept {
-  return static_cast<float>(NUM_SUB_STEPS) * dt_fast_from_pwm_frequency(freq);
+[[nodiscard]] constexpr float DtSlowFromPwmFrequency(unit::Frequency freq) noexcept {
+  return static_cast<float>(kNumSubSteps) * DtFastFromPwmFrequency(freq);
 }
 
 /**
- * @brief Shared state block for the current-control ISR and the slow-update task.
+ * @brief Shared state block for the control cycle and the observer.
  *
- * A single instance of this struct is owned by `CurrentControlIsr`.  Both the
- * ISR (on_jeoc) and the SlowUpdate task access it; the access discipline is
- * documented per member.
+ * A single instance of this struct is owned by `CurrentControlIsr`.  The
+ * control cycle (zero latency, once per kNumSubSteps PWM half periods), the
+ * observer (`SlowUpdate`, lower-priority interrupt after each control cycle)
+ * and the startup FSM access it; the access discipline is documented per
+ * member.
  *
  * Thread-safety model
  * -------------------
- *  - The ISR runs at the highest IRQ priority and is never preempted by the
- *    slow-update task.
+ *  - The control cycle preempts the observer and every thread.
  *  - `double_buf`  : atomic active index; SubStepBuffer access follows the
- *                    ownership protocol described in SubStepBuffer.hpp.
+ *                    ownership protocol described in sub_step_buffer.hpp.
  *  - `i_ref`       : written by the outer control loop (lower priority);
- *                    read by the ISR.  A two-word Rotor<float> on
+ *                    read by the control cycle.  A two-word Rotor<float> on
  *                    Cortex-M is not atomically accessible; the outer loop
  *                    should use a critical section or double-buffered update.
- *  - `u_dq_last`   : written by the ISR; read by the slow-update task.
- *                    Protected by `samples_ready`: the slow-update task reads
- *                    it only after `samples_ready` is set, which happens at
- *                    sub-step 3 — after the last write.
- *  - `samples_ready`: set by the ISR at sub-step 3; cleared by SlowUpdate
- *                    at the start of its cycle.  Declared volatile so the
- *                    compiler does not optimise away the polling loop.
+ *  - `observer_pending`: set by the control cycle after it filled the active
+ *                    buffer, cleared by the observer after the flip.
+ *  - `samples_ready`: set by the control cycle once per cycle, consumed by the
+ *                    startup FSM.
  */
 struct CurrentControlState {
-  /// Double-buffered sin/cos precomputation + current sample storage.
+  /// Double-buffered angle precomputation + current sample storage.
   DoubleBuffer double_buf{};
 
   /// Current setpoint in the rotor frame [A].  Written by the outer loop.
-  system::Rotor<unit::Current> i_ref{0.0f, 0.0f};
+  system::Rotor<unit::Current> i_ref{0.0F, 0.0F};
 
-  /// Last voltage demand computed by the ISR, rotor frame [V].
-  /// Read by SlowUpdate for the PMSM flux observer.
-  system::Rotor<unit::Voltage> u_dq_last{0.0f, 0.0f};
+  /// Last voltage demand computed by the control cycle, rotor frame [V].
+  system::Rotor<unit::Voltage> u_dq_last{0.0F, 0.0F};
 
-  /// Set to true by the ISR at sub-step 3; cleared by SlowUpdate.
+  /// Buffer index the last control cycle used; read by the observer.
+  uint8_t observer_buffer{0U};
+
+  /// Set by the control cycle when the observer has a cycle to process.
+  std::atomic<bool> observer_pending{false};
+
+  /// Control cycles that started while the observer still processed the previous one.
+  uint32_t observer_overruns{0U};
+
+  /// Control cycles run since Init().
+  uint32_t control_cycles{0U};
+
+  /// Set to true by the control cycle once per cycle; consumed by the startup FSM.
   volatile bool samples_ready{false};
 
-  /// dt for one ISR call [s] — set by init().
-  float dt_fast{1.0f / (2.0f * 20000.0f)};
+  /// Duration of one PWM half period (one current sample) [s] — set by Init().
+  float dt_fast{1.0F / (2.0F * 32000.0F)};
 
-  /// dt for one slow-update cycle [s] — set by init().
-  float dt_slow{static_cast<float>(NUM_SUB_STEPS) / (2.0f * 20000.0f)};
+  /// Duration of one control cycle [s] — set by Init().
+  float dt_slow{static_cast<float>(kNumSubSteps) / (2.0F * 32000.0F)};
 
-  /// Timer auto-reload value used for timing calculations — set by init().
-  uint32_t arr{4199u};
+  /// Delay from the control boundary to the middle of duty entry 0, in PWM
+  /// half periods (D4). Entry 0 is written directly into the CCR preload and
+  /// takes effect one half period after the boundary: 1.5. Tuned on the board.
+  float output_delay_half_periods{1.5F};
 
-  /// ADC trigger compare offset in timer ticks — set by init().
-  uint32_t adc_trigger_offset{168u};
+  /// Timer auto-reload value used for timing calculations — set by Init().
+  uint32_t arr{2655U};
 
-  /// Most recently requested normalized phase duties.
+  /// ADC trigger compare offset in timer ticks — set by Init().
+  uint32_t adc_trigger_offset{170U};
+
+  /// Duties of the last control cycle; entry 0 is the first half period.
+  hardware::DutyPlan duty_plan{};
+
+  /// Most recently requested normalized phase duties (entry 0 of duty_plan).
   system::ThreePhase<unit::Ratio> phase_duties{0.5_ratio, 0.5_ratio, 0.5_ratio};
 
-  /// Most-recent raw ADC samples; updated by every on_jeoc() call regardless
-  /// of control mode. Safe to read from lower-priority contexts (e.g. the
-  /// startup FSM). The phase-current vector preserves ia + ib + ic = 0.
-  system::ThreePhase<unit::Current> raw_phase_currents{};
-  unit::Voltage raw_vdc{};
+  /// Newest raw ADC sample of the last cycle; updated by every control cycle
+  /// regardless of control mode. Safe to read from lower-priority contexts
+  /// (e.g. the startup FSM). The phase-current vector preserves ia + ib + ic = 0.
+  system::ThreePhase<unit::Current> raw_phase_currents;
+  unit::Voltage raw_vdc;
+
+  /// Hard phase-current limit [A]. The hardware checks every sample against
+  /// it and trips the power stage; the control cycle checks all samples of the
+  /// cycle again. Infinity disables the check.
+  float overcurrent_limit{std::numeric_limits<float>::infinity()};
+
+  /// Set by the control cycle when the limit was exceeded; the control loop
+  /// stays frozen at neutral duties until ClearOvercurrentTrip().
+  volatile bool overcurrent_tripped{false};
 };
 
 /**
@@ -133,40 +162,40 @@ struct CurrentControlState {
  *
  * Execution model
  * ---------------
- * The PWM timer runs in centre-aligned mode.  One CC event is configured
- * 1 µs before the counter peak, another 1 µs before the counter trough.
- * Each CC event triggers an ADC injected sequence (I_a, I_b, V_dc).  The ADC
- * fires a JEOC interrupt upon completion, which calls `on_jeoc()`.
+ * The PWM timer runs in centre-aligned mode and the hardware samples the
+ * phase currents once per half period (at every peak and valley). Every
+ * kNumSubSteps samples it calls `OnControlCycle()` in the zero-latency
+ * context, which
  *
- * Thus `on_jeoc()` fires at 2 × f_pwm, advancing through sub-steps 0–3.
- * At the end of sub-step 3 the `samples_ready` flag is set to wake the
- * `SlowUpdate` task, which runs the observers in the background.
+ *  1. reads the kNumSubSteps samples of the cycle,
+ *  2. parks each sample with the angle it was taken at and averages them,
+ *  3. runs the PI current controller once,
+ *  4. computes kNumSubSteps duty entries, each with its own inverse-Park
+ *     angle, HFI injection step and dead-time compensation, and
+ *  5. writes them to the hardware as one `DutyPlan` and signals the observer.
  *
- * Boundary guard
- * --------------
- * When any PWM duty cycle is below 5 % or above 95 % of the timer period the
- * ADC injected sample may be corrupted (switching noise or insufficient
- * settling time).  `on_jeoc()` detects this condition and writes safe neutral
- * duties without running the PI controller or updating the integrators.
+ * At 32 kHz PWM the cycle runs at 16 kHz. One HFI injection period (four
+ * steps) fits into one cycle, so the mean current seen by the PI is free of
+ * the injection response.
  *
- * CCR preload
- * -----------
- * The timer CCR preload registers are disabled (`OCxPE = 0`) so that each
- * write to CCR1/2/3 takes effect within the same half-period.  This is
- * essential for the 4-step HFI injection to work correctly.
+ * Duty range
+ * ----------
+ * The duties take effect through the PWM preload at the boundaries, so they
+ * are not limited by the ISR timing; only `svm.duty_min` / `svm.duty_max`
+ * apply (sampling window and minimum pulse of the power stage).
  *
  * Usage
  * -----
  * @code
  *   // One-time setup (before enabling the timer/ADC):
- *   auto& isr = unimoc::current_control::CurrentControlIsr::instance();
- *   isr.init(settings, hardware, hardware.GetTimerClockFrequency());
+ *   auto& isr = unimoc::current_control::CurrentControlIsr::Instance();
+ *   isr.Init(settings, hardware, hardware.GetTimerClockFrequency());
  *
- *   // From ADC JEOC IRQ handler (highest priority):
- *   isr.on_jeoc();
+ *   // From hardware::ControlCycleHandler() (zero latency):
+ *   isr.OnControlCycle();
  *
  *   // From outer control loop to update the setpoint:
- *   isr.set_current_ref({i_d_ref, i_q_ref});
+ *   isr.SetCurrentRef({i_d_ref, i_q_ref});
  * @endcode
  */
 class CurrentControlIsr {
@@ -176,7 +205,7 @@ class CurrentControlIsr {
   // =========================================================================
 
   /// Return the single global instance.
-  static CurrentControlIsr& instance() noexcept {
+  static CurrentControlIsr& Instance() noexcept {
     static CurrentControlIsr obj;
     return obj;
   }
@@ -203,8 +232,8 @@ class CurrentControlIsr {
    * @param timer_clock_hz  Timer peripheral clock frequency in Hz
    *                        (e.g. 168 000 000 for a 168 MHz APB2 timer).
    */
-  void init(const settings::NvmSettings& settings,
-            hardware::HardwareInterface& hardware,
+  void Init(const settings::NvmSettings& settings,
+            const hardware::HardwareInterface& hardware,
             uint32_t timer_clock_hz) noexcept;
 
   // =========================================================================
@@ -212,16 +241,15 @@ class CurrentControlIsr {
   // =========================================================================
 
   /**
-   * @brief ADC JEOC (end-of-injected-conversion) interrupt handler body.
+   * @brief Control-cycle handler body.
    *
-   * Must be called from the ADC JEOC ISR at the highest configured IRQ
-   * priority level.  The function reads the three injected ADC results
-   * (I_a, I_b, V_dc), runs one sub-step of the current control loop, and
-   * writes the new duty cycles through the hardware interface.
-   *
-   * ADC and PWM access is provided by the bound hardware interface.
+   * Called from hardware::ControlCycleHandler() (zero latency) once per
+   * kNumSubSteps PWM half periods. Reads the samples of the cycle, runs the
+   * current controller once and writes the duty plan of the next
+   * kNumSubSteps half periods through hardware::hot_path. Does nothing before
+   * Init().
    */
-  void on_jeoc() noexcept;
+  void OnControlCycle() noexcept;
 
   // =========================================================================
   // Setpoint interface (called from lower-priority context)
@@ -236,7 +264,7 @@ class CurrentControlIsr {
    *
    * @param ref  New d/q current reference [A].
    */
-  void set_current_ref(const system::Rotor<unit::Current>& ref) noexcept { state.i_ref = ref; }
+  void SetCurrentRef(const system::Rotor<unit::Current>& ref) noexcept { state.i_ref = ref; }
 
   // =========================================================================
   // Startup / bring-up interface
@@ -245,7 +273,7 @@ class CurrentControlIsr {
   /**
    * @brief Override PWM output with fixed duty cycles, bypassing the PI loop.
    *
-   * When active, on_jeoc() still reads and stores the raw ADC samples in
+   * When active, OnControlCycle() still reads and stores the raw ADC samples in
    * state.raw_phase_currents / raw_vdc, but skips Clarke / Park / PI / SVM and
    * writes the requested duties through the hardware interface.
    *
@@ -257,7 +285,7 @@ class CurrentControlIsr {
    * @param db  Phase-B duty cycle [0, 1].
    * @param dc  Phase-C duty cycle [0, 1].
    */
-  void force_duty(float da, float db, float dc) noexcept;
+  void ForceDuty(float da, float db, float dc) noexcept;
 
   /**
    * @brief Release force-duty mode and return to normal closed-loop PI control.
@@ -266,7 +294,7 @@ class CurrentControlIsr {
    * clean state rather than inheriting stale winding-up values accumulated
    * while force-duty was active.
    */
-  void release_force_duty() noexcept;
+  void ReleaseForceDuty() noexcept;
 
   /**
    * @brief Update the ADC injection trigger offset in timer ticks.
@@ -278,21 +306,43 @@ class CurrentControlIsr {
    *
    * @param offset  New trigger offset [timer ticks from PWM peak/trough].
    */
-  void set_adc_trigger_offset(uint32_t offset) noexcept;
+  void SetAdcTriggerOffset(uint32_t offset) noexcept;
+
+  /**
+   * @brief Set the hard phase-current limit that trips the power stage.
+   *
+   * The hardware checks every sample against it and trips the power stage at
+   * once; OnControlCycle() checks the samples of the cycle again, calls
+   * hardware::kPowerStage.Trip() when needed and freezes the control loop at
+   * neutral duties.
+   */
+  void SetOvercurrentLimit(unit::Current limit) noexcept;
+
+  /// Acknowledges an overcurrent trip. The power stage fault is cleared separately
+  /// (kPowerStage.ClearFault()).
+  void ClearOvercurrentTrip() noexcept {
+    cc.Reset();
+    state.overcurrent_tripped = false;
+  }
 
   // =========================================================================
   // Shared state (accessed by SlowUpdate)
   // =========================================================================
 
+  // NOLINTBEGIN(cppcoreguidelines-non-private-member-variables-in-classes): the
+  // observer (SlowUpdate) and the startup FSM work on the shared state and the
+  // algorithm instances of the singleton directly; the access protocol is
+  // documented at CurrentControlState and SubStepBuffer.
+
   /// Shared state between the ISR and the slow-update task.
   CurrentControlState state{};
 
   // =========================================================================
-  // Algorithm instances (owned here; parameters loaded by init())
+  // Algorithm instances (owned here; parameters loaded by Init())
   // =========================================================================
 
-  /// Kalman mechanical observer — state updated by SlowUpdate; omega/sin/cos
-  /// read by the ISR for Park transforms and feedforward.
+  /// Kalman mechanical observer — state updated by SlowUpdate; omega
+  /// read by the control cycle for the decoupling feedforward.
   observer::MechanicalObserver<float> mech_obs{};
 
   /// d/q-axis PI current controller.
@@ -310,31 +360,29 @@ class CurrentControlIsr {
   /// True when HFI injection is active.
   bool hfi_active{false};
 
-  /// When true, on_jeoc() writes forced_duties to the CCR registers and
-  /// bypasses the PI control loop.  Set by force_duty(); cleared by
-  /// release_force_duty().
+  /// When true, OnControlCycle() writes forced_duties as the duty plan and
+  /// bypasses the PI control loop.  Set by ForceDuty(); cleared by
+  /// ReleaseForceDuty().
   bool force_duty_active{false};
 
   /// Fixed duty cycles applied to CCR1/2/3 while force_duty_active is true.
-  /// Clamped to [svm.duty_min, svm.duty_max] by force_duty().
+  /// Clamped to [svm.duty_min, svm.duty_max] by ForceDuty().
   system::ThreePhase<unit::Ratio> forced_duties{0.5_ratio, 0.5_ratio, 0.5_ratio};
+
+  // NOLINTEND(cppcoreguidelines-non-private-member-variables-in-classes)
 
  private:
   CurrentControlIsr() = default;
 
-  void set_phase_duties(const system::ThreePhase<unit::Ratio>& duties) noexcept;
+  /// Writes the same duties for all entries of the plan.
+  void SetUniformDuties(const system::ThreePhase<unit::Ratio>& duties) noexcept;
 
-  hardware::HardwareInterface* hardware_{nullptr};
+  void SetDutyPlan(const hardware::DutyPlan& plan) noexcept;
 
-  /// Current sub-step index (0–3), ISR-private.
-  uint8_t sub_step_{0u};
+  /// Ends a cycle that did not run the controller: FSM signalled, observer not run.
+  void FinishCycleWithoutControl() noexcept;
 
-  /// Active-buffer index snapshot taken at sub-step 0 and used for the
-  /// whole 4-step cycle so that a buffer flip mid-cycle is handled
-  /// gracefully (the ISR finishes with the old buffer; SlowUpdate writes
-  /// new sc into the other one).
-  uint8_t active_buf_snapshot_{0u};
+  const hardware::HardwareInterface* hardware_{nullptr};
 };
 
-}  // namespace current_control
-}  // namespace unimoc
+}  // namespace unimoc::current_control

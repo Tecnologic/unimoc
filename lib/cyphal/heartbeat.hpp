@@ -8,6 +8,8 @@
  *    @file heartbeat.hpp
  *    @brief Serialization for the Cyphal node heartbeat message.
  *
+ *    SPDX-License-Identifier: GPL-3.0-or-later
+ *
  *    This file is part of UNIMOC and is licensed under GPL-3.0-or-later.
  *    See the repository LICENSE file for details.
  */
@@ -15,9 +17,7 @@
 
 #include <array>
 #include <cstdint>
-#if __has_include(<gitversion/version.h>)
-#include <gitversion/version.h>
-#endif
+#include "cyphal/sw_version.hpp"
 
 namespace unimoc::cyphal {
 
@@ -46,54 +46,10 @@ enum class Mode : uint8_t {
 /// Serialized size of uavcan.node.Heartbeat.1.0 in bytes (7 bytes = 56 bits)
 static constexpr std::size_t HEARTBEAT_PAYLOAD_SIZE = 7;
 
-namespace detail {
-
-/// Compile-time conversion of a decimal string to an integer.
-constexpr uint32_t str_to_uint(const char* s) {
-  uint32_t result = 0;
-  while (*s >= '0' && *s <= '9') {
-    result = result * 10u + static_cast<uint32_t>(*s - '0');
-    ++s;
-  }
-  return result;
-}
-
-/// Parse the major version component from a version string (e.g. "v1.2" → 1).
-constexpr uint8_t parse_major(const char* s) {
-  if (*s == 'v') {
-    ++s;
-  }
-  return static_cast<uint8_t>(str_to_uint(s));
-}
-
-/// Parse the minor version component from a version string (e.g. "v1.2" → 2).
-constexpr uint8_t parse_minor(const char* s) {
-  if (*s == 'v') {
-    ++s;
-  }
-  while (*s != '.' && *s != '\0') {
-    ++s;
-  }
-  if (*s == '.') {
-    ++s;
-  }
-  return static_cast<uint8_t>(str_to_uint(s));
-}
-
-}  // namespace detail
-
-#if __has_include(<gitversion/version.h>)
-/// Software major version derived from the generated gitversion header.
-static constexpr uint8_t SW_VERSION_MAJOR = detail::parse_major(version::VERSION_STRING);
-
-/// Software minor version derived from the generated gitversion header.
-static constexpr uint8_t SW_VERSION_MINOR = detail::parse_minor(version::VERSION_STRING);
-#else
-/// Fallback software major version when gitversion is unavailable.
-static constexpr uint8_t SW_VERSION_MAJOR = 1;
-/// Fallback software minor version when gitversion is unavailable.
-static constexpr uint8_t SW_VERSION_MINOR = 0;
-#endif
+/// Software major version from the Zephyr application VERSION file.
+static constexpr uint8_t SW_VERSION_MAJOR = static_cast<uint8_t>(kSwVersionMajor);
+/// Software minor version from the Zephyr application VERSION file.
+static constexpr uint8_t SW_VERSION_MINOR = static_cast<uint8_t>(kSwVersionMinor);
 
 /// Vendor-specific status code that encodes the software version.
 /// Bit layout: bits[18:10] = MAJOR (9 bits), bits[9:0] = MINOR (10 bits).

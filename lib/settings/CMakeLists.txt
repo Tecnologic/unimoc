@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 add_library(unimoc_settings INTERFACE)
 
 target_include_directories(unimoc_settings INTERFACE
@@ -10,7 +12,3 @@ target_link_libraries(unimoc_settings INTERFACE
     unimoc_cyphal)
 
 add_library(unimoc::settings ALIAS unimoc_settings)
-
-if(ENABLE_TESTS)
-    add_subdirectory(tests)
-endif()

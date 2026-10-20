@@ -1,0 +1,8 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+board:
+  name: bcc
+  full_name: UNIMOC Battery Case Controller
+  vendor: unimoc
+  socs:
+    - name: stm32g473xx

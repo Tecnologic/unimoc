@@ -8,6 +8,8 @@
  *    @file mechanical_observer.hpp
  *    @brief Unit-typed mechanical angle, speed, and torque observer.
  *
+ *    SPDX-License-Identifier: GPL-3.0-or-later
+ *
  *    This file is part of UNIMOC and is licensed under GPL-3.0-or-later.
  *    See the repository LICENSE file for details.
  */
@@ -21,13 +23,9 @@
 #include "rotor_system.hpp"
 
 /**
- * @namespace unimoc global namespace
+ * @namespace unimoc::observer observer algorithms namespace
  */
-namespace unimoc {
-/**
- * @namespace observer observer algorithms namespace
- */
-namespace observer {
+namespace unimoc::observer {
 
 using namespace unit;
 
@@ -42,7 +40,7 @@ using namespace unit;
  * estimated electrical rotor angle [rad], and m̂_l is the estimated load
  * torque [N·m].
  *
- * Prediction step  (call predict() once per control cycle)
+ * Prediction step  (call Predict() once per control cycle)
  * ---------------------------------------------------------
  * The electric torque is computed from the rotor-frame d/q currents:
  *
@@ -57,7 +55,7 @@ using namespace unit;
  * After prediction ω̂ is clamped to [omega_min, omega_max] to enforce
  * hardware speed limits, and θ̂ is wrapped to (−π, π].
  *
- * Measurement update  (call inject_angle_error() once per control cycle)
+ * Measurement update  (call InjectAngleError() once per control cycle)
  * -----------------------------------------------------------------------
  * An external angle measurement (from a flux observer, HFI, or hall sensors)
  * provides the innovation:
@@ -77,7 +75,7 @@ using namespace unit;
  *
  * Outputs
  * -------
- * After each call to predict() or inject_angle_error(), the fields
+ * After each call to Predict() or InjectAngleError(), the fields
  * sin_theta and cos_theta are updated so downstream Park/inverse-Park
  * transforms can use them directly.
  *
@@ -90,27 +88,27 @@ struct MechanicalObserver {
   // =========================================================================
 
   /// Permanent-magnet flux linkage ψ_PM [Wb].
-  unit::MagneticFlux psi{};
+  unit::MagneticFlux psi;
 
   /// d-axis inductance L_d [H].
-  unit::Inductance L_d{};
+  unit::Inductance L_d;
 
   /// q-axis inductance L_q [H].
-  unit::Inductance L_q{};
+  unit::Inductance L_q;
 
   /// Rotor + load inertia J [kg·m²].
-  unit::Inertia J{};
+  unit::Inertia J;
 
   // =========================================================================
   // Speed limits  (set from motor / hardware constraints)
   // =========================================================================
 
   /// Maximum electrical angular velocity in the forward direction [rad/s].
-  unit::AngularVelocity omega_max{};
+  unit::AngularVelocity omega_max;
 
   /// Maximum electrical angular velocity in the reverse direction [rad/s]
   /// (must be ≤ 0).
-  unit::AngularVelocity omega_min{};
+  unit::AngularVelocity omega_min;
 
   // =========================================================================
   // Kalman filter noise parameters
@@ -127,23 +125,23 @@ struct MechanicalObserver {
   // =========================================================================
 
   /// Estimated electrical angular velocity ω̂ [rad/s].
-  unit::AngularVelocity omega{};
+  unit::AngularVelocity omega;
 
   /// Estimated electrical rotor angle θ̂ [rad], wrapped to (−π, π].
-  unit::Angle theta{};
+  unit::Angle theta;
 
   /// Estimated load torque m̂_l [N·m].
-  unit::Torque m_l{};
+  unit::Torque m_l;
 
   /// Last computed electrical torque m_el [N·m].
-  unit::Torque m_el{};
+  unit::Torque m_el;
 
   // =========================================================================
-  // Outputs (updated by predict() and inject_angle_error())
+  // Outputs (updated by Predict() and InjectAngleError())
   // =========================================================================
 
   /// sin(θ̂) — ready for use in Park / inverse-Park transforms.
-  unit::Ratio sin_theta{};
+  unit::Ratio sin_theta;
 
   /// cos(θ̂) — ready for use in Park / inverse-Park transforms.
   unit::Ratio cos_theta{1.0_ratio};
@@ -153,13 +151,13 @@ struct MechanicalObserver {
   // =========================================================================
 
   /// State error covariance matrix P (3×3, row-major).
-  T p[3][3]{};
+  std::array<std::array<T, 3>, 3> p{};
 
   /// Predicted covariance matrix P_k (3×3, row-major, working storage).
-  T pk[3][3]{};
+  std::array<std::array<T, 3>, 3> pk{};
 
   /// Kalman gain vector k (3 elements, one per state).
-  T k[3]{};
+  std::array<T, 3> k{};
 
   /// Innovation covariance scalar S.
   T s{};
@@ -176,7 +174,7 @@ struct MechanicalObserver {
    *
    * @param settings Validated NVM settings.
    */
-  constexpr void init(const settings::NvmSettings& settings) noexcept {
+  constexpr void Init(const settings::NvmSettings& settings) noexcept {
     psi = settings.flux_pm;
     L_d = settings.l_d;
     L_q = settings.l_q;
@@ -185,7 +183,7 @@ struct MechanicalObserver {
     omega_min = settings.motor_omega_min;
     Q = settings.mech_obs_q;
     R = settings.mech_obs_r;
-    reset();
+    Reset();
   }
 
   /**
@@ -195,13 +193,13 @@ struct MechanicalObserver {
    * integrates the mechanical equations of motion, and clamps ω̂ to
    * [omega_min, omega_max] to enforce hardware limits.
    *
-   * Call once per PWM/control interrupt **before** inject_angle_error().
+   * Call once per PWM/control interrupt **before** InjectAngleError().
    *
    * @param i_dq  Measured rotor-frame d/q stator current [A].
    * @param dt    Control period.
    */
-  constexpr void predict(const system::Rotor<unit::Current>& i_dq, const unit::Time dt) noexcept {
-    const T tsj = dt.Value() / J.Value();
+  constexpr void Predict(const system::Rotor<unit::Current>& i_dq, const unit::Time dt) noexcept {
+    const T kTsj = dt.Value() / J.Value();
 
     // Electric torque: T_e = (3/2) · [ψ_PM · i_q + (L_d − L_q) · i_d · i_q]
     m_el =
@@ -209,20 +207,23 @@ struct MechanicalObserver {
                                             (L_d.Value() - L_q.Value()) * i_dq.d.Value() * i_dq.q.Value())};
 
     // Integrate angular velocity
-    omega += unit::AngularVelocity{tsj * (m_el.Value() - m_l.Value())};
+    omega += unit::AngularVelocity{kTsj * (m_el.Value() - m_l.Value())};
 
     // Clamp to hardware speed limits
-    if (omega > omega_max)
+    if (omega > omega_max) {
       omega = omega_max;
-    else if (omega < omega_min)
+    } else if (omega < omega_min) {
       omega = omega_min;
+    }
 
     // Recover from NaN/Inf
-    if (!std::isfinite(omega.Value())) omega = unit::AngularVelocity{};
+    if (!std::isfinite(omega.Value())) {
+      omega = unit::AngularVelocity{};
+    }
 
     // Integrate angle
     theta += unit::Angle{omega.Value() * dt.Value()};
-    wrap_angle(theta);
+    WrapAngle(theta);
 
     sin_theta = unit::Ratio{std::sin(theta.Value())};
     cos_theta = unit::Ratio{std::cos(theta.Value())};
@@ -237,14 +238,14 @@ struct MechanicalObserver {
    * This is also the entry point used by the ASM flux observer and HFI
    * observer to inject auxiliary angle information into the same estimator.
    *
-   * Call once per PWM/control interrupt **after** predict().
+   * Call once per PWM/control interrupt **after** Predict().
    *
    * @param angle_error  Innovation ε = θ_measured − θ̂.
    * @param dt           Control period.
    */
-  constexpr void inject_angle_error(const unit::Angle angle_error, const unit::Time dt) noexcept {
-    const T tsj = dt.Value() / J.Value();
-    const T angle_error_value = angle_error.Value();
+  constexpr void InjectAngleError(const unit::Angle angle_error, const unit::Time dt) noexcept {
+    const T kTsj = dt.Value() / J.Value();
+    const T kAngleErrorValue = angle_error.Value();
 
     // -----------------------------------------------------------------
     // Covariance prediction  P_k = F·P·Fᵀ + Q·I
@@ -255,13 +256,13 @@ struct MechanicalObserver {
     //       | 0    0    1   |
     // -----------------------------------------------------------------
 
-    pk[0][2] = p[0][2] - p[2][2] * tsj;
+    pk[0][2] = p[0][2] - p[2][2] * kTsj;
 
-    pk[0][0] = p[0][0] + Q - p[2][0] * tsj - pk[0][2] * tsj;
-    pk[1][0] = p[1][0] + p[0][0] * dt.Value() - tsj * (p[1][2] + p[0][2] * dt.Value());
-    pk[2][0] = p[2][0] - tsj * p[2][2];
+    pk[0][0] = p[0][0] + Q - p[2][0] * kTsj - pk[0][2] * kTsj;
+    pk[1][0] = p[1][0] + p[0][0] * dt.Value() - kTsj * (p[1][2] + p[0][2] * dt.Value());
+    pk[2][0] = p[2][0] - kTsj * p[2][2];
 
-    pk[0][1] = p[0][1] + dt.Value() * (p[0][0] - tsj * p[2][0]) - tsj * p[2][1];
+    pk[0][1] = p[0][1] + dt.Value() * (p[0][0] - kTsj * p[2][0]) - kTsj * p[2][1];
     pk[1][1] = p[1][1] + Q + p[0][1] * dt.Value() + dt.Value() * (p[1][0] + p[0][0] * dt.Value());
     pk[2][1] = p[2][1] + p[2][0] * dt.Value();
 
@@ -299,19 +300,22 @@ struct MechanicalObserver {
     // -----------------------------------------------------------------
     // State correction
     // -----------------------------------------------------------------
-    omega += unit::AngularVelocity{k[0] * angle_error_value};
-    theta += unit::Angle{k[1] * angle_error_value};
-    m_l += unit::Torque{k[2] * angle_error_value};
+    omega += unit::AngularVelocity{k[0] * kAngleErrorValue};
+    theta += unit::Angle{k[1] * kAngleErrorValue};
+    m_l += unit::Torque{k[2] * kAngleErrorValue};
 
     // Re-clamp after correction
-    if (omega > omega_max)
+    if (omega > omega_max) {
       omega = omega_max;
-    else if (omega < omega_min)
+    } else if (omega < omega_min) {
       omega = omega_min;
+    }
 
-    if (!std::isfinite(omega.Value())) omega = unit::AngularVelocity{};
+    if (!std::isfinite(omega.Value())) {
+      omega = unit::AngularVelocity{};
+    }
 
-    wrap_angle(theta);
+    WrapAngle(theta);
 
     sin_theta = unit::Ratio{std::sin(theta.Value())};
     cos_theta = unit::Ratio{std::cos(theta.Value())};
@@ -326,18 +330,16 @@ struct MechanicalObserver {
    * @param theta_init  Initial electrical angle.
    * @param omega_init  Initial electrical angular velocity.
    */
-  constexpr void reset(const unit::Angle theta_init = unit::Angle{},
+  constexpr void Reset(const unit::Angle theta_init = unit::Angle{},
                        const unit::AngularVelocity omega_init = unit::AngularVelocity{}) noexcept {
     omega = omega_init;
     theta = theta_init;
     m_l = unit::Torque{};
     m_el = unit::Torque{};
 
-    for (int i = 0; i < 3; ++i)
-      for (int j = 0; j < 3; ++j) p[i][j] = pk[i][j] = static_cast<T>(0);
-
-    for (int i = 0; i < 3; ++i) k[i] = static_cast<T>(0);
-
+    p = {};
+    pk = {};
+    k = {};
     s = static_cast<T>(0);
 
     sin_theta = unit::Ratio{std::sin(theta.Value())};
@@ -346,17 +348,20 @@ struct MechanicalObserver {
 
  private:
   /// Wrap angle to (−π, π].
-  static constexpr void wrap_angle(unit::Angle& angle) noexcept {
-    constexpr T pi = std::numbers::pi_v<T>;
-    constexpr T two_pi = static_cast<T>(2) * pi;
+  static constexpr void WrapAngle(unit::Angle& angle) noexcept {
+    constexpr T kPi = std::numbers::pi_v<T>;
+    constexpr T kTwoPi = static_cast<T>(2) * kPi;
     T angle_value = angle.Value();
 
-    while (angle_value > pi) angle_value -= two_pi;
-    while (angle_value <= -pi) angle_value += two_pi;
+    while (angle_value > kPi) {
+      angle_value -= kTwoPi;
+    }
+    while (angle_value <= -kPi) {
+      angle_value += kTwoPi;
+    }
 
     angle = unit::Angle{angle_value};
   }
 };
 
-}  // namespace observer
-}  // namespace unimoc
+}  // namespace unimoc::observer

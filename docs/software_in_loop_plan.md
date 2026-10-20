@@ -1,5 +1,11 @@
 # Host Software-in-the-Loop Plan
 
+> **Status (2026-10-19):** partly superseded. The single-motor host runtime is
+> the Zephyr `native_sim` platform (`hardware/zephyr_sim/`, see
+> `docs/zephyr_port_plan.md`, Phase 2), not `hardware/host/`. The portable
+> simulation library, the multi-motor coordinator and the Python GUI plans
+> still apply. Where this file says `hardware/host`, read `hardware/zephyr_sim`.
+
 ## Goal
 
 Build a deterministic software-in-the-loop (SIL) environment that runs the real UNIMOC control runtime against simulated motors on the host. The environment should support repeatable virtual-time experiments, integration tests, a Python command-and-control GUI, Cyphal/UDP access, and multiple motors running together for applications such as vehicle torque vectoring.
@@ -18,7 +24,7 @@ The GUI and network interface come after this vertical slice works.
 - **Host topology:** one C++ simulator process containing N independent motor nodes and one coordinator. Process-per-motor hosting is deferred.
 - **Network interface:** the Python GUI is the command-and-control application and communicates with the simulator using real Cyphal/UDP semantics.
 - **Protocol:** use standard Cyphal DSDL for registers, setpoints, telemetry, and heartbeat. Add a small vendor-specific simulation-control namespace for reset and virtual-time commands.
-- **Separation:** motor equations belong in the simulation library, not in `hardware/host/hardware_interface.cpp`. The host hardware layer only binds callbacks and settings to the simulator.
+- **Separation:** motor equations belong in the simulation library, not in `hardware/zephyr_sim/hardware_interface.cpp`. The host hardware layer only binds callbacks and settings to the simulator.
 
 ## Current Repository Boundary
 
@@ -26,11 +32,9 @@ The existing code has three relevant layers:
 
 1. `lib/` contains portable control algorithms, observers, coordinate transforms, units, and settings types.
 2. `src/current_control/` contains the actual current-control ISR and slow update implementation. Its ADC, PWM, trigger, and timer operations are supplied by `HardwareInterface` callbacks.
-3. `hardware/` contains target-specific hardware implementations. `hardware/host/hardware_interface.cpp` provides zero-value host stubs for the public `HardwareInterface` callbacks.
+3. `hardware/` contains target-specific hardware implementations. `hardware/zephyr_sim/` binds the public `HardwareInterface` callbacks and the hot-path interface for `native_sim` and drives the plant of `lib/sim/`.
 
-The current-control ISR now calls the public hardware boundary for ADC samples, PWM duties, trigger timing, and applied-duty inspection. The target implementation binds those operations to modm peripherals, while the host implementation supplies stubs that can later be connected to the simulator plant.
-
-Hosted tests currently link the portable `unimoc_lib` and do not compile the firmware executable or host hardware source when `ENABLE_TESTS` is enabled. A reusable current-control runtime target is therefore a prerequisite for runtime SIL tests.
+The current-control ISR now calls the public hardware boundary for ADC samples, PWM duties, trigger timing, and applied-duty inspection. The BCC implementation binds those operations to STM32G4 peripherals through Zephyr's devicetree and LL drivers. The `native_sim` implementation drives the simulator plant. All tests run as ztest suites under twister; `tests/sim/` already runs the current-control runtime against the plant.
 
 ## Target Architecture
 
@@ -59,10 +63,11 @@ The C++ simulator remains the source of truth for controller execution and physi
 Each motor runtime should expose operations equivalent to:
 
 - `Reset()` - restore settings, controller state, plant state, and virtual time.
-- `RunFastStep()` - execute exactly one `on_jeoc()` interval.
-- `RunSlowUpdate()` - execute the slow observer update when its sample group is complete.
+- `RunControlCycle()` - execute exactly one control cycle (`OnControlCycle()`, then the observer, then the plant over four half periods). On native_sim this is `hardware::sim::StepCycle()`.
 - `AdvanceCycles(count)` - execute a fixed number of coordinated cycles.
 - `Snapshot()` - return controller, plant, timing, and telemetry state.
+
+On native_sim these exist in `hardware/zephyr_sim/sim_control.hpp` as `Reset()`, `StepCycle()`, `AdvanceCycles()`, `VirtualTimeNs()` and `TakeSnapshot()` (platform and plant state). The controller is restarted with `current_control::StartRuntime()` (`src/current_control/current_control_runtime.hpp`), the same call `main()` makes; controller state is read from `CurrentControlIsr::Instance().state`. Tests: `tests/sim/closed_loop`.
 
 The exact cycle ordering must be specified and tested. A recommended ordering is:
 
@@ -70,7 +75,7 @@ The exact cycle ordering must be specified and tested. A recommended ordering is
 2. Sample simulated ADC/current/voltage values.
 3. Execute one current-control fast sub-step.
 4. Apply the PWM command to each plant and advance each plant by `dt_fast`.
-5. Run the slow update after `NUM_SUB_STEPS` fast steps.
+5. Run the slow update after `kNumSubSteps` fast steps.
 6. Publish or record one coherent snapshot.
 7. Advance the virtual clock by the fixed interval.
 
@@ -120,7 +125,7 @@ Keep `HardwareInterface` as the public hardware boundary. The host adapter shoul
 - ISR ADC reads to the same simulated measurement source.
 - ISR timer writes to a captured PWM command source.
 
-`hardware/host/hardware_interface.cpp` should connect these pieces and retain file-backed settings behavior, but should not contain motor equations.
+`hardware/zephyr_sim/hardware_interface.cpp` should connect these pieces and retain file-backed settings behavior, but should not contain motor equations.
 
 ## Implementation Phases
 
@@ -130,7 +135,7 @@ Keep `HardwareInterface` as the public hardware boundary. The host adapter shoul
 2. Introduce the injectable ADC/PWM I/O abstraction used by the ISR.
 3. Keep target hardware bindings intact and add a host binding for SIL.
 4. Confirm the C++ runtime can be built as a reusable target independently of firmware `main.cpp`.
-5. Run a small Cyphal/UDP feasibility spike using maintained `pycyphal` tooling and confirm one register exchange plus one telemetry subject on Windows localhost.
+5. Run a small Cyphal/UDP feasibility spike using maintained `pycyphal` tooling and confirm one register exchange plus one telemetry subject on localhost between `native_sim` and `pycyphal` (WSL2 on Windows).
 6. Decide the C++ DSDL generation and transport stack before committing to the full network API. Existing `lib/cyphal/cyphal_interface.hpp` constants are useful identifiers but are not serialization or transport support.
 
 ### Phase 1: Single-motor C++ vertical slice
@@ -235,6 +240,39 @@ After the PMSM runtime and tests are stable:
 5. Profile large N-motor runs.
 6. Add process-per-motor hosting only if isolation or deployment realism justifies its coordination cost. Reuse the same Cyphal-facing protocol.
 
+## Implemented Plant Library (`lib/sim/`)
+
+The plant contract and the first model exist as the header-only target
+`unimoc_sim` (`unimoc::sim`). It is not linked into `unimoc_lib`; the
+`native_sim` hardware layer binds it in a separate step.
+
+- `MotorSimulation` is the one API for every motor type. `Configure()` takes
+  `SimulationParameters`; `ParametersFromSettings()` (or the `NvmSettings`
+  overload of `Configure()`) makes the motor type follow
+  `NvmSettings::motor_type`. A type without a model is rejected with
+  `Status::kUnsupportedMotorType` and the previous configuration stays active.
+- Per step (normally half a PWM period): averaged inverter voltage from the held
+  duties, electrical model step with the mechanical state held, shaft step,
+  Hall evaluation. `Output()` returns the sample at the end of the step: phase
+  currents and voltages, DC-link voltage, torque, mechanical and electrical
+  angle and speed, and the Hall signals.
+- Electrical models fulfil the `MotorModel` concept (`motor_model.hpp`) and are
+  held in a `std::variant`, so there is no heap and no virtual dispatch. Only
+  `PmsmModel` exists so far (backward-Euler d/q model with saliency). ASM and
+  EESM models plug in behind the same concept; `ElectricalInput` already carries
+  the field voltage for the EESM.
+- `MechanicalModel` integrates inertia, load torque, viscous and Coulomb
+  friction, or imposes a speed (dynamometer, locked rotor). The electrical
+  angle is derived exactly from the mechanical `RotorAngle` with
+  `RotorAngle::FromAbsoluteRaw()`.
+- `HallSensor` models three digital Hall sensors 120 degrees electrical apart
+  with a mounting offset; it reports the code and the interpolated age of the
+  last edge, as a timer-captured Hall input would.
+
+Not modelled yet: dead time and switch drops, diode freewheeling of an open
+bridge (an open stator forces zero current), saturation, temperature, Hall
+faults and sensor noise.
+
 ## Suggested Repository Layout
 
 ```text
@@ -270,7 +308,7 @@ The exact directory names can follow existing project conventions. The important
 
 ### C++
 
-- Focused CMake/Ninja build targets exist for plant, runtime, coordinator, and protocol tests.
+- Twister scenarios (ztest on `native_sim`) exist for plant, runtime, coordinator, and protocol tests.
 - Plant tests cover equations, signs, bounds, validation, and repeatability.
 - Runtime tests execute the actual fast and slow control cadence.
 - No deterministic test uses wall-clock time.

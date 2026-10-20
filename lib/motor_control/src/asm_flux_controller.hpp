@@ -1,43 +1,27 @@
 /*
-       __  ___   ________  _______  ______
-      / / / / | / /  _/  |/  / __ \/ ____/
-     / / / /  |/ // // /|_/ / / / / /
-    / /_/ / /|  // // /  / / /_/ / /___
-    \____/_/ [_/___/_/  /_/\____/\____/
-
-    Universal Motor Control  2026 Alexander <tecnologic86@gmail.com> Evers
-
-    This file is part of UNIMOC.
-
-    UNIMOC is free software: you can redistribute it and/or modify
-    it under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    This program is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU General Public License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ *       __  ___   ________  _______  ______
+ *      / / / / | / /  _/  |/  / __ \/ ____/
+ *     / / / /  |/ // // /|_/ / / / / /
+ *    / /_/ / /|  // // /  / / / /___
+ *    \____/_/ |_/___/_/  /_/\____/\____/
+ *
+ *    @file asm_flux_controller.hpp
+ *    @brief PI rotor-flux magnitude controller for induction motors (ASM).
+ *
+ *    SPDX-License-Identifier: GPL-3.0-or-later
+ *
+ *    This file is part of UNIMOC and is licensed under GPL-3.0-or-later.
+ *    See the repository LICENSE file for details.
  */
 #pragma once
-
-#ifndef UNIMOC_CONTROL_ASM_FLUX_CONTROLLER_H_
-#define UNIMOC_CONTROL_ASM_FLUX_CONTROLLER_H_
 
 #include <cmath>
 #include "units.hpp"
 
 /**
- * @namespace unimoc global namespace
+ * @namespace unimoc::control control algorithms namespace
  */
-namespace unimoc {
-/**
- * @namespace control control algorithms namespace
- */
-namespace control {
+namespace unimoc::control {
 
 using namespace unit;
 
@@ -103,7 +87,7 @@ struct AsmFluxController {
 
   /// Minimum d-axis current [A] (must be ≥ 0; negative magnetising current
   /// is not useful in a squirrel-cage motor).
-  unit::Current i_d_min{};
+  unit::Current i_d_min;
 
   /// Maximum d-axis current [A].
   unit::Current i_d_max{10.0_A};
@@ -113,17 +97,17 @@ struct AsmFluxController {
   // -------------------------------------------------------------------------
 
   /// PI integrator state [A].
-  unit::Current integrator{};
+  unit::Current integrator;
 
   // -------------------------------------------------------------------------
   // Output
   // -------------------------------------------------------------------------
 
   /// d-axis current reference i_d* [A] (updated by update()).
-  unit::Current i_d_ref{};
+  unit::Current i_d_ref;
 
   /// Computed slip angular frequency ω_slip [rad/s] (updated by update()).
-  unit::AngularVelocity omega_slip{};
+  unit::AngularVelocity omega_slip;
 
   /**
    * @brief Update the flux controller.
@@ -138,25 +122,25 @@ struct AsmFluxController {
    * @param dt            Control period [s].
    * @return              d-axis current reference i_d* [A].
    */
-  constexpr unit::Current update(const unit::MagneticFlux psi_r_ref,
+  constexpr unit::Current Update(const unit::MagneticFlux psi_r_ref,
                                  const unit::MagneticFlux psi_r_meas,
                                  const unit::Current i_q,
                                  const unit::Time dt) noexcept {
     // --- PI flux controller ---
-    const unit::MagneticFlux error = psi_r_ref - psi_r_meas;
+    const unit::MagneticFlux kError = psi_r_ref - psi_r_meas;
 
-    integrator = (integrator + ki * error * dt).Clamp(i_d_min, i_d_max);
+    integrator = (integrator + ki * kError * dt).Clamp(i_d_min, i_d_max);
 
-    i_d_ref = (kp * error + integrator).Clamp(i_d_min, i_d_max);
+    i_d_ref = (kp * kError + integrator).Clamp(i_d_min, i_d_max);
 
     // --- Slip frequency feedforward ---
     // ω_slip = (1/T_r) · (L_m · i_q / ψ_r*)
     // Use the flux reference in the denominator to avoid division by
     // a near-zero measured flux during start-up.
     if (psi_r_ref > unit::MagneticFlux{1.0_uWb}) {
-      const unit::Time rotor_time_constant = L_r / R_r;
-      const unit::Ratio slip_ratio = L_m * i_q / psi_r_ref;
-      omega_slip = (slip_ratio * unit::Angle{1.0F}) / rotor_time_constant;
+      const unit::Time kRotorTimeConstant = L_r / R_r;
+      const unit::Ratio kSlipRatio = L_m * i_q / psi_r_ref;
+      omega_slip = (kSlipRatio * unit::Angle{1.0F}) / kRotorTimeConstant;
     } else {
       omega_slip = unit::AngularVelocity{};
     }
@@ -165,14 +149,11 @@ struct AsmFluxController {
   }
 
   /// Reset controller state (call on enable or fault recovery).
-  constexpr void reset() noexcept {
+  constexpr void Reset() noexcept {
     integrator = unit::Current{};
     i_d_ref = unit::Current{};
     omega_slip = unit::AngularVelocity{};
   }
 };
 
-}  // namespace control
-}  // namespace unimoc
-
-#endif /* UNIMOC_CONTROL_ASM_FLUX_CONTROLLER_H_ */
+}  // namespace unimoc::control

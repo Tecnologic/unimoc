@@ -1,3 +1,0 @@
-# Modm and lBuild for building
-# Requires Python 3.12
-modm

@@ -8,6 +8,8 @@
  *    @file control_mode.hpp
  *    @brief Cyphal control-mode definitions and UDRAL setpoint mapping.
  *
+ *    SPDX-License-Identifier: GPL-3.0-or-later
+ *
  *    This file is part of UNIMOC and is licensed under GPL-3.0-or-later.
  *    See the repository LICENSE file for details.
  */
@@ -18,13 +20,9 @@
 #include <optional>
 
 /**
- * @namespace unimoc global namespace
+ * @namespace unimoc::cyphal Cyphal protocol and application definitions
  */
-namespace unimoc {
-/**
- * @namespace cyphal Cyphal protocol and application definitions
- */
-namespace cyphal {
+namespace unimoc::cyphal {
 
 /**
  * @brief Active outer control loop selection.
@@ -89,7 +87,7 @@ enum class ControlMode : unsigned char {
  *         unsupported setpoint.
  */
 template <std::floating_point T>
-[[nodiscard]] inline std::optional<ControlMode> select_control_mode_from_udral_servo_rotation(
+[[nodiscard]] inline std::optional<ControlMode> SelectControlModeFromUdralServoRotation(
     const T angular_position,
     const T angular_velocity,
     const T angular_acceleration,
@@ -109,5 +107,4 @@ template <std::floating_point T>
   return std::nullopt;
 }
 
-}  // namespace cyphal
-}  // namespace unimoc
+}  // namespace unimoc::cyphal

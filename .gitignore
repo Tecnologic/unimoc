@@ -36,6 +36,7 @@
 # build folder
 build/*
 build_test/
+app/build/
 .venv/
 
 # CMake Tools compilation database for clangd
@@ -44,3 +45,6 @@ compile_commands.json
 # python cache
 __pycache__
 .venv
+
+# twister output (when run from inside the repository)
+twister-out*/
