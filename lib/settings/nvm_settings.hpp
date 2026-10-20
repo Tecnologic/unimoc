@@ -497,4 +497,3 @@ struct NvmSettings {
 };
 
 }  // namespace unimoc::settings
-

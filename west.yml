@@ -9,8 +9,6 @@ manifest:
   remotes:
     - name: zephyrproject-rtos
       url-base: https://github.com/zephyrproject-rtos
-    - name: google
-      url-base: https://github.com/google
 
   projects:
     - name: zephyr
@@ -24,14 +22,6 @@ manifest:
           - hal_stm32
           - picolibc
           - segger
-
-    # GoogleTest runs the existing lib/ tests unchanged under twister
-    # (tests/twister). Same version as the hosted CMake build.
-    - name: googletest
-      remote: google
-      repo-path: googletest
-      revision: v1.18.0
-      path: modules/lib/googletest
 
   self:
     path: unimoc

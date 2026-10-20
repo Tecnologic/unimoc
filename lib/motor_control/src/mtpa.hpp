@@ -24,9 +24,6 @@
  */
 #pragma once
 
-#ifndef UNIMOC_CONTROL_MTPA_H_
-#define UNIMOC_CONTROL_MTPA_H_
-
 #include <cmath>
 #include <concepts>
 #include "units.hpp"
@@ -103,5 +100,3 @@ struct Mtpa {
 
 }  // namespace control
 }  // namespace unimoc
-
-#endif /* UNIMOC_CONTROL_MTPA_H_ */

@@ -24,9 +24,6 @@
  */
 #pragma once
 
-#ifndef UNIMOC_OBSERVER_PMSM_FLUX_OBSERVER_H_
-#define UNIMOC_OBSERVER_PMSM_FLUX_OBSERVER_H_
-
 #include <cmath>
 #include <concepts>
 #include "mechanical_observer.hpp"
@@ -269,5 +266,3 @@ struct PmsmFluxObserver {
 
 }  // namespace observer
 }  // namespace unimoc
-
-#endif /* UNIMOC_OBSERVER_PMSM_FLUX_OBSERVER_H_ */

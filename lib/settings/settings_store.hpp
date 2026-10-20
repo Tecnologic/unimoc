@@ -88,15 +88,15 @@ namespace settings_store_internal {
 
 [[nodiscard]] inline bool IsValidEnumValues(const NvmSettings& settings) noexcept {
   const bool kValidMotorType = settings.motor_type == system::MotorType::kPmsm ||
-                                settings.motor_type == system::MotorType::kAsm ||
-                                settings.motor_type == system::MotorType::kEesm;
+                               settings.motor_type == system::MotorType::kAsm ||
+                               settings.motor_type == system::MotorType::kEesm;
   const bool kValidControlMode = settings.control_mode == cyphal::ControlMode::kTorque ||
-                                  settings.control_mode == cyphal::ControlMode::kSpeed ||
-                                  settings.control_mode == cyphal::ControlMode::kPosition;
+                                 settings.control_mode == cyphal::ControlMode::kSpeed ||
+                                 settings.control_mode == cyphal::ControlMode::kPosition;
   const float kPwmFrequencyHz = settings.pwm_frequency.Value();
   const bool kValidPwmFrequency = kPwmFrequencyHz == 16000.0F || kPwmFrequencyHz == 20000.0F ||
-                                   kPwmFrequencyHz == 24000.0F || kPwmFrequencyHz == 28000.0F ||
-                                   kPwmFrequencyHz == 32000.0F;
+                                  kPwmFrequencyHz == 24000.0F || kPwmFrequencyHz == 28000.0F ||
+                                  kPwmFrequencyHz == 32000.0F;
   return kValidMotorType && kValidControlMode && kValidPwmFrequency && settings.excitation_mode <= 1U;
 }
 
@@ -143,7 +143,9 @@ namespace settings_store_internal {
     return SettingsStatus::kOutOfRange;
   }
 
-  const auto kIsRatio = [](const unit::Ratio kValue) { return kValue.Value() >= 0.0F && kValue.Value() <= 1.0F; };
+  const auto kIsRatio = [](const unit::Ratio kValue) {
+    return kValue.Value() >= 0.0F && kValue.Value() <= 1.0F;
+  };
   if (settings.fw_v_max.Value() < 0.0F || !kIsRatio(settings.current_v_max) ||
       !kIsRatio(settings.svm_duty_min) || !kIsRatio(settings.svm_duty_max) ||
       settings.svm_duty_min > settings.svm_duty_max || settings.adc_gain_a.Value() <= 0.0F ||
@@ -273,7 +275,6 @@ class SettingsStore {
    * @return The load, fallback, or storage result.
    */
   SettingsStatus Load() noexcept {
-
     if (!settings_store_internal::IsValidProfile(profile_)) {
       return SettingsStatus::kInvalidSettings;
     }
@@ -342,7 +343,7 @@ class SettingsStore {
     return kFallback;
   }
 
-  [[nodiscard]] SettingsStatus Save(const NvmSettings& settings)   const noexcept {
+  [[nodiscard]] SettingsStatus Save(const NvmSettings& settings) const noexcept {
     std::array<std::byte, kSettingsImageSize> image{};
     if (!SettingsCodec::Encode(settings, image)) {
       return SettingsStatus::kInvalidSettings;

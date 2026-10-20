@@ -9,18 +9,22 @@ hot-path design.
 
 ### P0 - Decisions
 
- - [ ] Decide whether the quarter-cycle update (`SlowUpdate`, TIM8) stays a zero-latency IRQ or becomes a Zephyr thread. The scope rule says thread; `docs/hotpath_plan.md` and the code say IRQ.
+ - [x] Decide the hot-path layout: 32 kHz PWM, 16 kHz control cycle in the sample ISR, duties by CCR preload plus DMA (variant B), observer in a software-pended normal-priority interrupt (`docs/hotpath_plan.md`).
  - [ ] Confirm the CAN-FD transceiver change for the BCC (the board has an SN65HVD230, classic CAN).
 
 ### P1 - Integration
 
  - [x] Align the root `CMakeLists.txt` with the C++20 baseline.
- - [ ] Replace the RTT wording in the comment of `src/startup/StartupResults.hpp` with the Zephyr log.
+ - [ ] Replace the RTT wording in the comment of `src/startup/startup_results.hpp` with the Zephyr log.
  - [ ] Enable the USB CDC-ACM console and Zephyr logging on the BCC.
  - [ ] Add a Zephyr flash backend (NVS or ZMS) for `SettingsStorage`; until then settings are RAM only.
  - [ ] Integrate Cyphal over CAN-FD (libcanard, DSDL, register service, PnP, heartbeat, GetInfo).
- - [ ] Delete the legacy firmware in `hardware/batterycasecontroller/`, `cmake/Modm.cmake`, `cmake/ToolChain.cmake`, `requirements.txt`, and `.github/workflows/ci-firmware.yml` once the Zephyr BCC target builds. Its presets, CMake references, and launch config are already removed.
- - [ ] Implement the hot-path milestones M0 to M8 from `docs/hotpath_plan.md`.
+ - [ ] Delete the legacy firmware in `hardware/batterycasecontroller/` once the Zephyr BCC target is verified on the board. `cmake/Modm.cmake`, `cmake/ToolChain.cmake`, `requirements.txt` and `ci-firmware.yml` are already gone.
+ - [ ] Implement the hot-path milestones M0 and M4 to M8 from `docs/hotpath_plan.md` (M1 to M3 are in the code, not run on the board).
+ - [x] Bring `src/`, `hardware/zephyr_*` and the tests under clang-tidy (Zephyr SCA through CodeChecker, `scripts/twister_sca.sh`).
+ - [ ] Bring the `lib/` headers under clang-tidy (excluded by `HeaderFilterRegex`; their API still uses snake_case methods).
+ - [ ] Configure the duty DMA from the devicetree (`dmas` of `foc0`, Zephyr DMA API at init) instead of the fixed DMA1 channel 1 / DMAMUX request 53, and enable its clock through `clock_control` instead of writing `RCC->AHB1ENR`. The zero-latency path keeps reading the channel counter directly.
+ - [ ] Decide whether the UNIMOC file header gets an `SPDX-License-Identifier` line (Zephyr convention); the file-docs skill defines the header without it.
 
 ## Prioritized software-in-the-loop plan
 
@@ -30,7 +34,7 @@ criteria.
 
 ### P0 - Establish the deterministic runtime
 
- - [ ] Define and test the virtual-time cycle contract around `CurrentControlIsr::on_jeoc()` and `SlowUpdate::run_once()`.
+ - [x] Define and test the virtual-time cycle contract around `CurrentControlIsr::OnControlCycle()` and `SlowUpdate::RunOnce()` (`tests/sim/irq_cadence`).
  - [x] Introduce injectable ADC/PWM I/O for the current-control runtime while preserving the target hardware implementation.
  - [ ] Extract the current-control runtime into a reusable target independent of firmware `main.cpp`.
  - [ ] Add a HAL-free virtual clock and simulation runtime harness with reset, fast-step, slow-update, advance, and snapshot operations.
@@ -39,8 +43,8 @@ criteria.
 
  - [x] Implement a validated PMSM plant model using `NvmSettings`, existing frame types, and unit types (`lib/sim/`, `MotorSimulation`, with 120 degree Hall sensors).
  - [x] Add plant tests for electrical dynamics, torque direction, pole-pair scaling, mechanics, friction, parameter validation, and repeatability (`lib/sim/tests/`).
- - [ ] Connect one host runtime and its ISR I/O to the PMSM plant instead of the zero-value host stubs.
- - [ ] Add a deterministic end-to-end C++ step-response test through the actual current-control runtime.
+ - [x] Connect one host runtime and its ISR I/O to the PMSM plant instead of the zero-value host stubs (`hardware/zephyr_sim`, native_sim).
+ - [x] Add a deterministic end-to-end C++ step-response test through the actual current-control runtime (`tests/sim/closed_loop`).
  - [ ] Add exact fast-loop/slow-loop cadence tests and finite-state checks for NaN/Inf and unstable output.
 
 ### P1 - Resolve the Cyphal transport path

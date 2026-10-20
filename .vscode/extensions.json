@@ -1,7 +1,6 @@
 {
     "recommendations": [
         "llvm-vs-code-extensions.vscode-clangd",
-        "ms-vscode.cmake-tools",
         "nordic-semiconductor.nrf-connect",
         "marus25.cortex-debug",
         "spencerwmiles.vscode-task-buttons"

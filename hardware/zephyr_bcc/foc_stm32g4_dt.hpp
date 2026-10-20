@@ -21,9 +21,10 @@
 #include <soc.h>
 #include <zephyr/devicetree.h>
 #include <zephyr/drivers/clock_control/stm32_clock_control.h>
-
 #include <cstdint>
 
+// NOLINTBEGIN(cppcoreguidelines-macro-usage): the devicetree API is macro-only;
+// these helpers and the signal indices are pasted into DT_* macro names.
 #define UNIMOC_FOC DT_NODELABEL(foc0)
 #define UNIMOC_FOC_TIMER DT_PHANDLE(UNIMOC_FOC, timer)
 
@@ -33,11 +34,11 @@
 #define UNIMOC_FOC_ADC_CH(name) DT_IO_CHANNELS_INPUT_BY_NAME(UNIMOC_FOC, name)
 
 /// Same as STM32_CLOCK_INFO, but with the designators in declaration order as C++ requires.
-#define UNIMOC_CLOCK_INFO(clk_index, node_id)                                                          \
-  {                                                                                                    \
-    .bus = DT_CLOCKS_CELL_BY_IDX(node_id, clk_index, bus) & GENMASK(STM32_CLOCK_DIV_SHIFT - 1, 0),     \
-    .div = DT_CLOCKS_CELL_BY_IDX(node_id, clk_index, bus) >> STM32_CLOCK_DIV_SHIFT,                    \
-    .enr = DT_CLOCKS_CELL_BY_IDX(node_id, clk_index, bits),                                            \
+#define UNIMOC_CLOCK_INFO(clk_index, node_id)                                                        \
+  {                                                                                                  \
+      .bus = DT_CLOCKS_CELL_BY_IDX(node_id, clk_index, bus) & GENMASK(STM32_CLOCK_DIV_SHIFT - 1, 0), \
+      .div = DT_CLOCKS_CELL_BY_IDX(node_id, clk_index, bus) >> STM32_CLOCK_DIV_SHIFT,                \
+      .enr = DT_CLOCKS_CELL_BY_IDX(node_id, clk_index, bits),                                        \
   }
 
 namespace unimoc::hardware::foc_stm32g4 {
@@ -74,14 +75,19 @@ struct AdcDescription {
         UNIMOC_FOC_SAMPLE_CODE(first_index), UNIMOC_FOC_SAMPLE_CODE(second_index),           \
         UNIMOC_CLOCK_INFO(0, UNIMOC_FOC_ADC(first))                                          \
   }
+// NOLINTEND(cppcoreguidelines-macro-usage)
 
 // Current / phase voltage of one phase share an ADC; the pairs below fix the
 // injected ranks: rank 0 is the first name, rank 1 the second.
 inline constexpr AdcDescription kAdcPhaseA = UNIMOC_FOC_ADC_PAIR(ia, va, UNIMOC_SIG_IA, UNIMOC_SIG_VA);
 inline constexpr AdcDescription kAdcPhaseB = UNIMOC_FOC_ADC_PAIR(ib, vb, UNIMOC_SIG_IB, UNIMOC_SIG_VB);
 inline constexpr AdcDescription kAdcPhaseC = UNIMOC_FOC_ADC_PAIR(ic, vc, UNIMOC_SIG_IC, UNIMOC_SIG_VC);
-inline constexpr AdcDescription kAdcDcLink = UNIMOC_FOC_ADC_PAIR(vdc, crank_torque, UNIMOC_SIG_VDC, UNIMOC_SIG_CRANK_TORQUE);
-inline constexpr AdcDescription kAdcTemperature = UNIMOC_FOC_ADC_PAIR(motor_temperature, bridge_temperature, UNIMOC_SIG_MOTOR_TEMPERATURE, UNIMOC_SIG_BRIDGE_TEMPERATURE);
+inline constexpr AdcDescription kAdcDcLink =
+    UNIMOC_FOC_ADC_PAIR(vdc, crank_torque, UNIMOC_SIG_VDC, UNIMOC_SIG_CRANK_TORQUE);
+inline constexpr AdcDescription kAdcTemperature = UNIMOC_FOC_ADC_PAIR(motor_temperature,
+                                                                      bridge_temperature,
+                                                                      UNIMOC_SIG_MOTOR_TEMPERATURE,
+                                                                      UNIMOC_SIG_BRIDGE_TEMPERATURE);
 
 static_assert(DT_REG_ADDR(UNIMOC_FOC_ADC(ia)) == DT_REG_ADDR(UNIMOC_FOC_ADC(va)), "ia and va share one ADC");
 static_assert(DT_REG_ADDR(UNIMOC_FOC_ADC(ib)) == DT_REG_ADDR(UNIMOC_FOC_ADC(vb)), "ib and vb share one ADC");
@@ -97,8 +103,10 @@ static_assert(DT_PROP_LEN(UNIMOC_FOC, io_channel_names) == UNIMOC_SIG_COUNT, "si
 
 inline constexpr uint32_t kDeadTimeNs = DT_PROP(UNIMOC_FOC, dead_time_ns);
 inline constexpr uintptr_t kTimerBase = DT_REG_ADDR(UNIMOC_FOC_TIMER);
+/// TIM8 update vector. The update interrupt itself stays disabled (UIE = 0, only the
+/// DMA request UDE is used), so the vector is free for the software-pended observer.
 inline constexpr unsigned kTimerUpdateIrq = DT_IRQ_BY_NAME(UNIMOC_FOC_TIMER, up, irq);
-/// The fast interrupt is the end of the injected sequence of the first ADC (phase A).
+/// The sample interrupt is the end of the injected sequence of the first ADC (phase A).
 inline constexpr unsigned kFastIrq = DT_IRQN(UNIMOC_FOC_ADC(ia));
 
 // The timer kernel clock equals the APB2 clock only without an APB2 prescaler.

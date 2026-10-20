@@ -24,9 +24,6 @@
  */
 #pragma once
 
-#ifndef UNIMOC_CONTROL_FIELD_WEAKENING_H_
-#define UNIMOC_CONTROL_FIELD_WEAKENING_H_
-
 #include <cmath>
 #include <concepts>
 #include "stator_system.hpp"
@@ -116,5 +113,3 @@ struct FieldWeakening {
 
 }  // namespace control
 }  // namespace unimoc
-
-#endif /* UNIMOC_CONTROL_FIELD_WEAKENING_H_ */

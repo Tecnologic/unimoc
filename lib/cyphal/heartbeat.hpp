@@ -15,7 +15,6 @@
 
 #include <array>
 #include <cstdint>
-
 #include "cyphal/sw_version.hpp"
 
 namespace unimoc::cyphal {

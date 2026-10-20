@@ -13,6 +13,7 @@
  */
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <optional>
 #include "hardware_interface_config.hpp"
@@ -23,21 +24,48 @@
 namespace unimoc::hardware {
 
 /**
- * @brief ADC values needed by the fast current-control loop.
+ * @brief ADC values of one control cycle (kHalfPeriodsPerCycle PWM half periods).
+ *
+ * The hardware samples the phase currents once per PWM half period, at every
+ * peak and valley of the center-aligned counter. Sample k was taken at the
+ * (k + 1)-th boundary after the previous control boundary, so the last sample
+ * belongs to the boundary of this control cycle.
  */
-struct CurrentControlSamples {
-  /// Phase currents in A/B/C order. The expected invariant is ia + ib + ic = 0.
-  system::ThreePhase<unit::Current> phase_currents{};
-  unit::Voltage dc_link{};
+struct ControlCycleSamples {
+  /// Phase currents in A/B/C order, oldest first. The expected invariant is ia + ib + ic = 0.
+  std::array<system::ThreePhase<unit::Current>, kHalfPeriodsPerCycle> phase_currents{};
+  /// DC-link voltage of the last sample.
+  unit::Voltage dc_link;
+  /// A sample of this cycle exceeded the overcurrent limit. The hardware layer
+  /// has already tripped the power stage when this is set.
+  bool overcurrent{false};
 };
+
+/**
+ * @brief Phase duties for the kHalfPeriodsPerCycle PWM half periods after a control boundary.
+ *
+ * Entry k applies to the half period that starts k + 1 boundaries after the
+ * control boundary. On the BCC entry 0 is written directly into the PWM
+ * preload registers and entries 1 to 3 are delivered by DMA at the following
+ * update events (hot_path::SetDutyPlan()).
+ */
+struct DutyPlan {
+  std::array<system::ThreePhase<unit::Ratio>, kHalfPeriodsPerCycle>
+      duties{system::ThreePhase<unit::Ratio>{unit::Ratio{0.5F}, unit::Ratio{0.5F}, unit::Ratio{0.5F}},
+             system::ThreePhase<unit::Ratio>{unit::Ratio{0.5F}, unit::Ratio{0.5F}, unit::Ratio{0.5F}},
+             system::ThreePhase<unit::Ratio>{unit::Ratio{0.5F}, unit::Ratio{0.5F}, unit::Ratio{0.5F}},
+             system::ThreePhase<unit::Ratio>{unit::Ratio{0.5F}, unit::Ratio{0.5F}, unit::Ratio{0.5F}}};
+};
+
+static_assert(kHalfPeriodsPerCycle == 4U, "DutyPlan initializer lists four entries");
 
 /**
  * @brief Optional temperature measurements provided by a hardware target.
  */
 struct TemperatureMeasurements {
-  std::optional<unit::Temperature> cpu{};
-  std::optional<unit::Temperature> bridge{};
-  std::optional<unit::Temperature> motor{};
+  std::optional<unit::Temperature> cpu;
+  std::optional<unit::Temperature> bridge;
+  std::optional<unit::Temperature> motor;
 };
 
 /**
@@ -51,20 +79,12 @@ enum class LogLevel : uint8_t { kDebug, kInfo, kWarning, kError };
 class HardwareSystemInterface {
  public:
   using LogCallback = void (*)(LogLevel, const char*) noexcept;
-  using WaitForInterruptCallback = void (*)() noexcept;
 
   /**
    * @brief Constructs the system hardware boundary.
    * @param log Emits a message using the target logging device.
-   * @param wait_for_interrupt Suspends the CPU until an interrupt is pending.
    */
-  HardwareSystemInterface(LogCallback log, WaitForInterruptCallback wait_for_interrupt) noexcept
-      : log_(log), wait_for_interrupt_(wait_for_interrupt) {}
-
-  /**
-   * @brief Suspends execution until an interrupt wakes the CPU.
-   */
-  void WaitForInterrupt() const noexcept { wait_for_interrupt_(); }
+  explicit HardwareSystemInterface(LogCallback log) noexcept : log_(log) {}
 
   /**
    * @brief Emits a platform log message.
@@ -73,78 +93,71 @@ class HardwareSystemInterface {
 
  private:
   LogCallback log_;
-  WaitForInterruptCallback wait_for_interrupt_;
 };
 
 /**
  * @brief Callback-based hardware interface for one motor.
  *
- * The hardware target supplies the callbacks. The interface owns the callback
- * callbacks are static platform bindings. The fast-loop callbacks are safe to
- * invoke from interrupt context.
+ * The hardware target supplies the callbacks; they are static platform
+ * bindings for the thread context (setup, startup FSM, monitoring). The
+ * zero-latency hot path does not use them: it reaches the hardware through
+ * hot_path_interface.hpp, bound at link time. Interrupt layout (see
+ * docs/hotpath_plan.md):
+ *  - The hardware samples the currents once per PWM half period and checks
+ *    each sample against the overcurrent limit itself.
+ *  - After kHalfPeriodsPerCycle samples it calls ControlCycleHandler() in the
+ *    zero-latency context.
+ *  - Then it runs ObserverHandler() in a lower-priority interrupt that may be
+ *    preempted by the sampling interrupt.
  */
 class HardwareInterface {
  public:
-  using CurrentControlCallback = void (*)() noexcept;
-  using SlowUpdateCallback = void (*)() noexcept;
-  using InitializeCallback = bool (*)(unit::Frequency,
-                                      uint32_t,
-                                      CurrentControlCallback,
-                                      SlowUpdateCallback) noexcept;
+  using InitializeCallback = bool (*)(unit::Frequency, uint32_t) noexcept;
   using GetPhaseCurrentsCallback = system::ThreePhase<unit::Current> (*)() noexcept;
   using GetPhaseVoltagesCallback = system::ThreePhase<unit::Voltage> (*)() noexcept;
-  using GetCurrentControlSamplesCallback = CurrentControlSamples (*)() noexcept;
   using GetTemperatureMeasurementsCallback = TemperatureMeasurements (*)() noexcept;
-  using GetPhaseDutiesCallback = system::ThreePhase<unit::Ratio> (*)() noexcept;
-  using SetPhaseDutiesCallback = void (*)(const system::ThreePhase<unit::Ratio>&) noexcept;
+  using SetOvercurrentLimitCallback = void (*)(unit::Current) noexcept;
   using SetAdcTriggerOffsetCallback = void (*)(uint32_t) noexcept;
   using GetTimerClockFrequencyCallback = uint32_t (*)() noexcept;
 
   /**
    * @brief Constructs a motor hardware interface.
    * @param initialize Initializes the hardware for the requested PWM frequency
-   *                   and ADC trigger offset, then registers the ADC callback.
+   *                   and ADC trigger offset and starts the interrupts.
    * @param get_phase_currents Reads the three phase currents.
    * @param get_phase_voltages Reads the three phase voltages.
-   * @param get_current_control_samples Reads the fast-loop ADC samples.
    * @param get_temperature_measurements Reads optional temperature channels.
-   * @param get_phase_duties Reads the currently applied PWM duties.
-   * @param set_phase_duties Writes the three phase PWM duties.
+   * @param set_overcurrent_limit Sets the per-sample overcurrent limit.
    * @param set_adc_trigger_offset Updates the ADC trigger compare value.
    * @param get_timer_clock_frequency Returns the timer input clock in Hz.
    */
   HardwareInterface(InitializeCallback initialize,
                     GetPhaseCurrentsCallback get_phase_currents,
                     GetPhaseVoltagesCallback get_phase_voltages,
-                    GetCurrentControlSamplesCallback get_current_control_samples,
                     GetTemperatureMeasurementsCallback get_temperature_measurements,
-                    GetPhaseDutiesCallback get_phase_duties,
-                    SetPhaseDutiesCallback set_phase_duties,
+                    SetOvercurrentLimitCallback set_overcurrent_limit,
                     SetAdcTriggerOffsetCallback set_adc_trigger_offset,
                     GetTimerClockFrequencyCallback get_timer_clock_frequency)
       : initialize_(initialize),
         get_phase_currents_(get_phase_currents),
         get_phase_voltages_(get_phase_voltages),
-        get_current_control_samples_(get_current_control_samples),
         get_temperature_measurements_(get_temperature_measurements),
-        get_phase_duties_(get_phase_duties),
-        set_phase_duties_(set_phase_duties),
+        set_overcurrent_limit_(set_overcurrent_limit),
         set_adc_trigger_offset_(set_adc_trigger_offset),
         get_timer_clock_frequency_(get_timer_clock_frequency) {}
 
   /**
-   * @brief Initializes the hardware interface and ADC interrupt source.
+   * @brief Initializes the hardware and starts its interrupts.
+   *
+   * From then on the platform calls ControlCycleHandler() and
+   * ObserverHandler() (hot_path_interface.hpp) once per control cycle.
+   *
    * @param pwm_frequency Requested PWM switching frequency.
    * @param adc_trigger_offset ADC trigger compare offset in timer ticks.
-   * @param current_control_callback Callback invoked after an ADC sequence.
-   * @param slow_update_callback Callback invoked by the lower-priority update interrupt.
    * @return True when initialization succeeds.
    */
-  [[nodiscard]] bool Initialize(unit::Frequency pwm_frequency,
-                                uint32_t adc_trigger_offset,
-                                CurrentControlCallback current_control_callback,
-                                SlowUpdateCallback slow_update_callback) const noexcept {
-    return initialize_(pwm_frequency, adc_trigger_offset, current_control_callback, slow_update_callback);
+  [[nodiscard]] bool Initialize(unit::Frequency pwm_frequency, uint32_t adc_trigger_offset) const noexcept {
+    return initialize_(pwm_frequency, adc_trigger_offset);
   }
 
   /**
@@ -164,13 +177,6 @@ class HardwareInterface {
   }
 
   /**
-   * @brief Reads the ADC values used by the fast current-control loop.
-   */
-  [[nodiscard]] CurrentControlSamples GetCurrentControlSamples() const noexcept {
-    return get_current_control_samples_();
-  }
-
-  /**
    * @brief Reads the optional CPU, bridge, and motor temperatures.
    */
   [[nodiscard]] TemperatureMeasurements GetTemperatureMeasurements() const noexcept {
@@ -178,19 +184,14 @@ class HardwareInterface {
   }
 
   /**
-   * @brief Reads the currently applied normalized PWM duties.
+   * @brief Sets the limit of the per-sample overcurrent check.
+   *
+   * The hardware compares every sample against it (in raw ADC counts where
+   * possible) and trips the power stage at once when a phase exceeds it.
+   *
+   * @param limit Phase-current magnitude; infinity disables the check.
    */
-  [[nodiscard]] system::ThreePhase<unit::Ratio> GetPhaseDuties() const noexcept {
-    return get_phase_duties_();
-  }
-
-  /**
-   * @brief Writes the three phase PWM duties.
-   * @param duties Normalized duties for phases A, B, and C.
-   */
-  void SetPhaseDuties(const system::ThreePhase<unit::Ratio>& duties) const noexcept {
-    set_phase_duties_(duties);
-  }
+  void SetOvercurrentLimit(unit::Current limit) const noexcept { set_overcurrent_limit_(limit); }
 
   /**
    * @brief Updates the timer compare value that triggers ADC conversion.
@@ -207,10 +208,8 @@ class HardwareInterface {
   InitializeCallback initialize_;
   GetPhaseCurrentsCallback get_phase_currents_;
   GetPhaseVoltagesCallback get_phase_voltages_;
-  GetCurrentControlSamplesCallback get_current_control_samples_;
   GetTemperatureMeasurementsCallback get_temperature_measurements_;
-  GetPhaseDutiesCallback get_phase_duties_;
-  SetPhaseDutiesCallback set_phase_duties_;
+  SetOvercurrentLimitCallback set_overcurrent_limit_;
   SetAdcTriggerOffsetCallback set_adc_trigger_offset_;
   GetTimerClockFrequencyCallback get_timer_clock_frequency_;
 };
@@ -230,12 +229,12 @@ class HardwareSettingsInterface {
    */
   HardwareSettingsInterface(const settings::SettingsProfile& profile,
                             settings::SettingsStorage storage) noexcept
-      : profile_{profile}, storage_{storage} {}
+      : profile_{&profile}, storage_{storage} {}
 
   /**
    * @brief Returns the immutable target profile.
    */
-  [[nodiscard]] const settings::SettingsProfile& GetSettingsProfile() const noexcept { return profile_; }
+  [[nodiscard]] const settings::SettingsProfile& GetSettingsProfile() const noexcept { return *profile_; }
 
   /**
    * @brief Returns the platform settings storage callbacks.
@@ -243,12 +242,14 @@ class HardwareSettingsInterface {
   [[nodiscard]] const settings::SettingsStorage& GetSettingsStorage() const noexcept { return storage_; }
 
  private:
-  const settings::SettingsProfile& profile_;
+  const settings::SettingsProfile* profile_;
   settings::SettingsStorage storage_;
 };
 
-extern HardwareSettingsInterface settings;  ///< Node settings hardware boundary.
-extern HardwareInterface motor[MOTORS];     ///< Global array of hardware interfaces for motors
-extern HardwareSystemInterface runtime;     ///< Application system hardware boundary.
+// Platform boundary objects, defined once per platform (hardware/zephyr_*).
+// All their methods are const: the objects only bind callbacks.
+extern const HardwareSettingsInterface kSettings;                 ///< Node settings hardware boundary.
+extern const std::array<HardwareInterface, kMotorCount> kMotors;  ///< Hardware interfaces of the motors.
+extern const HardwareSystemInterface kRuntime;                    ///< Application system hardware boundary.
 
 }  // namespace unimoc::hardware

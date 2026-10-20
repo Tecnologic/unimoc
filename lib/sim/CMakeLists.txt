@@ -11,7 +11,3 @@ target_link_libraries(unimoc_sim INTERFACE
     unimoc_motor_control_system)
 
 add_library(unimoc::sim ALIAS unimoc_sim)
-
-if(ENABLE_TESTS)
-    add_subdirectory(tests)
-endif()

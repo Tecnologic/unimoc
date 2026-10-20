@@ -45,3 +45,6 @@ compile_commands.json
 # python cache
 __pycache__
 .venv
+
+# twister output (when run from inside the repository)
+twister-out*/

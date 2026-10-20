@@ -40,8 +40,8 @@ inline constexpr float kTorqueSensitivity = 70.0F;                    ///< E-Rid
 
 /// Signed phase current [A] from a raw conversion.
 [[nodiscard]] constexpr float CountsToCurrent(const uint32_t raw) noexcept {
-  const float centered = static_cast<float>(static_cast<int32_t>(raw) - kCurrentZeroCounts);
-  return CountsToVolts(centered) / (kShuntResistance * kCurrentAmplifierGain);
+  const auto kCentered = static_cast<float>(static_cast<int32_t>(raw) - kCurrentZeroCounts);
+  return CountsToVolts(kCentered) / (kShuntResistance * kCurrentAmplifierGain);
 }
 
 /// Voltage [V] in front of the 33k/1k divider.
@@ -68,24 +68,24 @@ inline constexpr float kNtcAdcStep = (kAdcResolution - 1.0F) / static_cast<float
 /// Temperature [degC] of a 10k NTC (beta 3950) with 10k pull-up, by table interpolation.
 [[nodiscard]] inline float CountsToTemperature(const uint32_t raw) noexcept {
   using namespace detail;
-  static const std::array<float, kNtcTableSize> table = [] {
-    std::array<float, kNtcTableSize> t{};
+  static const std::array<float, kNtcTableSize> kTable = [] {
+    std::array<float, kNtcTableSize> table{};
     for (std::size_t i = 1; i < kNtcTableSize; ++i) {
-      const float volts = CountsToVolts(static_cast<float>(i) * kNtcAdcStep);
-      const float resistance = kNtcPullup * (kVoltageReference / volts - 1.0F);
-      const float kelvin = 1.0F / (1.0F / kNtcT0 + (1.0F / kNtcBeta) * std::log(resistance / kNtcR0));
-      t[i] = kelvin - 273.15F;
+      const float kVolts = CountsToVolts(static_cast<float>(i) * kNtcAdcStep);
+      const float kResistance = kNtcPullup * (kVoltageReference / kVolts - 1.0F);
+      const float kKelvin = 1.0F / (1.0F / kNtcT0 + (1.0F / kNtcBeta) * std::log(kResistance / kNtcR0));
+      table[i] = kKelvin - 273.15F;
     }
-    t[0] = t[1];  // 0 counts is an open circuit, hold the first valid value
-    return t;
+    table[0] = table[1];  // 0 counts is an open circuit, hold the first valid value
+    return table;
   }();
 
-  const float position = static_cast<float>(raw) / kNtcAdcStep;
-  const auto lower = static_cast<std::size_t>(position);
-  const std::size_t upper = (lower + 1 >= kNtcTableSize) ? kNtcTableSize - 1 : lower + 1;
-  const std::size_t lower_clamped = (lower >= kNtcTableSize) ? kNtcTableSize - 1 : lower;
-  const float fraction = position - static_cast<float>(lower_clamped);
-  return table[lower_clamped] + fraction * (table[upper] - table[lower_clamped]);
+  const float kPosition = static_cast<float>(raw) / kNtcAdcStep;
+  const auto kLower = static_cast<std::size_t>(kPosition);
+  const std::size_t kUpper = (kLower + 1 >= kNtcTableSize) ? kNtcTableSize - 1 : kLower + 1;
+  const std::size_t kLowerClamped = (kLower >= kNtcTableSize) ? kNtcTableSize - 1 : kLower;
+  const float kFraction = kPosition - static_cast<float>(kLowerClamped);
+  return kTable[kLowerClamped] + kFraction * (kTable[kUpper] - kTable[kLowerClamped]);
 }
 
 }  // namespace unimoc::hardware::analog

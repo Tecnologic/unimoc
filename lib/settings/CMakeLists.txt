@@ -10,7 +10,3 @@ target_link_libraries(unimoc_settings INTERFACE
     unimoc_cyphal)
 
 add_library(unimoc::settings ALIAS unimoc_settings)
-
-if(ENABLE_TESTS)
-    add_subdirectory(tests)
-endif()

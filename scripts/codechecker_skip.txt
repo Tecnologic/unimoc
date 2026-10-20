@@ -1,0 +1,12 @@
+-*/twister-out*
+-*/zephyr/include/generated/*
+-*/unimoc/app/build/*
+-*/unimoc/build/*
+-*/unimoc/lib/cymon/*
+-*/unimoc/hardware/batterycasecontroller/*
++*/unimoc/app/*
++*/unimoc/hardware/*
++*/unimoc/lib/*
++*/unimoc/src/*
++*/unimoc/tests/*
+-*

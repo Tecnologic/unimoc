@@ -36,7 +36,3 @@ add_library(unimoc::motor_control::system ALIAS unimoc_motor_control_system)
 add_library(unimoc::motor_control::observer ALIAS unimoc_motor_control_observer)
 add_library(unimoc::motor_control::control ALIAS unimoc_motor_control_control)
 add_library(unimoc::motor_control ALIAS unimoc_motor_control)
-
-if(ENABLE_TESTS)
-    add_subdirectory(tests)
-endif()

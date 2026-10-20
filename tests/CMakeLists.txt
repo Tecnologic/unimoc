@@ -1,2 +1,0 @@
-add_unimoc_test(control_observer_units_test control_observer_units_test.cpp
-    LIBRARIES unimoc_motor_control)

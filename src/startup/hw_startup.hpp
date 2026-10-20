@@ -22,19 +22,18 @@
  * Usage from the main application loop:
  * @code
  * HwStartup hw_startup{cc_isr, settings_store.GetOperations()};
- * if (hw_startup.is_active())
- *     hw_startup.run_once();
+ * if (hw_startup.IsActive())
+ *     hw_startup.RunOnce();
  * else
- *     slow_update.run_once();
+ *     slow_update.RunOnce();
  * @endcode
  */
 
-#include "../../lib/settings/settings_store.hpp"
-#include "../current_control/current_control_isr.hpp"
-#include "StartupResults.hpp"
+#include "current_control_isr.hpp"
+#include "settings_store.hpp"
+#include "startup_results.hpp"
 
-namespace unimoc {
-namespace startup {
+namespace unimoc::startup {
 
 // =============================================================================
 // HwStartup
@@ -44,62 +43,68 @@ namespace startup {
 class HwStartup {
  public:
   // =========================================================================
-  // Configuration thresholds (public; override before calling request_run())
+  // Configuration thresholds (public; override before calling RequestRun())
   // =========================================================================
 
+  // NOLINTBEGIN(cppcoreguidelines-non-private-member-variables-in-classes): the
+  // thresholds are plain configuration, set by the application or a Cyphal
+  // register before RequestRun(); the results are read back the same way.
+
   /// Maximum acceptable current-sense zero offset [A].  Default 0.5 A.
-  float offset_threshold_A{0.5f};
+  float offset_threshold{0.5F};
 
   /// Maximum acceptable ADC noise RMS [A].  Default 0.1 A.
-  float noise_threshold_A{0.1f};
+  float noise_threshold{0.1F};
 
   /// Current-sense gain tolerance (± from 1.0).  Default 0.05 = 5 %.
-  float gain_tolerance{0.05f};
+  float gain_tolerance{0.05F};
 
   /// V_dc gain tolerance.  Default 0.02 = 2 %.
-  float vdc_gain_tolerance{0.02f};
+  float vdc_gain_tolerance{0.02F};
 
   /// Minimum V_dc reading considered valid [V].
-  float vdc_min_valid{1.0f};
+  float vdc_min_valid{1.0F};
 
   /// Fraction of max_phase_current_A used as OC trip limit during Phase 2.
-  float oc_fraction{0.10f};
+  float oc_fraction{0.10F};
 
   /// Duty fraction applied in forced-duty steps (offset from 0.5).
   ///   LOW  → 0.5 − duty_step_fraction
   ///   HIGH → 0.5 + duty_step_fraction
-  float duty_step_fraction{0.45f};  ///< gives 5 % / 95 % by default
+  float duty_step_fraction{0.45F};  ///< gives 5 % / 95 % by default
 
   /// Voltage injection fraction for CURRENT_SENSE_CALIBRATION
   /// (fraction of ARR; tiny to avoid destroying low-Rs windings).
-  float v_cal_fraction{0.002f};
+  float v_cal_fraction{0.002F};
 
   /// Number of ADC samples to average for offset/noise/gain calibrations.
-  static constexpr uint32_t N_CAL = 1024u;
+  static constexpr uint32_t kNCal = 1024U;
 
   /// Number of samples to hold for each DUTY_FORCE_* step.
-  static constexpr uint32_t HOLD_SAMPLES = 1000u;
+  static constexpr uint32_t kHoldSamples = 1000U;
 
   /// Samples per alignment sweep position.
-  static constexpr uint32_t N_ALIGN_SAMPLES = 256u;
+  static constexpr uint32_t kNAlignSamples = 256U;
 
   /// Number of ADC-trigger sweep positions (±5 µs in 0.5 µs steps = 21).
-  static constexpr uint32_t N_SWEEP_STEPS = 21u;
+  static constexpr uint32_t kNSweepSteps = 21U;
 
   // =========================================================================
   // External measurement inputs
   // =========================================================================
 
   /// Set by the Cyphal handler for `unimoc.startup.ext_current_A`.
-  void set_ext_current(float amps) noexcept { ext_current_A_ = amps; }
+  void SetExtCurrent(float amps) noexcept { ext_current_ = amps; }
 
   /// Set by the Cyphal handler for `unimoc.startup.ext_vdc_V`.
-  void set_ext_vdc(float volts) noexcept { ext_vdc_V_ = volts; }
+  void SetExtVdc(float volts) noexcept { ext_vdc_ = volts; }
 
   // =========================================================================
   // Results (populated during the FSM run; persistent until next request_run)
   // =========================================================================
   StartupResults results{};
+
+  // NOLINTEND(cppcoreguidelines-non-private-member-variables-in-classes)
 
   // =========================================================================
   // Construction
@@ -108,22 +113,24 @@ class HwStartup {
   /// Construct an HwStartup instance bound to a CurrentControlIsr and the
   /// authorized settings operation capability.
   ///
-  /// \param cc   Reference to the active current-control ISR.
-  HwStartup(current_control::CurrentControlIsr& cc, settings::SettingsOperations settings_operations) noexcept
-      : cc_{cc}, settings_operations_{settings_operations} {}
+  /// \param current_control      The active current-control ISR; must outlive the FSM.
+  /// \param settings_operations  Authorized settings operations (calibration commit).
+  HwStartup(current_control::CurrentControlIsr& current_control,
+            settings::SettingsOperations settings_operations) noexcept
+      : cc_{&current_control}, settings_operations_{settings_operations} {}
 
   // =========================================================================
   // Control interface (called from Cyphal register handlers)
   // =========================================================================
 
   /// Start the FSM from IDLE.  No-op if already running.
-  void request_run() noexcept;
+  void RequestRun() noexcept;
 
   /// Advance the FSM one step (only valid while step_done_ is true).
-  void request_next_step() noexcept;
+  void RequestNextStep() noexcept;
 
   /// Abort the FSM immediately; enter FAULT state.
-  void request_abort() noexcept;
+  void RequestAbort() noexcept;
 
   // =========================================================================
   // Polling interface (called from the main loop)
@@ -133,56 +140,56 @@ class HwStartup {
   /// Returns false when the FSM is IDLE (never started), DONE (completed),
   /// or FAULT (aborted), so that normal application tasks (SlowUpdate) can
   /// resume after the startup sequence finishes.
-  bool is_active() const noexcept {
-    return state_ != FsmState::IDLE && state_ != FsmState::DONE && state_ != FsmState::FAULT;
+  [[nodiscard]] bool IsActive() const noexcept {
+    return state_ != FsmState::kIdle && state_ != FsmState::kDone && state_ != FsmState::kFault;
   }
 
   /// Returns the current FSM state.
-  FsmState state() const noexcept { return state_; }
+  [[nodiscard]] FsmState State() const noexcept { return state_; }
 
   /// Main polling function — call once per samples_ready pulse
-  /// (i.e. at the same rate as SlowUpdate::run_once(); ~10 kHz).
-  void run_once() noexcept;
+  /// (i.e. at the same rate as SlowUpdate::RunOnce(); ~10 kHz).
+  void RunOnce() noexcept;
 
  private:
   // =========================================================================
   // Internal helpers
   // =========================================================================
 
-  void transition_to(FsmState next) noexcept;
-  void advance_to_next_state() noexcept;
-  bool validate_current_state() noexcept;
-  void enter_fault(const char* reason) noexcept;
+  void TransitionTo(FsmState next) noexcept;
+  void AdvanceToNextState() noexcept;
+  bool ValidateCurrentState() noexcept;
+  void EnterFault(const char* reason) noexcept;
 
-  void run_adc_offset_cal() noexcept;
-  void run_adc_noise_floor() noexcept;
-  void run_duty_force(float duty) noexcept;
-  void run_dc_link_voltage_check() noexcept;
-  void run_gate_driver_enable_check() noexcept;
-  void run_connect_motor_wait() noexcept;
-  void run_phase_adc_alignment() noexcept;
-  void run_current_sense_calibration() noexcept;
-  void run_done() noexcept;
+  void RunAdcOffsetCal() noexcept;
+  void RunAdcNoiseFloor() noexcept;
+  void RunDutyForce(float duty) noexcept;
+  void RunDcLinkVoltageCheck() noexcept;
+  void RunGateDriverEnableCheck() noexcept;
+  void RunConnectMotorWait() noexcept;
+  void RunPhaseAdcAlignment() noexcept;
+  void RunCurrentSenseCalibration() noexcept;
+  void RunDone() noexcept;
 
-  bool check_motor_oc() noexcept;
-  bool collect_sample(uint32_t n_samples) noexcept;
+  bool CheckMotorOc() noexcept;
+  bool CollectSample(uint32_t n_samples) noexcept;
 
-  static const char* state_name(FsmState s) noexcept;
-  void log_summary() noexcept;
+  static const char* StateName(FsmState state) noexcept;
+  void LogSummary() noexcept;
 
   // =========================================================================
   // Data members
   // =========================================================================
 
-  current_control::CurrentControlIsr& cc_;
+  current_control::CurrentControlIsr* cc_;
   settings::SettingsOperations settings_operations_;
 
-  FsmState state_{FsmState::IDLE};
+  FsmState state_{FsmState::kIdle};
 
   bool step_done_{false};            ///< Current step has finished collecting data.
   bool next_step_requested_{false};  ///< User requested advancement.
 
-  uint32_t sample_count_{0u};  ///< Samples accumulated for current step.
+  uint32_t sample_count_{0U};  ///< Samples accumulated for current step.
 
   // Accumulators for running statistics
   double accum_a_{0.0};
@@ -191,22 +198,21 @@ class HwStartup {
   double accum_sq_b_{0.0};
 
   // Alignment sweep
-  uint32_t sweep_pos_{0u};
-  float sweep_noise_a_[N_SWEEP_STEPS]{};
-  uint32_t base_trigger_offset_{0u};  ///< Initialised from cc_.state.adc_trigger_offset at sweep start.
+  uint32_t sweep_pos_{0U};
+  std::array<float, kNSweepSteps> sweep_noise_a_{};
+  uint32_t base_trigger_offset_{0U};  ///< Initialised from cc_.state.adc_trigger_offset at sweep start.
 
   // Gate-driver enable-check accumulators
-  float gate_mean_disabled_{0.0f};
-  float gate_mean_enabled_{0.0f};
+  float gate_mean_disabled_{0.0F};
+  float gate_mean_enabled_{0.0F};
   bool gate_phase_disabled_{true};  ///< true = collecting disabled phase
 
   // External measurements
-  float ext_current_A_{0.0f};
-  float ext_vdc_V_{0.0f};
+  float ext_current_{0.0F};
+  float ext_vdc_{0.0F};
 
   // OC limit (computed once at Phase 2 entry)
-  float oc_limit_A_{10.0f};
+  float oc_limit_{10.0F};
 };
 
-}  // namespace startup
-}  // namespace unimoc
+}  // namespace unimoc::startup

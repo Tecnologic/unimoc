@@ -24,9 +24,6 @@
  */
 #pragma once
 
-#ifndef UNIMOC_CONTROL_ASM_FLUX_CONTROLLER_H_
-#define UNIMOC_CONTROL_ASM_FLUX_CONTROLLER_H_
-
 #include <cmath>
 #include "units.hpp"
 
@@ -174,5 +171,3 @@ struct AsmFluxController {
 
 }  // namespace control
 }  // namespace unimoc
-
-#endif /* UNIMOC_CONTROL_ASM_FLUX_CONTROLLER_H_ */

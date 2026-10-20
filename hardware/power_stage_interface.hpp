@@ -71,6 +71,6 @@ class PowerStageInterface {
   StateCallback get_state_;
 };
 
-extern PowerStageInterface power_stage;  ///< Power stage hardware boundary.
+extern const PowerStageInterface kPowerStage;  ///< Power stage hardware boundary.
 
 }  // namespace unimoc::hardware
