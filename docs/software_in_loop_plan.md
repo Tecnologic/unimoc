@@ -133,7 +133,7 @@ Keep `HardwareInterface` as the public hardware boundary. The host adapter shoul
 2. Introduce the injectable ADC/PWM I/O abstraction used by the ISR.
 3. Keep target hardware bindings intact and add a host binding for SIL.
 4. Confirm the C++ runtime can be built as a reusable target independently of firmware `main.cpp`.
-5. Run a small Cyphal/UDP feasibility spike using maintained `pycyphal` tooling and confirm one register exchange plus one telemetry subject on Windows localhost.
+5. Run a small Cyphal/UDP feasibility spike using maintained `pycyphal` tooling and confirm one register exchange plus one telemetry subject on localhost between `native_sim` and `pycyphal` (WSL2 on Windows).
 6. Decide the C++ DSDL generation and transport stack before committing to the full network API. Existing `lib/cyphal/cyphal_interface.hpp` constants are useful identifiers but are not serialization or transport support.
 
 ### Phase 1: Single-motor C++ vertical slice
@@ -306,7 +306,7 @@ The exact directory names can follow existing project conventions. The important
 
 ### C++
 
-- Focused CMake/Ninja build targets exist for plant, runtime, coordinator, and protocol tests.
+- Twister scenarios (ztest on `native_sim`) exist for plant, runtime, coordinator, and protocol tests.
 - Plant tests cover equations, signs, bounds, validation, and repeatability.
 - Runtime tests execute the actual fast and slow control cadence.
 - No deterministic test uses wall-clock time.

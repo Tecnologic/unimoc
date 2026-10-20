@@ -45,11 +45,11 @@ criteria.
  - [x] Add plant tests for electrical dynamics, torque direction, pole-pair scaling, mechanics, friction, parameter validation, and repeatability (`lib/sim/tests/`).
  - [x] Connect one host runtime and its ISR I/O to the PMSM plant instead of the zero-value host stubs (`hardware/zephyr_sim`, native_sim).
  - [x] Add a deterministic end-to-end C++ step-response test through the actual current-control runtime (`tests/sim/closed_loop`).
- - [ ] Add exact fast-loop/slow-loop cadence tests and finite-state checks for NaN/Inf and unstable output.
+ - [x] Add exact fast-loop/slow-loop cadence tests and finite-state checks for NaN/Inf and unstable output (`tests/sim/closed_loop`).
 
 ### P1 - Resolve the Cyphal transport path
 
- - [ ] Run a small Windows localhost Cyphal/UDP feasibility spike using `pycyphal`.
+ - [ ] Run a small Cyphal/UDP feasibility spike between `native_sim` and `pycyphal` on localhost (WSL2).
  - [ ] Select the C++ transport and DSDL generation approach for registers, setpoints, telemetry, and heartbeat.
  - [ ] Confirm one register exchange and one telemetry subject before designing the full simulator protocol.
 
@@ -88,8 +88,6 @@ criteria.
 
 ### Validation and documentation
 
- - [ ] Add focused CMake/Ninja and CTest targets for plant, runtime, coordinator, and protocol tests.
- - [ ] Run clang-format and clang-tidy on changed C++ code.
- - [ ] Preserve the existing focused three-phase validation while SIL remains outside the active production scope.
- - [ ] Update `AGENTS.md` when SIL targets become part of the validated production scope.
+ - [ ] Add twister scenarios (ztest on `native_sim`) for the coordinator and protocol tests as they appear; plant and runtime tests exist in `tests/lib/sim` and `tests/sim/`.
+ - [ ] Keep the focused three-phase validation green; ask before widening the validated scope in `AGENTS.md` to the SIL scenarios (`tests/sim/`, `lib/sim`).
  - [ ] Document simulator setup, launch commands, supported model fidelity, and GUI workflows in `README.md`.

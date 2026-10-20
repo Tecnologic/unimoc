@@ -20,7 +20,7 @@ external API requires different wording.
 | **native_sim** | Zephyr's Linux simulation target. It runs the firmware application against the PMSM plant on the host. |
 | **hardware layer** | Platform-specific code that connects the portable library to ADCs, PWM, timers, NVM, gate drivers, and other peripherals. Its platform is `zephyr_bcc` or `zephyr_sim`. |
 | **BCC** | The battery case controller: the STM32G473 board, built with `-b bcc`. |
-| **plant** | The simulated motor with its inverter, shaft and position sensor (`MotorSimulation` in `lib/sim/`). The firmware controls it on `native_sim` and in hosted tests. |
+| **plant** | The simulated motor with its inverter, shaft and position sensor (`MotorSimulation` in `lib/sim/`). The firmware controls it on `native_sim`, including the ztest scenarios in `tests/sim/`. |
 | **power stage** | The inverter output stage behind `PowerStageInterface`: enable, disable, trip, and a latched fault. |
 
 ## Runtime Terms
