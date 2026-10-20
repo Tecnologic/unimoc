@@ -8,8 +8,8 @@
 C++ library and [Zephyr RTOS](https://zephyrproject.org/) firmware for
 Field-Oriented Control (FOC) of multi-phase electric motors.  It targets
 embedded micro-controllers (STM32 series, first the STM32G473 battery case
-controller).  The algorithm code is portable and tested on x86-64 Linux via
-[Google Test](https://github.com/google/googletest).
+controller).  The algorithm code is portable and tested with Zephyr's ztest
+and twister on `native_sim`.
 
 Zephyr is the primary OS: logging, shell, USB, Cyphal, and settings run in
 Zephyr threads.  Only the FOC hot path runs in zero-latency interrupts.  The
@@ -37,7 +37,7 @@ simulation.
    - [Calibration Results and NVM Commit](#calibration-results-and-nvm-commit)
    - [Aborting or Recovering from FAULT](#aborting-or-recovering-from-fault)
 7. [Getting Started](#getting-started)
-   - [Building the Hosted Tests](#building-the-hosted-tests)
+   - [Running the Tests](#running-the-tests)
    - [Generating the API Documentation](#generating-the-api-documentation)
    - [Building Firmware (Zephyr)](#building-firmware-zephyr)
 8. [Contributing](#contributing)
@@ -100,7 +100,6 @@ lib/
 │   │   ├── mechanical_observer.hpp  # Back-EMF observer + PLL (PMSM / shared with ASM)
 │   │   ├── position_tracker.hpp     # Absolute multi-turn position + homing
 │   │   └── *_system.hpp              # Rotor, stator, and three-phase coordinate systems
-│   └── tests/                        # Focused motor-control unit tests
 ├── cyphal/
 │   ├── control_mode.hpp          # Cyphal setpoint-to-control-mode mapping
 │   ├── cyphal_interface.hpp      # Register names + subject port IDs
@@ -306,7 +305,7 @@ All settings are aggregated in `unimoc::settings::NvmSettings`
   lives in a single flat struct, making it trivial to back up or flash a full
   drive configuration.
 - **Platform-agnostic** — the hardware layer supplies an immutable profile and
-   load/save callbacks. Hosted builds can use a file; targets can use a
+   load/save callbacks; targets can use a
    dedicated flash section.  On the BCC and `native_sim` the settings are kept
    in RAM only until the Zephyr flash backend (NVS/ZMS) exists.
 - **Read-only to application code** — control code receives a
@@ -320,14 +319,14 @@ All settings are aggregated in `unimoc::settings::NvmSettings`
 #include "settings_store.hpp"
 
 unimoc::settings::SettingsStore settings_store{
-      unimoc::hardware::settings.GetSettingsProfile(),
-      unimoc::hardware::settings.GetSettingsStorage()};
+      unimoc::hardware::kSettings.GetSettingsProfile(),
+      unimoc::hardware::kSettings.GetSettingsStorage()};
 
 const auto load_status = settings_store.Load();
 const auto settings = settings_store.GetSnapshot();
 
 // Application consumers receive only a const settings record.
-current_control.init(settings.Get(), timer_clock_hz);
+current_control.Init(settings.Get(), timer_clock_hz);
 
 // Operation endpoints such as Cyphal receive the mutation capability.
 const auto operations = settings_store.GetOperations();
@@ -693,49 +692,6 @@ beginning.
 
 ## Getting Started
 
-### Building the Hosted Tests
-
-Requirements: GCC ≥ 13, Ninja, Python ≥ 3.8, CMake ≥ 3.25 (`pip install cmake`).
-The project files require CMake 3.20 (Zephyr's minimum); the presets need 3.25
-for the workflow presets.
-
-```bash
-# Install CMake 4.x
-pip install cmake
-
-# Configure
-cmake -S . -B build/hosted \
-      -DENABLE_TESTS=ON \
-      -DHARDWARE_DIRECTORY="" \
-      -G Ninja \
-      -DCMAKE_BUILD_TYPE=Debug
-
-# Build the module tests
-cmake --build build/hosted
-
-# Run the module tests
-ctest --test-dir build/hosted --output-on-failure
-```
-
-Each system, control, observer, transform, and provider module has its own
-test executable and can be built or run independently, for example:
-
-```bash
-cmake --build build/hosted --target rotor_angle_test
-ctest --test-dir build/hosted -R RotorAngleTest --output-on-failure
-```
-
-### Generating the API Documentation
-
-Requirements: CMake 4.x, Ninja, Doxygen, and Graphviz (`dot`).
-
-```bash
-cmake --workflow --preset "Generate Doxygen documentation"
-```
-
-The generated HTML documentation is placed in `build/doxygen/html/` and
-contains only UNIMOC-owned C++ code.
-
 ### Building Firmware (Zephyr)
 
 Requirements: Zephyr 4.4.0 with the Zephyr SDK 1.0.1 (`arm-zephyr-eabi`),
@@ -751,11 +707,40 @@ west build -b native_sim/native/64 unimoc/app -d unimoc/app/build/sim
 # Battery Case Controller (STM32G473)
 west build -b bcc unimoc/app -d unimoc/app/build/bcc
 
-# Zephyr test scenarios (lib tests on native_sim, simulation checks)
-west twister -T unimoc -p native_sim/native/64 -p bcc
 ```
 
 The BCC has not run on hardware yet.
+
+### Running the Tests
+
+All tests are ztest suites run by twister on `native_sim`; there is no hosted
+test build. `tests/lib/<library>/` covers the libraries, `tests/sim/` runs the
+application core against the simulated drive. From the west workspace root:
+
+```bash
+# All scenarios on native_sim and bcc, with clang-tidy as static analysis (as in CI)
+unimoc/scripts/twister_sca.sh
+
+# clang-format check of all C/C++ sources (--fix to apply)
+unimoc/scripts/check_format.sh
+
+# One suite without static analysis, while iterating
+west twister -T unimoc/tests/lib/motor_control -p native_sim/native/64
+```
+
+`twister_sca.sh` needs `clang-tidy` (LLVM 18) and CodeChecker
+(`pip install codechecker`) in addition to the Zephyr setup.
+
+### Generating the API Documentation
+
+Requirements: Doxygen and Graphviz (`dot`).
+
+```bash
+mkdir -p build && doxygen docs/Doxyfile
+```
+
+The generated HTML documentation is placed in `build/doxygen/html/` and
+contains only UNIMOC-owned C++ code.
 
 ---
 
@@ -765,9 +750,9 @@ Contributions are welcome!  Please:
 
 1. Fork the repository and create a feature branch.
 2. Follow the existing code style (`.clang-format` is provided).
-3. Add Google Test unit tests for new algorithm headers in `tests/`.
-4. Ensure all hosted module tests pass before opening a pull request — CI will
-   verify automatically.
+3. Add ztest coverage for new algorithm headers in `tests/lib/`.
+4. Run `scripts/check_format.sh` and `scripts/twister_sca.sh` before opening a
+   pull request — CI runs the same two steps.
 5. Open a pull request against `main`.
 
 ---

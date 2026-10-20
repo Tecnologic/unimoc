@@ -20,7 +20,6 @@
 #include <array>
 #include <cstddef>
 #include <span>
-
 #include "settings_codec.hpp"
 #include "settings_storage.hpp"
 
@@ -33,9 +32,12 @@ class RamSettingsStorage {
   }
 
  private:
-  static settings::SettingsStorageStatus Load(void* const context, const std::span<std::byte> image) noexcept {
+  static settings::SettingsStorageStatus Load(void* const context,
+                                              const std::span<std::byte> image) noexcept {
     const auto& self = *static_cast<RamSettingsStorage*>(context);
-    if (!self.valid_) return settings::SettingsStorageStatus::kNotFound;
+    if (!self.valid_) {
+      return settings::SettingsStorageStatus::kNotFound;
+    }
     std::copy_n(self.image_.begin(), std::min(image.size(), self.image_.size()), image.begin());
     return settings::SettingsStorageStatus::kSuccess;
   }
@@ -43,7 +45,9 @@ class RamSettingsStorage {
   static settings::SettingsStorageStatus Save(void* const context,
                                               const std::span<const std::byte> image) noexcept {
     auto& self = *static_cast<RamSettingsStorage*>(context);
-    if (image.size() > self.image_.size()) return settings::SettingsStorageStatus::kIoError;
+    if (image.size() > self.image_.size()) {
+      return settings::SettingsStorageStatus::kIoError;
+    }
     std::copy(image.begin(), image.end(), self.image_.begin());
     self.valid_ = true;
     return settings::SettingsStorageStatus::kSuccess;

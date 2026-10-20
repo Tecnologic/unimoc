@@ -1,7 +1,8 @@
-# Shared CMake helpers for the Zephyr applications and tests of UNIMOC.
-#
-# Include after find_package(Zephyr) and project(). The hardware platform is
-# selected by the build (Kconfig symbol -> sources), never by the preprocessor.
+# CMake helpers of the UNIMOC Zephyr module. zephyr/CMakeLists.txt includes
+# this file and calls unimoc_zephyr_libraries() when CONFIG_UNIMOC=y; the
+# application and the tests only link the resulting targets. The hardware
+# platform is selected by the build (Kconfig symbol -> sources), never by the
+# preprocessor.
 
 get_filename_component(UNIMOC_ROOT "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
 

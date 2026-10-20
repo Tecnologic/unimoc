@@ -25,7 +25,7 @@ inline constexpr uint32_t kVersion = (static_cast<uint32_t>(kVersionMajor) << 16
                                      (static_cast<uint32_t>(kVersionMinor) << 8U) |
                                      kVersionPatch;  ///< Combined hardware interface version.
 
-inline constexpr uint8_t MOTORS = 1;  ///< Number of motors supported by the hardware interface.
+inline constexpr uint8_t kMotorCount = 1;  ///< Number of motors supported by the hardware interface.
 
 // The public interface always exposes ia, ib, and ic. A two-sensor backend
 // reconstructs ic as -(ia + ib); a three-sensor backend reads all phases.

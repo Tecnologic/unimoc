@@ -23,6 +23,8 @@
 #include <zephyr/drivers/clock_control/stm32_clock_control.h>
 #include <cstdint>
 
+// NOLINTBEGIN(cppcoreguidelines-macro-usage): the devicetree API is macro-only;
+// these helpers and the signal indices are pasted into DT_* macro names.
 #define UNIMOC_FOC DT_NODELABEL(foc0)
 #define UNIMOC_FOC_TIMER DT_PHANDLE(UNIMOC_FOC, timer)
 
@@ -73,6 +75,7 @@ struct AdcDescription {
         UNIMOC_FOC_SAMPLE_CODE(first_index), UNIMOC_FOC_SAMPLE_CODE(second_index),           \
         UNIMOC_CLOCK_INFO(0, UNIMOC_FOC_ADC(first))                                          \
   }
+// NOLINTEND(cppcoreguidelines-macro-usage)
 
 // Current / phase voltage of one phase share an ADC; the pairs below fix the
 // injected ranks: rank 0 is the first name, rank 1 the second.

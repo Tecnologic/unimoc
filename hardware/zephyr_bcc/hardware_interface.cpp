@@ -18,6 +18,7 @@
 
 #include "hardware_interface.hpp"
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include "analog_scaling.hpp"
 #include "current_control_isr.hpp"
@@ -31,7 +32,7 @@ namespace unimoc::hardware {
 using namespace unit;
 
 // One control cycle consumes the samples of one hardware cycle.
-static_assert(kHalfPeriodsPerCycle == current_control::NUM_SUB_STEPS,
+static_assert(kHalfPeriodsPerCycle == current_control::kNumSubSteps,
               "control cycle and hardware cycle cover the same half periods");
 
 namespace {
@@ -67,13 +68,15 @@ constexpr float kSwitchingSettleTime = 1.0e-6F;
 uint32_t g_guard_ticks = 0U;
 
 void UpdateGuard() noexcept {
-  const auto settle =
+  const auto kSettle =
       static_cast<uint32_t>(kSwitchingSettleTime * static_cast<float>(foc_stm32g4::TimerClockFrequency()));
-  g_guard_ticks = foc_stm32g4::TriggerLead() + settle;
+  g_guard_ticks = foc_stm32g4::TriggerLead() + kSettle;
 }
 
 bool Initialize(Frequency pwm_frequency, uint32_t adc_trigger_offset) noexcept {
-  if (!foc_stm32g4::Initialize(pwm_frequency, adc_trigger_offset)) return false;
+  if (!foc_stm32g4::Initialize(pwm_frequency, adc_trigger_offset)) {
+    return false;
+  }
   UpdateGuard();
   return true;
 }
@@ -81,71 +84,75 @@ bool Initialize(Frequency pwm_frequency, uint32_t adc_trigger_offset) noexcept {
 // The public vector has an exact zero-sequence component: the common-mode
 // error of the three sensors is removed and the last phase is reconstructed.
 system::ThreePhase<Current> PhaseCurrents(const foc_stm32g4::RawSamples& raw) noexcept {
-  const float a = analog::CountsToCurrent(raw.ia);
-  const float b = analog::CountsToCurrent(raw.ib);
-  const float c = analog::CountsToCurrent(raw.ic);
-  const float zero_sequence = (a + b + c) / 3.0F;
-  const Current corrected_a{a - zero_sequence};
-  const Current corrected_b{b - zero_sequence};
-  return {corrected_a, corrected_b, Current{-corrected_a.Value() - corrected_b.Value()}};
+  const float kCurrentA = analog::CountsToCurrent(raw.ia);
+  const float kCurrentB = analog::CountsToCurrent(raw.ib);
+  const float kCurrentC = analog::CountsToCurrent(raw.ic);
+  const float kZeroSequence = (kCurrentA + kCurrentB + kCurrentC) / 3.0F;
+  const Current kCorrectedA{kCurrentA - kZeroSequence};
+  const Current kCorrectedB{kCurrentB - kZeroSequence};
+  return {kCorrectedA, kCorrectedB, Current{-kCorrectedA.Value() - kCorrectedB.Value()}};
 }
 
 system::ThreePhase<Current> GetPhaseCurrents() noexcept { return PhaseCurrents(foc_stm32g4::ReadRaw()); }
 
-// Phase currents of sample k of the cycle. At a peak the phase with the
+// Phase currents of a sample of the cycle. At a peak the phase with the
 // highest duty switches closest to the sample, at a valley the one with the
 // lowest. When that edge falls into the guard window around the sample, the
 // phase is reconstructed from the other two (ia + ib + ic = 0); otherwise
 // the zero-sequence error of all three sensors is removed.
-system::ThreePhase<Current> CycleSampleCurrents(const uint8_t k,
+system::ThreePhase<Current> CycleSampleCurrents(const uint8_t sample,
                                                 const foc_stm32g4::RawCurrents& raw) noexcept {
-  const float i[3] = {analog::CountsToCurrent(raw.a),
-                      analog::CountsToCurrent(raw.b),
-                      analog::CountsToCurrent(raw.c)};
-  const foc_stm32g4::PhaseTicks& ticks = foc_stm32g4::AppliedTicks(k);
-  const uint32_t reload = foc_stm32g4::TimerAutoReload();
+  const std::array<float, 3> kPhaseCurrent = {analog::CountsToCurrent(raw.a),
+                                              analog::CountsToCurrent(raw.b),
+                                              analog::CountsToCurrent(raw.c)};
+  const foc_stm32g4::PhaseTicks& ticks = foc_stm32g4::AppliedTicks(sample);
+  const uint32_t kReload = foc_stm32g4::TimerAutoReload();
 
   uint8_t edge = 0U;
   bool disturbed = false;
-  if (foc_stm32g4::SampleAtPeak(k)) {
-    for (uint8_t p = 1U; p < 3U; ++p) edge = ticks[p] > ticks[edge] ? p : edge;
-    disturbed = reload - std::min(ticks[edge], reload) < g_guard_ticks;
+  if (foc_stm32g4::SampleAtPeak(sample)) {
+    for (uint8_t phase = 1U; phase < 3U; ++phase) {
+      edge = ticks[phase] > ticks[edge] ? phase : edge;
+    }
+    disturbed = kReload - std::min(ticks[edge], kReload) < g_guard_ticks;
   } else {
-    for (uint8_t p = 1U; p < 3U; ++p) edge = ticks[p] < ticks[edge] ? p : edge;
+    for (uint8_t phase = 1U; phase < 3U; ++phase) {
+      edge = ticks[phase] < ticks[edge] ? phase : edge;
+    }
     disturbed = ticks[edge] < g_guard_ticks;
   }
 
-  float out[3];
+  std::array<float, 3> out{};
   if (disturbed) {
-    const uint8_t p1 = (edge + 1U) % 3U;
-    const uint8_t p2 = (edge + 2U) % 3U;
-    out[p1] = i[p1];
-    out[p2] = i[p2];
-    out[edge] = -i[p1] - i[p2];
+    const uint8_t kOther1 = (edge + 1U) % 3U;
+    const uint8_t kOther2 = (edge + 2U) % 3U;
+    out[kOther1] = kPhaseCurrent[kOther1];
+    out[kOther2] = kPhaseCurrent[kOther2];
+    out[edge] = -kPhaseCurrent[kOther1] - kPhaseCurrent[kOther2];
   } else {
-    const float zero_sequence = (i[0] + i[1] + i[2]) / 3.0F;
-    out[0] = i[0] - zero_sequence;
-    out[1] = i[1] - zero_sequence;
+    const float kZeroSequence = (kPhaseCurrent[0] + kPhaseCurrent[1] + kPhaseCurrent[2]) / 3.0F;
+    out[0] = kPhaseCurrent[0] - kZeroSequence;
+    out[1] = kPhaseCurrent[1] - kZeroSequence;
     out[2] = -out[0] - out[1];
   }
   return {Current{out[0]}, Current{out[1]}, Current{out[2]}};
 }
 
 system::ThreePhase<Voltage> GetPhaseVoltages() noexcept {
-  const auto raw = foc_stm32g4::ReadRaw();
-  return {Voltage{analog::CountsToVoltage(raw.va)},
-          Voltage{analog::CountsToVoltage(raw.vb)},
-          Voltage{analog::CountsToVoltage(raw.vc)}};
+  const auto kRaw = foc_stm32g4::ReadRaw();
+  return {Voltage{analog::CountsToVoltage(kRaw.va)},
+          Voltage{analog::CountsToVoltage(kRaw.vb)},
+          Voltage{analog::CountsToVoltage(kRaw.vc)}};
 }
 
 TemperatureMeasurements GetTemperatureMeasurements() noexcept {
-  const auto raw = foc_stm32g4::ReadRaw();
+  const auto kRaw = foc_stm32g4::ReadRaw();
   TemperatureMeasurements measurements{};
   if constexpr (kBridgeTemperatureAvailable) {
-    measurements.bridge = Temperature{analog::CountsToTemperature(raw.bridge_temperature)};
+    measurements.bridge = Temperature{analog::CountsToTemperature(kRaw.bridge_temperature)};
   }
   if constexpr (kMotorTemperatureAvailable) {
-    measurements.motor = Temperature{analog::CountsToTemperature(raw.motor_temperature)};
+    measurements.motor = Temperature{analog::CountsToTemperature(kRaw.motor_temperature)};
   }
   return measurements;
 }
@@ -156,15 +163,15 @@ uint32_t DutyToTicks(const Ratio duty, const float reload) noexcept {
 
 // The per-sample check compares raw counts in the sample interrupt.
 void SetOvercurrentLimit(const Current limit) noexcept {
-  const float amps_per_count = analog::CountsToCurrent(static_cast<uint32_t>(analog::kCurrentZeroCounts + 1));
-  const float counts = limit.Value() / amps_per_count;
-  if (!(counts < static_cast<float>(analog::kCurrentZeroCounts))) {
+  const float kAmpsPerCount = analog::CountsToCurrent(static_cast<uint32_t>(analog::kCurrentZeroCounts + 1));
+  const float kCounts = limit.Value() / kAmpsPerCount;
+  if (!(kCounts < static_cast<float>(analog::kCurrentZeroCounts))) {
     foc_stm32g4::SetOvercurrentWindow(0U, 0xFFFU);  // beyond the measuring range: no check
     return;
   }
-  const auto window = static_cast<uint32_t>(std::floor(counts));
-  const auto zero = static_cast<uint32_t>(analog::kCurrentZeroCounts);
-  foc_stm32g4::SetOvercurrentWindow(zero - window, zero + window);
+  const auto kWindow = static_cast<uint32_t>(std::floor(kCounts));
+  const auto kZero = static_cast<uint32_t>(analog::kCurrentZeroCounts);
+  foc_stm32g4::SetOvercurrentWindow(kZero - kWindow, kZero + kWindow);
 }
 
 void SetAdcTriggerOffset(uint32_t offset) noexcept {
@@ -174,8 +181,8 @@ void SetAdcTriggerOffset(uint32_t offset) noexcept {
 
 uint32_t GetTimerClockFrequency() noexcept {
   // Needed before Initialize() to derive the PWM period; fixed by the clock tree in bcc.dts.
-  const uint32_t running = foc_stm32g4::TimerClockFrequency();
-  return running != 0U ? running : static_cast<uint32_t>(DT_PROP(DT_NODELABEL(rcc), clock_frequency));
+  const uint32_t kRunning = foc_stm32g4::TimerClockFrequency();
+  return kRunning != 0U ? kRunning : static_cast<uint32_t>(DT_PROP(DT_NODELABEL(rcc), clock_frequency));
 }
 
 }  // namespace
@@ -185,20 +192,21 @@ namespace hot_path {
 ControlCycleSamples GetControlCycleSamples() noexcept {
   const foc_stm32g4::CycleRaw& raw = foc_stm32g4::CycleSamples();
   ControlCycleSamples samples{};
-  for (uint8_t k = 0U; k < kHalfPeriodsPerCycle; ++k)
+  for (uint8_t k = 0U; k < kHalfPeriodsPerCycle; ++k) {
     samples.phase_currents[k] = CycleSampleCurrents(k, raw.currents[k]);
+  }
   samples.dc_link = Voltage{analog::CountsToVoltage(raw.vdc)};
   samples.overcurrent = raw.overcurrent;
   return samples;
 }
 
 void SetDutyPlan(const DutyPlan& plan) noexcept {
-  const auto reload = static_cast<float>(foc_stm32g4::TimerAutoReload());
+  const auto kReload = static_cast<float>(foc_stm32g4::TimerAutoReload());
   foc_stm32g4::TickPlan ticks{};
   for (uint8_t k = 0U; k < kHalfPeriodsPerCycle; ++k) {
-    ticks[k] = {DutyToTicks(plan.duties[k].a, reload),
-                DutyToTicks(plan.duties[k].b, reload),
-                DutyToTicks(plan.duties[k].c, reload)};
+    ticks[k] = {DutyToTicks(plan.duties[k].a, kReload),
+                DutyToTicks(plan.duties[k].b, kReload),
+                DutyToTicks(plan.duties[k].c, kReload)};
   }
   foc_stm32g4::SetDutyTicks(ticks);
 }
@@ -207,20 +215,20 @@ void TripPowerStage() noexcept { foc_stm32g4::PowerStageTrip(); }
 
 }  // namespace hot_path
 
-HardwareSettingsInterface settings{kSettingsProfile, kSettingsStorage};
+const HardwareSettingsInterface kSettings{kSettingsProfile, kSettingsStorage};
 
-PowerStageInterface power_stage{foc_stm32g4::PowerStageEnable,
-                                foc_stm32g4::PowerStageDisable,
-                                foc_stm32g4::PowerStageTrip,
-                                foc_stm32g4::PowerStageClearFault,
-                                foc_stm32g4::GetPowerStageState};
+const PowerStageInterface kPowerStage{foc_stm32g4::PowerStageEnable,
+                                      foc_stm32g4::PowerStageDisable,
+                                      foc_stm32g4::PowerStageTrip,
+                                      foc_stm32g4::PowerStageClearFault,
+                                      foc_stm32g4::GetPowerStageState};
 
-HardwareInterface motor[MOTORS] = {HardwareInterface(Initialize,
-                                                     GetPhaseCurrents,
-                                                     GetPhaseVoltages,
-                                                     GetTemperatureMeasurements,
-                                                     SetOvercurrentLimit,
-                                                     SetAdcTriggerOffset,
-                                                     GetTimerClockFrequency)};
+const std::array<HardwareInterface, kMotorCount> kMotors = {HardwareInterface(Initialize,
+                                                                              GetPhaseCurrents,
+                                                                              GetPhaseVoltages,
+                                                                              GetTemperatureMeasurements,
+                                                                              SetOvercurrentLimit,
+                                                                              SetAdcTriggerOffset,
+                                                                              GetTimerClockFrequency)};
 
 }  // namespace unimoc::hardware

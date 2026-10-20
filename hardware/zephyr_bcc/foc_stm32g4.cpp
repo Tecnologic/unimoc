@@ -22,13 +22,17 @@
 #include <zephyr/irq.h>
 #include <zephyr/kernel.h>
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include "dead_time.hpp"
 #include "foc_stm32g4_dt.hpp"
 #include "hardware_interface_config.hpp"
 #include "hot_path_interface.hpp"
 
+// Zephyr's pinctrl macro defines the pin table as a C array.
+// NOLINTBEGIN(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays,cppcoreguidelines-pro-bounds-array-to-pointer-decay)
 PINCTRL_DT_DEFINE(UNIMOC_FOC);
+// NOLINTEND(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays,cppcoreguidelines-pro-bounds-array-to-pointer-decay)
 
 namespace unimoc::hardware::foc_stm32g4 {
 
@@ -83,7 +87,7 @@ uint32_t g_trigger_lead = 0U;
 
 // Slot s holds CCR1..3 for the burst of the s-th update event of a cycle;
 // slot 0 is the burst at the control boundary.
-alignas(4) PhaseTicks g_dma_slots[kHalfPeriodsPerCycle]{};
+alignas(4) std::array<PhaseTicks, kHalfPeriodsPerCycle> g_dma_slots{};
 static_assert(sizeof(g_dma_slots) == kDmaTransfers * sizeof(uint32_t), "slots are packed words");
 
 // Sample interrupt state. Only the zero-latency context writes it.
@@ -98,9 +102,7 @@ PhaseTicks g_last_entry{};  // entry 3 of the last plan
 bool g_control_at_peak = true;
 uint32_t g_duty_overruns = 0U;
 
-constexpr ADC_TypeDef* Adc(const AdcDescription& d) noexcept {
-  return reinterpret_cast<ADC_TypeDef*>(d.base);
-}
+inline ADC_TypeDef* Adc(const AdcDescription& d) noexcept { return reinterpret_cast<ADC_TypeDef*>(d.base); }
 
 ADC_Common_TypeDef* CommonOf(const ADC_TypeDef* adc) noexcept {
   return (adc == ADC1 || adc == ADC2) ? ADC12_COMMON : ADC345_COMMON;
@@ -108,13 +110,15 @@ ADC_Common_TypeDef* CommonOf(const ADC_TypeDef* adc) noexcept {
 
 void SetSampleTime(ADC_TypeDef* adc, const uint32_t channel, const uint32_t code) noexcept {
   volatile uint32_t& reg = (channel < 10U) ? adc->SMPR1 : adc->SMPR2;
-  const uint32_t shift = 3U * ((channel < 10U) ? channel : channel - 10U);
-  reg = (reg & ~(7U << shift)) | (code << shift);
+  const uint32_t kShift = 3U * ((channel < 10U) ? channel : channel - 10U);
+  reg = (reg & ~(7U << kShift)) | (code << kShift);
 }
 
 bool WaitWhile(const volatile uint32_t& reg, const uint32_t mask, const bool until_set) noexcept {
   for (uint32_t i = 0; i < kCalibrationTimeoutLoops; ++i) {
-    if (((reg & mask) != 0U) == until_set) return true;
+    if (((reg & mask) != 0U) == until_set) {
+      return true;
+    }
   }
   return false;
 }
@@ -122,44 +126,50 @@ bool WaitWhile(const volatile uint32_t& reg, const uint32_t mask, const bool unt
 // Powers up, calibrates and enables one ADC and arms its injected sequence on
 // the TIM8 trigger. The sequence starts with the first TRGO edge.
 bool InitAdc(const AdcDescription& description, const bool fast_interrupt) noexcept {
-  ADC_TypeDef* const adc = Adc(description);
+  ADC_TypeDef* const kAdc = Adc(description);
 
   struct stm32_pclken pclken = description.pclken;
-  if (clock_control_on(kRcc, reinterpret_cast<clock_control_subsys_t>(&pclken)) != 0) return false;
+  if (clock_control_on(kRcc, reinterpret_cast<clock_control_subsys_t>(&pclken)) != 0) {
+    return false;
+  }
 
   // Synchronous clock, HCLK / 4 = 42.5 MHz (CKMODE = 0b11).
-  ADC_Common_TypeDef* const common = CommonOf(adc);
-  common->CCR = (common->CCR & ~ADC_CCR_CKMODE) | ADC_CCR_CKMODE_1 | ADC_CCR_CKMODE_0;
+  ADC_Common_TypeDef* const kCommon = CommonOf(kAdc);
+  kCommon->CCR = (kCommon->CCR & ~ADC_CCR_CKMODE) | ADC_CCR_CKMODE_1 | ADC_CCR_CKMODE_0;
 
-  adc->CR &= ~ADC_CR_DEEPPWD;
-  adc->CR |= ADC_CR_ADVREGEN;
+  kAdc->CR &= ~ADC_CR_DEEPPWD;
+  kAdc->CR |= ADC_CR_ADVREGEN;
   k_busy_wait(20);  // tADCVREG_STUP
 
-  adc->CFGR |= ADC_CFGR_JQDIS;  // plain JSQR, no context queue
+  kAdc->CFGR |= ADC_CFGR_JQDIS;  // plain JSQR, no context queue
 
-  adc->CR &= ~ADC_CR_ADCALDIF;  // single ended
-  adc->CR |= ADC_CR_ADCAL;
-  if (!WaitWhile(adc->CR, ADC_CR_ADCAL, false)) return false;
-
-  adc->ISR = ADC_ISR_ADRDY;
-  adc->CR |= ADC_CR_ADEN;
-  for (uint32_t i = 0; (adc->ISR & ADC_ISR_ADRDY) == 0U; ++i) {
-    if (i > kCalibrationTimeoutLoops) return false;
-    adc->CR |= ADC_CR_ADEN;  // ADEN is ignored for 4 ADC clocks after calibration
+  kAdc->CR &= ~ADC_CR_ADCALDIF;  // single ended
+  kAdc->CR |= ADC_CR_ADCAL;
+  if (!WaitWhile(kAdc->CR, ADC_CR_ADCAL, false)) {
+    return false;
   }
-  adc->ISR = ADC_ISR_ADRDY;
 
-  SetSampleTime(adc, description.channel_rank0, description.sample_time_rank0);
-  SetSampleTime(adc, description.channel_rank1, description.sample_time_rank1);
+  kAdc->ISR = ADC_ISR_ADRDY;
+  kAdc->CR |= ADC_CR_ADEN;
+  for (uint32_t i = 0; (kAdc->ISR & ADC_ISR_ADRDY) == 0U; ++i) {
+    if (i > kCalibrationTimeoutLoops) {
+      return false;
+    }
+    kAdc->CR |= ADC_CR_ADEN;  // ADEN is ignored for 4 ADC clocks after calibration
+  }
+  kAdc->ISR = ADC_ISR_ADRDY;
 
-  adc->JSQR = (1U << ADC_JSQR_JL_Pos) |  // two conversions
-              (kInjectedTriggerTim8Trgo2 << ADC_JSQR_JEXTSEL_Pos) | (1U << ADC_JSQR_JEXTEN_Pos) |  // rising
-              (static_cast<uint32_t>(description.channel_rank0) << ADC_JSQR_JSQ1_Pos) |
-              (static_cast<uint32_t>(description.channel_rank1) << ADC_JSQR_JSQ2_Pos);
+  SetSampleTime(kAdc, description.channel_rank0, description.sample_time_rank0);
+  SetSampleTime(kAdc, description.channel_rank1, description.sample_time_rank1);
 
-  adc->ISR = ADC_ISR_JEOC | ADC_ISR_JEOS | ADC_ISR_JQOVF;
-  adc->IER = fast_interrupt ? ADC_IER_JEOSIE : 0U;
-  adc->CR |= ADC_CR_JADSTART;  // arm: waits for the hardware trigger
+  kAdc->JSQR = (1U << ADC_JSQR_JL_Pos) |  // two conversions
+               (kInjectedTriggerTim8Trgo2 << ADC_JSQR_JEXTSEL_Pos) | (1U << ADC_JSQR_JEXTEN_Pos) |  // rising
+               (static_cast<uint32_t>(description.channel_rank0) << ADC_JSQR_JSQ1_Pos) |
+               (static_cast<uint32_t>(description.channel_rank1) << ADC_JSQR_JSQ2_Pos);
+
+  kAdc->ISR = ADC_ISR_JEOC | ADC_ISR_JEOS | ADC_ISR_JQOVF;
+  kAdc->IER = fast_interrupt ? ADC_IER_JEOSIE : 0U;
+  kAdc->CR |= ADC_CR_JADSTART;  // arm: waits for the hardware trigger
   return true;
 }
 
@@ -172,19 +182,19 @@ bool OutsideWindow(const uint32_t raw) noexcept {
 
 ISR_DIRECT_DECLARE(SampleIsr) {
   kAdcFast->ISR = ADC_ISR_JEOS;  // the sequence is complete, JDR1/JDR2 are valid
-  const uint32_t ia = kAdcFast->JDR1;
-  const uint32_t ib = kAdcB->JDR1;
-  const uint32_t ic = kAdcC->JDR1;
-  const uint8_t index = g_sample_index;
-  g_cycle.currents[index] =
-      RawCurrents{static_cast<uint16_t>(ia), static_cast<uint16_t>(ib), static_cast<uint16_t>(ic)};
-  if (OutsideWindow(ia) || OutsideWindow(ib) || OutsideWindow(ic)) {
+  const uint32_t kIa = kAdcFast->JDR1;
+  const uint32_t kIb = kAdcB->JDR1;
+  const uint32_t kIc = kAdcC->JDR1;
+  const uint8_t kIndex = g_sample_index;
+  g_cycle.currents[kIndex] =
+      RawCurrents{static_cast<uint16_t>(kIa), static_cast<uint16_t>(kIb), static_cast<uint16_t>(kIc)};
+  if (OutsideWindow(kIa) || OutsideWindow(kIb) || OutsideWindow(kIc)) {
     kTim->EGR = TIM_EGR_BG;  // break: outputs off at once, BIF latched
     g_cycle.overcurrent = true;
   }
 
-  if (index + 1U < kHalfPeriodsPerCycle) {
-    g_sample_index = index + 1U;
+  if (kIndex + 1U < kHalfPeriodsPerCycle) {
+    g_sample_index = kIndex + 1U;
     return 0;
   }
   g_sample_index = 0U;
@@ -197,30 +207,34 @@ ISR_DIRECT_DECLARE(SampleIsr) {
 
 // ----- Observer interrupt (normal priority) ---------------------------------
 
-void ObserverIsr(const void*) { ObserverHandler(); }
+void ObserverIsr(const void* /*unused*/) { ObserverHandler(); }
 
 void ApplyTriggerLead(const uint32_t ticks) noexcept {
   // At least one tick, at most a quarter period, so both triggers stay in
   // their own half period.
-  const uint32_t lead = std::clamp(ticks, 1U, g_auto_reload / 2U);
-  g_trigger_lead = lead;
-  kTim->CCR4 = g_auto_reload - lead;
-  kTim->CCR6 = lead;
+  const uint32_t kLead = std::clamp(ticks, 1U, g_auto_reload / 2U);
+  g_trigger_lead = kLead;
+  kTim->CCR4 = g_auto_reload - kLead;
+  kTim->CCR6 = kLead;
 }
 
 void InitDma() noexcept {
   RCC->AHB1ENR |= RCC_AHB1ENR_DMA1EN | RCC_AHB1ENR_DMAMUX1EN;
   (void)RCC->AHB1ENR;  // the clock is on before the first access
 
-  const uint32_t neutral = g_auto_reload / 2U;
-  for (auto& slot : g_dma_slots) slot = PhaseTicks{neutral, neutral, neutral};
-  g_last_entry = PhaseTicks{neutral, neutral, neutral};
-  for (auto& entry : g_applied) entry = g_last_entry;
+  const uint32_t kNeutral = g_auto_reload / 2U;
+  for (auto& slot : g_dma_slots) {
+    slot = PhaseTicks{kNeutral, kNeutral, kNeutral};
+  }
+  g_last_entry = PhaseTicks{kNeutral, kNeutral, kNeutral};
+  for (auto& entry : g_applied) {
+    entry = g_last_entry;
+  }
 
   kDma->CCR = 0U;
   kDmaMux->CCR = kDmaRequestTim8Up;
   kDma->CPAR = reinterpret_cast<uintptr_t>(&kTim->DMAR);
-  kDma->CMAR = reinterpret_cast<uintptr_t>(&g_dma_slots[0][0]);
+  kDma->CMAR = reinterpret_cast<uintptr_t>(g_dma_slots[0].data());
   kDma->CNDTR = kDmaTransfers;
   // Memory to peripheral, words, memory increment, circular, very high priority.
   kDma->CCR = DMA_CCR_DIR | DMA_CCR_CIRC | DMA_CCR_MINC | DMA_CCR_PSIZE_1 | DMA_CCR_MSIZE_1 | DMA_CCR_PL_1 |
@@ -233,16 +247,20 @@ bool ExternalEnablePresent() noexcept { return gpio_pin_get_raw(kEnableInput.por
 
 bool InitTimer(const uint32_t pwm_hz, const uint32_t trigger_offset) noexcept {
   struct stm32_pclken pclken = UNIMOC_CLOCK_INFO(0, UNIMOC_FOC_TIMER);
-  if (clock_control_on(kRcc, reinterpret_cast<clock_control_subsys_t>(&pclken)) != 0) return false;
+  if (clock_control_on(kRcc, reinterpret_cast<clock_control_subsys_t>(&pclken)) != 0) {
+    return false;
+  }
   if (clock_control_get_rate(kRcc, reinterpret_cast<clock_control_subsys_t>(&pclken), &g_timer_clock_hz) !=
       0) {
     return false;
   }
 
   // Same relation the control core uses: ARR = f_timer / (2 f_pwm) - 1.
-  const uint32_t half_periods = g_timer_clock_hz / pwm_hz;
-  if (half_periods < 4U || half_periods / 2U - 1U > 0xFFFFU) return false;
-  g_auto_reload = half_periods / 2U - 1U;
+  const uint32_t kHalfPeriods = g_timer_clock_hz / pwm_hz;
+  if (kHalfPeriods < 4U || kHalfPeriods / 2U - 1U > 0xFFFFU) {
+    return false;
+  }
+  g_auto_reload = kHalfPeriods / 2U - 1U;
 
   kTim->CR1 = TIM_CR1_CMS;  // center aligned mode 3, counter disabled
   kTim->PSC = 0U;
@@ -268,11 +286,13 @@ bool InitTimer(const uint32_t pwm_hz, const uint32_t trigger_offset) noexcept {
       TIM_CCER_CC1E | TIM_CCER_CC1NE | TIM_CCER_CC2E | TIM_CCER_CC2NE | TIM_CCER_CC3E | TIM_CCER_CC3NE;
 
   // Dead time: t_DTS = t_CK_INT (CKD = 0), the timer clock.
-  const auto dtg = EncodeDeadTime(DeadTimeTicks(kDeadTimeNs, g_timer_clock_hz));
-  if (!dtg.has_value()) return false;
+  const auto kDtg = EncodeDeadTime(DeadTimeTicks(kDeadTimeNs, g_timer_clock_hz));
+  if (!kDtg.has_value()) {
+    return false;
+  }
 
   // Break on, outputs held in the idle (off) state. MOE stays 0 until PowerStageEnable().
-  kTim->BDTR = kBreakConfig | *dtg;
+  kTim->BDTR = kBreakConfig | *kDtg;
 
   kTim->EGR = TIM_EGR_UG;  // load ARR, RCR and the preloaded compare values
   kTim->SR = 0U;
@@ -286,18 +306,34 @@ bool InitTimer(const uint32_t pwm_hz, const uint32_t trigger_offset) noexcept {
 }  // namespace
 
 bool Initialize(const unit::Frequency pwm_frequency, const uint32_t adc_trigger_offset) noexcept {
-  const auto pwm_hz = static_cast<uint32_t>(pwm_frequency.Value());
-  if (pwm_hz == 0U) return false;
+  const auto kPwmHz = static_cast<uint32_t>(pwm_frequency.Value());
+  if (kPwmHz == 0U) {
+    return false;
+  }
 
-  if (pinctrl_apply_state(PINCTRL_DT_DEV_CONFIG_GET(UNIMOC_FOC), PINCTRL_STATE_DEFAULT) != 0) return false;
-  if (!InitTimer(pwm_hz, adc_trigger_offset)) return false;
+  if (pinctrl_apply_state(PINCTRL_DT_DEV_CONFIG_GET(UNIMOC_FOC), PINCTRL_STATE_DEFAULT) != 0) {
+    return false;
+  }
+  if (!InitTimer(kPwmHz, adc_trigger_offset)) {
+    return false;
+  }
 
-  if (!InitAdc(kAdcPhaseA, true)) return false;
-  if (!InitAdc(kAdcPhaseB, false)) return false;
-  if (!InitAdc(kAdcPhaseC, false)) return false;
-  if (!InitAdc(kAdcDcLink, false)) return false;
+  if (!InitAdc(kAdcPhaseA, true)) {
+    return false;
+  }
+  if (!InitAdc(kAdcPhaseB, false)) {
+    return false;
+  }
+  if (!InitAdc(kAdcPhaseC, false)) {
+    return false;
+  }
+  if (!InitAdc(kAdcDcLink, false)) {
+    return false;
+  }
   if (kBridgeTemperatureAvailable || kMotorTemperatureAvailable) {
-    if (!InitAdc(kAdcTemperature, false)) return false;
+    if (!InitAdc(kAdcTemperature, false)) {
+      return false;
+    }
   }
 
   InitDma();
@@ -318,10 +354,16 @@ bool Initialize(const unit::Frequency pwm_frequency, const uint32_t adc_trigger_
 }
 
 bool PowerStageEnable() noexcept {
-  if ((kTim->BDTR & TIM_BDTR_MOE) != 0U) return true;
-  if (!ExternalEnablePresent()) return false;
-  if ((kTim->SR & TIM_SR_BIF) != 0U) return false;  // fault latched
-  kTim->BDTR |= TIM_BDTR_MOE;                       // ignored by the hardware while the break input is active
+  if ((kTim->BDTR & TIM_BDTR_MOE) != 0U) {
+    return true;
+  }
+  if (!ExternalEnablePresent()) {
+    return false;
+  }
+  if ((kTim->SR & TIM_SR_BIF) != 0U) {
+    return false;  // fault latched
+  }
+  kTim->BDTR |= TIM_BDTR_MOE;  // ignored by the hardware while the break input is active
   return (kTim->BDTR & TIM_BDTR_MOE) != 0U;
 }
 
@@ -332,9 +374,15 @@ void PowerStageTrip() noexcept { kTim->EGR = TIM_EGR_BG; }  // clears MOE, sets 
 void PowerStageClearFault() noexcept { kTim->SR = ~TIM_SR_BIF; }  // rc_w0
 
 PowerStageState GetPowerStageState() noexcept {
-  if ((kTim->BDTR & TIM_BDTR_MOE) != 0U) return PowerStageState::kEnabled;
-  if (!ExternalEnablePresent()) return PowerStageState::kBlocked;
-  if ((kTim->SR & TIM_SR_BIF) != 0U) return PowerStageState::kFault;
+  if ((kTim->BDTR & TIM_BDTR_MOE) != 0U) {
+    return PowerStageState::kEnabled;
+  }
+  if (!ExternalEnablePresent()) {
+    return PowerStageState::kBlocked;
+  }
+  if ((kTim->SR & TIM_SR_BIF) != 0U) {
+    return PowerStageState::kFault;
+  }
   return PowerStageState::kDisabled;
 }
 
@@ -347,12 +395,14 @@ void SetTriggerLead(const uint32_t ticks) noexcept { ApplyTriggerLead(ticks); }
 uint32_t TriggerLead() noexcept { return g_trigger_lead; }
 
 void SetDutyTicks(const TickPlan& ticks) noexcept {
-  const uint32_t remaining = kDma->CNDTR;
-  const bool counting_down = (kTim->CR1 & TIM_CR1_DIR) != 0U;
+  const uint32_t kRemaining = kDma->CNDTR;
+  const bool kCountingDown = (kTim->CR1 & TIM_CR1_DIR) != 0U;
 
-  for (uint8_t k = 1U; k < kHalfPeriodsPerCycle; ++k) g_dma_slots[k] = ticks[k];
+  for (uint8_t k = 1U; k < kHalfPeriodsPerCycle; ++k) {
+    g_dma_slots[k] = ticks[k];
+  }
 
-  if (remaining == kDmaTransfers - kBurstLength) {
+  if (kRemaining == kDmaTransfers - kBurstLength) {
     // Normal case: the burst of the control boundary (slot 0) is done and the
     // next one has not started. Entry 0 goes into the preload now; slot 0 holds
     // the last entry as a fallback for a late next cycle.
@@ -360,13 +410,15 @@ void SetDutyTicks(const TickPlan& ticks) noexcept {
     kTim->CCR2 = ticks[0][1];
     kTim->CCR3 = ticks[0][2];
     g_dma_slots[0] = ticks[kHalfPeriodsPerCycle - 1U];
-    if (kDma->CNDTR != remaining) ++g_duty_overruns;  // the next update came during the write
-    g_control_at_peak = counting_down;                // just after a peak the counter counts down
-  } else if (remaining == kDmaTransfers) {
+    if (kDma->CNDTR != kRemaining) {
+      ++g_duty_overruns;  // the next update came during the write
+    }
+    g_control_at_peak = kCountingDown;  // just after a peak the counter counts down
+  } else if (kRemaining == kDmaTransfers) {
     // Early: the control boundary is still ahead (long trigger lead). Its
     // burst delivers entry 0.
     g_dma_slots[0] = ticks[0];
-    g_control_at_peak = !counting_down;  // counting up towards a peak
+    g_control_at_peak = !kCountingDown;  // counting up towards a peak
   } else {
     ++g_duty_overruns;
   }
@@ -374,7 +426,9 @@ void SetDutyTicks(const TickPlan& ticks) noexcept {
   // Sample k of the next cycle is taken in the half period ending at the
   // (k + 1)-th boundary after the control boundary.
   g_applied[0] = g_last_entry;
-  for (uint8_t k = 1U; k < kHalfPeriodsPerCycle; ++k) g_applied[k] = ticks[k - 1U];
+  for (uint8_t k = 1U; k < kHalfPeriodsPerCycle; ++k) {
+    g_applied[k] = ticks[k - 1U];
+  }
   g_last_entry = ticks[kHalfPeriodsPerCycle - 1U];
 }
 
@@ -387,8 +441,8 @@ const PhaseTicks& AppliedTicks(const uint8_t sample) noexcept { return g_applied
 bool SampleAtPeak(const uint8_t sample) noexcept {
   // The last sample shares the boundary type with the control boundary; the
   // type alternates from boundary to boundary.
-  const bool same_as_control = ((kHalfPeriodsPerCycle - 1U - sample) % 2U) == 0U;
-  return same_as_control == g_control_at_peak;
+  const bool kSameAsControl = ((kHalfPeriodsPerCycle - 1U - sample) % 2U) == 0U;
+  return kSameAsControl == g_control_at_peak;
 }
 
 void SetOvercurrentWindow(const uint32_t low, const uint32_t high) noexcept {
@@ -397,12 +451,21 @@ void SetOvercurrentWindow(const uint32_t low, const uint32_t high) noexcept {
 }
 
 RawSamples ReadRaw() noexcept {
-  const ADC_TypeDef* const a = Adc(kAdcPhaseA);
-  const ADC_TypeDef* const b = Adc(kAdcPhaseB);
-  const ADC_TypeDef* const c = Adc(kAdcPhaseC);
-  const ADC_TypeDef* const d = Adc(kAdcDcLink);
-  const ADC_TypeDef* const t = Adc(kAdcTemperature);
-  return RawSamples{a->JDR1, a->JDR2, b->JDR1, b->JDR2, c->JDR1, c->JDR2, d->JDR1, d->JDR2, t->JDR1, t->JDR2};
+  const ADC_TypeDef* const kRegA = Adc(kAdcPhaseA);
+  const ADC_TypeDef* const kRegB = Adc(kAdcPhaseB);
+  const ADC_TypeDef* const kRegC = Adc(kAdcPhaseC);
+  const ADC_TypeDef* const kRegVdc = Adc(kAdcDcLink);
+  const ADC_TypeDef* const kRegTemperature = Adc(kAdcTemperature);
+  return RawSamples{kRegA->JDR1,
+                    kRegA->JDR2,
+                    kRegB->JDR1,
+                    kRegB->JDR2,
+                    kRegC->JDR1,
+                    kRegC->JDR2,
+                    kRegVdc->JDR1,
+                    kRegVdc->JDR2,
+                    kRegTemperature->JDR1,
+                    kRegTemperature->JDR2};
 }
 
 }  // namespace unimoc::hardware::foc_stm32g4

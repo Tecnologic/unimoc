@@ -17,7 +17,6 @@
 
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
-
 #include "hardware_interface.hpp"
 
 LOG_MODULE_REGISTER(unimoc, CONFIG_UNIMOC_LOG_LEVEL);
@@ -26,6 +25,8 @@ namespace unimoc::hardware {
 
 namespace {
 
+// NOLINTBEGIN(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays,cppcoreguidelines-pro-bounds-array-to-pointer-decay,clang-diagnostic-vla-cxx-extension,readability-function-size):
+// LOG_* packs its arguments into a stack buffer (a VLA in deferred mode) inside the Zephyr macro.
 void LogMessage(const LogLevel level, const char* const message) noexcept {
   switch (level) {
     case LogLevel::kDebug:
@@ -42,13 +43,10 @@ void LogMessage(const LogLevel level, const char* const message) noexcept {
       break;
   }
 }
-
-/// Background wait of the main thread. The control loops run in interrupts, so
-/// the main thread only has to yield to the logging and shell threads.
-void WaitForInterrupt() noexcept { k_msleep(1); }
+// NOLINTEND(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays,cppcoreguidelines-pro-bounds-array-to-pointer-decay,clang-diagnostic-vla-cxx-extension,readability-function-size)
 
 }  // namespace
 
-HardwareSystemInterface runtime{LogMessage, WaitForInterrupt};
+const HardwareSystemInterface kRuntime{LogMessage};
 
 }  // namespace unimoc::hardware

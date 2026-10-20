@@ -1,0 +1,40 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# UNIMOC as a Zephyr module (zephyr/module.yml).
+
+config UNIMOC
+	bool "UNIMOC motor-control libraries"
+	depends on CPP
+	select REQUIRES_FULL_LIBCPP
+	help
+	  Provides the portable UNIMOC libraries as CMake interface targets:
+	  unimoc_lib (units, settings, cyphal, motor_control) and unimoc_sim
+	  (motor plant simulation, native_sim). Applications and tests link
+	  them. Requires CONFIG_STD_CPP20=y.
+
+if UNIMOC
+
+choice UNIMOC_PLATFORM
+	prompt "UNIMOC hardware platform"
+	default UNIMOC_PLATFORM_BCC if BOARD_BCC
+	default UNIMOC_PLATFORM_SIM if BOARD_NATIVE_SIM
+	help
+	  Selects which hardware layer (hardware/zephyr_*) the application
+	  compiles. The choice follows the board; it is never a preprocessor
+	  switch.
+
+config UNIMOC_PLATFORM_BCC
+	bool "Battery case controller (STM32G473)"
+	depends on BOARD_BCC
+
+config UNIMOC_PLATFORM_SIM
+	bool "Simulation on native_sim"
+	depends on BOARD_NATIVE_SIM
+
+endchoice
+
+module = UNIMOC
+module-str = UNIMOC
+source "subsys/logging/Kconfig.template.log_config"
+
+endif # UNIMOC

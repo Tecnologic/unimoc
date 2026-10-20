@@ -75,8 +75,12 @@ struct SimPowerStage {
 } g_power_stage;
 
 bool PowerStageEnable() noexcept {
-  if (g_power_stage.enabled) return true;
-  if (!g_power_stage.external_enable || g_power_stage.fault) return false;
+  if (g_power_stage.enabled) {
+    return true;
+  }
+  if (!g_power_stage.external_enable || g_power_stage.fault) {
+    return false;
+  }
   g_power_stage.enabled = true;
   return true;
 }
@@ -92,8 +96,12 @@ void PowerStageTrip() noexcept {
 void PowerStageClearFault() noexcept { g_power_stage.fault = !g_power_stage.external_enable; }
 
 PowerStageState GetPowerStageState() noexcept {
-  if (g_power_stage.enabled) return PowerStageState::kEnabled;
-  if (!g_power_stage.external_enable) return PowerStageState::kBlocked;
+  if (g_power_stage.enabled) {
+    return PowerStageState::kEnabled;
+  }
+  if (!g_power_stage.external_enable) {
+    return PowerStageState::kBlocked;
+  }
   return g_power_stage.fault ? PowerStageState::kFault : PowerStageState::kDisabled;
 }
 
@@ -111,7 +119,7 @@ ControlCycleSamples g_samples{};  // samples of the cycle that just ended
 DutyPlan g_plan{};                // written by the control cycle
 Duties g_carry = kNeutral;        // entry 3 of the last plan: first half period of the next cycle
 std::array<Duties, kHalfPeriodsPerCycle> g_applied{kNeutral, kNeutral, kNeutral, kNeutral};
-float g_overcurrent_limit_A = std::numeric_limits<float>::infinity();
+float g_overcurrent_limit = std::numeric_limits<float>::infinity();
 bool g_current_override = false;
 system::ThreePhase<Current> g_override_currents{};
 uint32_t g_cycle_count = 0U;
@@ -126,15 +134,18 @@ system::ThreePhase<Current> MeasuredCurrents() noexcept {
   return g_current_override ? g_override_currents : g_plant.Output().phase_currents;
 }
 
-bool Exceeds(const system::ThreePhase<Current>& i) noexcept {
-  const float limit = g_overcurrent_limit_A;
-  return std::abs(i.a.Value()) > limit || std::abs(i.b.Value()) > limit || std::abs(i.c.Value()) > limit;
+bool Exceeds(const system::ThreePhase<Current>& currents) noexcept {
+  const float kLimit = g_overcurrent_limit;
+  return std::abs(currents.a.Value()) > kLimit || std::abs(currents.b.Value()) > kLimit ||
+         std::abs(currents.c.Value()) > kLimit;
 }
 
 // Runs in the (simulated) timer interrupt, like the BCC interrupts: no kernel
 // calls and no logging in the handlers.
 void RunCycle() noexcept {
-  if (!g_initialized) return;
+  if (!g_initialized) {
+    return;
+  }
   ControlCycleHandler();
   ObserverHandler();
 
@@ -163,14 +174,16 @@ void RunCycle() noexcept {
 // schedule each expiry from the exact elapsed time so the mean rate is exact.
 void ScheduleNext() noexcept {
   g_elapsed_ns += g_cycle_ns;
-  const uint64_t due_us = g_elapsed_ns / 1000U;
-  k_timer_start(&g_cycle_timer, K_USEC(due_us - g_elapsed_us), K_NO_WAIT);
-  g_elapsed_us = due_us;
+  const uint64_t kDueUs = g_elapsed_ns / 1000U;
+  k_timer_start(&g_cycle_timer, K_USEC(kDueUs - g_elapsed_us), K_NO_WAIT);
+  g_elapsed_us = kDueUs;
 }
 
-void OnCycleTimer(struct k_timer*) {
+void OnCycleTimer(struct k_timer* /*unused*/) {
   RunCycle();
-  if (g_free_running) ScheduleNext();
+  if (g_free_running) {
+    ScheduleNext();
+  }
 }
 
 void StartTimer() noexcept {
@@ -185,9 +198,11 @@ void StopTimer() noexcept {
   k_timer_stop(&g_cycle_timer);
 }
 
-bool Initialize(Frequency pwm_frequency, uint32_t) noexcept {
-  const auto pwm_hz = static_cast<uint64_t>(pwm_frequency.Value());
-  if (pwm_hz == 0U) return false;
+bool Initialize(Frequency pwm_frequency, uint32_t /*unused*/) noexcept {
+  const auto kPwmHz = static_cast<uint64_t>(pwm_frequency.Value());
+  if (kPwmHz == 0U) {
+    return false;
+  }
 
   static bool timer_initialized = false;
   if (!timer_initialized) {
@@ -202,7 +217,7 @@ bool Initialize(Frequency pwm_frequency, uint32_t) noexcept {
 
   g_initialized = true;
   g_half_period = Time{1.0F / (2.0F * pwm_frequency.Value())};
-  g_cycle_ns = (kHalfPeriodsPerCycle * 1'000'000'000ULL) / (2U * pwm_hz);
+  g_cycle_ns = (kHalfPeriodsPerCycle * 1'000'000'000ULL) / (2U * kPwmHz);
   g_samples = ControlCycleSamples{};
   g_samples.dc_link = g_plant.Output().dc_link_voltage;
   g_plan = DutyPlan{};
@@ -219,9 +234,9 @@ system::ThreePhase<Voltage> GetPhaseVoltages() noexcept { return g_plant.Output(
 
 TemperatureMeasurements GetTemperatureMeasurements() noexcept { return {}; }
 
-void SetOvercurrentLimit(const Current limit) noexcept { g_overcurrent_limit_A = limit.Value(); }
+void SetOvercurrentLimit(const Current limit) noexcept { g_overcurrent_limit = limit.Value(); }
 
-void SetAdcTriggerOffset(uint32_t) noexcept {}
+void SetAdcTriggerOffset(uint32_t /*unused*/) noexcept {}
 
 uint32_t GetTimerClockFrequency() noexcept { return 170'000'000U; }
 
@@ -241,14 +256,16 @@ namespace sim {
 
 void SetExternalEnable(const bool present) noexcept {
   g_power_stage.external_enable = present;
-  if (!present) PowerStageTrip();  // the break input latches, like BIF
+  if (!present) {
+    PowerStageTrip();  // the break input latches, like BIF
+  }
 }
 
 void SetPhaseCurrentOverride(const float a, const float b, const float c) noexcept {
-  const unsigned int key = irq_lock();
+  const unsigned int kIrqKey = irq_lock();
   g_override_currents = system::ThreePhase<Current>{Current{a}, Current{b}, Current{c}};
   g_current_override = true;
-  irq_unlock(key);
+  irq_unlock(kIrqKey);
 }
 
 void ClearPhaseCurrentOverride() noexcept { g_current_override = false; }
@@ -256,7 +273,9 @@ void ClearPhaseCurrentOverride() noexcept { g_current_override = false; }
 ::unimoc::sim::MotorSimulation& Plant() noexcept { return g_plant; }
 
 void SetFreeRunning(const bool running) noexcept {
-  if (running == g_free_running) return;
+  if (running == g_free_running) {
+    return;
+  }
   if (running) {
     StartTimer();
   } else {
@@ -265,9 +284,9 @@ void SetFreeRunning(const bool running) noexcept {
 }
 
 void StepCycle() noexcept {
-  const unsigned int key = irq_lock();
+  const unsigned int kIrqKey = irq_lock();
   RunCycle();
-  irq_unlock(key);
+  irq_unlock(kIrqKey);
 }
 
 std::array<system::ThreePhase<unit::Ratio>, 4> AppliedDuties() noexcept { return g_applied; }
@@ -276,20 +295,20 @@ uint32_t CycleCount() noexcept { return g_cycle_count; }
 
 }  // namespace sim
 
-PowerStageInterface power_stage{PowerStageEnable,
-                                PowerStageDisable,
-                                PowerStageTrip,
-                                PowerStageClearFault,
-                                GetPowerStageState};
+const PowerStageInterface kPowerStage{PowerStageEnable,
+                                      PowerStageDisable,
+                                      PowerStageTrip,
+                                      PowerStageClearFault,
+                                      GetPowerStageState};
 
-HardwareSettingsInterface settings{kSettingsProfile, kSettingsStorage};
+const HardwareSettingsInterface kSettings{kSettingsProfile, kSettingsStorage};
 
-HardwareInterface motor[MOTORS] = {HardwareInterface(Initialize,
-                                                     GetPhaseCurrents,
-                                                     GetPhaseVoltages,
-                                                     GetTemperatureMeasurements,
-                                                     SetOvercurrentLimit,
-                                                     SetAdcTriggerOffset,
-                                                     GetTimerClockFrequency)};
+const std::array<HardwareInterface, kMotorCount> kMotors = {HardwareInterface(Initialize,
+                                                                              GetPhaseCurrents,
+                                                                              GetPhaseVoltages,
+                                                                              GetTemperatureMeasurements,
+                                                                              SetOvercurrentLimit,
+                                                                              SetAdcTriggerOffset,
+                                                                              GetTimerClockFrequency)};
 
 }  // namespace unimoc::hardware

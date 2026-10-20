@@ -19,14 +19,13 @@
 #include "stator_system.hpp"
 #include "units.hpp"
 
-namespace unimoc {
-namespace current_control {
+namespace unimoc::current_control {
 
 // =============================================================================
 // init
 // =============================================================================
 
-void SlowUpdate::init(const settings::NvmSettings& settings, CurrentControlIsr& isr) noexcept {
+void SlowUpdate::Init(const settings::NvmSettings& settings, CurrentControlIsr& isr) noexcept {
   isr_ = &isr;
 
   // --- PMSM flux observer parameters ---
@@ -40,8 +39,10 @@ void SlowUpdate::init(const settings::NvmSettings& settings, CurrentControlIsr& 
 // run_once — after each control cycle, lower priority than the control cycle
 // =============================================================================
 
-bool SlowUpdate::run_once() noexcept {
-  if (!isr_) return false;
+bool SlowUpdate::RunOnce() noexcept {
+  if (isr_ == nullptr) {
+    return false;
+  }
 
   CurrentControlState& state = isr_->state;
   auto& mech_obs = isr_->mech_obs;
@@ -49,30 +50,32 @@ bool SlowUpdate::run_once() noexcept {
   // -------------------------------------------------------------------------
   // Nothing to do until the control cycle has filled a buffer.
   // -------------------------------------------------------------------------
-  if (!state.observer_pending.load(std::memory_order_acquire)) return false;
+  if (!state.observer_pending.load(std::memory_order_acquire)) {
+    return false;
+  }
 
-  const float dt_fast = state.dt_fast;
-  const float dt_slow = state.dt_slow;
+  const float kDtFast = state.dt_fast;
+  const float kDtSlow = state.dt_slow;
 
   // -------------------------------------------------------------------------
   // 1. The buffer of the cycle that just finished.
   // -------------------------------------------------------------------------
-  const uint8_t done = state.observer_buffer;
-  const SubStepBuffer& cycle = state.double_buf.buf[done];
-  const system::Rotor<unit::Current> i_dq_mean = cycle.i_dq_mean;
+  const uint8_t kFinishedBuffer = state.observer_buffer;
+  const SubStepBuffer& cycle = state.double_buf.buf[kFinishedBuffer];
+  const system::Rotor<unit::Current> kCurrentDqMean = cycle.i_dq_mean;
 
   // -------------------------------------------------------------------------
   // 2. PMSM flux observer. calculate() reads mech_obs.sin_theta / cos_theta
   //    and calls mech_obs.inject_angle_error() at the end.
   // -------------------------------------------------------------------------
-  flux_obs.calculate(cycle.u_dq, i_dq_mean, flux_setpoint_, unit::Time{dt_slow}, mech_obs);
+  flux_obs.calculate(cycle.u_dq, kCurrentDqMean, flux_setpoint_, unit::Time{kDtSlow}, mech_obs);
 
   // -------------------------------------------------------------------------
   // 3. Mechanical Kalman predict step (propagates omega and theta forward by
   //    one cycle). Afterwards theta is the estimate for the first sample of
   //    the next cycle.
   // -------------------------------------------------------------------------
-  mech_obs.predict(i_dq_mean, unit::Time{dt_slow});
+  mech_obs.predict(kCurrentDqMean, unit::Time{kDtSlow});
 
   // -------------------------------------------------------------------------
   // 4. HFI: sample k + 1 answers injection step k of the plan before it, so
@@ -80,11 +83,11 @@ bool SlowUpdate::run_once() noexcept {
   //    the next one (steps 0..2). update() advances its step itself.
   // -------------------------------------------------------------------------
   if (isr_->hfi_active) {
-    for (uint8_t k = 0u; k < NUM_SUB_STEPS; ++k) {
+    for (uint8_t k = 0U; k < kNumSubSteps; ++k) {
       isr_->hfi.update(cycle.i_ab_samples[k],
                        cycle.sc[k].sin,
                        cycle.sc[k].cos,
-                       unit::Time{dt_slow},
+                       unit::Time{kDtSlow},
                        mech_obs);
     }
   }
@@ -92,29 +95,28 @@ bool SlowUpdate::run_once() noexcept {
   // -------------------------------------------------------------------------
   // 5. Angles of the next cycle into the inactive buffer:
   //      sample k:     phi = theta + k × omega × dt_fast
-  //      duty entry k: phi = theta + (NUM_SUB_STEPS − 1 + delay + k) × omega × dt_fast
+  //      duty entry k: phi = theta + (kNumSubSteps − 1 + delay + k) × omega × dt_fast
   //    The next control boundary is the last sample of the next cycle; entry
   //    k takes effect `delay` + k half periods after it (D4).
   // -------------------------------------------------------------------------
-  SubStepBuffer& next = state.double_buf.buf[1u - done];
+  SubStepBuffer& next = state.double_buf.buf[1U - kFinishedBuffer];
 
-  const float theta_now = mech_obs.theta.Value();
-  const float step = mech_obs.omega.Value() * dt_fast;
-  const float out_offset = static_cast<float>(NUM_SUB_STEPS - 1u) + state.output_delay_half_periods;
+  const float kThetaNow = mech_obs.theta.Value();
+  const float kStep = mech_obs.omega.Value() * kDtFast;
+  const float kOutOffset = static_cast<float>(kNumSubSteps - 1U) + state.output_delay_half_periods;
 
-  for (uint8_t k = 0u; k < NUM_SUB_STEPS; ++k) {
-    const float k_f = static_cast<float>(k);
-    next.sc[k] = system::SinCos<unit::Ratio>(unit::Angle{theta_now + k_f * step});
-    next.sc_out[k] = system::SinCos<unit::Ratio>(unit::Angle{theta_now + (out_offset + k_f) * step});
+  for (uint8_t k = 0U; k < kNumSubSteps; ++k) {
+    const auto kIndex = static_cast<float>(k);
+    next.sc[k] = system::SinCos<unit::Ratio>(unit::Angle{kThetaNow + kIndex * kStep});
+    next.sc_out[k] = system::SinCos<unit::Ratio>(unit::Angle{kThetaNow + (kOutOffset + kIndex) * kStep});
   }
 
   // -------------------------------------------------------------------------
   // 6. Publish: the next control cycle uses the new buffer.
   // -------------------------------------------------------------------------
-  state.double_buf.active.store(static_cast<uint8_t>(1u - done), std::memory_order_release);
+  state.double_buf.active.store(static_cast<uint8_t>(1U - kFinishedBuffer), std::memory_order_release);
   state.observer_pending.store(false, std::memory_order_release);
   return true;
 }
 
-}  // namespace current_control
-}  // namespace unimoc
+}  // namespace unimoc::current_control

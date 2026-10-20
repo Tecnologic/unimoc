@@ -6,7 +6,3 @@ target_include_directories(unimoc_units INTERFACE
 target_link_libraries(unimoc_units INTERFACE project_options project_warnings)
 
 add_library(unimoc::units ALIAS unimoc_units)
-
-if(ENABLE_TESTS)
-    add_subdirectory(tests)
-endif()

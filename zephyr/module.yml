@@ -1,6 +1,12 @@
 name: unimoc
 build:
+  # The portable libraries of lib/ (CONFIG_UNIMOC) and the platform choice.
+  cmake: zephyr
+  kconfig: zephyr/Kconfig
   settings:
     # Out-of-tree boards in boards/ and devicetree bindings in dts/bindings/.
     board_root: .
     dts_root: .
+# twister scenarios of this module
+tests:
+  - tests

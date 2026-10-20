@@ -15,7 +15,8 @@ external API requires different wording.
 | **portable library** | The HAL-free code in `lib/`, intended to work on the host and on embedded targets. |
 | **firmware** | The Zephyr application in `app/` and the code it builds from `src/`, `hardware/`, and `boards/`. |
 | **Zephyr** | The RTOS that runs the firmware. It is the primary OS for everything outside the hot path. |
-| **hosted build** | A build that runs the portable code and GoogleTest on the development machine rather than on the STM32 target. |
+| **twister scenario** | One test application under `tests/` with a `testcase.yaml`, built and run by Zephyr's twister (ztest on `native_sim`, build-only on `bcc`). |
+| **SCA** | Zephyr static code analysis; here clang-tidy through CodeChecker (`scripts/twister_sca.sh`). |
 | **native_sim** | Zephyr's Linux simulation target. It runs the firmware application against the PMSM plant on the host. |
 | **hardware layer** | Platform-specific code that connects the portable library to ADCs, PWM, timers, NVM, gate drivers, and other peripherals. Its platform is `zephyr_bcc` or `zephyr_sim`. |
 | **BCC** | The battery case controller: the STM32G473 board, built with `-b bcc`. |
@@ -29,7 +30,7 @@ external API requires different wording.
 | **hot path** | The FOC work that runs in zero-latency IRQs: the sample ISR and the control cycle. Only this runs at zero latency. |
 | **zero-latency IRQ** | An interrupt that bypasses the Zephyr scheduler and kernel locking (`IRQ_ZERO_LATENCY`). It may not call kernel APIs, log, or lock. |
 | **sample ISR** | The end of the injected ADC sequence (JEOS), once per half PWM period. It copies the raw currents and checks the overcurrent limit. |
-| **control cycle** | Four half PWM periods (16 kHz at 32 kHz PWM). It runs inside every fourth sample ISR: PI once, four duty entries for the next four half periods. `CurrentControlIsr::on_control_cycle()` in code. |
+| **control cycle** | Four half PWM periods (16 kHz at 32 kHz PWM). It runs inside every fourth sample ISR: PI once, four duty entries for the next four half periods. `CurrentControlIsr::OnControlCycle()` in code. |
 | **duty plan** | The four duty entries of one control cycle (`DutyPlan`). Entry 0 goes into the CCR preload, entries 1 to 3 are delivered by DMA at the next update events. |
 | **hot-path interface** | `hardware/hot_path_interface.hpp`: the hardware access of the control cycle (`hot_path::GetControlCycleSamples`, `SetDutyPlan`, `TripPowerStage`) and the two handlers the platform calls. Bound at link time per platform, no function pointers. |
 | **observer** | The flux observer, Kalman filter and HFI after each control cycle, in a software-pended normal-priority interrupt. It computes the angles of the next cycle. `SlowUpdate` in code. |

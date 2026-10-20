@@ -16,7 +16,6 @@
 #include <atomic>
 #include <cstdint>
 #include <limits>
-#include "SubStepBuffer.hpp"
 #include "current_controller.hpp"
 #include "dead_time_compensation.hpp"
 #include "hardware_interface.hpp"
@@ -25,20 +24,21 @@
 #include "nvm_settings.hpp"
 #include "rotor_system.hpp"
 #include "stator_system.hpp"
+#include "sub_step_buffer.hpp"
 #include "svm.hpp"
 
 /**
  * @namespace unimoc global namespace
  */
-namespace unimoc {
+
 /**
  * @namespace current_control current-control subsystem namespace
  */
-namespace current_control {
+namespace unimoc::current_control {
 
 using namespace unit;
 
-static_assert(NUM_SUB_STEPS == hardware::kHalfPeriodsPerCycle,
+static_assert(kNumSubSteps == hardware::kHalfPeriodsPerCycle,
               "one control cycle covers the half periods of one hardware cycle");
 
 /**
@@ -50,22 +50,22 @@ static_assert(NUM_SUB_STEPS == hardware::kHalfPeriodsPerCycle,
  * @param freq  PWM frequency selection.
  * @return      dt_fast [s].
  */
-[[nodiscard]] constexpr float dt_fast_from_pwm_frequency(unit::Frequency freq) noexcept {
-  return 1.0f / (2.0f * freq.Value());
+[[nodiscard]] constexpr float DtFastFromPwmFrequency(unit::Frequency freq) noexcept {
+  return 1.0F / (2.0F * freq.Value());
 }
 
 /**
- * @brief Control-cycle period [s] = NUM_SUB_STEPS × dt_fast.
+ * @brief Control-cycle period [s] = kNumSubSteps × dt_fast.
  */
-[[nodiscard]] constexpr float dt_slow_from_pwm_frequency(unit::Frequency freq) noexcept {
-  return static_cast<float>(NUM_SUB_STEPS) * dt_fast_from_pwm_frequency(freq);
+[[nodiscard]] constexpr float DtSlowFromPwmFrequency(unit::Frequency freq) noexcept {
+  return static_cast<float>(kNumSubSteps) * DtFastFromPwmFrequency(freq);
 }
 
 /**
  * @brief Shared state block for the control cycle and the observer.
  *
  * A single instance of this struct is owned by `CurrentControlIsr`.  The
- * control cycle (zero latency, once per NUM_SUB_STEPS PWM half periods), the
+ * control cycle (zero latency, once per kNumSubSteps PWM half periods), the
  * observer (`SlowUpdate`, lower-priority interrupt after each control cycle)
  * and the startup FSM access it; the access discipline is documented per
  * member.
@@ -74,7 +74,7 @@ static_assert(NUM_SUB_STEPS == hardware::kHalfPeriodsPerCycle,
  * -------------------
  *  - The control cycle preempts the observer and every thread.
  *  - `double_buf`  : atomic active index; SubStepBuffer access follows the
- *                    ownership protocol described in SubStepBuffer.hpp.
+ *                    ownership protocol described in sub_step_buffer.hpp.
  *  - `i_ref`       : written by the outer control loop (lower priority);
  *                    read by the control cycle.  A two-word Rotor<float> on
  *                    Cortex-M is not atomically accessible; the outer loop
@@ -89,42 +89,42 @@ struct CurrentControlState {
   DoubleBuffer double_buf{};
 
   /// Current setpoint in the rotor frame [A].  Written by the outer loop.
-  system::Rotor<unit::Current> i_ref{0.0f, 0.0f};
+  system::Rotor<unit::Current> i_ref{0.0F, 0.0F};
 
   /// Last voltage demand computed by the control cycle, rotor frame [V].
-  system::Rotor<unit::Voltage> u_dq_last{0.0f, 0.0f};
+  system::Rotor<unit::Voltage> u_dq_last{0.0F, 0.0F};
 
   /// Buffer index the last control cycle used; read by the observer.
-  uint8_t observer_buffer{0u};
+  uint8_t observer_buffer{0U};
 
   /// Set by the control cycle when the observer has a cycle to process.
   std::atomic<bool> observer_pending{false};
 
   /// Control cycles that started while the observer still processed the previous one.
-  uint32_t observer_overruns{0u};
+  uint32_t observer_overruns{0U};
 
-  /// Control cycles run since init().
-  uint32_t control_cycles{0u};
+  /// Control cycles run since Init().
+  uint32_t control_cycles{0U};
 
   /// Set to true by the control cycle once per cycle; consumed by the startup FSM.
   volatile bool samples_ready{false};
 
-  /// Duration of one PWM half period (one current sample) [s] — set by init().
-  float dt_fast{1.0f / (2.0f * 32000.0f)};
+  /// Duration of one PWM half period (one current sample) [s] — set by Init().
+  float dt_fast{1.0F / (2.0F * 32000.0F)};
 
-  /// Duration of one control cycle [s] — set by init().
-  float dt_slow{static_cast<float>(NUM_SUB_STEPS) / (2.0f * 32000.0f)};
+  /// Duration of one control cycle [s] — set by Init().
+  float dt_slow{static_cast<float>(kNumSubSteps) / (2.0F * 32000.0F)};
 
   /// Delay from the control boundary to the middle of duty entry 0, in PWM
   /// half periods (D4). Entry 0 is written directly into the CCR preload and
   /// takes effect one half period after the boundary: 1.5. Tuned on the board.
-  float output_delay_half_periods{1.5f};
+  float output_delay_half_periods{1.5F};
 
-  /// Timer auto-reload value used for timing calculations — set by init().
-  uint32_t arr{2655u};
+  /// Timer auto-reload value used for timing calculations — set by Init().
+  uint32_t arr{2655U};
 
-  /// ADC trigger compare offset in timer ticks — set by init().
-  uint32_t adc_trigger_offset{170u};
+  /// ADC trigger compare offset in timer ticks — set by Init().
+  uint32_t adc_trigger_offset{170U};
 
   /// Duties of the last control cycle; entry 0 is the first half period.
   hardware::DutyPlan duty_plan{};
@@ -135,16 +135,16 @@ struct CurrentControlState {
   /// Newest raw ADC sample of the last cycle; updated by every control cycle
   /// regardless of control mode. Safe to read from lower-priority contexts
   /// (e.g. the startup FSM). The phase-current vector preserves ia + ib + ic = 0.
-  system::ThreePhase<unit::Current> raw_phase_currents{};
-  unit::Voltage raw_vdc{};
+  system::ThreePhase<unit::Current> raw_phase_currents;
+  unit::Voltage raw_vdc;
 
   /// Hard phase-current limit [A]. The hardware checks every sample against
   /// it and trips the power stage; the control cycle checks all samples of the
   /// cycle again. Infinity disables the check.
-  float overcurrent_limit_A{std::numeric_limits<float>::infinity()};
+  float overcurrent_limit{std::numeric_limits<float>::infinity()};
 
   /// Set by the control cycle when the limit was exceeded; the control loop
-  /// stays frozen at neutral duties until clear_overcurrent_trip().
+  /// stays frozen at neutral duties until ClearOvercurrentTrip().
   volatile bool overcurrent_tripped{false};
 };
 
@@ -162,13 +162,13 @@ struct CurrentControlState {
  * ---------------
  * The PWM timer runs in centre-aligned mode and the hardware samples the
  * phase currents once per half period (at every peak and valley). Every
- * NUM_SUB_STEPS samples it calls `on_control_cycle()` in the zero-latency
+ * kNumSubSteps samples it calls `OnControlCycle()` in the zero-latency
  * context, which
  *
- *  1. reads the NUM_SUB_STEPS samples of the cycle,
+ *  1. reads the kNumSubSteps samples of the cycle,
  *  2. parks each sample with the angle it was taken at and averages them,
  *  3. runs the PI current controller once,
- *  4. computes NUM_SUB_STEPS duty entries, each with its own inverse-Park
+ *  4. computes kNumSubSteps duty entries, each with its own inverse-Park
  *     angle, HFI injection step and dead-time compensation, and
  *  5. writes them to the hardware as one `DutyPlan` and signals the observer.
  *
@@ -186,14 +186,14 @@ struct CurrentControlState {
  * -----
  * @code
  *   // One-time setup (before enabling the timer/ADC):
- *   auto& isr = unimoc::current_control::CurrentControlIsr::instance();
- *   isr.init(settings, hardware, hardware.GetTimerClockFrequency());
+ *   auto& isr = unimoc::current_control::CurrentControlIsr::Instance();
+ *   isr.Init(settings, hardware, hardware.GetTimerClockFrequency());
  *
  *   // From hardware::ControlCycleHandler() (zero latency):
- *   isr.on_control_cycle();
+ *   isr.OnControlCycle();
  *
  *   // From outer control loop to update the setpoint:
- *   isr.set_current_ref({i_d_ref, i_q_ref});
+ *   isr.SetCurrentRef({i_d_ref, i_q_ref});
  * @endcode
  */
 class CurrentControlIsr {
@@ -203,7 +203,7 @@ class CurrentControlIsr {
   // =========================================================================
 
   /// Return the single global instance.
-  static CurrentControlIsr& instance() noexcept {
+  static CurrentControlIsr& Instance() noexcept {
     static CurrentControlIsr obj;
     return obj;
   }
@@ -230,8 +230,8 @@ class CurrentControlIsr {
    * @param timer_clock_hz  Timer peripheral clock frequency in Hz
    *                        (e.g. 168 000 000 for a 168 MHz APB2 timer).
    */
-  void init(const settings::NvmSettings& settings,
-            hardware::HardwareInterface& hardware,
+  void Init(const settings::NvmSettings& settings,
+            const hardware::HardwareInterface& hardware,
             uint32_t timer_clock_hz) noexcept;
 
   // =========================================================================
@@ -242,12 +242,12 @@ class CurrentControlIsr {
    * @brief Control-cycle handler body.
    *
    * Called from hardware::ControlCycleHandler() (zero latency) once per
-   * NUM_SUB_STEPS PWM half periods. Reads the samples of the cycle, runs the
+   * kNumSubSteps PWM half periods. Reads the samples of the cycle, runs the
    * current controller once and writes the duty plan of the next
-   * NUM_SUB_STEPS half periods through hardware::hot_path. Does nothing before
-   * init().
+   * kNumSubSteps half periods through hardware::hot_path. Does nothing before
+   * Init().
    */
-  void on_control_cycle() noexcept;
+  void OnControlCycle() noexcept;
 
   // =========================================================================
   // Setpoint interface (called from lower-priority context)
@@ -262,7 +262,7 @@ class CurrentControlIsr {
    *
    * @param ref  New d/q current reference [A].
    */
-  void set_current_ref(const system::Rotor<unit::Current>& ref) noexcept { state.i_ref = ref; }
+  void SetCurrentRef(const system::Rotor<unit::Current>& ref) noexcept { state.i_ref = ref; }
 
   // =========================================================================
   // Startup / bring-up interface
@@ -271,7 +271,7 @@ class CurrentControlIsr {
   /**
    * @brief Override PWM output with fixed duty cycles, bypassing the PI loop.
    *
-   * When active, on_control_cycle() still reads and stores the raw ADC samples in
+   * When active, OnControlCycle() still reads and stores the raw ADC samples in
    * state.raw_phase_currents / raw_vdc, but skips Clarke / Park / PI / SVM and
    * writes the requested duties through the hardware interface.
    *
@@ -283,7 +283,7 @@ class CurrentControlIsr {
    * @param db  Phase-B duty cycle [0, 1].
    * @param dc  Phase-C duty cycle [0, 1].
    */
-  void force_duty(float da, float db, float dc) noexcept;
+  void ForceDuty(float da, float db, float dc) noexcept;
 
   /**
    * @brief Release force-duty mode and return to normal closed-loop PI control.
@@ -292,7 +292,7 @@ class CurrentControlIsr {
    * clean state rather than inheriting stale winding-up values accumulated
    * while force-duty was active.
    */
-  void release_force_duty() noexcept;
+  void ReleaseForceDuty() noexcept;
 
   /**
    * @brief Update the ADC injection trigger offset in timer ticks.
@@ -304,21 +304,21 @@ class CurrentControlIsr {
    *
    * @param offset  New trigger offset [timer ticks from PWM peak/trough].
    */
-  void set_adc_trigger_offset(uint32_t offset) noexcept;
+  void SetAdcTriggerOffset(uint32_t offset) noexcept;
 
   /**
    * @brief Set the hard phase-current limit that trips the power stage.
    *
    * The hardware checks every sample against it and trips the power stage at
-   * once; on_control_cycle() checks the samples of the cycle again, calls
-   * hardware::power_stage.Trip() when needed and freezes the control loop at
+   * once; OnControlCycle() checks the samples of the cycle again, calls
+   * hardware::kPowerStage.Trip() when needed and freezes the control loop at
    * neutral duties.
    */
-  void set_overcurrent_limit(unit::Current limit) noexcept;
+  void SetOvercurrentLimit(unit::Current limit) noexcept;
 
   /// Acknowledges an overcurrent trip. The power stage fault is cleared separately
-  /// (power_stage.ClearFault()).
-  void clear_overcurrent_trip() noexcept {
+  /// (kPowerStage.ClearFault()).
+  void ClearOvercurrentTrip() noexcept {
     cc.reset();
     state.overcurrent_tripped = false;
   }
@@ -327,11 +327,16 @@ class CurrentControlIsr {
   // Shared state (accessed by SlowUpdate)
   // =========================================================================
 
+  // NOLINTBEGIN(cppcoreguidelines-non-private-member-variables-in-classes): the
+  // observer (SlowUpdate) and the startup FSM work on the shared state and the
+  // algorithm instances of the singleton directly; the access protocol is
+  // documented at CurrentControlState and SubStepBuffer.
+
   /// Shared state between the ISR and the slow-update task.
   CurrentControlState state{};
 
   // =========================================================================
-  // Algorithm instances (owned here; parameters loaded by init())
+  // Algorithm instances (owned here; parameters loaded by Init())
   // =========================================================================
 
   /// Kalman mechanical observer — state updated by SlowUpdate; omega
@@ -353,28 +358,29 @@ class CurrentControlIsr {
   /// True when HFI injection is active.
   bool hfi_active{false};
 
-  /// When true, on_control_cycle() writes forced_duties as the duty plan and
-  /// bypasses the PI control loop.  Set by force_duty(); cleared by
-  /// release_force_duty().
+  /// When true, OnControlCycle() writes forced_duties as the duty plan and
+  /// bypasses the PI control loop.  Set by ForceDuty(); cleared by
+  /// ReleaseForceDuty().
   bool force_duty_active{false};
 
   /// Fixed duty cycles applied to CCR1/2/3 while force_duty_active is true.
-  /// Clamped to [svm.duty_min, svm.duty_max] by force_duty().
+  /// Clamped to [svm.duty_min, svm.duty_max] by ForceDuty().
   system::ThreePhase<unit::Ratio> forced_duties{0.5_ratio, 0.5_ratio, 0.5_ratio};
+
+  // NOLINTEND(cppcoreguidelines-non-private-member-variables-in-classes)
 
  private:
   CurrentControlIsr() = default;
 
   /// Writes the same duties for all entries of the plan.
-  void set_uniform_duties(const system::ThreePhase<unit::Ratio>& duties) noexcept;
+  void SetUniformDuties(const system::ThreePhase<unit::Ratio>& duties) noexcept;
 
-  void set_duty_plan(const hardware::DutyPlan& plan) noexcept;
+  void SetDutyPlan(const hardware::DutyPlan& plan) noexcept;
 
   /// Ends a cycle that did not run the controller: FSM signalled, observer not run.
-  void finish_cycle_without_control() noexcept;
+  void FinishCycleWithoutControl() noexcept;
 
-  hardware::HardwareInterface* hardware_{nullptr};
+  const hardware::HardwareInterface* hardware_{nullptr};
 };
 
-}  // namespace current_control
-}  // namespace unimoc
+}  // namespace unimoc::current_control

@@ -42,7 +42,7 @@ settings backend do not exist yet. The phase order below is the plan.
 3. `hardware/host` uses `std::thread`, `<chrono>`, `<fstream>`, an environment
    variable for the settings file and zero-value stubs.
 4. `CurrentControlIsr` and `SlowUpdate` are singletons; `samples_ready` is a
-   `volatile bool`. `on_control_cycle()` only calls hardware callbacks, which
+   `volatile bool`. `OnControlCycle()` only calls hardware callbacks, which
    fits a zero-latency IRQ, but those callbacks must not log or call kernel APIs.
 5. Cyphal: only identifiers, heartbeat serialization and the `Transport`
    interface exist. DSDL, register service, PnP and GetInfo are missing.
@@ -58,7 +58,8 @@ settings backend do not exist yet. The phase order below is the plan.
 - Add `west.yml` (Zephyr 4.4.0) and `app/` with `CMakeLists.txt`, `prj.conf`,
   Kconfig and board overlays.
 - `find_package(Zephyr)` before `project()`; link `lib/` targets into `app`.
-- Keep the hosted GoogleTest preset as the fast CI path.
+- Tests are ztest suites under twister on native_sim (the hosted GoogleTest
+  build was removed).
 - Scope warnings to project code; mark Zephyr includes as system.
 - Initialise or vendor `lib/cymon` and verify the CMake target names.
 
@@ -104,7 +105,8 @@ settings backend do not exist yet. The phase order below is the plan.
 - Sets up the Python or Rust GUI from `TODO.md`.
 
 ### Phase 7 - CI and documentation
-- Hosted GoogleTest, native_sim run and STM32G4 build in CI.
+- Done: twister (native_sim run, STM32G4 build) with clang-tidy as Zephyr
+  SCA and a clang-format check in CI (`.github/workflows/ci-zephyr.yml`).
 - WSL2 instructions for Windows; update `README.md` and `AGENTS.md`.
 
 ## Risks and Open Points

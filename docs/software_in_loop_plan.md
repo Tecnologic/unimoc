@@ -32,11 +32,9 @@ The existing code has three relevant layers:
 
 1. `lib/` contains portable control algorithms, observers, coordinate transforms, units, and settings types.
 2. `src/current_control/` contains the actual current-control ISR and slow update implementation. Its ADC, PWM, trigger, and timer operations are supplied by `HardwareInterface` callbacks.
-3. `hardware/` contains target-specific hardware implementations. `hardware/zephyr_sim/` binds the public `HardwareInterface` callbacks for `native_sim`; the older `hardware/host/` provides zero-value stubs for the hosted build.
+3. `hardware/` contains target-specific hardware implementations. `hardware/zephyr_sim/` binds the public `HardwareInterface` callbacks and the hot-path interface for `native_sim` and drives the plant of `lib/sim/`.
 
-The current-control ISR now calls the public hardware boundary for ADC samples, PWM duties, trigger timing, and applied-duty inspection. The BCC implementation binds those operations to STM32G4 peripherals through Zephyr's devicetree and LL drivers. The `native_sim` implementation drives the simulator plant. The hosted `hardware/host` stubs remain for the hosted build.
-
-Hosted tests currently link the portable `unimoc_lib` and do not compile the firmware executable or host hardware source when `ENABLE_TESTS` is enabled. A reusable current-control runtime target is therefore a prerequisite for runtime SIL tests.
+The current-control ISR now calls the public hardware boundary for ADC samples, PWM duties, trigger timing, and applied-duty inspection. The BCC implementation binds those operations to STM32G4 peripherals through Zephyr's devicetree and LL drivers. The `native_sim` implementation drives the simulator plant. All tests run as ztest suites under twister; `tests/sim/` already runs the current-control runtime against the plant.
 
 ## Target Architecture
 
@@ -65,7 +63,7 @@ The C++ simulator remains the source of truth for controller execution and physi
 Each motor runtime should expose operations equivalent to:
 
 - `Reset()` - restore settings, controller state, plant state, and virtual time.
-- `RunControlCycle()` - execute exactly one control cycle (`on_control_cycle()`, then the observer, then the plant over four half periods). On native_sim this is `hardware::sim::StepCycle()`.
+- `RunControlCycle()` - execute exactly one control cycle (`OnControlCycle()`, then the observer, then the plant over four half periods). On native_sim this is `hardware::sim::StepCycle()`.
 - `AdvanceCycles(count)` - execute a fixed number of coordinated cycles.
 - `Snapshot()` - return controller, plant, timing, and telemetry state.
 
@@ -75,7 +73,7 @@ The exact cycle ordering must be specified and tested. A recommended ordering is
 2. Sample simulated ADC/current/voltage values.
 3. Execute one current-control fast sub-step.
 4. Apply the PWM command to each plant and advance each plant by `dt_fast`.
-5. Run the slow update after `NUM_SUB_STEPS` fast steps.
+5. Run the slow update after `kNumSubSteps` fast steps.
 6. Publish or record one coherent snapshot.
 7. Advance the virtual clock by the fixed interval.
 

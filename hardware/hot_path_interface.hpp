@@ -44,7 +44,7 @@ namespace hot_path {
  */
 void SetDutyPlan(const DutyPlan& plan) noexcept;
 
-/// Switches the outputs off at once and latches the fault, like power_stage.Trip().
+/// Switches the outputs off at once and latches the fault, like kPowerStage.Trip().
 void TripPowerStage() noexcept;
 
 }  // namespace hot_path

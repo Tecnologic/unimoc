@@ -24,9 +24,6 @@
  */
 #pragma once
 
-#ifndef UNIMOC_CONTROL_EXCITATION_CONTROLLER_H_
-#define UNIMOC_CONTROL_EXCITATION_CONTROLLER_H_
-
 #include <cmath>
 #include <concepts>
 #include "units.hpp"
@@ -194,5 +191,3 @@ struct ExcitationController {
 
 }  // namespace control
 }  // namespace unimoc
-
-#endif /* UNIMOC_CONTROL_EXCITATION_CONTROLLER_H_ */

@@ -17,7 +17,6 @@
 #include <cstdint>
 #include <cstring>
 #include <string_view>
-
 #include "cyphal/sw_version.hpp"
 
 /**
@@ -118,17 +117,17 @@ struct NodeIdentity {
    * @param other Identity record to compare with this record.
    * @return `true` when the name and all version fields match.
    */
-  /**
-   * @brief Compare two identity records for inequality.
-   * @param other Identity record to compare with this record.
-   * @return `true` when at least one name or version field differs.
-   */
   [[nodiscard]] constexpr bool operator==(const NodeIdentity& other) const noexcept {
     return get_name() == other.get_name() && hw_version_major == other.hw_version_major &&
            hw_version_minor == other.hw_version_minor && sw_version_major == other.sw_version_major &&
            sw_version_minor == other.sw_version_minor;
   }
 
+  /**
+   * @brief Compare two identity records for inequality.
+   * @param other Identity record to compare with this record.
+   * @return `true` when at least one name or version field differs.
+   */
   [[nodiscard]] constexpr bool operator!=(const NodeIdentity& other) const noexcept {
     return !(*this == other);
   }

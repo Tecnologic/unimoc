@@ -47,7 +47,7 @@ duty in effect          ... prev[2] | prev[3]| new[0] | new[1] | new[2] | new[3]
   compares them with a raw window (`SetOvercurrentWindow`, from
   `max_phase_current`); a violation sets the break (`EGR = BG`) at once.
 - **Control.** The fourth sample interrupt of the cycle runs the control cycle
-  (`CurrentControlIsr::on_control_cycle()`), then pends the observer.
+  (`CurrentControlIsr::OnControlCycle()`), then pends the observer.
 - **Duties (variant B).** TIM8 runs with RCR = 0 and CCR1..3 preload. Every
   update event requests a DMA burst of three words (TIM8_DCR/DMAR) from a
   circular buffer of four slots (DMA1 channel 1, DMAMUX request TIM8_UP). The
@@ -223,7 +223,7 @@ Each milestone builds for BCC and native_sim and keeps the twister green.
 | M1 | Done in code: RCR = 0, CCR preload, DMA burst, control cycle in the 4th sample interrupt, pended observer, sim at the 16 kHz cycle. | Twister: `sim_irq_cadence`, `sim_closed_loop` |
 | M2 | Done in code: one reciprocal of V_dc per cycle for the four SVM entries (`Svm::CalculateWithInverseDcLinkVoltage`), circle limiter without libm (`vsqrt.f32` through `-fno-math-errno`). Precomputing `v_limit_sq` and `ki·dt` in the observer was dropped: the PI runs once per cycle, so it saves only a few multiplications. | `svm_test`, call-graph check below |
 | M3 | Done in code: hot-path hardware access through `hardware/hot_path_interface.hpp` (link-time bound, no function pointers); the platform calls `ControlCycleHandler()`/`ObserverHandler()` of the application directly; `-fno-math-errno` for the Zephyr build. Inlining across the translation units (LTO or header-only access) is open until M0 shows it matters. | Call-graph check below, cycles against the M0 baseline |
-| M4 | Observer API per D2, error wrap, separate R. | gtest with synthetic profiles |
+| M4 | Observer API per D2, error wrap, separate R. | ztest with synthetic profiles |
 | M5 | Hall driver (EXTI, timestamp, plausibility) and Hall signals of the sim plant in the sim layer. | ztest with generated edges |
 | M6 | Fusion in the observer: sector and edge measurement, speed gating. | Sim tests: standstill without drift, ramps, Hall failure |
 | M7 | Control thread with speed controller, setpoint limiting and mailbox. | Sim test: step in ω, current limit takes effect |

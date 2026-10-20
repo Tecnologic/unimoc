@@ -35,7 +35,7 @@ struct ControlCycleSamples {
   /// Phase currents in A/B/C order, oldest first. The expected invariant is ia + ib + ic = 0.
   std::array<system::ThreePhase<unit::Current>, kHalfPeriodsPerCycle> phase_currents{};
   /// DC-link voltage of the last sample.
-  unit::Voltage dc_link{};
+  unit::Voltage dc_link;
   /// A sample of this cycle exceeded the overcurrent limit. The hardware layer
   /// has already tripped the power stage when this is set.
   bool overcurrent{false};
@@ -63,9 +63,9 @@ static_assert(kHalfPeriodsPerCycle == 4U, "DutyPlan initializer lists four entri
  * @brief Optional temperature measurements provided by a hardware target.
  */
 struct TemperatureMeasurements {
-  std::optional<unit::Temperature> cpu{};
-  std::optional<unit::Temperature> bridge{};
-  std::optional<unit::Temperature> motor{};
+  std::optional<unit::Temperature> cpu;
+  std::optional<unit::Temperature> bridge;
+  std::optional<unit::Temperature> motor;
 };
 
 /**
@@ -79,20 +79,12 @@ enum class LogLevel : uint8_t { kDebug, kInfo, kWarning, kError };
 class HardwareSystemInterface {
  public:
   using LogCallback = void (*)(LogLevel, const char*) noexcept;
-  using WaitForInterruptCallback = void (*)() noexcept;
 
   /**
    * @brief Constructs the system hardware boundary.
    * @param log Emits a message using the target logging device.
-   * @param wait_for_interrupt Suspends the CPU until an interrupt is pending.
    */
-  HardwareSystemInterface(LogCallback log, WaitForInterruptCallback wait_for_interrupt) noexcept
-      : log_(log), wait_for_interrupt_(wait_for_interrupt) {}
-
-  /**
-   * @brief Suspends execution until an interrupt wakes the CPU.
-   */
-  void WaitForInterrupt() const noexcept { wait_for_interrupt_(); }
+  explicit HardwareSystemInterface(LogCallback log) noexcept : log_(log) {}
 
   /**
    * @brief Emits a platform log message.
@@ -101,7 +93,6 @@ class HardwareSystemInterface {
 
  private:
   LogCallback log_;
-  WaitForInterruptCallback wait_for_interrupt_;
 };
 
 /**
@@ -238,12 +229,12 @@ class HardwareSettingsInterface {
    */
   HardwareSettingsInterface(const settings::SettingsProfile& profile,
                             settings::SettingsStorage storage) noexcept
-      : profile_{profile}, storage_{storage} {}
+      : profile_{&profile}, storage_{storage} {}
 
   /**
    * @brief Returns the immutable target profile.
    */
-  [[nodiscard]] const settings::SettingsProfile& GetSettingsProfile() const noexcept { return profile_; }
+  [[nodiscard]] const settings::SettingsProfile& GetSettingsProfile() const noexcept { return *profile_; }
 
   /**
    * @brief Returns the platform settings storage callbacks.
@@ -251,12 +242,14 @@ class HardwareSettingsInterface {
   [[nodiscard]] const settings::SettingsStorage& GetSettingsStorage() const noexcept { return storage_; }
 
  private:
-  const settings::SettingsProfile& profile_;
+  const settings::SettingsProfile* profile_;
   settings::SettingsStorage storage_;
 };
 
-extern HardwareSettingsInterface settings;  ///< Node settings hardware boundary.
-extern HardwareInterface motor[MOTORS];     ///< Global array of hardware interfaces for motors
-extern HardwareSystemInterface runtime;     ///< Application system hardware boundary.
+// Platform boundary objects, defined once per platform (hardware/zephyr_*).
+// All their methods are const: the objects only bind callbacks.
+extern const HardwareSettingsInterface kSettings;                 ///< Node settings hardware boundary.
+extern const std::array<HardwareInterface, kMotorCount> kMotors;  ///< Hardware interfaces of the motors.
+extern const HardwareSystemInterface kRuntime;                    ///< Application system hardware boundary.
 
 }  // namespace unimoc::hardware

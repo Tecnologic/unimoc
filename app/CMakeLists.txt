@@ -4,8 +4,8 @@ cmake_minimum_required(VERSION 3.20.0)
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(unimoc)
 
-include(${CMAKE_CURRENT_LIST_DIR}/../cmake/UnimocZephyr.cmake)
-unimoc_zephyr_libraries()
+# The UNIMOC module (CONFIG_UNIMOC) declares the library targets.
+set(UNIMOC_ROOT ${ZEPHYR_UNIMOC_MODULE_DIR})
 
 # --- Platform selection (Kconfig symbol chosen by the board) ----------------
 if(CONFIG_UNIMOC_PLATFORM_BCC)

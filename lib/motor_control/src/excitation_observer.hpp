@@ -24,9 +24,6 @@
  */
 #pragma once
 
-#ifndef UNIMOC_OBSERVER_EXCITATION_OBSERVER_H_
-#define UNIMOC_OBSERVER_EXCITATION_OBSERVER_H_
-
 #include <algorithm>
 #include <cmath>
 #include <concepts>
@@ -140,5 +137,3 @@ struct ExcitationObserver {
 
 }  // namespace observer
 }  // namespace unimoc
-
-#endif /* UNIMOC_OBSERVER_EXCITATION_OBSERVER_H_ */

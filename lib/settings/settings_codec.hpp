@@ -43,7 +43,6 @@ class Writer {
    * @return True if the write was successful, false otherwise.
    */
   bool WriteUint8(const uint8_t kValue) noexcept {
-
     if (offset_ + sizeof(kValue) > output_.size()) {
       return false;
     }
@@ -98,7 +97,6 @@ class Writer {
   bool WriteUnit(const UnitType kValue) noexcept {
     return WriteFloat(kValue.Value());
   }
-
 
   /**
    * @brief Writes a sequence of bytes to the output.
@@ -215,13 +213,13 @@ class Reader {
    * @param size Number of bytes to read.
    * @return True if the read was successful, false otherwise.
    */
-  bool ReadBytes(char* const kBytes, const std::size_t kSize) noexcept {
-    if (offset_ + kSize > input_.size()) {
+  bool ReadBytes(char* const bytes, const std::size_t size) noexcept {
+    if (offset_ + size > input_.size()) {
       return false;
     }
 
-    std::memcpy(kBytes, input_.data() + offset_, kSize);
-    offset_ += kSize;
+    std::memcpy(bytes, input_.data() + offset_, size);
+    offset_ += size;
     return true;
   }
 
@@ -256,8 +254,7 @@ class SettingsCodec {
     settings_codec_internal::Writer writer{image};
     return writer.WriteUint32(settings.magic) && writer.WriteUint16(settings.version) &&
            writer.WriteUint8(settings.node_id) &&
-           writer.WriteBytes(std::span{settings.identity.name}.data(),
-                             sizeof(settings.identity.name)) &&
+           writer.WriteBytes(std::span{settings.identity.name}.data(), sizeof(settings.identity.name)) &&
            writer.WriteUint8(settings.identity.hw_version_major) &&
            writer.WriteUint8(settings.identity.hw_version_minor) &&
            writer.WriteUint8(settings.identity.sw_version_major) &&

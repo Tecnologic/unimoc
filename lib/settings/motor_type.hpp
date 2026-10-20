@@ -69,4 +69,3 @@ enum class MotorType : unsigned char {
 };
 
 }  // namespace unimoc::system
-

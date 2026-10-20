@@ -24,9 +24,6 @@
  */
 #pragma once
 
-#ifndef UNIMOC_OBSERVER_ASM_FLUX_OBSERVER_H_
-#define UNIMOC_OBSERVER_ASM_FLUX_OBSERVER_H_
-
 #include <algorithm>
 #include <cmath>
 #include <concepts>
@@ -254,5 +251,3 @@ struct AsmFluxObserver {
 
 }  // namespace observer
 }  // namespace unimoc
-
-#endif /* UNIMOC_OBSERVER_ASM_FLUX_OBSERVER_H_ */
