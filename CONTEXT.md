@@ -31,6 +31,7 @@ external API requires different wording.
 | **sample ISR** | The end of the injected ADC sequence (JEOS), once per half PWM period. It copies the raw currents and checks the overcurrent limit. |
 | **control cycle** | Four half PWM periods (16 kHz at 32 kHz PWM). It runs inside every fourth sample ISR: PI once, four duty entries for the next four half periods. `CurrentControlIsr::on_control_cycle()` in code. |
 | **duty plan** | The four duty entries of one control cycle (`DutyPlan`). Entry 0 goes into the CCR preload, entries 1 to 3 are delivered by DMA at the next update events. |
+| **hot-path interface** | `hardware/hot_path_interface.hpp`: the hardware access of the control cycle (`hot_path::GetControlCycleSamples`, `SetDutyPlan`, `TripPowerStage`) and the two handlers the platform calls. Bound at link time per platform, no function pointers. |
 | **observer** | The flux observer, Kalman filter and HFI after each control cycle, in a software-pended normal-priority interrupt. It computes the angles of the next cycle. `SlowUpdate` in code. |
 | **Zephyr thread** | Any work outside the zero-latency IRQs: logging, shell, USB, Cyphal, settings, and startup sequencing. |
 | **trip** | An overcurrent or fault stop that switches the power stage off. A trip latches a fault until it is cleared. |
@@ -65,6 +66,7 @@ external API requires different wording.
 | **reference** | An internal desired value used by a control loop, such as a `d/q` current reference or rotor-angle reference. |
 | **measurement** | A value directly obtained from hardware or a sensor, such as phase current or DC-link voltage. |
 | **estimate** | A value calculated by an observer from measurements and a model. |
+| **hot-path interface** | `hardware/hot_path_interface.hpp`: the hardware access of the control cycle (`hot_path::GetControlCycleSamples`, `SetDutyPlan`, `TripPowerStage`) and the two handlers the platform calls. Bound at link time per platform, no function pointers. |
 | **observer** | An algorithm that estimates an unmeasured state, such as rotor angle, speed, or flux. It does not directly command the inverter. |
 | **controller** | An algorithm that compares a reference with a measurement or estimate and produces a control output. |
 | **inner loop** | The fast current or torque loop that remains active across the outer control modes. |

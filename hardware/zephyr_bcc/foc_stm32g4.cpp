@@ -26,6 +26,7 @@
 #include "dead_time.hpp"
 #include "foc_stm32g4_dt.hpp"
 #include "hardware_interface_config.hpp"
+#include "hot_path_interface.hpp"
 
 PINCTRL_DT_DEFINE(UNIMOC_FOC);
 
@@ -76,8 +77,6 @@ constexpr uint32_t kBreakConfig = TIM_BDTR_BKE | (3U << TIM_BDTR_BKF_Pos) | TIM_
 
 const struct device* const kRcc = DEVICE_DT_GET(STM32_CLOCK_CONTROL_NODE);
 
-HardwareInterface::ControlCycleCallback g_control_callback = nullptr;
-HardwareInterface::ObserverCallback g_observer_callback = nullptr;
 uint32_t g_timer_clock_hz = 0U;
 uint32_t g_auto_reload = 0U;
 uint32_t g_trigger_lead = 0U;
@@ -99,7 +98,9 @@ PhaseTicks g_last_entry{};  // entry 3 of the last plan
 bool g_control_at_peak = true;
 uint32_t g_duty_overruns = 0U;
 
-constexpr ADC_TypeDef* Adc(const AdcDescription& d) noexcept { return reinterpret_cast<ADC_TypeDef*>(d.base); }
+constexpr ADC_TypeDef* Adc(const AdcDescription& d) noexcept {
+  return reinterpret_cast<ADC_TypeDef*>(d.base);
+}
 
 ADC_Common_TypeDef* CommonOf(const ADC_TypeDef* adc) noexcept {
   return (adc == ADC1 || adc == ADC2) ? ADC12_COMMON : ADC345_COMMON;
@@ -188,7 +189,7 @@ ISR_DIRECT_DECLARE(SampleIsr) {
   }
   g_sample_index = 0U;
   g_cycle.vdc = kAdcVdc->JDR1;
-  g_control_callback();
+  ControlCycleHandler();
   g_cycle.overcurrent = false;
   NVIC_SetPendingIRQ(static_cast<IRQn_Type>(kObserverIrq));
   return 0;
@@ -196,7 +197,7 @@ ISR_DIRECT_DECLARE(SampleIsr) {
 
 // ----- Observer interrupt (normal priority) ---------------------------------
 
-void ObserverIsr(const void*) { g_observer_callback(); }
+void ObserverIsr(const void*) { ObserverHandler(); }
 
 void ApplyTriggerLead(const uint32_t ticks) noexcept {
   // At least one tick, at most a quarter period, so both triggers stay in
@@ -233,7 +234,8 @@ bool ExternalEnablePresent() noexcept { return gpio_pin_get_raw(kEnableInput.por
 bool InitTimer(const uint32_t pwm_hz, const uint32_t trigger_offset) noexcept {
   struct stm32_pclken pclken = UNIMOC_CLOCK_INFO(0, UNIMOC_FOC_TIMER);
   if (clock_control_on(kRcc, reinterpret_cast<clock_control_subsys_t>(&pclken)) != 0) return false;
-  if (clock_control_get_rate(kRcc, reinterpret_cast<clock_control_subsys_t>(&pclken), &g_timer_clock_hz) != 0) {
+  if (clock_control_get_rate(kRcc, reinterpret_cast<clock_control_subsys_t>(&pclken), &g_timer_clock_hz) !=
+      0) {
     return false;
   }
 
@@ -262,7 +264,8 @@ bool InitTimer(const uint32_t pwm_hz, const uint32_t trigger_offset) noexcept {
   kTim->CCR2 = g_auto_reload / 2U;
   kTim->CCR3 = g_auto_reload / 2U;
   ApplyTriggerLead(trigger_offset);
-  kTim->CCER = TIM_CCER_CC1E | TIM_CCER_CC1NE | TIM_CCER_CC2E | TIM_CCER_CC2NE | TIM_CCER_CC3E | TIM_CCER_CC3NE;
+  kTim->CCER =
+      TIM_CCER_CC1E | TIM_CCER_CC1NE | TIM_CCER_CC2E | TIM_CCER_CC2NE | TIM_CCER_CC3E | TIM_CCER_CC3NE;
 
   // Dead time: t_DTS = t_CK_INT (CKD = 0), the timer clock.
   const auto dtg = EncodeDeadTime(DeadTimeTicks(kDeadTimeNs, g_timer_clock_hz));
@@ -282,14 +285,9 @@ bool InitTimer(const uint32_t pwm_hz, const uint32_t trigger_offset) noexcept {
 
 }  // namespace
 
-bool Initialize(const unit::Frequency pwm_frequency,
-                const uint32_t adc_trigger_offset,
-                const HardwareInterface::ControlCycleCallback control_cycle,
-                const HardwareInterface::ObserverCallback observer) noexcept {
+bool Initialize(const unit::Frequency pwm_frequency, const uint32_t adc_trigger_offset) noexcept {
   const auto pwm_hz = static_cast<uint32_t>(pwm_frequency.Value());
-  if (pwm_hz == 0U || control_cycle == nullptr || observer == nullptr) return false;
-  g_control_callback = control_cycle;
-  g_observer_callback = observer;
+  if (pwm_hz == 0U) return false;
 
   if (pinctrl_apply_state(PINCTRL_DT_DEV_CONFIG_GET(UNIMOC_FOC), PINCTRL_STATE_DEFAULT) != 0) return false;
   if (!InitTimer(pwm_hz, adc_trigger_offset)) return false;
@@ -323,7 +321,7 @@ bool PowerStageEnable() noexcept {
   if ((kTim->BDTR & TIM_BDTR_MOE) != 0U) return true;
   if (!ExternalEnablePresent()) return false;
   if ((kTim->SR & TIM_SR_BIF) != 0U) return false;  // fault latched
-  kTim->BDTR |= TIM_BDTR_MOE;  // ignored by the hardware while the break input is active
+  kTim->BDTR |= TIM_BDTR_MOE;                       // ignored by the hardware while the break input is active
   return (kTim->BDTR & TIM_BDTR_MOE) != 0U;
 }
 

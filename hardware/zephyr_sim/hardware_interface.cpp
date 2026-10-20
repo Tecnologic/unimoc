@@ -13,8 +13,8 @@
  *    cycle (kHalfPeriodsPerCycle PWM half periods, 16 kHz at 32 kHz PWM).
  *    Every expiry
  *
- *     1. runs the control callback (BCC: inside the last sample interrupt of
- *        the cycle) and then the observer callback (BCC: pended interrupt) on
+ *     1. calls ControlCycleHandler() (BCC: inside the last sample interrupt
+ *        of the cycle) and then ObserverHandler() (BCC: pended interrupt) on
  *        the samples of the cycle that just ended, and
  *     2. advances the plant over the next kHalfPeriodsPerCycle half periods
  *        with the timing of the BCC: the first half period still uses the
@@ -31,6 +31,7 @@
 #include <array>
 #include <cmath>
 #include <limits>
+#include "hot_path_interface.hpp"
 #include "motor_simulation.hpp"
 #include "power_stage_interface.hpp"
 #include "ram_settings_storage.hpp"
@@ -103,12 +104,11 @@ constexpr Duties kNeutral{0.5_ratio, 0.5_ratio, 0.5_ratio};
 
 ::unimoc::sim::MotorSimulation g_plant;
 
-HardwareInterface::ControlCycleCallback g_control_callback = nullptr;
-HardwareInterface::ObserverCallback g_observer_callback = nullptr;
+bool g_initialized = false;
 Time g_half_period{};
 
 ControlCycleSamples g_samples{};  // samples of the cycle that just ended
-DutyPlan g_plan{};                // written by the control callback
+DutyPlan g_plan{};                // written by the control cycle
 Duties g_carry = kNeutral;        // entry 3 of the last plan: first half period of the next cycle
 std::array<Duties, kHalfPeriodsPerCycle> g_applied{kNeutral, kNeutral, kNeutral, kNeutral};
 float g_overcurrent_limit_A = std::numeric_limits<float>::infinity();
@@ -132,11 +132,11 @@ bool Exceeds(const system::ThreePhase<Current>& i) noexcept {
 }
 
 // Runs in the (simulated) timer interrupt, like the BCC interrupts: no kernel
-// calls and no logging in the callbacks.
+// calls and no logging in the handlers.
 void RunCycle() noexcept {
-  if (g_control_callback == nullptr) return;
-  g_control_callback();
-  g_observer_callback();
+  if (!g_initialized) return;
+  ControlCycleHandler();
+  ObserverHandler();
 
   ControlCycleSamples next{};
   for (uint8_t k = 0U; k < kHalfPeriodsPerCycle; ++k) {
@@ -185,12 +185,9 @@ void StopTimer() noexcept {
   k_timer_stop(&g_cycle_timer);
 }
 
-bool Initialize(Frequency pwm_frequency,
-                uint32_t,
-                HardwareInterface::ControlCycleCallback control_cycle,
-                HardwareInterface::ObserverCallback observer) noexcept {
+bool Initialize(Frequency pwm_frequency, uint32_t) noexcept {
   const auto pwm_hz = static_cast<uint64_t>(pwm_frequency.Value());
-  if (pwm_hz == 0U || control_cycle == nullptr || observer == nullptr) return false;
+  if (pwm_hz == 0U) return false;
 
   static bool timer_initialized = false;
   if (!timer_initialized) {
@@ -203,8 +200,7 @@ bool Initialize(Frequency pwm_frequency,
     (void)g_plant.Configure(kSettingsProfile.factory_settings);
   }
 
-  g_control_callback = control_cycle;
-  g_observer_callback = observer;
+  g_initialized = true;
   g_half_period = Time{1.0F / (2.0F * pwm_frequency.Value())};
   g_cycle_ns = (kHalfPeriodsPerCycle * 1'000'000'000ULL) / (2U * pwm_hz);
   g_samples = ControlCycleSamples{};
@@ -221,11 +217,7 @@ system::ThreePhase<Current> GetPhaseCurrents() noexcept { return MeasuredCurrent
 
 system::ThreePhase<Voltage> GetPhaseVoltages() noexcept { return g_plant.Output().phase_voltages; }
 
-ControlCycleSamples GetControlCycleSamples() noexcept { return g_samples; }
-
 TemperatureMeasurements GetTemperatureMeasurements() noexcept { return {}; }
-
-void SetDutyPlan(const DutyPlan& plan) noexcept { g_plan = plan; }
 
 void SetOvercurrentLimit(const Current limit) noexcept { g_overcurrent_limit_A = limit.Value(); }
 
@@ -234,6 +226,16 @@ void SetAdcTriggerOffset(uint32_t) noexcept {}
 uint32_t GetTimerClockFrequency() noexcept { return 170'000'000U; }
 
 }  // namespace
+
+namespace hot_path {
+
+ControlCycleSamples GetControlCycleSamples() noexcept { return g_samples; }
+
+void SetDutyPlan(const DutyPlan& plan) noexcept { g_plan = plan; }
+
+void TripPowerStage() noexcept { PowerStageTrip(); }
+
+}  // namespace hot_path
 
 namespace sim {
 
@@ -274,17 +276,18 @@ uint32_t CycleCount() noexcept { return g_cycle_count; }
 
 }  // namespace sim
 
-PowerStageInterface power_stage{
-    PowerStageEnable, PowerStageDisable, PowerStageTrip, PowerStageClearFault, GetPowerStageState};
+PowerStageInterface power_stage{PowerStageEnable,
+                                PowerStageDisable,
+                                PowerStageTrip,
+                                PowerStageClearFault,
+                                GetPowerStageState};
 
 HardwareSettingsInterface settings{kSettingsProfile, kSettingsStorage};
 
 HardwareInterface motor[MOTORS] = {HardwareInterface(Initialize,
                                                      GetPhaseCurrents,
                                                      GetPhaseVoltages,
-                                                     GetControlCycleSamples,
                                                      GetTemperatureMeasurements,
-                                                     SetDutyPlan,
                                                      SetOvercurrentLimit,
                                                      SetAdcTriggerOffset,
                                                      GetTimerClockFrequency)};

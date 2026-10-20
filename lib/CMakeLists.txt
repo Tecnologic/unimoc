@@ -9,7 +9,12 @@ add_subdirectory(units)
 add_subdirectory(settings)
 add_subdirectory(motor_control)
 add_subdirectory(sim)
+# cymon is a submodule (third-party for this repository): not held to the
+# UNIMOC clang-tidy rules, like the Zephyr and vendored headers.
+set(UNIMOC_SAVED_CLANG_TIDY "${CMAKE_CXX_CLANG_TIDY}")
+set(CMAKE_CXX_CLANG_TIDY "")
 add_subdirectory(cymon)
+set(CMAKE_CXX_CLANG_TIDY "${UNIMOC_SAVED_CLANG_TIDY}")
 
 target_link_libraries(unimoc_lib INTERFACE
     project_options

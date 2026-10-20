@@ -20,7 +20,8 @@ hot-path design.
  - [ ] Add a Zephyr flash backend (NVS or ZMS) for `SettingsStorage`; until then settings are RAM only.
  - [ ] Integrate Cyphal over CAN-FD (libcanard, DSDL, register service, PnP, heartbeat, GetInfo).
  - [ ] Delete the legacy firmware in `hardware/batterycasecontroller/`, `cmake/Modm.cmake`, `cmake/ToolChain.cmake`, `requirements.txt`, and `.github/workflows/ci-firmware.yml` once the Zephyr BCC target builds. Its presets, CMake references, and launch config are already removed.
- - [ ] Implement the hot-path milestones M0 and M2 to M8 from `docs/hotpath_plan.md` (M1 is in the code, not run on the board).
+ - [ ] Implement the hot-path milestones M0 and M4 to M8 from `docs/hotpath_plan.md` (M1 to M3 are in the code, not run on the board).
+ - [ ] Bring `src/` and `hardware/zephyr_*` under clang-tidy (only the hosted code is checked today; about 220 findings, mostly naming of the older core API).
 
 ## Prioritized software-in-the-loop plan
 

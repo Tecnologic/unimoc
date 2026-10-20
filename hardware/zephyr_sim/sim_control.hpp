@@ -49,7 +49,7 @@ void SetFreeRunning(bool running) noexcept;
 /**
  * @brief Runs one control cycle synchronously.
  *
- * Same order as the timer: control callback and observer callback on the
+ * Same order as the timer: ControlCycleHandler() and ObserverHandler() on the
  * samples of the previous cycle, then the plant over the next
  * kHalfPeriodsPerCycle half periods. Use with SetFreeRunning(false).
  */

@@ -156,8 +156,11 @@ their callbacks) must not:
 - call libm functions (use `-fno-math-errno` and builtins) or use function
   pointers for the hot-path hardware access (`docs/hotpath_plan.md`).
 
-Everything else runs in a Zephyr thread, and the zero-latency handlers reach
-the hardware only through the `HardwareInterface` callbacks.
+Everything else runs in a Zephyr thread. The zero-latency handlers reach the
+hardware only through `hardware/hot_path_interface.hpp` (functions bound at
+link time per platform, no function pointers); the thread context uses the
+`HardwareInterface` callbacks. The Zephyr build compiles with
+`-fno-math-errno` (`cmake/UnimocZephyr.cmake`).
 
 ## Git Safety
 

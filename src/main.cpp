@@ -13,18 +13,18 @@
  */
 #include "current_control_isr.hpp"
 #include "hardware_interface.hpp"
+#include "hot_path_interface.hpp"
 #include "settings_store.hpp"
 #include "slow_update.hpp"
 
-namespace {
-
-void ControlCycleInterrupt() noexcept {
+// Called directly by the platform (hot_path_interface.hpp), no registration.
+void unimoc::hardware::ControlCycleHandler() noexcept {
   unimoc::current_control::CurrentControlIsr::instance().on_control_cycle();
 }
 
-void ObserverInterrupt() noexcept { unimoc::current_control::SlowUpdate::instance().run_once(); }
-
-}  // namespace
+void unimoc::hardware::ObserverHandler() noexcept {
+  unimoc::current_control::SlowUpdate::instance().run_once();
+}
 
 int main() {
   unimoc::settings::SettingsStore settings_store{unimoc::hardware::settings.GetSettingsProfile(),
@@ -42,11 +42,9 @@ int main() {
     auto& slow_update = unimoc::current_control::SlowUpdate::instance();
     current_control.init(settings_snapshot.Get(), motor, motor.GetTimerClockFrequency());
     slow_update.init(settings_snapshot.Get(), current_control);
-    current_control.set_overcurrent_limit(unimoc::hardware::settings.GetSettingsProfile().capabilities.max_phase_current);
-    if (!motor.Initialize(settings_snapshot.Get().pwm_frequency,
-                          current_control.state.adc_trigger_offset,
-                          ControlCycleInterrupt,
-                          ObserverInterrupt)) {
+    current_control.set_overcurrent_limit(
+        unimoc::hardware::settings.GetSettingsProfile().capabilities.max_phase_current);
+    if (!motor.Initialize(settings_snapshot.Get().pwm_frequency, current_control.state.adc_trigger_offset)) {
       unimoc::hardware::runtime.Log(unimoc::hardware::LogLevel::kError,
                                     "Failed to initialize motor interface\n");
       return 1;  // Exit if initialization fails

@@ -3,6 +3,7 @@
 #include <cmath>
 #include "current_control_isr.hpp"
 #include "hardware_interface.hpp"
+#include "hot_path_interface.hpp"
 #include "motor_simulation.hpp"
 #include "power_stage_interface.hpp"
 #include "settings_store.hpp"
@@ -19,9 +20,6 @@ using namespace unimoc::unit;
 namespace sim = unimoc::hardware::sim;
 
 constexpr unsigned kCyclesPerMs = 16U;  // 32 kHz PWM, 16 kHz control cycle
-
-void OnControl() noexcept { CurrentControlIsr::instance().on_control_cycle(); }
-void OnObserver() noexcept { SlowUpdate::instance().run_once(); }
 
 // Small outrunner: 50 mOhm, 100 uH, 7 pole pairs. PI tuned for a 500 Hz
 // current loop (kp = L * wc, ki = R * wc).
@@ -54,6 +52,10 @@ bool Finite(const unimoc::system::Rotor<Current>& i) {
 
 }  // namespace
 
+// The platform calls these directly (hot_path_interface.hpp).
+void unimoc::hardware::ControlCycleHandler() noexcept { CurrentControlIsr::instance().on_control_cycle(); }
+void unimoc::hardware::ObserverHandler() noexcept { SlowUpdate::instance().run_once(); }
+
 struct sim_closed_loop_fixture {
   unimoc::settings::SettingsStore store{unimoc::hardware::settings.GetSettingsProfile(),
                                         unimoc::hardware::settings.GetSettingsStorage()};
@@ -78,8 +80,7 @@ void Before(void* f) {
   zassert_equal(sim::Plant().Configure(fixture->settings), unimoc::sim::Status::kOk);
   sim::Plant().SetShaftMode(unimoc::sim::ShaftMode::kImposedSpeed, AngularVelocity{});  // locked rotor
   sim::ClearPhaseCurrentOverride();
-  zassert_true(
-      unimoc::hardware::motor[0].Initialize(fixture->settings.pwm_frequency, 0U, OnControl, OnObserver));
+  zassert_true(unimoc::hardware::motor[0].Initialize(fixture->settings.pwm_frequency, 0U));
   sim::SetFreeRunning(false);
   sim::SetExternalEnable(true);
   power_stage.ClearFault();

@@ -20,10 +20,10 @@ TEST(DeadTimeCompensationTest, ReconstructsAndTransformsPhaseSigns) {
   unimoc::control::DeadTimeCompensation<float> compensation;
   compensation.init(settings);
 
-  const auto result = compensation.calculate(CurrentStator{1.0F, 0.0F});
+  const auto kResult = compensation.calculate(CurrentStator{1.0F, 0.0F});
 
-  EXPECT_NEAR(result.alpha.Value(), 0.02F, 1.0e-6F);
-  EXPECT_NEAR(result.beta.Value(), 0.0F, 1.0e-6F);
+  EXPECT_NEAR(kResult.alpha.Value(), 0.02F, 1.0e-6F);
+  EXPECT_NEAR(kResult.beta.Value(), 0.0F, 1.0e-6F);
 }
 
 TEST(DeadTimeCompensationTest, SoftSignInterpolatesAndSaturates) {
@@ -32,11 +32,11 @@ TEST(DeadTimeCompensationTest, SoftSignInterpolatesAndSaturates) {
   compensation.f_pwm = 10.0_kHz;
   compensation.i_threshold = 1.0_A;
 
-  const auto interpolated = compensation.calculate(CurrentStator{0.5F, 0.0F});
-  const auto saturated = compensation.calculate(CurrentStator{2.0F, 0.0F});
+  const auto kInterpolated = compensation.calculate(CurrentStator{0.5F, 0.0F});
+  const auto kSaturated = compensation.calculate(CurrentStator{2.0F, 0.0F});
 
-  EXPECT_NEAR(interpolated.alpha.Value(), 0.01F, 1.0e-6F);
-  EXPECT_NEAR(saturated.alpha.Value(), 0.0266667F, 1.0e-6F);
+  EXPECT_NEAR(kInterpolated.alpha.Value(), 0.01F, 1.0e-6F);
+  EXPECT_NEAR(kSaturated.alpha.Value(), 0.0266667F, 1.0e-6F);
 }
 
 TEST(MtpaTest, ZeroSaliencyReturnsZero) {
@@ -88,11 +88,11 @@ TEST(CurrentControllerTest, UnsaturatedPiStepUpdatesIntegrator) {
   controller.ki_d = 10.0_V_per_A_s;
   controller.v_max = 1.0_ratio;
 
-  const VoltageRotor output =
+  const VoltageRotor kOutput =
       controller.update(CurrentRotor{1.0F, 0.0F}, CurrentRotor{0.0F, 0.0F}, 0.0_rad_per_s, 0.1_s, 10.0_V);
 
-  EXPECT_FLOAT_EQ(output.d.Value(), 2.0F);
-  EXPECT_FLOAT_EQ(output.q.Value(), 0.0F);
+  EXPECT_FLOAT_EQ(kOutput.d.Value(), 2.0F);
+  EXPECT_FLOAT_EQ(kOutput.q.Value(), 0.0F);
   EXPECT_FLOAT_EQ(controller.integrator_d.Value(), 1.0F);
 }
 
@@ -106,11 +106,11 @@ TEST(CurrentControllerTest, CircularLimitScalesBothAxes) {
   controller.kb_q = 0.0_per_s;
   controller.v_max = 0.1_ratio;
 
-  const VoltageRotor output =
+  const VoltageRotor kOutput =
       controller.update(CurrentRotor{1.0F, 1.0F}, CurrentRotor{0.0F, 0.0F}, 0.0_rad_per_s, 0.1_s, 10.0_V);
-  const float magnitude =
-      std::sqrt(output.d.Value() * output.d.Value() + output.q.Value() * output.q.Value());
+  const float kMagnitude =
+      std::sqrt(kOutput.d.Value() * kOutput.d.Value() + kOutput.q.Value() * kOutput.q.Value());
 
-  EXPECT_NEAR(magnitude, 1.0F, 1.0e-6F);
-  EXPECT_NEAR(output.d.Value(), output.q.Value(), 1.0e-6F);
+  EXPECT_NEAR(kMagnitude, 1.0F, 1.0e-6F);
+  EXPECT_NEAR(kOutput.d.Value(), kOutput.q.Value(), 1.0e-6F);
 }

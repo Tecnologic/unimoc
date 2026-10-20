@@ -14,6 +14,10 @@ get_filename_component(UNIMOC_ROOT "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
 macro(unimoc_zephyr_libraries)
   add_library(project_options INTERFACE)
   target_include_directories(project_options INTERFACE ${UNIMOC_ROOT}/hardware)
+  # The zero-latency hot path must not call libm (docs/hotpath_plan.md, M3):
+  # without errno, std::sqrt and friends compile to FPU instructions or
+  # builtins. Applies to everything that links the UNIMOC libraries.
+  target_compile_options(project_options INTERFACE -fno-math-errno)
   add_library(project_warnings INTERFACE)
 
   include(${UNIMOC_ROOT}/cmake/CompilerWarnings.cmake)

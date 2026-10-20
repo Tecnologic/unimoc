@@ -5,9 +5,7 @@ common:
   tags: unimoc lib
   timeout: 60
 tests:
-  # SKIPPED: stale test, does not compile against current lib: tests still use ControlMode::POSITION/SPEED/TORQUE; enum is now kPosition/kSpeed/kTorque
   unimoc.lib.cyphal.control_mode_test:
-    skip: true
     extra_args: UNIMOC_TEST_SOURCE=cyphal/tests/control_mode_test.cpp
   unimoc.lib.cyphal.cyphal_interface_test:
     extra_args: UNIMOC_TEST_SOURCE=cyphal/tests/cyphal_interface_test.cpp
@@ -39,9 +37,7 @@ tests:
     extra_args: UNIMOC_TEST_SOURCE=motor_control/tests/svm_test.cpp
   unimoc.lib.motor_control.three_phase_system_test:
     extra_args: UNIMOC_TEST_SOURCE=motor_control/tests/three_phase_system_test.cpp
-  # SKIPPED: stale test, does not compile against current lib: tests still use MotorType::PMSM; enum is now kPmsm
   unimoc.lib.settings.nvm_settings_test:
-    skip: true
     extra_args: UNIMOC_TEST_SOURCE=settings/tests/nvm_settings_test.cpp
   unimoc.lib.settings.settings_store_test:
     extra_args: UNIMOC_TEST_SOURCE=settings/tests/settings_store_test.cpp

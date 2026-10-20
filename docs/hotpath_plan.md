@@ -221,13 +221,22 @@ Each milestone builds for BCC and native_sim and keeps the twister green.
 |---|---|---|
 | M0 | Timing measurement: DWT cycles around sample interrupt, control cycle and observer, min/mean/max, `DutyOverruns()`, `observer_overruns`; output via log/shell. | Numbers from the board |
 | M1 | Done in code: RCR = 0, CCR preload, DMA burst, control cycle in the 4th sample interrupt, pended observer, sim at the 16 kHz cycle. | Twister: `sim_irq_cadence`, `sim_closed_loop` |
-| M2 | Plan values precomputed by the observer (`inv_vdc`, `v_limit_sq`, integrator factors), circle limiter without libm. | Golden test against the current code |
-| M3 | Slim the hot path: no function pointers (hardware access inline per platform), `-fno-math-errno`. | Cycles against the M0 baseline |
+| M2 | Done in code: one reciprocal of V_dc per cycle for the four SVM entries (`Svm::CalculateWithInverseDcLinkVoltage`), circle limiter without libm (`vsqrt.f32` through `-fno-math-errno`). Precomputing `v_limit_sq` and `ki·dt` in the observer was dropped: the PI runs once per cycle, so it saves only a few multiplications. | `svm_test`, call-graph check below |
+| M3 | Done in code: hot-path hardware access through `hardware/hot_path_interface.hpp` (link-time bound, no function pointers); the platform calls `ControlCycleHandler()`/`ObserverHandler()` of the application directly; `-fno-math-errno` for the Zephyr build. Inlining across the translation units (LTO or header-only access) is open until M0 shows it matters. | Call-graph check below, cycles against the M0 baseline |
 | M4 | Observer API per D2, error wrap, separate R. | gtest with synthetic profiles |
 | M5 | Hall driver (EXTI, timestamp, plausibility) and Hall signals of the sim plant in the sim layer. | ztest with generated edges |
 | M6 | Fusion in the observer: sector and edge measurement, speed gating. | Sim tests: standstill without drift, ramps, Hall failure |
 | M7 | Control thread with speed controller, setpoint limiting and mailbox. | Sim test: step in ω, current limit takes effect |
 | M8 | Board: DMA and preload on the scope, ADC alignment, Hall table, closed current loop with the 50 A limit. | Measurements, oscilloscope |
+
+### Call-graph check of the zero-latency path (M2/M3)
+
+On the BCC build, everything reachable from `SampleIsr` was listed from the
+disassembly (`arm-zephyr-eabi-objdump -d`, following `bl`/`b.w`): the core
+(`on_control_cycle`, SVM, dead-time compensation), the BCC glue and driver
+functions and `memset`. No libm function (`sqrtf` was there before
+`-fno-math-errno`), no indirect call (`blx rN`), no kernel function and no
+`__cxa_guard_*`. Repeat the check after changes to the hot path.
 
 ## 9. Risks and Open Points
 

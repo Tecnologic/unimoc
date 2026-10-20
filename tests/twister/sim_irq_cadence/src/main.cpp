@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include <zephyr/kernel.h>
 #include <zephyr/ztest.h>
-
 #include "hardware_interface.hpp"
+#include "hot_path_interface.hpp"
 #include "power_stage_interface.hpp"
 #include "sim_control.hpp"
 
@@ -20,19 +20,24 @@ volatile uint32_t g_misordered = 0U;  // observer callbacks not directly after a
 // Plan of cycle n: phase A duty of entry k is 0.1 * (k + 1) + 0.01 * n.
 float PlanDuty(const uint32_t cycle, const uint8_t entry) { return 0.1F * (entry + 1U) + 0.01F * cycle; }
 
-void OnControl() noexcept {
+}  // namespace
+
+// The platform calls these directly (hot_path_interface.hpp).
+void unimoc::hardware::ControlCycleHandler() noexcept {
   DutyPlan plan{};
   for (uint8_t k = 0U; k < unimoc::hardware::kHalfPeriodsPerCycle; ++k) {
     plan.duties[k].a = Ratio{PlanDuty(g_control_count, k)};
   }
-  motor[0].SetDutyPlan(plan);
+  unimoc::hardware::hot_path::SetDutyPlan(plan);
   g_control_count = g_control_count + 1U;
 }
 
-void OnObserver() noexcept {
+void unimoc::hardware::ObserverHandler() noexcept {
   if (g_observer_count + 1U != g_control_count) g_misordered = g_misordered + 1U;
   g_observer_count = g_observer_count + 1U;
 }
+
+namespace {
 
 void Reset() {
   g_control_count = 0U;
@@ -43,12 +48,12 @@ void Reset() {
 }  // namespace
 
 ZTEST(sim_irq_cadence, test_rejects_zero_frequency) {
-  zassert_false(motor[0].Initialize(unimoc::unit::Frequency{0.0F}, 0U, OnControl, OnObserver));
+  zassert_false(motor[0].Initialize(unimoc::unit::Frequency{0.0F}, 0U));
 }
 
 ZTEST(sim_irq_cadence, test_one_control_cycle_per_four_half_periods) {
   Reset();
-  zassert_true(motor[0].Initialize(unimoc::unit::Frequency{32'000.0F}, 0U, OnControl, OnObserver));
+  zassert_true(motor[0].Initialize(unimoc::unit::Frequency{32'000.0F}, 0U));
   k_sleep(K_MSEC(100));
 
   const unsigned int key = irq_lock();
@@ -66,7 +71,7 @@ ZTEST(sim_irq_cadence, test_one_control_cycle_per_four_half_periods) {
 
 ZTEST(sim_irq_cadence, test_plan_entries_reach_the_following_half_periods) {
   Reset();
-  zassert_true(motor[0].Initialize(unimoc::unit::Frequency{32'000.0F}, 0U, OnControl, OnObserver));
+  zassert_true(motor[0].Initialize(unimoc::unit::Frequency{32'000.0F}, 0U));
   sim::SetFreeRunning(false);
 
   sim::StepCycle();  // control writes plan 0
@@ -84,15 +89,17 @@ ZTEST(sim_irq_cadence, test_plan_entries_reach_the_following_half_periods) {
 }
 
 ZTEST(sim_power_stage, test_enable_needs_external_enable) {
-  using unimoc::hardware::PowerStageState;
   using unimoc::hardware::power_stage;
+  using unimoc::hardware::PowerStageState;
   sim::SetExternalEnable(false);
   power_stage.ClearFault();
   zassert_equal(power_stage.GetState(), PowerStageState::kBlocked);
   zassert_false(power_stage.Enable());
 
   sim::SetExternalEnable(true);
-  zassert_equal(power_stage.GetState(), PowerStageState::kFault, "break from the removed enable stays latched");
+  zassert_equal(power_stage.GetState(),
+                PowerStageState::kFault,
+                "break from the removed enable stays latched");
   zassert_false(power_stage.Enable());
   power_stage.ClearFault();
   zassert_equal(power_stage.GetState(), PowerStageState::kDisabled);
@@ -101,8 +108,8 @@ ZTEST(sim_power_stage, test_enable_needs_external_enable) {
 }
 
 ZTEST(sim_power_stage, test_trip_latches_until_cleared) {
-  using unimoc::hardware::PowerStageState;
   using unimoc::hardware::power_stage;
+  using unimoc::hardware::PowerStageState;
   sim::SetExternalEnable(true);
   power_stage.ClearFault();
   zassert_true(power_stage.Enable());
@@ -118,8 +125,8 @@ ZTEST(sim_power_stage, test_trip_latches_until_cleared) {
 }
 
 ZTEST(sim_power_stage, test_enable_removed_while_running_breaks) {
-  using unimoc::hardware::PowerStageState;
   using unimoc::hardware::power_stage;
+  using unimoc::hardware::PowerStageState;
   sim::SetExternalEnable(true);
   power_stage.ClearFault();
   zassert_true(power_stage.Enable());

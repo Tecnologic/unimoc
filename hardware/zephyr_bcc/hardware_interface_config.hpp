@@ -21,9 +21,9 @@ inline constexpr uint8_t kVersionMajor = 1;  ///< Major version of the hardware 
 inline constexpr uint8_t kVersionMinor = 0;  ///< Minor version of the hardware interface.
 inline constexpr uint8_t kVersionPatch = 0;  ///< Patch version of the hardware interface.
 
-inline constexpr uint32_t kVersion =
-    (static_cast<uint32_t>(kVersionMajor) << 16U) | (static_cast<uint32_t>(kVersionMinor) << 8U) |
-    kVersionPatch;  ///< Combined hardware interface version.
+inline constexpr uint32_t kVersion = (static_cast<uint32_t>(kVersionMajor) << 16U) |
+                                     (static_cast<uint32_t>(kVersionMinor) << 8U) |
+                                     kVersionPatch;  ///< Combined hardware interface version.
 
 inline constexpr uint8_t MOTORS = 1;  ///< Number of motors supported by the hardware interface.
 

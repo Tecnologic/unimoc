@@ -45,13 +45,13 @@ TEST_F(NvmSettingsTest, DefaultNodeIdZero) {
 // --- Default motor type is PMSM
 TEST_F(NvmSettingsTest, DefaultMotorType) {
   NvmSettings settings;
-  EXPECT_EQ(settings.motor_type, system::MotorType::PMSM);
+  EXPECT_EQ(settings.motor_type, system::MotorType::kPmsm);
 }
 
 // --- Default control mode is TORQUE
 TEST_F(NvmSettingsTest, DefaultControlMode) {
   NvmSettings settings;
-  EXPECT_EQ(settings.control_mode, cyphal::ControlMode::TORQUE);
+  EXPECT_EQ(settings.control_mode, cyphal::ControlMode::kTorque);
 }
 
 // --- Corrupt magic invalidates the block

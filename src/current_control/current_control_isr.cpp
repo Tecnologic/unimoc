@@ -12,11 +12,10 @@
  *    See the repository LICENSE file for details.
  */
 #include "current_control_isr.hpp"
-
 #include <algorithm>
 #include <cmath>
 #include "hardware_interface.hpp"
-#include "power_stage_interface.hpp"
+#include "hot_path_interface.hpp"
 #include "nvm_settings.hpp"
 #include "sin_cos.hpp"
 #include "three_phase_system.hpp"
@@ -91,7 +90,9 @@ void CurrentControlIsr::init(const settings::NvmSettings& settings,
 // =============================================================================
 //
 // Must finish before the first PWM boundary after the control boundary: duty
-// entry 0 goes directly into the CCR preload registers.
+// entry 0 goes directly into the CCR preload registers. It reaches the
+// hardware only through hot_path:: (bound at link time, no function
+// pointers) and calls no libm function (built with -fno-math-errno).
 //
 static bool exceeds(const system::ThreePhase<unit::Current>& i, const float limit) noexcept {
   return std::abs(i.a.Value()) > limit || std::abs(i.b.Value()) > limit || std::abs(i.c.Value()) > limit;
@@ -104,7 +105,7 @@ void CurrentControlIsr::on_control_cycle() noexcept {
   // -------------------------------------------------------------------------
   // 1. Samples of the cycle (oldest first) from the hardware boundary.
   // -------------------------------------------------------------------------
-  const hardware::ControlCycleSamples samples = hardware_->GetControlCycleSamples();
+  const hardware::ControlCycleSamples samples = hardware::hot_path::GetControlCycleSamples();
   const float v_dc = samples.dc_link.Value();
 
   // -------------------------------------------------------------------------
@@ -124,7 +125,7 @@ void CurrentControlIsr::on_control_cycle() noexcept {
     bool over = samples.overcurrent;
     for (const auto& i : samples.phase_currents) over = over || exceeds(i, state.overcurrent_limit_A);
     if (over) {
-      hardware::power_stage.Trip();
+      hardware::hot_path::TripPowerStage();
       state.overcurrent_tripped = true;
     }
   }
@@ -178,8 +179,10 @@ void CurrentControlIsr::on_control_cycle() noexcept {
   // -------------------------------------------------------------------------
   // 5. One duty entry per half period: inverse Park with the angle of the
   //    entry, HFI step k, dead-time compensation from the newest current, SVM.
+  //    One reciprocal of V_dc for all entries (M2).
   // -------------------------------------------------------------------------
   const system::Stator<unit::Ratio> dtc_ratio = dtc.calculate(sb.i_ab_samples[NUM_SUB_STEPS - 1u]);
+  const float inverse_v_dc = control::Svm::InverseDcLinkVoltage(samples.dc_link);
   hardware::DutyPlan plan{};
   for (uint8_t k = 0u; k < NUM_SUB_STEPS; ++k) {
     const system::SinCos<unit::Ratio>& sc_out = sb.sc_out[k];
@@ -187,7 +190,7 @@ void CurrentControlIsr::on_control_cycle() noexcept {
     if (hfi_active) {
       u_ab = u_ab + hfi.get_injection_voltage(static_cast<int>(k), sc_out.sin, sc_out.cos);
     }
-    plan.duties[k] = svm.CalculateWithDeadTimeCompensation(u_ab, unit::Voltage{v_dc}, dtc_ratio);
+    plan.duties[k] = svm.CalculateWithInverseDcLinkVoltage(u_ab, inverse_v_dc, dtc_ratio);
   }
 
   // -------------------------------------------------------------------------
@@ -249,7 +252,7 @@ void CurrentControlIsr::set_uniform_duties(const system::ThreePhase<unit::Ratio>
 void CurrentControlIsr::set_duty_plan(const hardware::DutyPlan& plan) noexcept {
   state.duty_plan = plan;
   state.phase_duties = plan.duties[0];
-  if (hardware_ != nullptr) hardware_->SetDutyPlan(plan);
+  hardware::hot_path::SetDutyPlan(plan);
 }
 
 void CurrentControlIsr::finish_cycle_without_control() noexcept { state.samples_ready = true; }

@@ -33,16 +33,17 @@ namespace unimoc::hardware::foc_stm32g4 {
  *  - The end of the ADC1 injected sequence raises the sample interrupt (zero
  *    latency). It copies the raw phase currents into the cycle array and
  *    compares them with the overcurrent window; a violation trips the power
- *    stage at once. Every kHalfPeriodsPerCycle-th sample it calls the control
- *    callback and pends the observer interrupt.
+ *    stage at once. Every kHalfPeriodsPerCycle-th sample it calls
+ *    ControlCycleHandler() directly and pends the observer interrupt.
  *  - Every update event requests a DMA burst of three words (TIM8_DCR/DMAR)
  *    into CCR1..3 from a circular buffer of kHalfPeriodsPerCycle slots. The
- *    control callback writes duty entry 0 directly into the preload (after the
+ *    control cycle writes duty entry 0 directly into the preload (after the
  *    burst of the control boundary) and entries 1..3 into the slots of the
  *    next three update events, see SetDutyTicks().
  *  - The observer interrupt (TIM8 update vector, pended by software; the
  *    update interrupt enable UIE stays 0) is a normal Zephyr interrupt at the
- *    highest normal priority. The sample interrupt preempts it.
+ *    highest normal priority; it calls ObserverHandler(). The sample interrupt
+ *    preempts it.
  *
  * Why around the boundaries: the samples are centered on the boundary, where
  * the phases with a mid-range duty do not switch. A phase with an extreme
@@ -52,18 +53,13 @@ namespace unimoc::hardware::foc_stm32g4 {
  * The outputs are held off (idle level, MOE = 0) until PowerStageEnable().
  *
  * The sample interrupt is a zero-latency IRQ: it runs outside of the kernel
- * and the callbacks must not use any kernel API (no logging, no k_* calls).
+ * and the handler must not use any kernel API (no logging, no k_* calls).
  *
  * @param pwm_frequency        PWM frequency.
  * @param adc_trigger_offset   Trigger lead before each boundary [timer ticks].
- * @param control_cycle        Control callback (zero latency).
- * @param observer             Observer callback (normal priority).
  * @return false on invalid arguments or if an ADC fails to calibrate or enable.
  */
-[[nodiscard]] bool Initialize(unit::Frequency pwm_frequency,
-                              uint32_t adc_trigger_offset,
-                              HardwareInterface::ControlCycleCallback control_cycle,
-                              HardwareInterface::ObserverCallback observer) noexcept;
+[[nodiscard]] bool Initialize(unit::Frequency pwm_frequency, uint32_t adc_trigger_offset) noexcept;
 
 /**
  * @name Power stage release
@@ -100,10 +96,10 @@ using TickPlan = std::array<PhaseTicks, kHalfPeriodsPerCycle>;
 /**
  * @brief Writes the compare values of the next kHalfPeriodsPerCycle half periods.
  *
- * Call only from the control callback. Entries 1..3 go into the DMA slots of
+ * Call only from the control cycle. Entries 1..3 go into the DMA slots of
  * the next three update events. Entry 0 goes directly into the CCR preload
  * when the burst of the control boundary is done (normal case), or into its
- * DMA slot when the callback runs before that boundary (long trigger lead).
+ * DMA slot when the control cycle runs before that boundary (long trigger lead).
  * Anything else counts as an overrun (DutyOverruns()).
  */
 void SetDutyTicks(const TickPlan& ticks) noexcept;
@@ -116,7 +112,7 @@ struct RawCurrents {
   uint16_t a, b, c;
 };
 
-/// Raw values of the control cycle that just ended (valid in the control callback).
+/// Raw values of the control cycle that just ended (valid in the control cycle).
 struct CycleRaw {
   std::array<RawCurrents, kHalfPeriodsPerCycle> currents;  ///< oldest first
   uint32_t vdc;                                            ///< of the last sample

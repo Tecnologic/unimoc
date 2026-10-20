@@ -18,6 +18,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <thread>
+#include "hot_path_interface.hpp"
 
 namespace unimoc {
 namespace hardware {
@@ -70,9 +71,7 @@ HardwareSettingsInterface settings{kSettingsProfile, kSettingsStorage};
 
 // Stub function implementations
 static bool InitializeStub([[maybe_unused]] const unit::Frequency pwm_frequency,
-                           [[maybe_unused]] const uint32_t adc_trigger_offset,
-                           [[maybe_unused]] HardwareInterface::ControlCycleCallback control_cycle_callback,
-                           [[maybe_unused]] HardwareInterface::ObserverCallback observer_callback) noexcept {
+                           [[maybe_unused]] const uint32_t adc_trigger_offset) noexcept {
   // Stub: Always return successful initialization
   return true;
 }
@@ -87,11 +86,7 @@ static system::ThreePhase<unit::Voltage> GetPhaseVoltagesStub() noexcept {
   return system::ThreePhase<unit::Voltage>{0.0_V, 0.0_V, 0.0_V};
 }
 
-static ControlCycleSamples GetControlCycleSamplesStub() noexcept { return ControlCycleSamples{}; }
-
 static TemperatureMeasurements GetTemperatureMeasurementsStub() noexcept { return TemperatureMeasurements{}; }
-
-static void SetDutyPlanStub([[maybe_unused]] const DutyPlan& plan) noexcept {}
 
 static void SetOvercurrentLimitStub([[maybe_unused]] unit::Current limit) noexcept {}
 
@@ -109,14 +104,23 @@ static void LogStub([[maybe_unused]] const LogLevel level, const char* const mes
 HardwareInterface motor[MOTORS] = {HardwareInterface(InitializeStub,
                                                      GetPhaseCurrentsStub,
                                                      GetPhaseVoltagesStub,
-                                                     GetControlCycleSamplesStub,
                                                      GetTemperatureMeasurementsStub,
-                                                     SetDutyPlanStub,
                                                      SetOvercurrentLimitStub,
                                                      SetAdcTriggerOffsetStub,
                                                      GetTimerClockFrequencyStub)};
 
 HardwareSystemInterface runtime{LogStub, WaitForInterruptStub};
+
+// The hosted stubs have no interrupts; the hot path sees zero samples.
+namespace hot_path {
+
+ControlCycleSamples GetControlCycleSamples() noexcept { return ControlCycleSamples{}; }
+
+void SetDutyPlan([[maybe_unused]] const DutyPlan& plan) noexcept {}
+
+void TripPowerStage() noexcept {}
+
+}  // namespace hot_path
 
 }  // namespace hardware
 }  // namespace unimoc

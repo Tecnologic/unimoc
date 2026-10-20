@@ -23,6 +23,7 @@
 #include "current_control_isr.hpp"
 #include "foc_stm32g4.hpp"
 #include "foc_stm32g4_dt.hpp"
+#include "hot_path_interface.hpp"
 #include "ram_settings_storage.hpp"
 
 namespace unimoc::hardware {
@@ -71,11 +72,8 @@ void UpdateGuard() noexcept {
   g_guard_ticks = foc_stm32g4::TriggerLead() + settle;
 }
 
-bool Initialize(Frequency pwm_frequency,
-                uint32_t adc_trigger_offset,
-                HardwareInterface::ControlCycleCallback control_cycle,
-                HardwareInterface::ObserverCallback observer) noexcept {
-  if (!foc_stm32g4::Initialize(pwm_frequency, adc_trigger_offset, control_cycle, observer)) return false;
+bool Initialize(Frequency pwm_frequency, uint32_t adc_trigger_offset) noexcept {
+  if (!foc_stm32g4::Initialize(pwm_frequency, adc_trigger_offset)) return false;
   UpdateGuard();
   return true;
 }
@@ -140,16 +138,6 @@ system::ThreePhase<Voltage> GetPhaseVoltages() noexcept {
           Voltage{analog::CountsToVoltage(raw.vc)}};
 }
 
-ControlCycleSamples GetControlCycleSamples() noexcept {
-  const foc_stm32g4::CycleRaw& raw = foc_stm32g4::CycleSamples();
-  ControlCycleSamples samples{};
-  for (uint8_t k = 0U; k < kHalfPeriodsPerCycle; ++k)
-    samples.phase_currents[k] = CycleSampleCurrents(k, raw.currents[k]);
-  samples.dc_link = Voltage{analog::CountsToVoltage(raw.vdc)};
-  samples.overcurrent = raw.overcurrent;
-  return samples;
-}
-
 TemperatureMeasurements GetTemperatureMeasurements() noexcept {
   const auto raw = foc_stm32g4::ReadRaw();
   TemperatureMeasurements measurements{};
@@ -164,17 +152,6 @@ TemperatureMeasurements GetTemperatureMeasurements() noexcept {
 
 uint32_t DutyToTicks(const Ratio duty, const float reload) noexcept {
   return static_cast<uint32_t>(std::clamp(duty.Value(), 0.0F, 1.0F) * reload);
-}
-
-void SetDutyPlan(const DutyPlan& plan) noexcept {
-  const auto reload = static_cast<float>(foc_stm32g4::TimerAutoReload());
-  foc_stm32g4::TickPlan ticks{};
-  for (uint8_t k = 0U; k < kHalfPeriodsPerCycle; ++k) {
-    ticks[k] = {DutyToTicks(plan.duties[k].a, reload),
-                DutyToTicks(plan.duties[k].b, reload),
-                DutyToTicks(plan.duties[k].c, reload)};
-  }
-  foc_stm32g4::SetDutyTicks(ticks);
 }
 
 // The per-sample check compares raw counts in the sample interrupt.
@@ -203,6 +180,33 @@ uint32_t GetTimerClockFrequency() noexcept {
 
 }  // namespace
 
+namespace hot_path {
+
+ControlCycleSamples GetControlCycleSamples() noexcept {
+  const foc_stm32g4::CycleRaw& raw = foc_stm32g4::CycleSamples();
+  ControlCycleSamples samples{};
+  for (uint8_t k = 0U; k < kHalfPeriodsPerCycle; ++k)
+    samples.phase_currents[k] = CycleSampleCurrents(k, raw.currents[k]);
+  samples.dc_link = Voltage{analog::CountsToVoltage(raw.vdc)};
+  samples.overcurrent = raw.overcurrent;
+  return samples;
+}
+
+void SetDutyPlan(const DutyPlan& plan) noexcept {
+  const auto reload = static_cast<float>(foc_stm32g4::TimerAutoReload());
+  foc_stm32g4::TickPlan ticks{};
+  for (uint8_t k = 0U; k < kHalfPeriodsPerCycle; ++k) {
+    ticks[k] = {DutyToTicks(plan.duties[k].a, reload),
+                DutyToTicks(plan.duties[k].b, reload),
+                DutyToTicks(plan.duties[k].c, reload)};
+  }
+  foc_stm32g4::SetDutyTicks(ticks);
+}
+
+void TripPowerStage() noexcept { foc_stm32g4::PowerStageTrip(); }
+
+}  // namespace hot_path
+
 HardwareSettingsInterface settings{kSettingsProfile, kSettingsStorage};
 
 PowerStageInterface power_stage{foc_stm32g4::PowerStageEnable,
@@ -214,9 +218,7 @@ PowerStageInterface power_stage{foc_stm32g4::PowerStageEnable,
 HardwareInterface motor[MOTORS] = {HardwareInterface(Initialize,
                                                      GetPhaseCurrents,
                                                      GetPhaseVoltages,
-                                                     GetControlCycleSamples,
                                                      GetTemperatureMeasurements,
-                                                     SetDutyPlan,
                                                      SetOvercurrentLimit,
                                                      SetAdcTriggerOffset,
                                                      GetTimerClockFrequency)};

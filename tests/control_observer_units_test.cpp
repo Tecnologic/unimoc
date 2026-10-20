@@ -82,13 +82,13 @@ TEST(ControlObserverUnitsTest, AsmAndHfiApisAcceptPhysicalUnits) {
   EXPECT_TRUE(std::isfinite(asm_observer.flux_magnitude.Value()));
 
   control::AsmFluxController asm_controller;
-  const unit::Current current_reference = asm_controller.update(0.05_Wb, 0.01_Wb, 1.0_A, 100_us);
-  EXPECT_GE(current_reference.Value(), asm_controller.i_d_min.Value());
+  const unit::Current kCurrentReference = asm_controller.update(0.05_Wb, 0.01_Wb, 1.0_A, 100_us);
+  EXPECT_GE(kCurrentReference.Value(), asm_controller.i_d_min.Value());
 
   observer::Hfi<float> hfi;
   hfi.v_inject = 2.0_V;
-  const auto injection = hfi.get_injection_voltage(0.0_ratio, 1.0_ratio);
-  EXPECT_FLOAT_EQ(injection.alpha.Value(), 2.0F);
+  const auto kInjection = hfi.get_injection_voltage(0.0_ratio, 1.0_ratio);
+  EXPECT_FLOAT_EQ(kInjection.alpha.Value(), 2.0F);
   hfi.update(system::Stator<unit::Current>{0.0F, 0.0F}, 0.0_ratio, 1.0_ratio, 10_us, mechanical_observer);
 }
 

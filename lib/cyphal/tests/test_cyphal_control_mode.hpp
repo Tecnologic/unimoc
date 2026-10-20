@@ -24,7 +24,7 @@ TEST_F(ControlModeTest, SelectsPositionFromFiniteAngularPosition) {
                                                                   std::numeric_limits<float>::quiet_NaN(),
                                                                   50.0f);
   ASSERT_TRUE(mode.has_value());
-  EXPECT_EQ(*mode, ControlMode::POSITION);
+  EXPECT_EQ(*mode, ControlMode::kPosition);
 }
 
 TEST_F(ControlModeTest, SelectsSpeedWhenPositionIsNotFinite) {
@@ -33,7 +33,7 @@ TEST_F(ControlModeTest, SelectsSpeedWhenPositionIsNotFinite) {
                                                                   std::numeric_limits<float>::quiet_NaN(),
                                                                   50.0f);
   ASSERT_TRUE(mode.has_value());
-  EXPECT_EQ(*mode, ControlMode::SPEED);
+  EXPECT_EQ(*mode, ControlMode::kSpeed);
 }
 
 TEST_F(ControlModeTest, SelectsTorqueWhenNoKinematicFieldIsFinite) {
@@ -42,7 +42,7 @@ TEST_F(ControlModeTest, SelectsTorqueWhenNoKinematicFieldIsFinite) {
                                                                   std::numeric_limits<float>::quiet_NaN(),
                                                                   30.0f);
   ASSERT_TRUE(mode.has_value());
-  EXPECT_EQ(*mode, ControlMode::TORQUE);
+  EXPECT_EQ(*mode, ControlMode::kTorque);
 }
 
 TEST_F(ControlModeTest, IgnoresUnsupportedAccelerationOnlySetpoint) {

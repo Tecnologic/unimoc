@@ -189,7 +189,7 @@ struct CurrentControlState {
  *   auto& isr = unimoc::current_control::CurrentControlIsr::instance();
  *   isr.init(settings, hardware, hardware.GetTimerClockFrequency());
  *
- *   // From the control-cycle callback (zero latency):
+ *   // From hardware::ControlCycleHandler() (zero latency):
  *   isr.on_control_cycle();
  *
  *   // From outer control loop to update the setpoint:
@@ -241,10 +241,11 @@ class CurrentControlIsr {
   /**
    * @brief Control-cycle handler body.
    *
-   * Called from the hardware's control-cycle callback (zero latency) once per
+   * Called from hardware::ControlCycleHandler() (zero latency) once per
    * NUM_SUB_STEPS PWM half periods. Reads the samples of the cycle, runs the
    * current controller once and writes the duty plan of the next
-   * NUM_SUB_STEPS half periods through the hardware interface.
+   * NUM_SUB_STEPS half periods through hardware::hot_path. Does nothing before
+   * init().
    */
   void on_control_cycle() noexcept;
 
@@ -315,7 +316,8 @@ class CurrentControlIsr {
    */
   void set_overcurrent_limit(unit::Current limit) noexcept;
 
-  /// Acknowledges an overcurrent trip. The power stage fault is cleared separately (power_stage.ClearFault()).
+  /// Acknowledges an overcurrent trip. The power stage fault is cleared separately
+  /// (power_stage.ClearFault()).
   void clear_overcurrent_trip() noexcept {
     cc.reset();
     state.overcurrent_tripped = false;

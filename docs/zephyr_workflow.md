@@ -52,7 +52,10 @@ figures are estimates, not measurements.
 
 The sample ISR is a zero-latency direct ISR (`IRQ_ZERO_LATENCY`,
 `CONFIG_ZERO_LATENCY_IRQS`): never masked by `irq_lock()`, no kernel calls and
-no logging in the callbacks. The control cycle must finish before the next
+no logging in the handlers. It calls `ControlCycleHandler()` directly; the
+core reaches the hardware through `hardware/hot_path_interface.hpp`, without
+function pointers. The UNIMOC code is built with `-fno-math-errno`, so
+`std::sqrt` in the hot path is an FPU instruction, not a libm call. The control cycle must finish before the next
 boundary (about 14 us at 32 kHz); `foc_stm32g4::DutyOverruns()` counts misses.
 The observer interrupt is preempted by the sample ISR and must finish within
 one cycle (`state.observer_overruns`). `tests/twister/sim_irq_cadence` checks
