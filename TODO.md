@@ -1,0 +1,111 @@
+# TODO list for open topics
+
+## Zephyr port and hot path
+
+See [docs/zephyr_port_plan.md](docs/zephyr_port_plan.md) for the decisions and
+phases, [docs/zephyr_workflow.md](docs/zephyr_workflow.md) for the build and
+interrupt layout, and [docs/hotpath_plan.md](docs/hotpath_plan.md) for the
+hot-path design.
+
+There is no board access at the moment. The open items are ordered so that
+work verifiable with twister on `native_sim` and the BCC build comes first;
+items that need the board are collected below and wait for hardware access.
+
+### P0 - Without hardware (twister on `native_sim`, BCC build)
+
+ - [ ] Merge `main` into `develop` once the `feature/zephyr-port` PR is merged: keep the deletions for the modm and hosted-build files (61 modify/delete conflicts), resolve `.clang-tidy`, `.gitignore`, `.gitmodules`, `README.md` and `src/main.cpp` by hand, decide whether `lib/gitversion` is dropped or feeds GetInfo, and check `hardware/HardwareLimits.hpp` against the devicetree limits. Close `copilot/fix-pr-10-from-main-to-develop` unmerged.
+ - [ ] Settings follow-ups 1 and 2 from [docs/settings_plan.md](docs/settings_plan.md): hold off `PowerStage::Enable()` while a flash save runs, and serialize access to `SettingsStore` (one owner thread or a lock) before the shell or Cyphal write settings.
+ - [ ] Implement the hot-path milestones M4 to M7 from `docs/hotpath_plan.md` (observer API, Hall driver and sim Hall signals, Hall fusion, control thread), tested with ztest and the sim plant.
+ - [ ] Run a small Cyphal/UDP feasibility spike between `native_sim` and `pycyphal` (see the SIL plan below); it settles the DSDL generation for both transports.
+ - [ ] Integrate Cyphal (libcanard, DSDL, register service, PnP, heartbeat, GetInfo) and the shell command `settings show|save|reset` (settings open items 3 and 4), tested on `native_sim`. CAN-FD on `native_sim` needs `vcan` in the WSL2 kernel (unverified); CAN-FD on the BCC waits for the transceiver decision.
+ - [ ] Write the M0 instrumentation (DWT cycle counters around the sample ISR, control cycle and observer, min/mean/max, overrun counters, output through log and shell); build-tested only until the board is available.
+ - [ ] Enable the USB CDC-ACM console and Zephyr logging in the BCC configuration (build only; enumeration is checked on the board).
+ - [ ] Remove the stale references to the deleted legacy firmware `hardware/batterycasecontroller/` (deleted in `6ca28d1`): `AGENTS.md`, `docs/zephyr_port_plan.md`, the file-docs skill, `scripts/check_format.sh`, `scripts/codechecker_skip.txt` and `docs/Doxyfile`.
+ - [ ] Confirm the CAN-FD transceiver change for the BCC (the board has an SN65HVD230, classic CAN). A board decision, no board access needed.
+
+### P1 - Blocked on hardware access
+
+ - [ ] M0 on the board: timing numbers for the sample ISR, control cycle and observer.
+ - [ ] M8 first step with the outputs off: DMA burst, preload, start at ARR/2, parity detection and ADC alignment on the scope; check the USB console.
+ - [ ] Verify ZMS, the flash stall and the size of the settings partition on the BCC board (settings plan, "Not verified on hardware").
+ - [ ] Configure the duty DMA from the devicetree (`dmas` of `foc0`, Zephyr DMA API at init) instead of the fixed DMA1 channel 1 / DMAMUX request 53, and enable its clock through `clock_control` instead of writing `RCC->AHB1ENR`. The zero-latency path keeps reading the channel counter directly. Do this after the M8 first step, so the fixed configuration is a verified reference.
+ - [ ] M8 remainder: Hall table, closed current loop with the 50 A limit.
+ - [ ] Merge `develop` into `main` as the first Zephyr release (tag it) once the board items above pass; `main` still holds the legacy firmware.
+
+### Done
+
+ - [x] Decide the hot-path layout: 32 kHz PWM, 16 kHz control cycle in the sample ISR, duties by CCR preload plus DMA (variant B), observer in a software-pended normal-priority interrupt (`docs/hotpath_plan.md`).
+ - [x] Align the root `CMakeLists.txt` with the C++20 baseline.
+ - [x] Replace the RTT wording in the comment of `src/startup/startup_results.hpp` with the Zephyr log.
+ - [x] Persist settings per register with the Zephyr settings subsystem on ZMS, live RAM tuning and a gated `SaveToFlash()` ([docs/settings_plan.md](docs/settings_plan.md)).
+ - [x] Delete the legacy firmware in `hardware/batterycasecontroller/` together with `cmake/Modm.cmake`, `cmake/ToolChain.cmake`, `requirements.txt` and `ci-firmware.yml`.
+ - [x] Hot-path milestones M1 to M3 in code (not run on the board).
+ - [x] Bring `src/`, `hardware/zephyr_*` and the tests under clang-tidy (Zephyr SCA through CodeChecker, `scripts/twister_sca.sh`).
+ - [x] Bring the `lib/unimoc` headers under clang-tidy (`HeaderFilterRegex`; API renamed to PascalCase methods). `lib/cymon` is still outside: it is not built in the Zephyr workspace yet.
+ - [x] Add an `SPDX-License-Identifier` line to the UNIMOC file header (C++ files, CMake and YAML files; file-docs skill updated).
+
+## Prioritized software-in-the-loop plan
+
+See [docs/software_in_loop_plan.md](docs/software_in_loop_plan.md) for the
+architecture, design decisions, implementation phases, risks, and acceptance
+criteria.
+
+### P0 - Establish the deterministic runtime
+
+ - [x] Define and test the virtual-time cycle contract around `CurrentControlIsr::OnControlCycle()` and `SlowUpdate::RunOnce()` (`tests/sim/irq_cadence`).
+ - [x] Introduce injectable ADC/PWM I/O for the current-control runtime while preserving the target hardware implementation.
+ - [x] Extract the current-control runtime into a reusable target independent of firmware `main.cpp` (`current_control::StartRuntime()` in `src/current_control/current_control_runtime.hpp`).
+ - [x] Add a HAL-free virtual clock and simulation runtime harness with reset, fast-step, slow-update, advance, and snapshot operations (`hardware/zephyr_sim/sim_control.hpp`: `Reset`, `StepCycle`, `AdvanceCycles`, `VirtualTimeNs`, `TakeSnapshot`).
+
+### P1 - Build the single-motor vertical slice
+
+ - [x] Implement a validated PMSM plant model using `NvmSettings`, existing frame types, and unit types (`lib/sim/`, `MotorSimulation`, with 120 degree Hall sensors).
+ - [x] Add plant tests for electrical dynamics, torque direction, pole-pair scaling, mechanics, friction, parameter validation, and repeatability (`lib/sim/tests/`).
+ - [x] Connect one host runtime and its ISR I/O to the PMSM plant instead of the zero-value host stubs (`hardware/zephyr_sim`, native_sim).
+ - [x] Add a deterministic end-to-end C++ step-response test through the actual current-control runtime (`tests/sim/closed_loop`).
+ - [x] Add exact fast-loop/slow-loop cadence tests and finite-state checks for NaN/Inf and unstable output (`tests/sim/closed_loop`).
+
+### P1 - Resolve the Cyphal transport path
+
+ - [ ] Run a small Cyphal/UDP feasibility spike between `native_sim` and `pycyphal` on localhost (WSL2).
+ - [ ] Select the C++ transport and DSDL generation approach for registers, setpoints, telemetry, and heartbeat.
+ - [ ] Confirm one register exchange and one telemetry subject before designing the full simulator protocol.
+
+### P2 - Add coordinated multi-motor simulation
+
+ - [ ] Add a one-process simulator coordinator with N independent motor nodes and one shared virtual clock.
+ - [ ] Define a barriered multi-motor step with coherent timestamps and deterministic ordering.
+ - [ ] Add independent constant/viscous load models and tests for isolated motors, unique node IDs, reset, and repeatability.
+ - [ ] Add a shared load interface suitable for shaft, wheel, battery, differential, and torque-vectoring models.
+
+### P2 - Expose the simulator over Cyphal/UDP
+
+ - [ ] Build a host simulator executable around the coordinator.
+ - [ ] Map standard Cyphal register operations to the settings operation boundary.
+ - [ ] Route torque, speed, position, and excitation setpoints into the normal controller input path.
+ - [ ] Publish telemetry and heartbeat with explicit virtual-time semantics.
+ - [ ] Add simulation-control commands for reset, fixed-cycle advance, run-until, snapshot, and clock status.
+ - [ ] Add protocol and localhost end-to-end tests for single- and multi-node operation.
+
+### P3 - Create the Python command-and-control GUI
+
+ - [ ] Create a separate Python simulation package and dependency file; keep firmware `requirements.txt` focused on firmware tooling.
+ - [ ] Implement a `pycyphal` client for node discovery, registers, setpoints, telemetry, reset, and virtual-time stepping.
+ - [ ] Build a PySide6/pyqtgraph GUI for single-motor step responses and virtual-time control.
+ - [ ] Add scenario definitions, run/pause/reset/step controls, CSV/JSON trace export, and replay.
+ - [ ] Keep network I/O and long simulation batches outside the UI thread; support telemetry decimation.
+ - [ ] Add headless Python protocol and smoke tests against the host simulator.
+
+### P4 - Expand fidelity and application scope
+
+ - [ ] Add ASM and EESM plants behind the common plant contract (`MotorModel` concept and the `MotorSimulation::Model` variant in `lib/sim/`).
+ - [ ] Add startup, observer, field-weakening, homing, and control-mode transition scenarios.
+ - [ ] Add vehicle-level models for shared battery/DC-link behavior, wheels, differential load, road load, and torque vectoring.
+ - [ ] Add fault injection, profiling, and large-N motor trace tooling.
+ - [ ] Consider process-per-motor hosting only after the one-process coordinator is stable and a concrete isolation need exists.
+
+### Validation and documentation
+
+ - [ ] Add twister scenarios (ztest on `native_sim`) for the coordinator and protocol tests as they appear; plant and runtime tests exist in `tests/lib/sim` and `tests/sim/`.
+ - [ ] Keep the focused three-phase validation green; ask before widening the validated scope in `AGENTS.md` to the SIL scenarios (`tests/sim/`, `lib/sim`).
+ - [ ] Document simulator setup, launch commands, supported model fidelity, and GUI workflows in `README.md`.

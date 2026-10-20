@@ -1,0 +1,12 @@
+# Zephyr macros (ZTEST, zassert/zexpect, LOG_*, printk, IRQ_CONNECT, the
+# devicetree macros) expand at the call site to mutable registration objects,
+# do-while blocks, C-style casts, C varargs and negated conditions. Those
+# checks cannot be met with Zephyr's own API; everything else of the
+# repository configuration applies.
+InheritParentConfig: true
+Checks: >
+  -cppcoreguidelines-avoid-non-const-global-variables,
+  -cppcoreguidelines-avoid-do-while,
+  -cppcoreguidelines-pro-type-vararg,
+  -cppcoreguidelines-pro-type-cstyle-cast,
+  -readability-simplify-boolean-expr

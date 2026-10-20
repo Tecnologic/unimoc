@@ -2,28 +2,51 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Debug STM32G473CBT6",
-            "cwd": "${workspaceFolder}",
-            "executable": "build/src/ModmCMakeTest.elf",
+            "name": "Debug native_sim (Zephyr)",
+            "type": "cppdbg",
             "request": "launch",
-            "type": "cortex-debug",
-            "servertype": "jlink",
-            "device": "STM32G473CB",
-            "breakAfterReset": true,
-            "configFiles": [
-                "modm/openocd.cfg",
-            ],
-            "rttConfig": {
-            "enabled": true,
-            "address": "auto",
-            "decoders": [
+            "program": "${workspaceFolder}/app/build/sim/zephyr/zephyr.exe",
+            "args": [],
+            "cwd": "${workspaceFolder}/app/build/sim",
+            "stopAtEntry": false,
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "miDebuggerPath": "/usr/bin/gdb",
+            "setupCommands": [
                 {
-                    "label": "",
-                    "port": 0,
-                    "type": "console"
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
                 }
             ]
+        },
+        {
+            "name": "Debug BCC (Zephyr)",
+            "type": "cortex-debug",
+            "request": "launch",
+            "cwd": "${workspaceFolder}/app/build/bcc",
+            "executable": "${workspaceFolder}/app/build/bcc/zephyr/zephyr.elf",
+            "servertype": "jlink",
+            "device": "STM32G473CB",
+            "interface": "swd",
+            "armToolchainPath": "/home/alex/zephyr-sdk-1.0.1/gnu/arm-zephyr-eabi/bin",
+            "runToEntryPoint": "main",
+            "breakAfterReset": true,
+            "rttConfig": {
+                "enabled": true,
+                "address": "auto",
+                "decoders": [
+                    {
+                        "label": "Zephyr log",
+                        "port": 0,
+                        "type": "console"
+                    }
+                ]
             },
+            "liveWatch": {
+                "enabled": true,
+                "samplesPerSecond": 4
+            }
         }
     ]
 }

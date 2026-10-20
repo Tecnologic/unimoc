@@ -2,13 +2,19 @@
 
 [![CI](https://github.com/Tecnologic/unimoc/actions/workflows/ci.yml/badge.svg)](https://github.com/Tecnologic/unimoc/actions/workflows/ci.yml)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
-[![C++ Standard](https://img.shields.io/badge/C%2B%2B-23-blue.svg)](https://en.cppreference.com/w/cpp/23)
+[![C++ Standard](https://img.shields.io/badge/C%2B%2B-20-blue.svg)](https://en.cppreference.com/w/cpp/20)
 
-**UNIMOC** (**UNI**versal **MO**tor **C**ontrol) is a platform-independent,
-header-only C++23 library for Field-Oriented Control (FOC) of multi-phase
-electric motors.  It targets embedded micro-controllers (STM32 series) but the
-algorithm headers are fully portable and tested on x86-64 Linux via
-[Google Test](https://github.com/google/googletest).
+**UNIMOC** (**UNI**versal **MO**tor **C**ontrol) is a platform-independent
+C++ library and [Zephyr RTOS](https://zephyrproject.org/) firmware for
+Field-Oriented Control (FOC) of multi-phase electric motors.  It targets
+embedded micro-controllers (STM32 series, first the STM32G473 battery case
+controller).  The algorithm code is portable and tested with Zephyr's ztest
+and twister on `native_sim`.
+
+Zephyr is the primary OS: logging, shell, USB, Cyphal, and settings run in
+Zephyr threads.  Only the FOC hot path runs in zero-latency interrupts.  The
+same firmware runs on Linux through Zephyr's `native_sim` with a motor
+simulation.
 
 ---
 
@@ -31,8 +37,9 @@ algorithm headers are fully portable and tested on x86-64 Linux via
    - [Calibration Results and NVM Commit](#calibration-results-and-nvm-commit)
    - [Aborting or Recovering from FAULT](#aborting-or-recovering-from-fault)
 7. [Getting Started](#getting-started)
-   - [Building the Hosted Tests](#building-the-hosted-tests)
-   - [Building Firmware (STM32)](#building-firmware-stm32)
+   - [Running the Tests](#running-the-tests)
+   - [Generating the API Documentation](#generating-the-api-documentation)
+   - [Building Firmware (Zephyr)](#building-firmware-zephyr)
 8. [Contributing](#contributing)
 9. [License](#license)
 
@@ -47,28 +54,29 @@ algorithm headers are fully portable and tested on x86-64 Linux via
 | **Control** | MTPA, field-weakening, ASM flux PI, EESM excitation PI (current or flux mode) |
 | **Position** | Absolute multi-turn tracker (±4096+ rev), cascaded P+PI position controller, homing state machine |
 | **Modulation** | Space Vector PWM (SVPWM), dead-time compensation |
-| **Network** | Full Cyphal (UAVCAN v1) register map — every setting configurable over the bus |
-| **Persistence** | All settings stored in NVM; survive power cycles; validated with magic + version check |
-| **Platform** | Header-only algorithms; HAL-free; tested on Linux x86-64 with GTest |
+| **Network** | Cyphal (UAVCAN v1) register map — every setting configurable over the bus (planned, see [Cyphal](#cyphal-uavcan-v1-interface)) |
+| **Persistence** | Live RAM settings for tuning; one flash entry per changed register (Zephyr settings on ZMS); saving only while the power stage is disabled |
+| **Platform** | HAL-free algorithms; tested on Linux x86-64 with GTest; Zephyr firmware for the BCC (STM32G473) and `native_sim` |
+| **Runtime** | Zephyr threads for logging, shell, USB, Cyphal, and settings; zero-latency IRQs only for the FOC hot path |
 
 ---
 
 ## Supported Motor Types
 
 ### PMSM — Permanent-Magnet Synchronous Motor
-Surface-mount and interior-PM motors.  
-Control path: MechanicalObserver (back-EMF PLL) → MTPA → FieldWeakening → SVM.  
+Surface-mount and interior-PM motors.
+Control path: MechanicalObserver (back-EMF PLL) → MTPA → FieldWeakening → SVM.
 Low-speed sensorless: HFI observer (requires inductance saliency, IPMSM only).
 
 ### ASM — Asynchronous (Induction) Motor
-Squirrel-cage induction motors.  
+Squirrel-cage induction motors.
 Control path: AsmFluxObserver (Luenberger) → AsmFluxController (PI) → MechanicalObserver (shared PLL) → SVM.
 
 ### EESM — Electrically Excited Synchronous Machine
-Wound-rotor synchronous motors with external excitation (slip-rings or brushless exciter).  
+Wound-rotor synchronous motors with external excitation (slip-rings or brushless exciter).
 Stator control path identical to PMSM.  Additionally:
-- **ExcitationController** — PI loop on rotor current I_f (CurrentMode) or flux ψ_f = L_m · I_f (FluxMode).  
-- **ExcitationObserver** — first-order low-pass filter on measured I_f → adaptive ψ_f estimate fed into MTPA.  
+- **ExcitationController** — PI loop on rotor current I_f (CurrentMode) or flux ψ_f = L_m · I_f (FluxMode).
+- **ExcitationObserver** — first-order low-pass filter on measured I_f → adaptive ψ_f estimate fed into MTPA.
 - Excitation setpoint and mode received via Cyphal subject.
 
 ---
@@ -77,41 +85,74 @@ Stator control path identical to PMSM.  Additionally:
 
 ```
 lib/
-├── control/
-│   ├── AsmFluxController.hpp     # ASM rotor-flux PI controller
-│   ├── DeadTimeCompensation.hpp  # Inverter dead-time compensation
-│   ├── ExcitationController.hpp  # EESM rotor excitation PI (current / flux mode)
-│   ├── FieldWeakening.hpp        # Voltage-headroom field-weakening integrator
-│   ├── Mtpa.hpp                  # Maximum-Torque-Per-Ampere (IPMSM)
-│   ├── PositionController.hpp    # Cascaded P+PI position/speed controller + homing FSM
-│   └── Svm.hpp                   # Space Vector PWM modulator
-├── observer/
-│   ├── AsmFluxObserver.hpp       # ASM full-order Luenberger rotor-flux observer
-│   ├── ExcitationObserver.hpp    # EESM excitation current LPF → flux estimate
-│   ├── Hfi.hpp                   # 4-step High-Frequency Injection (IPMSM standstill)
-│   ├── MechanicalObserver.hpp    # Back-EMF observer + PLL (PMSM / shared with ASM)
-│   └── PositionTracker.hpp       # Absolute multi-turn position + homing
+├── motor_control/
+│   ├── src/
+│   │   ├── asm_flux_controller.hpp  # ASM rotor-flux PI controller
+│   │   ├── dead_time_compensation.hpp  # Inverter dead-time compensation
+│   │   ├── excitation_controller.hpp  # EESM rotor excitation PI (current / flux mode)
+│   │   ├── field_weakening.hpp      # Voltage-headroom field-weakening integrator
+│   │   ├── mtpa.hpp                 # Maximum-Torque-Per-Ampere (IPMSM)
+│   │   ├── position_controller.hpp  # Cascaded P+PI position/speed controller + homing FSM
+│   │   ├── svm.hpp                   # Space Vector PWM modulator
+│   │   ├── asm_flux_observer.hpp    # ASM full-order Luenberger rotor-flux observer
+│   │   ├── excitation_observer.hpp  # EESM excitation current LPF -> flux estimate
+│   │   ├── hfi.hpp                   # 4-step High-Frequency Injection (IPMSM standstill)
+│   │   ├── mechanical_observer.hpp  # Back-EMF observer + PLL (PMSM / shared with ASM)
+│   │   ├── position_tracker.hpp     # Absolute multi-turn position + homing
+│   │   └── *_system.hpp              # Rotor, stator, and three-phase coordinate systems
+├── cyphal/
+│   ├── control_mode.hpp          # Cyphal setpoint-to-control-mode mapping
+│   ├── cyphal_interface.hpp      # Register names + subject port IDs
+│   ├── heartbeat.hpp             # Heartbeat serialization
+│   ├── node.hpp                  # Transport-injected Cyphal node shell
+│   ├── node_identity.hpp         # Node name + hw/sw version
+│   └── transport.hpp             # UDP/CAN/test transport contract
+├── settings/
+│   ├── nvm_settings.hpp          # Typed aggregate of NVM-backed parameters
+│   ├── settings_registers.hpp    # Register table + byte encoding of one register value
+│   ├── settings_profile.hpp      # Immutable target capabilities and defaults
+│   ├── settings_storage.hpp      # Platform key/value storage contract
+│   └── settings_store.hpp        # Live settings, snapshot, save gate, authorized mutation API
 ├── system/
-│   ├── ControlMode.hpp           # ControlMode enum: TORQUE / SPEED / POSITION
-│   ├── CyphalInterface.hpp       # Register names + subject port IDs (full API map)
-│   ├── MotorType.hpp             # MotorType enum: PMSM / ASM / EESM
-│   ├── NodeIdentity.hpp          # Node name + hw/sw version (UID read from hardware)
-│   ├── NvmSettings.hpp           # Aggregate of all NVM-backed parameters
-│   ├── RotorReference.hpp        # dq rotating reference frame
-│   ├── SinCos.hpp                # Unit-circle helper
-│   ├── StatorReference.hpp       # α/β stationary reference frame
-│   └── ThreePhase.hpp            # Three-phase (a/b/c) vector
+│   ├── rotor_angle.hpp           # Q1.31 electrical angle + revolution counter, sin/cos LUT
+│   ├── rotor_system.hpp          # d/q rotating reference frame
+│   ├── stator_system.hpp         # α/β stationary reference frame
+│   └── three_phase_system.hpp    # Three-phase (a/b/c) vector
 └── units/
-    └── Units.hpp                 # SI unit wrappers
+    └── units.hpp                 # SI unit wrappers
 ```
 
 ---
+
+## Firmware Architecture
+
+The firmware is one Zephyr application (`app/`). At 32 kHz PWM the execution
+contexts are (details in [`docs/hotpath_plan.md`](docs/hotpath_plan.md)):
+
+| Context | Runs | Latency |
+|---|---|---|
+| Sample ISR (ADC end of injected sequence, every half PWM period, 64 kHz) | Raw current copy, overcurrent check on raw counts | Zero-latency IRQ |
+| Control cycle (every fourth sample, 16 kHz) | FOC hot path: mean current, Park, PI once, four duty entries (inverse Park, HFI step, SVM), entry 0 into the CCR preload, entries 1 to 3 by DMA | Zero-latency IRQ |
+| Observer (after each control cycle, 16 kHz) | Flux observer, Kalman, HFI, angles of the next cycle (`SlowUpdate`) | Software-pended normal-priority IRQ |
+| Zephyr threads | Speed and position control (about 2 kHz, planned), logging, shell, USB console, Cyphal, settings, startup sequencing | Normal scheduling |
+
+Zero-latency handlers may not call kernel APIs, log, or lock.  The
+hardware-specific parts are selected by the board and Kconfig, not by
+`#ifdef`.  The integration status and the open items are in
+[`docs/zephyr_port_plan.md`](docs/zephyr_port_plan.md) and
+[`docs/zephyr_workflow.md`](docs/zephyr_workflow.md).
 
 ## Cyphal (UAVCAN v1) Interface
 
 UNIMOC exposes its complete configuration and runtime control via
 [Cyphal](https://opencyphal.org/) (UAVCAN v1).  No physical access to the
 hardware is required after initial deployment.
+
+> **Status:** the Cyphal stack is not integrated in the Zephyr build yet.  The
+> repository has the identifiers, the register and subject names, and the
+> heartbeat serialization.  DSDL, the register service, plug-and-play, and
+> the CAN-FD and UDP transports are planned (`docs/zephyr_port_plan.md`,
+> Phases 5 and 6).  The sections below describe the target interface.
 
 ### Node ID and Plug-and-Play
 
@@ -148,7 +189,7 @@ Every parameter in `NvmSettings` is accessible as a named Cyphal register
 in-RAM configuration values are traceable with tools like **Cymon**.
 Writing a register updates the in-RAM value and schedules an NVM flush.
 
-Full register name table (`lib/system/CyphalInterface.hpp`):
+Full register name table (`lib/cyphal/cyphal_interface.hpp`):
 
 | Register | Type | Description |
 |---|---|---|
@@ -186,7 +227,7 @@ Full register name table (`lib/system/CyphalInterface.hpp`):
 | `unimoc.control.dtc.f_pwm` | `uavcan.primitive.scalar.Real32.1.0` | PWM frequency [Hz] |
 | `unimoc.control.dtc.i_threshold` | `uavcan.primitive.scalar.Real32.1.0` | Dead-time zero-crossing threshold [A] |
 | `unimoc.observer.hfi.v_inject` | `uavcan.primitive.scalar.Real32.1.0` | HFI injection voltage [V] |
-| `unimoc.observer.hfi.error_gain` | `uavcan.primitive.scalar.Real32.1.0` | HFI angle-error gain [1/V] |
+| `unimoc.observer.hfi.error_gain` | `uavcan.primitive.scalar.Real32.1.0` | HFI current-error to angle gain [rad/A] |
 | `unimoc.control.excitation.mode` | `uavcan.primitive.scalar.Natural8.1.0` | EESM excitation mode (0=current, 1=flux) |
 | `unimoc.control.excitation.L_m` | `uavcan.primitive.scalar.Real32.1.0` | EESM mutual inductance [H] |
 | `unimoc.control.excitation.kp` | `uavcan.primitive.scalar.Real32.1.0` | Excitation PI proportional gain [V/A] |
@@ -253,39 +294,69 @@ All input/output subjects can be inspected live in Cymon.
 
 ## NVM-Backed Settings
 
-All settings are aggregated in `unimoc::system::NvmSettings`
-(`lib/system/NvmSettings.hpp`).  The struct is:
+All settings are aggregated in `unimoc::settings::NvmSettings`
+(`lib/settings/nvm_settings.hpp`).  Runtime ownership is provided by
+`unimoc::settings::SettingsStore`.  The design is:
 
-- **Validated** by a magic word (`0x554D4F43` = "UMOC") and a layout version
-  number.  If either mismatches on load, factory defaults are restored.
+- **Validated** by target capability and cross-field checks, before a change
+   becomes live and when the stored registers are loaded. Unusable stored
+   registers are replaced by the target factory profile.
 - **Complete** — every tunable parameter from every controller and observer
-  lives in a single flat struct, making it trivial to back up or flash a full
-  drive configuration.
-- **Platform-agnostic** — the NVM driver (flash page, EEPROM, external SPI
-  flash) is provided by the hardware layer; the library only defines the data.
+  lives in a single flat struct.
+- **Live and persistent** — operations change the RAM copy at once (live
+  tuning, no flash access). `SettingsOperations::SaveToFlash()` writes only the
+  registers that changed since the last load or save, one flash entry per
+  register under its Cyphal register name; a register that is back at its
+  factory value is erased. It is refused (`kPersistBlocked`) unless the power
+  stage is disabled, because a flash write can stall the zero-latency control
+  cycle. A register that is not stored has its factory value, so new firmware can
+  add registers without invalidating stored settings.
+- **Platform-agnostic** — the hardware layer supplies an immutable profile and
+   a key/value storage adapter. The Zephyr platforms use the settings
+   subsystem on ZMS in the `storage_partition` (`hardware/zephyr_common/
+   zephyr_settings_storage.cpp`); on `native_sim` that is the flash simulator.
+- **Read-only to application code** — control code receives a
+   `SettingsSnapshot`; only an explicitly passed `SettingsOperations` capability
+   can commit changes.
+- **Explicitly serialized** — unit wrappers are encoded through their numeric
+   values as little-endian floats, one value per register
+   (`lib/settings/settings_registers.hpp`). The C++ object layout is not persisted.
 
 ```cpp
-#include "NvmSettings.hpp"
+#include "hardware_interface.hpp"
+#include "settings_store.hpp"
 
-unimoc::system::NvmSettings cfg;
+unimoc::settings::SettingsStore settings_store{
+      unimoc::hardware::kSettings.GetSettingsProfile(),
+      unimoc::hardware::kSettings.GetSettingsStorage()};
 
-// Load from NVM (hardware-specific)
-nvm_load(reinterpret_cast<uint8_t*>(&cfg), sizeof(cfg));
+const auto load_status = settings_store.Load();
+const auto settings = settings_store.GetSnapshot();
 
-if (!cfg.is_valid()) {
-    cfg.reset_to_defaults();  // blank or corrupt flash
-    nvm_save(...);
+// Application consumers receive only a const settings record.
+current_control.Init(settings.Get(), timer_clock_hz);
+
+// Operation endpoints such as Cyphal receive the mutation capability.
+const auto operations = settings_store.GetOperations();
+operations.SetMotorCurrentLimit(unimoc::unit::Current{20.0F});
+if (load_status == unimoc::system::SettingsStatus::kStorageError) {
+      // Handle a storage failure before enabling the drive.
 }
-
-// Apply to controller instances
-mechanical_observer.R  = cfg.stator_R;
-mechanical_observer.L  = cfg.stator_L;
-// ...
 ```
+
+The target profile is compiled into the hardware adapter as a `const` object,
+so stock parameters and immutable safety capabilities are included in the
+firmware image. The writable settings are separate and are never allowed
+to raise those capabilities.
 
 ---
 
 ## Hardware Bring-Up Guide
+
+> **Status:** not runnable yet.  The procedure needs the Cyphal registers and the
+> USB console, and neither is integrated in the Zephyr build yet
+> (`docs/zephyr_port_plan.md`).  The steps below describe the target behavior.
+> Log lines go to the Zephyr log, shown on the USB CDC-ACM console once it is enabled.
 
 `HwStartup` is a step-by-step bring-up wizard for commissioning a new UNIMOC
 board.  It verifies the ADC signal chain, gate drivers, and DC-link voltage
@@ -294,7 +365,7 @@ ADC-trigger calibration with the motor attached.  All calibration results are
 committed to NVM automatically when the sequence completes.
 
 The FSM **never advances on its own**.  Each step completes its measurement,
-logs the result via RTT, then pauses and waits for the user to write `1` to
+logs the result through the Zephyr log, then pauses and waits for the user to write `1` to
 `unimoc.startup.step` before moving on.  This gives you time to review scope
 traces and enter external meter readings.
 
@@ -338,7 +409,7 @@ The FSM immediately enters **PWM_DISABLE**.
 
 #### Step 1 — PWM_DISABLE
 
-All gate-driver outputs are held at 50 % neutral duty.  The RTT log confirms
+All gate-driver outputs are held at 50 % neutral duty.  The log confirms
 the duty is applied and invites you to verify on a scope.
 
 **Action:** Confirm PWM signals are toggling correctly on the scope, then
@@ -355,7 +426,7 @@ unimoc.startup.step = 1
 The firmware samples 1024 ADC readings on both current-sense channels
 (phases A and B) with zero current flowing and computes the mean offset.
 
-The RTT log reports:
+The log reports:
 
 ```
 [STARTUP] ADC_OFFSET_CAL: offset_a=<value> A, offset_b=<value> A
@@ -380,7 +451,7 @@ unimoc.startup.step = 1
 computed for each channel and compared against `noise_threshold_A` (default
 0.1 A).
 
-The RTT log reports:
+The log reports:
 
 ```
 [STARTUP] ADC_NOISE_FLOOR: rms_a=<value> A, rms_b=<value> A
@@ -403,7 +474,7 @@ Three forced-duty steps (5 %, 50 %, 95 %) check that the gate driver and
 bootstrap circuit produce valid PWM across the full duty range.  Each step
 holds the duty for 1000 samples, then waits.
 
-The RTT log reports the applied duty:
+The log reports the applied duty:
 
 ```
 [STARTUP] DUTY_FORCE_LOW: duty=0.05 — verify current/scope. Press NEXT to continue.
@@ -449,7 +520,7 @@ The firmware briefly disables then re-enables the gate-driver enable signal
 while measuring the ADC response on the current-sense inputs.  This confirms
 that the enable pin is wired correctly and that the gate driver is live.
 
-The RTT log reports:
+The log reports:
 
 ```
 [STARTUP] GATE_DRIVER_ENABLE_CHECK: delta_ia=<value> A — gate driver responding.
@@ -475,7 +546,7 @@ unimoc.startup.step = 1
 > 3. **Power on** again.
 > 4. Ensure the motor shaft is **free to rotate**.
 
-The RTT log prints a prominent warning:
+The log prints a prominent warning:
 
 ```
 [STARTUP] !! PHASE 1 COMPLETE — PREPARE FOR PHASE 2 !!
@@ -499,7 +570,9 @@ unimoc.startup.step = 1
 > ⚠️ **Caution:** Phase 2 injects live voltages into the motor windings.  An
 > over-current (OC) trip limit equal to `oc_fraction × max_phase_current_A`
 > (default 10 %) is active throughout.  The FSM transitions immediately to
-> FAULT if this limit is exceeded.
+> FAULT if this limit is exceeded.  Independently, the fast ISR trips the power
+> stage at the hard limit `max_phase_current` (60 A on the BCC) and latches a
+> fault until it is cleared.
 
 ---
 
@@ -510,7 +583,7 @@ The firmware sweeps the ADC trigger offset by ±5 µs in 0.5 µs steps
 noise at each position.  The position with the lowest noise is selected as the
 optimal ADC sampling instant.
 
-The RTT log reports:
+The log reports:
 
 ```
 [STARTUP] PHASE_ADC_ALIGNMENT: best_pos=<n>, optimal_ticks=<value>
@@ -559,9 +632,10 @@ The gain correction factors are stored in `NvmSettings::adc_gain_a` and
 
 ### Calibration Results and NVM Commit
 
-When the sequence reaches **DONE** the firmware automatically:
+When the sequence reaches **DONE** the firmware automatically commits the
+calibration through its authorized `SettingsOperations` capability:
 
-1. Writes calibration values to the live `NvmSettings` struct:
+1. Builds one candidate settings record containing:
 
    | NvmSettings field | Source |
    |---|---|
@@ -571,7 +645,12 @@ When the sequence reaches **DONE** the firmware automatically:
    | `adc_gain_a` | `1 / gain_a` computed in CURRENT_SENSE_CALIBRATION |
    | `adc_gain_b` | `1 / gain_b` computed in CURRENT_SENSE_CALIBRATION |
 
-2. Prints a full summary to RTT:
+2. Validates the candidate and applies it to the live settings as one
+   transaction. A rejected candidate leaves the active settings unchanged and puts
+   the startup FSM into `FAULT`. The calibration is not written to flash: save it
+   with `SettingsOperations::SaveToFlash()` once the power stage is disabled.
+
+3. Prints a full summary to the Zephyr log:
    ```
    [STARTUP] HARDWARE STARTUP AID — SUMMARY
    [STARTUP]   PWM_DISABLE:               PASS
@@ -584,9 +663,6 @@ When the sequence reaches **DONE** the firmware automatically:
    [STARTUP] adc_trig_opt  = 176 ticks
    [STARTUP] NVM calibration fields updated.
    ```
-
-3. The application must then trigger an NVM flush (hardware-specific) so
-   the calibration survives the next power cycle.
 
 Individual step results can also be read back at any time via:
 
@@ -625,47 +701,57 @@ beginning.
 
 ## Getting Started
 
-### Building the Hosted Tests
+### Building Firmware (Zephyr)
 
-Requirements: GCC ≥ 13, Ninja, Python ≥ 3.8, CMake 4.x (`pip install cmake`).
+Requirements: Zephyr 4.4.0 with the Zephyr SDK 1.0.1 (`arm-zephyr-eabi`),
+CMake ≥ 3.20 (Zephyr's minimum), Ninja, Python 3 with `west`.  On Windows, run the build in WSL2.
+The setup steps are in [`docs/zephyr_workflow.md`](docs/zephyr_workflow.md).
 
-```bash
-# Install CMake 4.x
-pip install cmake
-
-# Configure
-cmake -S . -B build/hosted \
-      -DENABLE_TESTS=ON \
-      -DHARDWARE_DIRECTORY="" \
-      -G Ninja \
-      -DCMAKE_BUILD_TYPE=Debug
-
-# Build
-cmake --build build/hosted --target system_test
-
-# Run
-./build/hosted/tests/system_test
-```
-
-Expected output: all tests pass.
-
-### Building Firmware (STM32)
-
-Requirements: ARM GCC toolchain (`arm-none-eabi-gcc`), Ninja, CMake 4.x,
-Python 3 with `modm` dependencies (`pip install -r requirements.txt`).
+Run these from the west workspace root, which contains `unimoc/` and `zephyr/`:
 
 ```bash
-# Battery Case Controller (STM32G473) — debug
-cmake --preset "BatteryCaseController Debug"
-cmake --build --preset "BatteryCaseController Debug"
+# Linux host simulation (native_sim)
+west build -b native_sim/native/64 unimoc/app -d unimoc/app/build/sim
 
-# Battery Case Controller — release
-cmake --preset "BatteryCaseController Release"
-cmake --build --preset "BatteryCaseController Release"
+# Battery Case Controller (STM32G473)
+west build -b bcc unimoc/app -d unimoc/app/build/bcc
+
 ```
 
-The firmware binary and `.hex` file are placed in
-`build/batterycasecontroller-{debug,release}/`.
+The BCC has not run on hardware yet.
+
+### Running the Tests
+
+All tests are ztest suites run by twister on `native_sim`; there is no hosted
+test build. `tests/lib/<library>/` covers the libraries, `tests/sim/` runs the
+application core against the simulated drive. From the west workspace root:
+
+```bash
+# All scenarios on native_sim and bcc, with clang-tidy as static analysis (as in CI)
+unimoc/scripts/twister_sca.sh
+
+# clang-format check of all C/C++ sources (--fix to apply)
+unimoc/scripts/check_format.sh
+
+# One suite without static analysis, while iterating
+west twister -T unimoc/tests/lib/motor_control -p native_sim/native/64
+```
+
+`twister_sca.sh` needs `clang-tidy` (LLVM 18) and CodeChecker
+(`pip install codechecker`) in addition to the Zephyr setup;
+`check_format.sh` needs exactly clang-format 22.1.1
+(`pip install clang-format==22.1.1`).
+
+### Generating the API Documentation
+
+Requirements: Doxygen and Graphviz (`dot`).
+
+```bash
+mkdir -p build && doxygen docs/Doxyfile
+```
+
+The generated HTML documentation is placed in `build/doxygen/html/` and
+contains only UNIMOC-owned C++ code.
 
 ---
 
@@ -675,9 +761,9 @@ Contributions are welcome!  Please:
 
 1. Fork the repository and create a feature branch.
 2. Follow the existing code style (`.clang-format` is provided).
-3. Add Google Test unit tests for new algorithm headers in `tests/`.
-4. Ensure all tests pass (`./build/hosted/tests/system_test`) before opening a
-   pull request — CI will verify automatically.
+3. Add ztest coverage for new algorithm headers in `tests/lib/`.
+4. Run `scripts/check_format.sh` and `scripts/twister_sca.sh` before opening a
+   pull request — CI runs the same two steps.
 5. Open a pull request against `main`.
 
 ---

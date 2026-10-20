@@ -1,0 +1,264 @@
+/*
+ *       __  ___   ________  _______  ______
+ *      / / / / | / /  _/  |/  / __ \/ ____/
+ *     / / / /  |/ // // /|_/ / / / / /
+ *    / /_/ / /|  // // /  / / /_/ / /___
+ *    \____/_/ |_/___/_/  /_/\____/\____/
+ *
+ *    @file hfi.hpp
+ *    @brief Unit-typed high-frequency injection observer.
+ *
+ *    SPDX-License-Identifier: GPL-3.0-or-later
+ *
+ *    This file is part of UNIMOC and is licensed under GPL-3.0-or-later.
+ *    See the repository LICENSE file for details.
+ */
+#pragma once
+
+#include <cmath>
+#include <concepts>
+#include "mechanical_observer.hpp"
+#include "nvm_settings.hpp"
+#include "rotor_system.hpp"
+#include "stator_system.hpp"
+
+/**
+ * @namespace unimoc::observer observer algorithms namespace
+ */
+namespace unimoc::observer {
+
+using namespace unit;
+
+/**
+ * @brief 4-step High-Frequency Injection (HFI) observer for IPMSM.
+ *
+ * Overview
+ * --------
+ * At low speed the back-EMF magnitude is too small for the MechanicalObserver
+ * to converge reliably.  HFI exploits the inductance saliency of an interior
+ * PMSM (L_d ≠ L_q) to extract rotor position at standstill and low speed.
+ *
+ * Injection scheme (VESC-style 4-step)
+ * -------------------------------------
+ * The injection alternates over four consecutive PWM periods.  Each step
+ * superimposes a fixed-amplitude voltage pulse @p v_inject onto the regular
+ * modulator output in the estimated rotating (d/q) frame:
+ *
+ *   Step 0:  +V_inj in estimated d-axis  →  sample Δî_dq
+ *   Step 1:  −V_inj in estimated d-axis  →  sample Δî_dq
+ *   Step 2:  +V_inj in estimated q-axis  →  sample Δî_dq
+ *   Step 3:  −V_inj in estimated q-axis  →  sample Δî_dq
+ *
+ * The caller must apply the injection voltage (returned by GetInjectionVoltage())
+ * to the modulator before each step, sample the current afterwards, and then
+ * call update() with that current sample.
+ *
+ * Angle error extraction
+ * ----------------------
+ * Due to saliency (ΔL = L_d − L_q ≠ 0) the current response to d-axis pulses
+ * leaks into the q-axis when the estimated angle has an error ε:
+ *
+ *   q-axis leak (steps 0 & 1):  Δî_q ∝ (1/L_d − 1/L_q) · sin(2ε)
+ *   d-axis leak (steps 2 & 3):  Δî_d ∝ (1/L_d − 1/L_q) · sin(2ε)  (opposite sign)
+ *
+ * The combined error signal is:
+ *
+ *   err = Δî_q(0) − Δî_q(1)
+ *       − (Δî_d(2) − Δî_d(3))
+ *
+ * which is proportional to sin(2ε).  This signal is fed to
+ * MechanicalObserver::InjectAngleError() after scaling, so that both the
+ * HFI and the back-EMF observer share the same PLL.
+ *
+ * Note: HFI has an inherent 180° pole ambiguity because sin(2ε) = sin(2(ε+π)).
+ *       An initial polarity test (brief d-axis current pulse at startup) is
+ *       required to resolve it.
+ *
+ * @tparam T  Floating-point type (float by default).
+ */
+template <std::floating_point T = float>
+struct Hfi {
+  // -------------------------------------------------------------------------
+  // Configuration
+  // -------------------------------------------------------------------------
+
+  /// HFI injection voltage [V] (referred to V_dc; typically 5–20 % of Vdc).
+  unit::Voltage v_inject;
+
+  /**
+   * @brief Gain that maps the measured current error to the PLL angle injection [rad/A].
+   *
+   * Tune so that the PLL bandwidth is in the desired range.  A higher value
+   * gives faster convergence but more sensitivity to noise.
+   */
+  unit::AnglePerCurrent error_gain{1.0_rad_per_A};
+
+  // -------------------------------------------------------------------------
+  // State
+  // -------------------------------------------------------------------------
+
+  /// Current injection step (0–3).
+  int step{0};
+
+  // Stored d/q current samples from each injection step
+  unit::Current i_d_step0;
+  unit::Current i_q_step0;
+  unit::Current i_d_step1;
+  unit::Current i_q_step1;
+  unit::Current i_d_step2;
+  unit::Current i_q_step2;
+  unit::Current i_d_step3;
+  unit::Current i_q_step3;
+
+  /**
+   * @brief Load HFI parameters from NVM settings.
+   *
+   * This also clears the four-step sample state.
+   *
+   * @param settings Validated NVM settings.
+   */
+  constexpr void Init(const settings::NvmSettings& settings) noexcept {
+    v_inject = settings.hfi_v_inject;
+    error_gain = settings.hfi_error_gain;
+    Reset();
+  }
+
+  /**
+   * @brief Return the injection voltage to add to the modulator input this step.
+   *
+   * The returned vector is in the stationary α/β frame.  It must be added to
+   * the regular voltage reference before passing to the SVM modulator.
+   *
+   * Call this *before* the PWM period starts (before the current is sampled).
+   *
+   * @param sin_th  sin(θ̂) from MechanicalObserver.
+   * @param cos_th  cos(θ̂) from MechanicalObserver.
+   * @return        Injection voltage in the α/β frame [V].
+   */
+  [[nodiscard]] constexpr system::Stator<unit::Voltage> GetInjectionVoltage(
+      const unit::Ratio sin_th, const unit::Ratio cos_th) const noexcept {
+    return GetInjectionVoltage(step, sin_th, cos_th);
+  }
+
+  /**
+   * @brief Return the injection voltage of an explicit injection step.
+   *
+   * Used when the voltages of all four steps are planned at once (one
+   * control cycle covers the four PWM half periods of one injection period).
+   *
+   * @param injection_step  Injection step (0–3); other values give zero.
+   * @param sin_th  sin(θ̂) for the half period the step is applied in.
+   * @param cos_th  cos(θ̂) for the half period the step is applied in.
+   * @return        Injection voltage in the α/β frame [V].
+   */
+  [[nodiscard]] constexpr system::Stator<unit::Voltage> GetInjectionVoltage(
+      const int injection_step, const unit::Ratio sin_th, const unit::Ratio cos_th) const noexcept {
+    // d-axis unit vector in α/β: [cos θ̂, sin θ̂]
+    // q-axis unit vector in α/β: [−sin θ̂, cos θ̂]
+
+    unit::Voltage v_d{};
+    unit::Voltage v_q{};
+
+    switch (injection_step) {
+      case 0:
+        v_d = +v_inject;
+        break;  // +Vd
+      case 1:
+        v_d = -v_inject;
+        break;  // −Vd
+      case 2:
+        v_q = +v_inject;
+        break;  // +Vq
+      case 3:
+        v_q = -v_inject;
+        break;  // −Vq
+      default:
+        break;
+    }
+
+    // Inverse Park: dq → α/β
+    // v_α = v_d·cos θ̂ − v_q·sin θ̂
+    // v_β = v_d·sin θ̂ + v_q·cos θ̂
+    return system::Stator<unit::Voltage>{
+        v_d.Value() * cos_th.Value() - v_q.Value() * sin_th.Value(),
+        v_d.Value() * sin_th.Value() + v_q.Value() * cos_th.Value(),
+    };
+  }
+
+  /**
+   * @brief Record the current sample for the active step and advance state.
+   *
+   * Call this *after* the current has been sampled at the end of the PWM
+   * period during which the injection was applied.
+   *
+   * When a full 4-step cycle is complete (after step 3) the angle error is
+   * extracted and injected into @p mech_obs via InjectAngleError().
+   *
+   * @param i_ab    Measured stator current in the α/β frame [A].
+   * @param sin_th  sin(θ̂) from MechanicalObserver.
+   * @param cos_th  cos(θ̂) from MechanicalObserver.
+   * @param dt      Control period [s].
+   * @param mech_obs  Reference to the mechanical observer that owns the PLL.
+   */
+  constexpr void Update(const system::Stator<unit::Current>& i_ab,
+                        const unit::Ratio sin_th,
+                        const unit::Ratio cos_th,
+                        const unit::Time dt,
+                        MechanicalObserver<T>& mech_obs) noexcept {
+    // Park transform: α/β → estimated d/q
+    // i_d =  i_α·cos θ̂ + i_β·sin θ̂
+    // i_q = −i_α·sin θ̂ + i_β·cos θ̂
+    const T kID = i_ab.alpha.Value() * cos_th.Value() + i_ab.beta.Value() * sin_th.Value();
+    const T kIQ = -i_ab.alpha.Value() * sin_th.Value() + i_ab.beta.Value() * cos_th.Value();
+
+    switch (step) {
+      case 0:
+        i_d_step0 = unit::Current{kID};
+        i_q_step0 = unit::Current{kIQ};
+        break;
+      case 1:
+        i_d_step1 = unit::Current{kID};
+        i_q_step1 = unit::Current{kIQ};
+        break;
+      case 2:
+        i_d_step2 = unit::Current{kID};
+        i_q_step2 = unit::Current{kIQ};
+        break;
+      case 3: {
+        i_d_step3 = unit::Current{kID};
+        i_q_step3 = unit::Current{kIQ};
+
+        // --- Angle error extraction ---
+        //
+        // Δî_q from d-axis injection: proportional to sin(2ε)
+        const T kDeltaIqD = i_q_step0.Value() - i_q_step1.Value();
+
+        // Δî_d from q-axis injection: proportional to −sin(2ε)
+        const T kDeltaIdQ = i_d_step2.Value() - i_d_step3.Value();
+
+        // Combined error: adds both estimates, doubling SNR
+        const T kRawError = kDeltaIqD - kDeltaIdQ;
+
+        // Feed scaled error into the shared PLL of the mechanical observer
+        mech_obs.InjectAngleError(unit::Angle{kRawError * error_gain.Value()}, dt);
+        break;
+      }
+      default:
+        break;
+    }
+
+    // Advance to the next step (wraps 3→0)
+    step = (step + 1) & 3;
+  }
+
+  /// Reset HFI state (call on mode transitions or fault recovery).
+  constexpr void Reset() noexcept {
+    step = 0;
+    i_d_step0 = i_q_step0 = unit::Current{};
+    i_d_step1 = i_q_step1 = unit::Current{};
+    i_d_step2 = i_q_step2 = unit::Current{};
+    i_d_step3 = i_q_step3 = unit::Current{};
+  }
+};
+
+}  // namespace unimoc::observer

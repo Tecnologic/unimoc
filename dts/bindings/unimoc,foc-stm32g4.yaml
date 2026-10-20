@@ -1,0 +1,59 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+description: |
+  UNIMOC three-phase FOC power stage on an STM32G4.
+
+  One PWM timer drives the half bridges. An output compare channel of the
+  same timer triggers the injected conversions of the listed ADCs. All pins
+  are listed in pinctrl-0, all ADC channels in io-channels.
+
+compatible: "unimoc,foc-stm32g4"
+
+include: [base.yaml, pinctrl-device.yaml]
+
+properties:
+  timer:
+    type: phandle
+    required: true
+    description: |
+      PWM timer (st,stm32-timers). Its update interrupt and compare registers
+      are used directly by the hardware layer.
+
+  dead-time-ns:
+    type: int
+    required: true
+    description: |
+      Dead time between the high side and the low side gate signal of each
+      half bridge, in nanoseconds. It must cover the turn-off time of the
+      MOSFET through its gate resistor plus the delay mismatch of the gate
+      driver. The hardware layer rounds it up to the next step the timer can
+      generate (6 ns at 170 MHz up to 747 ns, coarser above).
+
+  io-channels:
+    type: phandle-array
+    required: true
+    description: |
+      Injected ADC channels in sequence order, two per ADC.
+
+  io-channel-names:
+    type: string-array
+    required: true
+    description: Signal name of each entry in io-channels.
+
+  sample-times:
+    type: string-array
+    required: true
+    description: |
+      Sampling time in ADC clock cycles of each entry in io-channels, same
+      order. Choose per source impedance: the INA240 current channels settle
+      fast and can use short times, resistive dividers and NTCs need longer
+      ones. The sum of both ranks sets the length of the injected sequence.
+    enum:
+      - "2.5"
+      - "6.5"
+      - "12.5"
+      - "24.5"
+      - "47.5"
+      - "92.5"
+      - "247.5"
+      - "640.5"

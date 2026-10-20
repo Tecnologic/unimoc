@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+identifier: bcc
+name: UNIMOC Battery Case Controller
+type: mcu
+arch: arm
+toolchain:
+  - zephyr
+  - gnuarmemb
+ram: 128
+flash: 128
+supported:
+  - gpio

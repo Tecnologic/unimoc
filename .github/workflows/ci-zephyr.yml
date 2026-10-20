@@ -1,0 +1,49 @@
+name: Zephyr
+on:
+  push:
+    branches: [main, develop, "copilot/**", "claude/**"]
+  pull_request:
+    branches: [main, develop, "copilot/**"]
+concurrency:
+  group: zephyr-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  twister:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # west workspace layout: <workspace>/unimoc (this repository, the
+          # manifest) next to <workspace>/zephyr and <workspace>/modules.
+          path: unimoc
+          submodules: recursive
+
+      - name: Set up the west workspace, Zephyr SDK and Python requirements
+        uses: zephyrproject-rtos/action-zephyr-setup@v1
+        with:
+          app-path: unimoc
+          toolchains: arm-zephyr-eabi
+
+      # After the Zephyr setup: its requirements pull an unpinned clang-format
+      # from pip, which would otherwise come first on PATH.
+      - name: Install clang-format (pinned), clang-tidy and CodeChecker
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-tidy
+          pip install clang-format==22.1.1 codechecker
+          clang-format --version
+
+      - name: clang-format
+        run: unimoc/scripts/check_format.sh
+
+      - name: Twister with clang-tidy (native_sim, bcc)
+        run: unimoc/scripts/twister_sca.sh
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: twister-out
+          path: |
+            twister-out/twister.json
+            twister-out/twister_report.xml
+            twister-out/**/sca/codechecker/

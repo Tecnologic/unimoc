@@ -1,0 +1,22 @@
+# Doxygen configuration of UNIMOC. Run from the repository root:
+#   doxygen docs/Doxyfile
+# Output: build/doxygen/html (git-ignored; doxygen creates build/doxygen,
+# but not build/: run "mkdir -p build" first).
+PROJECT_NAME           = UNIMOC
+PROJECT_BRIEF          = "Universal motor control on Zephyr"
+OUTPUT_DIRECTORY       = build/doxygen
+INPUT                  = README.md docs lib/units lib/motor_control/src lib/settings lib/cyphal lib/sim/src src hardware
+USE_MDFILE_AS_MAINPAGE = README.md
+RECURSIVE              = YES
+FILE_PATTERNS          = *.hpp *.cpp *.h *.md
+EXCLUDE_PATTERNS       = */cymon/* */build/* */batterycasecontroller/*
+EXTRACT_ALL            = YES
+EXTRACT_STATIC         = YES
+EXTRACT_ANON_NSPACES   = YES
+GENERATE_LATEX         = NO
+HAVE_DOT               = YES
+CALL_GRAPH             = YES
+CALLER_GRAPH           = YES
+QUIET                  = YES
+WARN_IF_UNDOCUMENTED   = NO
+DOT_GRAPH_MAX_NODES    = 100

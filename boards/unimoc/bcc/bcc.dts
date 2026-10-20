@@ -1,0 +1,203 @@
+/*
+ * UNIMOC Battery Case Controller (BCC), STM32G473CBT6.
+ *
+ * Pin assignment taken from the KiCad netlist of Tecnologic/battery-case-controller.
+ * Note: the schematic symbol U43 is an STM32G491CxT, but CAN on PB3/PB4 is FDCAN3
+ * and the ADC4/ADC5 inputs only exist on the G473/G474 family.
+ *
+ * Pin and peripheral assignment of the FOC power stage lives in the foc0
+ * node below. The hardware layer (hardware/zephyr_bcc) derives timers, ADCs,
+ * pins and interrupts from it; nothing is hard-coded in C++.
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
+/dts-v1/;
+#include <st/g4/stm32g473Xb.dtsi>
+#include <st/g4/stm32g473c(b-c-e)tx-pinctrl.dtsi>
+
+/ {
+	model = "UNIMOC Battery Case Controller";
+	compatible = "unimoc,bcc";
+
+	chosen {
+		zephyr,sram = &sram0;
+		zephyr,flash = &flash0;
+		zephyr,code-partition = &slot0_partition;
+	};
+
+	/* Status LEDs, anode at the MCU pin through 470 R, cathode at GND. */
+	leds {
+		compatible = "gpio-leds";
+		led_run: led-run {
+			gpios = <&gpioa 3 GPIO_ACTIVE_HIGH>;
+			label = "RUN";
+		};
+		led_error: led-error {
+			gpios = <&gpioa 4 GPIO_ACTIVE_HIGH>;
+			label = "ERROR";
+		};
+		led_pwm: led-pwm {
+			gpios = <&gpioa 15 GPIO_ACTIVE_HIGH>;
+			label = "PWM";
+		};
+	};
+
+	/*
+	 * Further board signals. Names are the net names of the schematic.
+	 * The hardware layer does not use them yet.
+	 */
+	zephyr,user {
+		/* SN65HVD230 Rs pin (net CAN_SLP): low = high speed, high = standby. */
+		can-slope-gpios = <&gpiob 7 GPIO_ACTIVE_HIGH>;
+		/* Enable input (opto) on the net PWM_BREAK; PA10 is also TIM8_BKIN. */
+		break-gpios = <&gpioa 10 GPIO_ACTIVE_HIGH>, <&gpiob 11 GPIO_ACTIVE_HIGH>;
+		/* Hall sensors A, B, C (RC filtered, 3k3 / 2n2). */
+		hall-gpios = <&gpioc 13 GPIO_ACTIVE_HIGH>,
+			     <&gpioc 14 GPIO_ACTIVE_HIGH>,
+			     <&gpioc 15 GPIO_ACTIVE_HIGH>;
+		/* Pulse inputs: PULSE_CRK (crank), PULSE_MOT (motor aux). */
+		pulse-gpios = <&gpioa 5 GPIO_ACTIVE_HIGH>, <&gpiob 2 GPIO_ACTIVE_HIGH>;
+	};
+
+	/*
+	 * Three-phase power stage.
+	 *
+	 * TIM8 generates centre-aligned PWM on CH1..CH3 (+ complementary
+	 * outputs). TRGO2 (rising OC4REF / rising OC6REF) starts the injected
+	 * conversion of ADC1..ADC5 (JEXTSEL 10) a lead before the peak (CC4) and
+	 * before the valley (CC6), i.e. centered on the 5 %/95 % duty-limit
+	 * window. The end of the ADC1 injected sequence anchors the fast current
+	 * control (zero-latency IRQ, once per half period). The TIM8 update event
+	 * with RCR = 3 is the second zero-latency IRQ (slow update, every 4th).
+	 *
+	 * The ADC nodes stay disabled on purpose: the Zephyr ADC driver would
+	 * claim the peripherals. Their registers, clocks and IRQ numbers are
+	 * still read from the nodes by the driver in hardware/zephyr_bcc.
+	 */
+	foc0: foc-power-stage {
+		compatible = "unimoc,foc-stm32g4";
+		status = "okay";
+
+		timer = <&timers8>;
+
+		/*
+		 * BSC040N08 with 22 R gate resistors (tau about 100 ns): turn-off
+		 * about 250 ns, plus reserve. Estimate, to be tuned on the scope.
+		 */
+		dead-time-ns = <400>;
+
+		/* Gate driver outputs: high side CHx, low side CHxN. */
+		pinctrl-0 = <&tim8_ch1_pb6 &tim8_ch1n_pa7
+			     &tim8_ch2_pb8 &tim8_ch2n_pb0
+			     &tim8_ch3_pb9 &tim8_ch3n_pb5
+			     &tim8_bkin_pa10
+			     &analog_pa0 &analog_pa2
+			     &analog_pa1 &analog_pa6
+			     &analog_pb1 &analog_pb13
+			     &analog_pb12 &analog_pb14
+			     &analog_pa8 &analog_pa9>;
+		pinctrl-names = "default";
+
+		/*
+		 * Injected conversion sequence of every ADC: first the current
+		 * channel, then the second channel of the same ADC.
+		 */
+		io-channels = <&adc1 1>, <&adc1 3>,   /* PA0 ia,  PA2 va   */
+			      <&adc2 2>, <&adc2 3>,   /* PA1 ib,  PA6 vb   */
+			      <&adc3 1>, <&adc3 5>,   /* PB1 ic,  PB13 vc  */
+			      <&adc4 3>, <&adc4 4>,   /* PB12 vdc, PB14 crank torque */
+			      <&adc5 1>, <&adc5 2>;   /* PA8 motor temp, PA9 bridge temp */
+		io-channel-names = "ia", "va",
+				   "ib", "vb",
+				   "ic", "vc",
+				   "vdc", "crank-torque",
+				   "motor-temperature", "bridge-temperature";
+
+		/*
+		 * ADC clock cycles per channel, same order. Phase currents come
+		 * from INA240 amplifiers (low output impedance): short. Dividers
+		 * and the NTCs keep the longer time carried over from the
+		 * previous firmware.
+		 */
+		sample-times = "2.5",  "24.5",   /* ia (INA240),  va  */
+			       "2.5",  "24.5",   /* ib (INA240),  vb  */
+			       "2.5",  "24.5",   /* ic (INA240),  vc  */
+			       "24.5", "24.5",   /* vdc, crank torque */
+			       "24.5", "24.5";   /* motor temp, bridge temp */
+	};
+};
+
+/*
+ * Break input = external enable (net PWM_BREAK). The Enable connector ties it
+ * to 3V3 through 1k when bridged; open it floats, so pull it down: no jumper,
+ * no release.
+ */
+&tim8_bkin_pa10 {
+	bias-pull-down;
+};
+
+&clk_hse {
+	/* 8 MHz crystal X31 with 15 pF load capacitors (no bypass). */
+	clock-frequency = <DT_FREQ_M(8)>;
+	status = "okay";
+};
+
+&pll {
+	/* 8 MHz / 2 * 85 / 2 = 170 MHz */
+	div-m = <2>;
+	mul-n = <85>;
+	div-r = <2>;
+	clocks = <&clk_hse>;
+	status = "okay";
+};
+
+&rcc {
+	clocks = <&pll>;
+	clock-frequency = <DT_FREQ_M(170)>;
+	ahb-prescaler = <1>;
+	apb1-prescaler = <1>;
+	apb2-prescaler = <1>;
+};
+
+/* Used by the foc0 driver: enables the timer and its IRQ vectors (NUM_IRQS). */
+&timers8 {
+	status = "okay";
+};
+
+/*
+ * CAN: SN65HVD230 on FDCAN3 (PB3 RX, PB4 TX). That transceiver is a classic
+ * CAN part (up to 1 Mbit/s), not a CAN FD transceiver. The controller is
+ * enabled in the CAN step; it needs a PLLQ based FDCAN clock first.
+ */
+&fdcan3 {
+	pinctrl-0 = <&fdcan3_rx_pb3 &fdcan3_tx_pb4>;
+	pinctrl-names = "default";
+	status = "disabled";
+};
+
+/* USB full speed on PA11/PA12 (debug connector J42). Enabled in the USB step. */
+&usb {
+	pinctrl-0 = <&usb_dm_pa11 &usb_dp_pa12>;
+	pinctrl-names = "default";
+	status = "disabled";
+};
+
+&flash0 {
+	partitions {
+		compatible = "fixed-partitions";
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		slot0_partition: partition@0 {
+			label = "image-0";
+			reg = <0x00000000 DT_SIZE_K(120)>;
+		};
+
+		/* Settings: one ZMS entry per register that differs from the factory profile. */
+		storage_partition: partition@1e000 {
+			label = "storage";
+			reg = <0x0001e000 DT_SIZE_K(16)>;
+		};
+	};
+};
