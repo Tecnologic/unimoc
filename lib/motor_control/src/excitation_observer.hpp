@@ -100,11 +100,11 @@ struct ExcitationObserver {
    *                  ExcitationController::i_f_ref as an open-loop estimate.
    * @param dt        Control period [s].
    */
-  constexpr void update(const unit::Current i_f_meas, const unit::Time dt) noexcept {
+  constexpr void Update(const unit::Current i_f_meas, const unit::Time dt) noexcept {
     // First-order low-pass: i_f_hat += (dt / tau) * (i_f_meas - i_f_hat)
     if (tau.Value() > 1.0e-12F) {
-      const T alpha = dt.Value() / tau.Value();
-      i_f_hat = unit::Current{i_f_hat.Value() + alpha * (i_f_meas.Value() - i_f_hat.Value())};
+      const T kAlpha = dt.Value() / tau.Value();
+      i_f_hat = unit::Current{i_f_hat.Value() + kAlpha * (i_f_meas.Value() - i_f_hat.Value())};
     } else {
       // Zero time constant — pass through immediately
       i_f_hat = i_f_meas;
@@ -120,7 +120,7 @@ struct ExcitationObserver {
    *
    * @param i_f_init  Optional initial current estimate [A] (default 0).
    */
-  constexpr void reset(const unit::Current i_f_init = unit::Current{}) noexcept {
+  constexpr void Reset(const unit::Current i_f_init = unit::Current{}) noexcept {
     i_f_hat = i_f_init;
     psi_f_hat = L_m * i_f_hat;
   }

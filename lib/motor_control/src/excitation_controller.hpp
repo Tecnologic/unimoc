@@ -39,13 +39,13 @@ using namespace unit;
 enum class ExcitationMode : unsigned char {
   /// Regulate rotor excitation current I_f [A] directly.
   /// The setpoint is interpreted as a current reference in amperes.
-  CurrentMode,
+  kCurrentMode,
 
   /// Regulate effective rotor flux linkage ψ_f = L_m · I_f [Wb].
   /// The setpoint is interpreted as a flux reference in weber.
   /// The controller internally converts the flux setpoint to a current
   /// setpoint via  I_f* = ψ_f* / L_m  before running the PI loop.
-  FluxMode,
+  kFluxMode,
 };
 
 /**
@@ -81,7 +81,7 @@ struct ExcitationController {
   // -------------------------------------------------------------------------
 
   /// Active control mode (CurrentMode or FluxMode).
-  ExcitationMode mode{ExcitationMode::CurrentMode};
+  ExcitationMode mode{ExcitationMode::kCurrentMode};
 
   /// Mutual (magnetising) inductance L_m [H].
   /// Used only in FluxMode to convert a flux setpoint to a current setpoint.
@@ -153,28 +153,28 @@ struct ExcitationController {
    * @param dt        Control period [s].
    * @return          Updated rotor excitation current reference i_f* [A].
    */
-  constexpr unit::Current update(const unit::Current i_f_meas, const unit::Time dt) noexcept {
+  constexpr unit::Current Update(const unit::Current i_f_meas, const unit::Time dt) noexcept {
     // Convert setpoint to a current reference depending on the active mode.
     T i_f_setpoint;
-    if (mode == ExcitationMode::FluxMode && L_m.Value() > 1.0e-9F) {
+    if (mode == ExcitationMode::kFluxMode && L_m.Value() > 1.0e-9F) {
       i_f_setpoint = flux_setpoint.Value() / L_m.Value();
     } else {
       i_f_setpoint = current_setpoint.Value();
     }
 
     // PI loop
-    const T error = i_f_setpoint - i_f_meas.Value();
+    const T kError = i_f_setpoint - i_f_meas.Value();
 
-    integrator = unit::Current{integrator.Value() + ki.Value() * error * dt.Value()}.Clamp(i_f_min.Value(),
-                                                                                           i_f_max.Value());
+    integrator = unit::Current{integrator.Value() + ki.Value() * kError * dt.Value()}.Clamp(i_f_min.Value(),
+                                                                                            i_f_max.Value());
 
-    i_f_ref = unit::Current{kp.Value() * error + integrator.Value()}.Clamp(i_f_min.Value(), i_f_max.Value());
+    i_f_ref = unit::Current{kp.Value() * kError + integrator.Value()}.Clamp(i_f_min.Value(), i_f_max.Value());
 
     return i_f_ref;
   }
 
   /// Reset controller state (call on enable or fault recovery).
-  constexpr void reset() noexcept {
+  constexpr void Reset() noexcept {
     integrator = unit::Current{};
     i_f_ref = unit::Current{};
   }

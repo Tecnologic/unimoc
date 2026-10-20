@@ -52,17 +52,17 @@ struct PositionTracker {
    * Call once per control cycle before the position controller update. A zero
    * pole-pair count is ignored and leaves the last calculated position intact.
    *
-   * @param kElectricalAngle Source angle; its phase and revolution count are
+   * @param electrical_angle Source angle; its phase and revolution count are
    *                         never modified by this adapter.
-   * @param kPolePairs       Positive number of electrical revolutions per
+   * @param pole_pairs       Positive number of electrical revolutions per
    *                         mechanical revolution.
    */
-  constexpr void Update(const system::RotorAngle& kElectricalAngle, const std::uint8_t kPolePairs) noexcept {
-    if (kPolePairs == 0) {
+  constexpr void Update(const system::RotorAngle& electrical_angle, const std::uint8_t pole_pairs) noexcept {
+    if (pole_pairs == 0) {
       return;
     }
 
-    raw_position_rad_ = kElectricalAngle.AbsoluteAngle() / static_cast<float>(kPolePairs);
+    raw_position_rad_ = electrical_angle.AbsoluteAngle() / static_cast<float>(pole_pairs);
     UpdatePosition();
   }
 

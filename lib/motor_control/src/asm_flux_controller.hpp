@@ -126,25 +126,25 @@ struct AsmFluxController {
    * @param dt            Control period [s].
    * @return              d-axis current reference i_d* [A].
    */
-  constexpr unit::Current update(const unit::MagneticFlux psi_r_ref,
+  constexpr unit::Current Update(const unit::MagneticFlux psi_r_ref,
                                  const unit::MagneticFlux psi_r_meas,
                                  const unit::Current i_q,
                                  const unit::Time dt) noexcept {
     // --- PI flux controller ---
-    const unit::MagneticFlux error = psi_r_ref - psi_r_meas;
+    const unit::MagneticFlux kError = psi_r_ref - psi_r_meas;
 
-    integrator = (integrator + ki * error * dt).Clamp(i_d_min, i_d_max);
+    integrator = (integrator + ki * kError * dt).Clamp(i_d_min, i_d_max);
 
-    i_d_ref = (kp * error + integrator).Clamp(i_d_min, i_d_max);
+    i_d_ref = (kp * kError + integrator).Clamp(i_d_min, i_d_max);
 
     // --- Slip frequency feedforward ---
     // ω_slip = (1/T_r) · (L_m · i_q / ψ_r*)
     // Use the flux reference in the denominator to avoid division by
     // a near-zero measured flux during start-up.
     if (psi_r_ref > unit::MagneticFlux{1.0_uWb}) {
-      const unit::Time rotor_time_constant = L_r / R_r;
-      const unit::Ratio slip_ratio = L_m * i_q / psi_r_ref;
-      omega_slip = (slip_ratio * unit::Angle{1.0F}) / rotor_time_constant;
+      const unit::Time kRotorTimeConstant = L_r / R_r;
+      const unit::Ratio kSlipRatio = L_m * i_q / psi_r_ref;
+      omega_slip = (kSlipRatio * unit::Angle{1.0F}) / kRotorTimeConstant;
     } else {
       omega_slip = unit::AngularVelocity{};
     }
@@ -153,7 +153,7 @@ struct AsmFluxController {
   }
 
   /// Reset controller state (call on enable or fault recovery).
-  constexpr void reset() noexcept {
+  constexpr void Reset() noexcept {
     integrator = unit::Current{};
     i_d_ref = unit::Current{};
     omega_slip = unit::AngularVelocity{};

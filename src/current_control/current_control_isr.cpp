@@ -48,8 +48,8 @@ void CurrentControlIsr::Init(const settings::NvmSettings& settings,
   state.dt_slow = static_cast<float>(kNumSubSteps) * state.dt_fast;
   state.adc_trigger_offset = static_cast<uint32_t>(std::roundf(1e-6F * static_cast<float>(timer_clock_hz)));
 
-  hfi.init(settings);
-  dtc.init(settings);
+  hfi.Init(settings);
+  dtc.Init(settings);
   svm.Init(settings);
 
   // --- Current controller parameters ---
@@ -63,7 +63,7 @@ void CurrentControlIsr::Init(const settings::NvmSettings& settings,
   cc.v_max = settings.current_v_max;
 
   // --- Mechanical observer parameters ---
-  mech_obs.init(settings);
+  mech_obs.Init(settings);
 
   // --- Pre-fill both double-buffer halves with zero-angle sin/cos ---
   for (auto& buf : state.double_buf.buf) {
@@ -75,8 +75,8 @@ void CurrentControlIsr::Init(const settings::NvmSettings& settings,
   state.double_buf.active.store(0U, std::memory_order_release);
 
   // --- Reset algorithm state ---
-  cc.reset();
-  hfi.reset();
+  cc.Reset();
+  hfi.Reset();
   // The observer feeds sample 0 of a cycle first; it answers the last
   // injection step of the previous plan (docs/hotpath_plan.md, section 4).
   hfi.step = kNumSubSteps - 1;
@@ -181,7 +181,7 @@ void CurrentControlIsr::OnControlCycle() noexcept {
   // -------------------------------------------------------------------------
   // 4. Current PI with decoupling feedforward, once per cycle.
   // -------------------------------------------------------------------------
-  const system::Rotor<unit::Voltage> kVoltageDq = cc.update(state.i_ref,
+  const system::Rotor<unit::Voltage> kVoltageDq = cc.Update(state.i_ref,
                                                             i_dq_mean,
                                                             mech_obs.omega,
                                                             unit::Time{state.dt_slow},
@@ -194,14 +194,14 @@ void CurrentControlIsr::OnControlCycle() noexcept {
   //    entry, HFI step k, dead-time compensation from the newest current, SVM.
   //    One reciprocal of V_dc for all entries (M2).
   // -------------------------------------------------------------------------
-  const system::Stator<unit::Ratio> kDtcRatio = dtc.calculate(buffer.i_ab_samples[kNumSubSteps - 1U]);
+  const system::Stator<unit::Ratio> kDtcRatio = dtc.Calculate(buffer.i_ab_samples[kNumSubSteps - 1U]);
   const float kInverseVDc = control::Svm::InverseDcLinkVoltage(kSamples.dc_link);
   hardware::DutyPlan plan{};
   for (uint8_t k = 0U; k < kNumSubSteps; ++k) {
     const system::SinCos<unit::Ratio>& sc_out = buffer.sc_out[k];
     system::Stator<unit::Voltage> u_ab = kVoltageDq.ToStator(sc_out);
     if (hfi_active) {
-      u_ab = u_ab + hfi.get_injection_voltage(static_cast<int>(k), sc_out.sin, sc_out.cos);
+      u_ab = u_ab + hfi.GetInjectionVoltage(static_cast<int>(k), sc_out.sin, sc_out.cos);
     }
     plan.duties[k] = svm.CalculateWithInverseDcLinkVoltage(u_ab, kInverseVDc, kDtcRatio);
   }
@@ -235,7 +235,7 @@ void CurrentControlIsr::ForceDuty(float da, float db, float dc) noexcept {
 
 void CurrentControlIsr::ReleaseForceDuty() noexcept {
   force_duty_active = false;
-  cc.reset();  // clear integrators before resuming closed-loop control
+  cc.Reset();  // clear integrators before resuming closed-loop control
 }
 
 // =============================================================================

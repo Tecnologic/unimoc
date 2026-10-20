@@ -178,7 +178,7 @@ struct MechanicalObserver {
    *
    * @param settings Validated NVM settings.
    */
-  constexpr void init(const settings::NvmSettings& settings) noexcept {
+  constexpr void Init(const settings::NvmSettings& settings) noexcept {
     psi = settings.flux_pm;
     L_d = settings.l_d;
     L_q = settings.l_q;
@@ -187,7 +187,7 @@ struct MechanicalObserver {
     omega_min = settings.motor_omega_min;
     Q = settings.mech_obs_q;
     R = settings.mech_obs_r;
-    reset();
+    Reset();
   }
 
   /**
@@ -202,8 +202,8 @@ struct MechanicalObserver {
    * @param i_dq  Measured rotor-frame d/q stator current [A].
    * @param dt    Control period.
    */
-  constexpr void predict(const system::Rotor<unit::Current>& i_dq, const unit::Time dt) noexcept {
-    const T tsj = dt.Value() / J.Value();
+  constexpr void Predict(const system::Rotor<unit::Current>& i_dq, const unit::Time dt) noexcept {
+    const T kTsj = dt.Value() / J.Value();
 
     // Electric torque: T_e = (3/2) · [ψ_PM · i_q + (L_d − L_q) · i_d · i_q]
     m_el =
@@ -211,7 +211,7 @@ struct MechanicalObserver {
                                             (L_d.Value() - L_q.Value()) * i_dq.d.Value() * i_dq.q.Value())};
 
     // Integrate angular velocity
-    omega += unit::AngularVelocity{tsj * (m_el.Value() - m_l.Value())};
+    omega += unit::AngularVelocity{kTsj * (m_el.Value() - m_l.Value())};
 
     // Clamp to hardware speed limits
     if (omega > omega_max)
@@ -224,7 +224,7 @@ struct MechanicalObserver {
 
     // Integrate angle
     theta += unit::Angle{omega.Value() * dt.Value()};
-    wrap_angle(theta);
+    WrapAngle(theta);
 
     sin_theta = unit::Ratio{std::sin(theta.Value())};
     cos_theta = unit::Ratio{std::cos(theta.Value())};
@@ -244,9 +244,9 @@ struct MechanicalObserver {
    * @param angle_error  Innovation ε = θ_measured − θ̂.
    * @param dt           Control period.
    */
-  constexpr void inject_angle_error(const unit::Angle angle_error, const unit::Time dt) noexcept {
-    const T tsj = dt.Value() / J.Value();
-    const T angle_error_value = angle_error.Value();
+  constexpr void InjectAngleError(const unit::Angle angle_error, const unit::Time dt) noexcept {
+    const T kTsj = dt.Value() / J.Value();
+    const T kAngleErrorValue = angle_error.Value();
 
     // -----------------------------------------------------------------
     // Covariance prediction  P_k = F·P·Fᵀ + Q·I
@@ -257,13 +257,13 @@ struct MechanicalObserver {
     //       | 0    0    1   |
     // -----------------------------------------------------------------
 
-    pk[0][2] = p[0][2] - p[2][2] * tsj;
+    pk[0][2] = p[0][2] - p[2][2] * kTsj;
 
-    pk[0][0] = p[0][0] + Q - p[2][0] * tsj - pk[0][2] * tsj;
-    pk[1][0] = p[1][0] + p[0][0] * dt.Value() - tsj * (p[1][2] + p[0][2] * dt.Value());
-    pk[2][0] = p[2][0] - tsj * p[2][2];
+    pk[0][0] = p[0][0] + Q - p[2][0] * kTsj - pk[0][2] * kTsj;
+    pk[1][0] = p[1][0] + p[0][0] * dt.Value() - kTsj * (p[1][2] + p[0][2] * dt.Value());
+    pk[2][0] = p[2][0] - kTsj * p[2][2];
 
-    pk[0][1] = p[0][1] + dt.Value() * (p[0][0] - tsj * p[2][0]) - tsj * p[2][1];
+    pk[0][1] = p[0][1] + dt.Value() * (p[0][0] - kTsj * p[2][0]) - kTsj * p[2][1];
     pk[1][1] = p[1][1] + Q + p[0][1] * dt.Value() + dt.Value() * (p[1][0] + p[0][0] * dt.Value());
     pk[2][1] = p[2][1] + p[2][0] * dt.Value();
 
@@ -301,9 +301,9 @@ struct MechanicalObserver {
     // -----------------------------------------------------------------
     // State correction
     // -----------------------------------------------------------------
-    omega += unit::AngularVelocity{k[0] * angle_error_value};
-    theta += unit::Angle{k[1] * angle_error_value};
-    m_l += unit::Torque{k[2] * angle_error_value};
+    omega += unit::AngularVelocity{k[0] * kAngleErrorValue};
+    theta += unit::Angle{k[1] * kAngleErrorValue};
+    m_l += unit::Torque{k[2] * kAngleErrorValue};
 
     // Re-clamp after correction
     if (omega > omega_max)
@@ -313,7 +313,7 @@ struct MechanicalObserver {
 
     if (!std::isfinite(omega.Value())) omega = unit::AngularVelocity{};
 
-    wrap_angle(theta);
+    WrapAngle(theta);
 
     sin_theta = unit::Ratio{std::sin(theta.Value())};
     cos_theta = unit::Ratio{std::cos(theta.Value())};
@@ -328,7 +328,7 @@ struct MechanicalObserver {
    * @param theta_init  Initial electrical angle.
    * @param omega_init  Initial electrical angular velocity.
    */
-  constexpr void reset(const unit::Angle theta_init = unit::Angle{},
+  constexpr void Reset(const unit::Angle theta_init = unit::Angle{},
                        const unit::AngularVelocity omega_init = unit::AngularVelocity{}) noexcept {
     omega = omega_init;
     theta = theta_init;
@@ -348,13 +348,13 @@ struct MechanicalObserver {
 
  private:
   /// Wrap angle to (−π, π].
-  static constexpr void wrap_angle(unit::Angle& angle) noexcept {
-    constexpr T pi = std::numbers::pi_v<T>;
-    constexpr T two_pi = static_cast<T>(2) * pi;
+  static constexpr void WrapAngle(unit::Angle& angle) noexcept {
+    constexpr T kPi = std::numbers::pi_v<T>;
+    constexpr T kTwoPi = static_cast<T>(2) * kPi;
     T angle_value = angle.Value();
 
-    while (angle_value > pi) angle_value -= two_pi;
-    while (angle_value <= -pi) angle_value += two_pi;
+    while (angle_value > kPi) angle_value -= kTwoPi;
+    while (angle_value <= -kPi) angle_value += kTwoPi;
 
     angle = unit::Angle{angle_value};
   }

@@ -121,10 +121,10 @@ struct Hfi {
    *
    * @param settings Validated NVM settings.
    */
-  constexpr void init(const settings::NvmSettings& settings) noexcept {
+  constexpr void Init(const settings::NvmSettings& settings) noexcept {
     v_inject = settings.hfi_v_inject;
     error_gain = settings.hfi_error_gain;
-    reset();
+    Reset();
   }
 
   /**
@@ -139,9 +139,9 @@ struct Hfi {
    * @param cos_th  cos(θ̂) from MechanicalObserver.
    * @return        Injection voltage in the α/β frame [V].
    */
-  [[nodiscard]] constexpr system::Stator<unit::Voltage> get_injection_voltage(
+  [[nodiscard]] constexpr system::Stator<unit::Voltage> GetInjectionVoltage(
       const unit::Ratio sin_th, const unit::Ratio cos_th) const noexcept {
-    return get_injection_voltage(step, sin_th, cos_th);
+    return GetInjectionVoltage(step, sin_th, cos_th);
   }
 
   /**
@@ -155,7 +155,7 @@ struct Hfi {
    * @param cos_th  cos(θ̂) for the half period the step is applied in.
    * @return        Injection voltage in the α/β frame [V].
    */
-  [[nodiscard]] constexpr system::Stator<unit::Voltage> get_injection_voltage(
+  [[nodiscard]] constexpr system::Stator<unit::Voltage> GetInjectionVoltage(
       const int injection_step, const unit::Ratio sin_th, const unit::Ratio cos_th) const noexcept {
     // d-axis unit vector in α/β: [cos θ̂, sin θ̂]
     // q-axis unit vector in α/β: [−sin θ̂, cos θ̂]
@@ -204,7 +204,7 @@ struct Hfi {
    * @param dt      Control period [s].
    * @param mech_obs  Reference to the mechanical observer that owns the PLL.
    */
-  constexpr void update(const system::Stator<unit::Current>& i_ab,
+  constexpr void Update(const system::Stator<unit::Current>& i_ab,
                         const unit::Ratio sin_th,
                         const unit::Ratio cos_th,
                         const unit::Time dt,
@@ -212,39 +212,39 @@ struct Hfi {
     // Park transform: α/β → estimated d/q
     // i_d =  i_α·cos θ̂ + i_β·sin θ̂
     // i_q = −i_α·sin θ̂ + i_β·cos θ̂
-    const T i_d = i_ab.alpha.Value() * cos_th.Value() + i_ab.beta.Value() * sin_th.Value();
-    const T i_q = -i_ab.alpha.Value() * sin_th.Value() + i_ab.beta.Value() * cos_th.Value();
+    const T kID = i_ab.alpha.Value() * cos_th.Value() + i_ab.beta.Value() * sin_th.Value();
+    const T kIQ = -i_ab.alpha.Value() * sin_th.Value() + i_ab.beta.Value() * cos_th.Value();
 
     switch (step) {
       case 0:
-        i_d_step0 = unit::Current{i_d};
-        i_q_step0 = unit::Current{i_q};
+        i_d_step0 = unit::Current{kID};
+        i_q_step0 = unit::Current{kIQ};
         break;
       case 1:
-        i_d_step1 = unit::Current{i_d};
-        i_q_step1 = unit::Current{i_q};
+        i_d_step1 = unit::Current{kID};
+        i_q_step1 = unit::Current{kIQ};
         break;
       case 2:
-        i_d_step2 = unit::Current{i_d};
-        i_q_step2 = unit::Current{i_q};
+        i_d_step2 = unit::Current{kID};
+        i_q_step2 = unit::Current{kIQ};
         break;
       case 3: {
-        i_d_step3 = unit::Current{i_d};
-        i_q_step3 = unit::Current{i_q};
+        i_d_step3 = unit::Current{kID};
+        i_q_step3 = unit::Current{kIQ};
 
         // --- Angle error extraction ---
         //
         // Δî_q from d-axis injection: proportional to sin(2ε)
-        const T delta_iq_d = i_q_step0.Value() - i_q_step1.Value();
+        const T kDeltaIqD = i_q_step0.Value() - i_q_step1.Value();
 
         // Δî_d from q-axis injection: proportional to −sin(2ε)
-        const T delta_id_q = i_d_step2.Value() - i_d_step3.Value();
+        const T kDeltaIdQ = i_d_step2.Value() - i_d_step3.Value();
 
         // Combined error: adds both estimates, doubling SNR
-        const T raw_error = delta_iq_d - delta_id_q;
+        const T kRawError = kDeltaIqD - kDeltaIdQ;
 
         // Feed scaled error into the shared PLL of the mechanical observer
-        mech_obs.inject_angle_error(unit::Angle{raw_error * error_gain.Value()}, dt);
+        mech_obs.InjectAngleError(unit::Angle{kRawError * error_gain.Value()}, dt);
         break;
       }
       default:
@@ -256,7 +256,7 @@ struct Hfi {
   }
 
   /// Reset HFI state (call on mode transitions or fault recovery).
-  constexpr void reset() noexcept {
+  constexpr void Reset() noexcept {
     step = 0;
     i_d_step0 = i_q_step0 = unit::Current{};
     i_d_step1 = i_q_step1 = unit::Current{};

@@ -62,10 +62,10 @@ inline constexpr float kRadiansPerRevolution = 2.0F * std::numbers::pi_v<float>;
  * @param interpolationFactor Normalised position inside the segment, in [0, 1).
  * @return The interpolated function value.
  */
-constexpr float LinearInterpolate(float functionValueStart,
-                                  float functionValueEnd,
-                                  float interpolationFactor) noexcept {
-  return functionValueStart + (interpolationFactor * (functionValueEnd - functionValueStart));
+constexpr float LinearInterpolate(float function_value_start,
+                                  float function_value_end,
+                                  float interpolation_factor) noexcept {
+  return function_value_start + (interpolation_factor * (function_value_end - function_value_start));
 }
 
 /**
@@ -98,8 +98,8 @@ struct SinCos {
    * @param sinValue Sine value.
    * @param cosValue Cosine value.
    */
-  constexpr SinCos(Representation sinValue, Representation cosValue) noexcept
-      : sin(sinValue), cos(cosValue) {}
+  constexpr SinCos(Representation sin_value, Representation cos_value) noexcept
+      : sin(sin_value), cos(cos_value) {}
 
   /**
    * @brief Calculates a portable sine/cosine pair from an angle.
@@ -195,10 +195,10 @@ struct PortableSinCosProvider {
  * as a SinCos value before the control loop consumes it.
  */
 template <typename Provider>
-concept SinCosProvider = requires(const Provider kProvider, std::int32_t raw) {
+concept SinCosProvider = requires(const Provider provider, std::int32_t raw) {
   typename Provider::Result;
   requires std::same_as<typename Provider::Result, SinCos<unit::Ratio>>;
-  { kProvider.Calculate(raw) } -> std::same_as<SinCos<unit::Ratio>>;
+  { provider.Calculate(raw) } -> std::same_as<SinCos<unit::Ratio>>;
 };
 
 static_assert(SinCosProvider<PortableSinCosProvider>);

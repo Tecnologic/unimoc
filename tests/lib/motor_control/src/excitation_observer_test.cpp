@@ -41,7 +41,7 @@ ZTEST(excitation_observer, test_single_step_converges_direction) {
   Obs observer;
   observer.tau = 5.0_ms;
   observer.L_m = 47.0_mH;
-  observer.update(10.0_A, 100_us);  // dt = 0.1 ms
+  observer.Update(10.0_A, 100_us);  // dt = 0.1 ms
   zexpect_true((observer.i_f_hat.Value()) > (0.0F));
   zexpect_true((observer.i_f_hat.Value()) < (10.0F));
 }
@@ -52,7 +52,7 @@ ZTEST(excitation_observer, test_converges_after_many_steps) {
   observer.tau = 1.0_ms;
   observer.L_m = 47.0_mH;
   for (int i = 0; i < 10000; ++i) {
-    observer.update(8.0_A, 10_us);  // total time >> tau
+    observer.Update(8.0_A, 10_us);  // total time >> tau
   }
   UNIMOC_EXPECT_NEAR(observer.i_f_hat.Value(), 8.0F, 1.0e-3F);
   UNIMOC_EXPECT_NEAR(observer.psi_f_hat.Value(), 8.0F * 47e-3F, 1.0e-4F);
@@ -64,7 +64,7 @@ ZTEST(excitation_observer, test_psi_equals_lm_times_i) {
   observer.tau = 2.0_ms;
   observer.L_m = 50.0_mH;
   for (int i = 0; i < 20; ++i) {
-    observer.update(5.0_A, 100_us);
+    observer.Update(5.0_A, 100_us);
     UNIMOC_EXPECT_NEAR(observer.psi_f_hat.Value(), observer.L_m.Value() * observer.i_f_hat.Value(), 1.0e-7F);
   }
 }
@@ -74,7 +74,7 @@ ZTEST(excitation_observer, test_zero_tau_pass_through) {
   Obs observer;
   observer.tau = unimoc::unit::Time{};
   observer.L_m = 47.0_mH;
-  observer.update(7.5_A, 100_us);
+  observer.Update(7.5_A, 100_us);
   UNIMOC_EXPECT_FLOAT_EQ(observer.i_f_hat.Value(), 7.5F);
 }
 
@@ -84,9 +84,9 @@ ZTEST(excitation_observer, test_reset_with_init_value) {
   observer.tau = 2.0_ms;
   observer.L_m = 47.0_mH;
   for (int i = 0; i < 100; ++i) {
-    observer.update(5.0_A, 100_us);
+    observer.Update(5.0_A, 100_us);
   }
-  observer.reset(3.0_A);
+  observer.Reset(3.0_A);
   UNIMOC_EXPECT_FLOAT_EQ(observer.i_f_hat.Value(), 3.0F);
   UNIMOC_EXPECT_NEAR(observer.psi_f_hat.Value(), 3.0F * 47.0e-3F, 1.0e-7F);
 }

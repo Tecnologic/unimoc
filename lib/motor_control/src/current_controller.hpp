@@ -178,38 +178,38 @@ struct CurrentController {
    * @return        Rotor-frame d/q voltage demand [V], clamped to the
    *                voltage circle of radius v_max * v_dc.
    */
-  constexpr system::Rotor<unit::Voltage> update(const system::Rotor<unit::Current>& i_ref,
+  constexpr system::Rotor<unit::Voltage> Update(const system::Rotor<unit::Current>& i_ref,
                                                 const system::Rotor<unit::Current>& i_meas,
                                                 const unit::AngularVelocity omega,
                                                 const unit::Time dt,
                                                 const unit::Voltage v_dc) noexcept {
     // --- Current errors ---
-    const T e_d = i_ref.d.Value() - i_meas.d.Value();
-    const T e_q = i_ref.q.Value() - i_meas.q.Value();
+    const T kED = i_ref.d.Value() - i_meas.d.Value();
+    const T kEQ = i_ref.q.Value() - i_meas.q.Value();
 
     // --- Cross-coupling feedforward ---
     //   v_ff_d = −ω · L_q · i_q
     //   v_ff_q = +ω · (L_d · i_d + ψ_PM)
-    const T v_ff_d = -omega.Value() * L_q.Value() * i_meas.q.Value();
-    const T v_ff_q = omega.Value() * (L_d.Value() * i_meas.d.Value() + psi.Value());
+    const T kVFfD = -omega.Value() * L_q.Value() * i_meas.q.Value();
+    const T kVFfQ = omega.Value() * (L_d.Value() * i_meas.d.Value() + psi.Value());
 
     // --- Total output before limiting (PI + feedforward) ---
-    const T u_d_raw = kp_d.Value() * e_d + integrator_d.Value() + v_ff_d;
-    const T u_q_raw = kp_q.Value() * e_q + integrator_q.Value() + v_ff_q;
+    const T kUDRaw = kp_d.Value() * kED + integrator_d.Value() + kVFfD;
+    const T kUQRaw = kp_q.Value() * kEQ + integrator_q.Value() + kVFfQ;
 
     // --- Circular voltage-vector limiting ---
     // The limit is expressed in volts: v_limit = v_max [fraction] * v_dc [V].
     // The total output (PI + feedforward) is always hard-clamped to the
     // voltage circle, even when the feedforward terms alone push it over.
-    const T v_limit = v_max.Value() * v_dc.Value();
-    const T mag_sq = u_d_raw * u_d_raw + u_q_raw * u_q_raw;
-    T u_d = u_d_raw;
-    T u_q = u_q_raw;
+    const T kVLimit = v_max.Value() * v_dc.Value();
+    const T kMagSq = kUDRaw * kUDRaw + kUQRaw * kUQRaw;
+    T u_d = kUDRaw;
+    T u_q = kUQRaw;
 
-    if (mag_sq > v_limit * v_limit) {
-      const T scale = v_limit / std::sqrt(mag_sq);
-      u_d = u_d_raw * scale;
-      u_q = u_q_raw * scale;
+    if (kMagSq > kVLimit * kVLimit) {
+      const T kScale = kVLimit / std::sqrt(kMagSq);
+      u_d = kUDRaw * kScale;
+      u_q = kUQRaw * kScale;
     }
 
     // --- Integrator update with back-calculation anti-windup ---
@@ -221,9 +221,9 @@ struct CurrentController {
     // saturation — unlike a simple freeze which only detects total
     // saturation and cannot distinguish the two cases.
     integrator_d = unit::Voltage{integrator_d.Value() +
-                                 (ki_d.Value() * e_d + kb_d.Value() * (u_d - u_d_raw)) * dt.Value()};
+                                 (ki_d.Value() * kED + kb_d.Value() * (u_d - kUDRaw)) * dt.Value()};
     integrator_q = unit::Voltage{integrator_q.Value() +
-                                 (ki_q.Value() * e_q + kb_q.Value() * (u_q - u_q_raw)) * dt.Value()};
+                                 (ki_q.Value() * kEQ + kb_q.Value() * (u_q - kUQRaw)) * dt.Value()};
 
     return system::Rotor<unit::Voltage>{u_d, u_q};
   }
@@ -233,7 +233,7 @@ struct CurrentController {
    *
    * Call when re-enabling the controller after a fault or mode transition.
    */
-  constexpr void reset() noexcept {
+  constexpr void Reset() noexcept {
     integrator_d = unit::Voltage{};
     integrator_q = unit::Voltage{};
   }

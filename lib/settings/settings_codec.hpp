@@ -41,77 +41,77 @@ class Writer {
 
   /**
    * @brief Writes an 8-bit unsigned integer to the output.
-   * @param kValue The value to write.
+   * @param value The value to write.
    * @return True if the write was successful, false otherwise.
    */
-  bool WriteUint8(const uint8_t kValue) noexcept {
-    if (offset_ + sizeof(kValue) > output_.size()) {
+  bool WriteUint8(const uint8_t value) noexcept {
+    if (offset_ + sizeof(value) > output_.size()) {
       return false;
     }
 
-    output_[offset_++] = static_cast<std::byte>(kValue);
+    output_[offset_++] = static_cast<std::byte>(value);
     return true;
   }
 
   /**
    * @brief Writes a 16-bit unsigned integer to the output.
-   * @param kValue The value to write.
+   * @param value The value to write.
    * @return True if the write was successful, false otherwise.
    */
-  bool WriteUint16(const uint16_t kValue) noexcept {
-    if (offset_ + sizeof(kValue) > output_.size()) {
+  bool WriteUint16(const uint16_t value) noexcept {
+    if (offset_ + sizeof(value) > output_.size()) {
       return false;
     }
-    output_[offset_++] = static_cast<std::byte>(kValue & 0xFFU);
-    output_[offset_++] = static_cast<std::byte>((kValue >> 8U) & 0xFFU);
+    output_[offset_++] = static_cast<std::byte>(value & 0xFFU);
+    output_[offset_++] = static_cast<std::byte>((value >> 8U) & 0xFFU);
     return true;
   }
 
   /**
    * @brief Writes a 32-bit unsigned integer to the output.
-   * @param kValue The value to write.
+   * @param value The value to write.
    * @return True if the write was successful, false otherwise.
    */
-  bool WriteUint32(const uint32_t kValue) noexcept {
-    if (offset_ + sizeof(kValue) > output_.size()) {
+  bool WriteUint32(const uint32_t value) noexcept {
+    if (offset_ + sizeof(value) > output_.size()) {
       return false;
     }
     for (uint32_t shift = 0U; shift < 32U; shift += 8U) {
-      output_[offset_++] = static_cast<std::byte>((kValue >> shift) & 0xFFU);
+      output_[offset_++] = static_cast<std::byte>((value >> shift) & 0xFFU);
     }
     return true;
   }
 
   /**
    * @brief Writes a 32-bit floating-point value to the output.
-   * @param kValue The value to write.
+   * @param value The value to write.
    * @return True if the write was successful, false otherwise.
    */
-  bool WriteFloat(const float kValue) noexcept { return WriteUint32(std::bit_cast<uint32_t>(kValue)); }
+  bool WriteFloat(const float value) noexcept { return WriteUint32(std::bit_cast<uint32_t>(value)); }
 
   /**
    * @brief Writes a unit-wrapped numeric value to the output.
    * @tparam UnitType The unit type.
-   * @param kValue The value to write.
+   * @param value The value to write.
    * @return True if the write was successful, false otherwise.
    */
   template <typename UnitType>
-  bool WriteUnit(const UnitType kValue) noexcept {
-    return WriteFloat(kValue.Value());
+  bool WriteUnit(const UnitType value) noexcept {
+    return WriteFloat(value.Value());
   }
 
   /**
    * @brief Writes a sequence of bytes to the output.
-   * @param kBytes Pointer to the byte sequence.
-   * @param kSize Number of bytes to write.
+   * @param bytes Pointer to the byte sequence.
+   * @param size Number of bytes to write.
    * @return True if the write was successful, false otherwise.
    */
-  bool WriteBytes(const char* const kBytes, const std::size_t kSize) noexcept {
-    if (offset_ + kSize > output_.size()) {
+  bool WriteBytes(const char* const bytes, const std::size_t size) noexcept {
+    if (offset_ + size > output_.size()) {
       return false;
     }
-    std::memcpy(output_.data() + offset_, kBytes, kSize);
-    offset_ += kSize;
+    std::memcpy(output_.data() + offset_, bytes, size);
+    offset_ += size;
     return true;
   }
 

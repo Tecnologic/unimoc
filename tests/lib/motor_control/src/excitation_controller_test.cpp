@@ -29,7 +29,7 @@ using Ctrl = ExcitationController<float>;
 
 Ctrl MakeCurrentMode() {
   Ctrl c;
-  c.mode = ExcitationMode::CurrentMode;
+  c.mode = ExcitationMode::kCurrentMode;
   c.kp = 5.0_ratio;
   c.ki = 50.0_per_s;
   c.i_f_min = 0.0_A;
@@ -41,7 +41,7 @@ Ctrl MakeCurrentMode() {
 
 Ctrl MakeFluxMode() {
   Ctrl c = MakeCurrentMode();
-  c.mode = ExcitationMode::FluxMode;
+  c.mode = ExcitationMode::kFluxMode;
   // ψ_f* = 2.35 Wb  →  I_f* = 2.35 / 0.047 = 50 A (clamped to 10 A)
   c.flux_setpoint = 0.47_Wb;  // ψ_f* [Wb] → I_f* = 0.47/0.047 = 10 A
   return c;
@@ -52,7 +52,7 @@ Ctrl MakeFluxMode() {
 // --- CurrentMode: zero setpoint, zero measurement → zero output
 ZTEST(excitation_controller, test_current_mode_zero_error) {
   auto c = MakeCurrentMode();
-  const float kOut = c.update(unimoc::unit::Current{}, 100_us).Value();
+  const float kOut = c.Update(unimoc::unit::Current{}, 100_us).Value();
   UNIMOC_EXPECT_FLOAT_EQ(kOut, 0.0F);
 }
 
@@ -60,7 +60,7 @@ ZTEST(excitation_controller, test_current_mode_zero_error) {
 ZTEST(excitation_controller, test_current_mode_positive_setpoint) {
   auto c = MakeCurrentMode();
   c.current_setpoint = 5.0_A;
-  const float kOut = c.update(unimoc::unit::Current{}, 100_us).Value();
+  const float kOut = c.Update(unimoc::unit::Current{}, 100_us).Value();
   zexpect_true((kOut) > (0.0F));
   zexpect_true((kOut) <= (c.i_f_max.Value()));
 }
@@ -70,7 +70,7 @@ ZTEST(excitation_controller, test_current_mode_integrator_clamp) {
   auto c = MakeCurrentMode();
   c.current_setpoint = 100.0_A;  // Large error
   for (int i = 0; i < 1000; ++i) {
-    c.update(unimoc::unit::Current{}, 1_ms);
+    c.Update(unimoc::unit::Current{}, 1_ms);
   }
   UNIMOC_EXPECT_FLOAT_EQ(c.i_f_ref.Value(), c.i_f_max.Value());
   zexpect_true((c.integrator.Value()) <= (c.i_f_max.Value()));
@@ -81,7 +81,7 @@ ZTEST(excitation_controller, test_current_mode_min_clamp) {
   auto c = MakeCurrentMode();
   c.current_setpoint = -100.0_A;  // drive negative
   for (int i = 0; i < 1000; ++i) {
-    c.update(unimoc::unit::Current{}, 1_ms);
+    c.Update(unimoc::unit::Current{}, 1_ms);
   }
   UNIMOC_EXPECT_FLOAT_EQ(c.i_f_ref.Value(), c.i_f_min.Value());
 }
@@ -91,7 +91,7 @@ ZTEST(excitation_controller, test_flux_mode_conversion) {
   auto c = MakeFluxMode();
   // setpoint = 0.47 Wb, L_m = 0.047 H → I_f* = 10 A (exactly at max)
   for (int i = 0; i < 5000; ++i) {
-    c.update(unimoc::unit::Current{}, 100_us);
+    c.Update(unimoc::unit::Current{}, 100_us);
   }
   UNIMOC_EXPECT_FLOAT_EQ(c.i_f_ref.Value(), c.i_f_max.Value());
 }
@@ -101,9 +101,9 @@ ZTEST(excitation_controller, test_reset_clears_state) {
   auto c = MakeCurrentMode();
   c.current_setpoint = 5.0_A;
   for (int i = 0; i < 100; ++i) {
-    c.update(unimoc::unit::Current{}, 1_ms);
+    c.Update(unimoc::unit::Current{}, 1_ms);
   }
-  c.reset();
+  c.Reset();
   UNIMOC_EXPECT_FLOAT_EQ(c.integrator.Value(), 0.0F);
   UNIMOC_EXPECT_FLOAT_EQ(c.i_f_ref.Value(), 0.0F);
 }
@@ -115,7 +115,7 @@ ZTEST(excitation_controller, test_current_mode_converges) {
   float meas = 0.0F;
 
   for (int i = 0; i < 5000; ++i) {
-    const float kRef = c.update(unimoc::unit::Current{meas}, 100_us).Value();
+    const float kRef = c.Update(unimoc::unit::Current{meas}, 100_us).Value();
     // Simulate first-order plant: meas tracks ref slowly
     meas += 0.01F * (kRef - meas);
   }

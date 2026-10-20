@@ -83,14 +83,14 @@ struct FieldWeakening {
    * @param dt   Control cycle period [s].
   /// @return     Field-weakening i_d correction [A] (≤ 0).
    */
-  constexpr unit::Current update(const system::Stator<unit::Voltage>& v_s, const unit::Time dt) noexcept {
-    const T v_alpha = static_cast<T>(v_s.alpha.Value());
-    const T v_beta = static_cast<T>(v_s.beta.Value());
-    const unit::Voltage v_mag{std::sqrt(v_alpha * v_alpha + v_beta * v_beta)};
-    const T error = v_max.Value() - v_mag.Value();
+  constexpr unit::Current Update(const system::Stator<unit::Voltage>& v_s, const unit::Time dt) noexcept {
+    const T kVAlpha = static_cast<T>(v_s.alpha.Value());
+    const T kVBeta = static_cast<T>(v_s.beta.Value());
+    const unit::Voltage kVMag{std::sqrt(kVAlpha * kVAlpha + kVBeta * kVBeta)};
+    const T kError = v_max.Value() - kVMag.Value();
 
     // Integrate voltage headroom error into i_d correction
-    i_d_fw = unit::Current{i_d_fw.Value() + ki.Value() * error * dt.Value()};
+    i_d_fw = unit::Current{i_d_fw.Value() + ki.Value() * kError * dt.Value()};
 
     // Clamp: i_d_fw must remain in [i_d_min, 0]
     i_d_fw = unit::Current{i_d_fw.Value()}.Clamp(i_d_min.Value(), 0.0F);
@@ -99,7 +99,7 @@ struct FieldWeakening {
   }
 
   /// Reset integrator state (call on enable / mode transitions).
-  constexpr void reset() noexcept { i_d_fw = unit::Current{}; }
+  constexpr void Reset() noexcept { i_d_fw = unit::Current{}; }
 };
 
 }  // namespace control

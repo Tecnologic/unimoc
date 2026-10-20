@@ -71,7 +71,7 @@ struct DeadTimeCompensation {
    *
    * @param settings Validated NVM settings.
    */
-  constexpr void init(const settings::NvmSettings& settings) noexcept {
+  constexpr void Init(const settings::NvmSettings& settings) noexcept {
     dead_time = settings.dtc_dead_time;
     f_pwm = settings.dtc_f_pwm;
     i_threshold = settings.dtc_i_threshold;
@@ -89,22 +89,22 @@ struct DeadTimeCompensation {
    * @return      Compensation voltage vector (normalised by V_dc) to add to
    *              the α/β voltage reference.
    */
-  [[nodiscard]] constexpr system::Stator<unit::Ratio> calculate(
+  [[nodiscard]] constexpr system::Stator<unit::Ratio> Calculate(
       const system::Stator<unit::Current>& i_ab) const noexcept {
     // --- Reconstruct three-phase currents from α/β ---
-    constexpr T k = static_cast<T>(0.8660254037844386);  // √3 / 2
+    constexpr T kSqrt3By2 = static_cast<T>(0.8660254037844386);  // √3 / 2
 
-    const auto phase_currents = i_ab.ToThreePhase();
-    const T ia = phase_currents.a.Value();
-    const T ib = phase_currents.b.Value();
-    const T ic = phase_currents.c.Value();
+    const auto kPhaseCurrents = i_ab.ToThreePhase();
+    const T kIa = kPhaseCurrents.a.Value();
+    const T kIb = kPhaseCurrents.b.Value();
+    const T kIc = kPhaseCurrents.c.Value();
 
     // --- Soft sign function: clamp(i / threshold, -1, +1) ---
     // This provides linear interpolation through zero, preventing chattering.
-    const T threshold = i_threshold.Value();
-    T sign_a = unit::Ratio{ia / threshold}.Clamp(static_cast<T>(-1), static_cast<T>(1)).Value();
-    T sign_b = unit::Ratio{ib / threshold}.Clamp(static_cast<T>(-1), static_cast<T>(1)).Value();
-    T sign_c = unit::Ratio{ic / threshold}.Clamp(static_cast<T>(-1), static_cast<T>(1)).Value();
+    const T kThreshold = i_threshold.Value();
+    T sign_a = unit::Ratio{kIa / kThreshold}.Clamp(static_cast<T>(-1), static_cast<T>(1)).Value();
+    T sign_b = unit::Ratio{kIb / kThreshold}.Clamp(static_cast<T>(-1), static_cast<T>(1)).Value();
+    T sign_c = unit::Ratio{kIc / kThreshold}.Clamp(static_cast<T>(-1), static_cast<T>(1)).Value();
 
     // Normalised per-phase voltage error: sign · t_dead · f_pwm
     T dt_norm = dead_time.Value() * f_pwm.Value();
@@ -113,10 +113,10 @@ struct DeadTimeCompensation {
     T dvc = sign_c * dt_norm;
 
     // --- Clarke transform (amplitude-invariant) back to α/β ---
-    constexpr T two_thirds = static_cast<T>(2.0 / 3.0);
+    constexpr T kTwoThirds = static_cast<T>(2.0 / 3.0);
 
-    T d_alpha = two_thirds * (dva - static_cast<T>(0.5) * dvb - static_cast<T>(0.5) * dvc);
-    T d_beta = two_thirds * (k * dvb - k * dvc);
+    T d_alpha = kTwoThirds * (dva - static_cast<T>(0.5) * dvb - static_cast<T>(0.5) * dvc);
+    T d_beta = kTwoThirds * (kSqrt3By2 * dvb - kSqrt3By2 * dvc);
 
     return system::Stator<unit::Ratio>{d_alpha, d_beta};
   }

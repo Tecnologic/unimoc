@@ -31,7 +31,7 @@ void SlowUpdate::Init(const settings::NvmSettings& settings, CurrentControlIsr& 
   isr_ = &isr;
 
   // --- PMSM flux observer parameters ---
-  flux_obs.init(settings);
+  flux_obs.Init(settings);
 
   // Initial flux setpoint: d-axis = nominal ψ_PM, q-axis = 0
   flux_setpoint_ = {settings.flux_pm, unit::MagneticFlux{}};
@@ -70,14 +70,14 @@ bool SlowUpdate::RunOnce() noexcept {
   // 2. PMSM flux observer. calculate() reads mech_obs.sin_theta / cos_theta
   //    and calls mech_obs.inject_angle_error() at the end.
   // -------------------------------------------------------------------------
-  flux_obs.calculate(cycle.u_dq, kCurrentDqMean, flux_setpoint_, unit::Time{kDtSlow}, mech_obs);
+  flux_obs.Calculate(cycle.u_dq, kCurrentDqMean, flux_setpoint_, unit::Time{kDtSlow}, mech_obs);
 
   // -------------------------------------------------------------------------
   // 3. Mechanical Kalman predict step (propagates omega and theta forward by
   //    one cycle). Afterwards theta is the estimate for the first sample of
   //    the next cycle.
   // -------------------------------------------------------------------------
-  mech_obs.predict(kCurrentDqMean, unit::Time{kDtSlow});
+  mech_obs.Predict(kCurrentDqMean, unit::Time{kDtSlow});
 
   // -------------------------------------------------------------------------
   // 4. HFI: sample k + 1 answers injection step k of the plan before it, so
@@ -86,7 +86,7 @@ bool SlowUpdate::RunOnce() noexcept {
   // -------------------------------------------------------------------------
   if (isr_->hfi_active) {
     for (uint8_t k = 0U; k < kNumSubSteps; ++k) {
-      isr_->hfi.update(cycle.i_ab_samples[k],
+      isr_->hfi.Update(cycle.i_ab_samples[k],
                        cycle.sc[k].sin,
                        cycle.sc[k].cos,
                        unit::Time{kDtSlow},

@@ -69,23 +69,23 @@ struct Mtpa {
    * @return     Optimal d-axis current i_d* [A].
    *             For SPMSM (L_d == L_q) or trivial flux this returns 0.
    */
-  [[nodiscard]] constexpr unit::Current calculate(const unit::Current i_s) const noexcept {
-    const T delta_L = L_d.Value() - L_q.Value();
+  [[nodiscard]] constexpr unit::Current Calculate(const unit::Current i_s) const noexcept {
+    const T kDeltaL = L_d.Value() - L_q.Value();
 
     // Avoid division by zero (surface PMSM or no saliency)
-    if (std::abs(delta_L) < static_cast<T>(1e-9)) {
+    if (std::abs(kDeltaL) < static_cast<T>(1e-9)) {
       return unit::Current{};
     }
 
     // Half-saliency denominator term
-    const T xi = flux_pm.Value() / (static_cast<T>(2) * delta_L);
-    const T i_s_2 = i_s.Value() * static_cast<T>(0.5);
+    const T kXi = flux_pm.Value() / (static_cast<T>(2) * kDeltaL);
+    const T kIS2 = i_s.Value() * static_cast<T>(0.5);
 
     // MTPA closed-form solution
-    const T i_d = xi - std::copysign(std::sqrt(xi * xi + i_s_2 * i_s_2), static_cast<T>(1));
+    const T kID = kXi - std::copysign(std::sqrt(kXi * kXi + kIS2 * kIS2), static_cast<T>(1));
 
     // Limit to current magnitude (i_d must not exceed i_s in absolute value)
-    return unit::Current{i_d}.Clamp(-i_s.Value(), static_cast<T>(0));
+    return unit::Current{kID}.Clamp(-i_s.Value(), static_cast<T>(0));
   }
 };
 

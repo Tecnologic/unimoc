@@ -145,8 +145,8 @@ namespace settings_store_internal {
     return SettingsStatus::kOutOfRange;
   }
 
-  const auto kIsRatio = [](const unit::Ratio kValue) {
-    return kValue.Value() >= 0.0F && kValue.Value() <= 1.0F;
+  const auto kIsRatio = [](const unit::Ratio value) {
+    return value.Value() >= 0.0F && value.Value() <= 1.0F;
   };
   if (settings.fw_v_max.Value() < 0.0F || !kIsRatio(settings.current_v_max) ||
       !kIsRatio(settings.svm_duty_min) || !kIsRatio(settings.svm_duty_max) ||
@@ -329,7 +329,7 @@ class SettingsStore {
   [[nodiscard]] const SettingsProfile& GetProfile() const noexcept { return profile_; }
 
  private:
-  SettingsStatus RestoreFactory(const SettingsStatus kFallback) noexcept {
+  SettingsStatus RestoreFactory(const SettingsStatus fallback) noexcept {
     const SettingsStatus kValidation =
         settings_store_internal::Validate(profile_.factory_settings, profile_.capabilities);
     if (kValidation != SettingsStatus::kSuccess) {
@@ -342,7 +342,7 @@ class SettingsStore {
     }
 
     settings_ = profile_.factory_settings;
-    return kFallback;
+    return fallback;
   }
 
   [[nodiscard]] SettingsStatus Save(const NvmSettings& settings) const noexcept {

@@ -321,7 +321,7 @@ class CurrentControlIsr {
   /// Acknowledges an overcurrent trip. The power stage fault is cleared separately
   /// (kPowerStage.ClearFault()).
   void ClearOvercurrentTrip() noexcept {
-    cc.reset();
+    cc.Reset();
     state.overcurrent_tripped = false;
   }
 
