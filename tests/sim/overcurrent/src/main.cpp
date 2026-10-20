@@ -15,6 +15,7 @@
  */
 #include <zephyr/ztest.h>
 #include "current_control_isr.hpp"
+#include "current_control_runtime.hpp"
 #include "hardware_interface.hpp"
 #include "hot_path_interface.hpp"
 #include "hw_startup.hpp"
@@ -59,11 +60,9 @@ void* Setup() {
   zassert_equal(fixture.store.Load(), unimoc::settings::SettingsStatus::kFactoryDefaults);
   const auto kSnapshot = fixture.store.GetSnapshot();
   const auto& settings = kSnapshot.Get();
-  auto& isr = CurrentControlIsr::Instance();
-  isr.Init(settings, unimoc::hardware::kMotors[0], 170'000'000U);
-  SlowUpdate::Instance().Init(settings, isr);
-  isr.SetOvercurrentLimit(unimoc::unit::Current{kLimitA});
-  zassert_true(unimoc::hardware::kMotors[0].Initialize(settings.pwm_frequency, 0U));
+  zassert_true(unimoc::current_control::StartRuntime(settings,
+                                                     unimoc::hardware::kMotors[0],
+                                                     unimoc::unit::Current{kLimitA}));
   sim::SetFreeRunning(false);
   return &fixture;
 }

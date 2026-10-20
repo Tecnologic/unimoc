@@ -67,6 +67,8 @@ Each motor runtime should expose operations equivalent to:
 - `AdvanceCycles(count)` - execute a fixed number of coordinated cycles.
 - `Snapshot()` - return controller, plant, timing, and telemetry state.
 
+On native_sim these exist in `hardware/zephyr_sim/sim_control.hpp` as `Reset()`, `StepCycle()`, `AdvanceCycles()`, `VirtualTimeNs()` and `TakeSnapshot()` (platform and plant state). The controller is restarted with `current_control::StartRuntime()` (`src/current_control/current_control_runtime.hpp`), the same call `main()` makes; controller state is read from `CurrentControlIsr::Instance().state`. Tests: `tests/sim/closed_loop`.
+
 The exact cycle ordering must be specified and tested. A recommended ordering is:
 
 1. Deliver inputs queued for the current virtual timestamp.

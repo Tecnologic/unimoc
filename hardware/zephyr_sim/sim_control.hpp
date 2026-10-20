@@ -57,6 +57,28 @@ void SetFreeRunning(bool running) noexcept;
  */
 void StepCycle() noexcept;
 
+/// State of the simulated platform after a number of control cycles.
+struct Snapshot {
+  uint32_t cycle_count;                                    ///< Control cycles since Initialize() or Reset().
+  uint64_t virtual_time_ns;                                ///< Virtual time of the cycle count [ns].
+  ::unimoc::sim::SimulationOutput plant;                   ///< Plant output at the end of the last cycle.
+  std::array<system::ThreePhase<unit::Ratio>, 4> applied;  ///< Duties of the last cycle, in time order.
+};
+
+/**
+ * @brief Returns the platform to the state right after Initialize().
+ *
+ * The plant goes back to standstill (configuration, shaft mode and load are
+ * kept), the cycle counter, the virtual time and the duty plan restart, the
+ * current override is cleared and the power stage is disabled. The controller
+ * is not part of the platform: restart it with StartRuntime(). Use with
+ * SetFreeRunning(false).
+ */
+void Reset() noexcept;
+
+/// Captures the platform state; consistent even while the cycle timer runs.
+[[nodiscard]] Snapshot TakeSnapshot() noexcept;
+
 /// Runs @p count control cycles synchronously (see StepCycle()).
 void AdvanceCycles(uint32_t count) noexcept;
 

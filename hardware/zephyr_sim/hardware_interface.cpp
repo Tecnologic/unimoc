@@ -200,6 +200,16 @@ void StopTimer() noexcept {
   k_timer_stop(&g_cycle_timer);
 }
 
+// Back to the first cycle: no plan, neutral duties, samples of the plant at rest.
+void ResetCycleState() noexcept {
+  g_samples = ControlCycleSamples{};
+  g_samples.dc_link = g_plant.Output().dc_link_voltage;
+  g_plan = DutyPlan{};
+  g_carry = kNeutral;
+  g_applied = {kNeutral, kNeutral, kNeutral, kNeutral};
+  g_cycle_count = 0U;
+}
+
 bool Initialize(Frequency pwm_frequency, uint32_t /*unused*/) noexcept {
   const auto kPwmHz = static_cast<uint64_t>(pwm_frequency.Value());
   if (kPwmHz == 0U) {
@@ -220,11 +230,7 @@ bool Initialize(Frequency pwm_frequency, uint32_t /*unused*/) noexcept {
   g_initialized = true;
   g_half_period = Time{1.0F / (2.0F * pwm_frequency.Value())};
   g_cycle_ns = (kHalfPeriodsPerCycle * 1'000'000'000ULL) / (2U * kPwmHz);
-  g_samples = ControlCycleSamples{};
-  g_samples.dc_link = g_plant.Output().dc_link_voltage;
-  g_plan = DutyPlan{};
-  g_carry = kNeutral;
-  g_cycle_count = 0U;
+  ResetCycleState();
 
   StartTimer();
   return true;
@@ -291,13 +297,30 @@ void StepCycle() noexcept {
   irq_unlock(kIrqKey);
 }
 
+uint64_t VirtualTimeNs() noexcept { return static_cast<uint64_t>(g_cycle_count) * g_cycle_ns; }
+
+void Reset() noexcept {
+  const unsigned int kIrqKey = irq_lock();
+  g_plant.Reset();
+  g_current_override = false;
+  g_power_stage.enabled = false;
+  g_power_stage.fault = !g_power_stage.external_enable;
+  ResetCycleState();
+  irq_unlock(kIrqKey);
+}
+
+Snapshot TakeSnapshot() noexcept {
+  const unsigned int kIrqKey = irq_lock();
+  const Snapshot kSnapshot{g_cycle_count, VirtualTimeNs(), g_plant.Output(), g_applied};
+  irq_unlock(kIrqKey);
+  return kSnapshot;
+}
+
 void AdvanceCycles(const uint32_t count) noexcept {
   for (uint32_t i = 0U; i < count; ++i) {
     StepCycle();
   }
 }
-
-uint64_t VirtualTimeNs() noexcept { return static_cast<uint64_t>(g_cycle_count) * g_cycle_ns; }
 
 std::array<system::ThreePhase<unit::Ratio>, 4> AppliedDuties() noexcept { return g_applied; }
 

@@ -13,7 +13,7 @@
  *    This file is part of UNIMOC and is licensed under GPL-3.0-or-later.
  *    See the repository LICENSE file for details.
  */
-#include "current_control_isr.hpp"
+#include "current_control_runtime.hpp"
 #include "hardware_interface.hpp"
 #include "hot_path_interface.hpp"
 #include "settings_store.hpp"
@@ -44,13 +44,10 @@ int main() {
 
   const auto kSettingsSnapshot = settings_store.GetSnapshot();
   for (const auto& motor : unimoc::hardware::kMotors) {
-    auto& current_control = unimoc::current_control::CurrentControlIsr::Instance();
-    auto& slow_update = unimoc::current_control::SlowUpdate::Instance();
-    current_control.Init(kSettingsSnapshot.Get(), motor, motor.GetTimerClockFrequency());
-    slow_update.Init(kSettingsSnapshot.Get(), current_control);
-    current_control.SetOvercurrentLimit(
-        unimoc::hardware::kSettings.GetSettingsProfile().capabilities.max_phase_current);
-    if (!motor.Initialize(kSettingsSnapshot.Get().pwm_frequency, current_control.state.adc_trigger_offset)) {
+    if (!unimoc::current_control::StartRuntime(kSettingsSnapshot.Get(),
+                                               motor,
+                                               unimoc::hardware::kSettings.GetSettingsProfile()
+                                                   .capabilities.max_phase_current)) {
       unimoc::hardware::kRuntime.Log(unimoc::hardware::LogLevel::kError,
                                      "Failed to initialize motor interface\n");
       return 1;  // Exit if initialization fails

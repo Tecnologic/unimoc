@@ -36,8 +36,8 @@ criteria.
 
  - [x] Define and test the virtual-time cycle contract around `CurrentControlIsr::OnControlCycle()` and `SlowUpdate::RunOnce()` (`tests/sim/irq_cadence`).
  - [x] Introduce injectable ADC/PWM I/O for the current-control runtime while preserving the target hardware implementation.
- - [ ] Extract the current-control runtime into a reusable target independent of firmware `main.cpp`.
- - [ ] Add a HAL-free virtual clock and simulation runtime harness with reset, fast-step, slow-update, advance, and snapshot operations.
+ - [x] Extract the current-control runtime into a reusable target independent of firmware `main.cpp` (`current_control::StartRuntime()` in `src/current_control/current_control_runtime.hpp`).
+ - [x] Add a HAL-free virtual clock and simulation runtime harness with reset, fast-step, slow-update, advance, and snapshot operations (`hardware/zephyr_sim/sim_control.hpp`: `Reset`, `StepCycle`, `AdvanceCycles`, `VirtualTimeNs`, `TakeSnapshot`).
 
 ### P1 - Build the single-motor vertical slice
 

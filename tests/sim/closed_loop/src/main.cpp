@@ -17,6 +17,7 @@
 #include <cmath>
 #include <numbers>
 #include "current_control_isr.hpp"
+#include "current_control_runtime.hpp"
 #include "hardware_interface.hpp"
 #include "hot_path_interface.hpp"
 #include "motor_simulation.hpp"
@@ -88,14 +89,11 @@ void* Setup() {
 
 void Before(void* data) {
   auto* fixture = static_cast<sim_closed_loop_fixture*>(data);
-  auto& isr = CurrentControlIsr::Instance();
-  isr.Init(fixture->settings, unimoc::hardware::kMotors[0], 170'000'000U);
-  SlowUpdate::Instance().Init(fixture->settings, isr);
-  isr.SetOvercurrentLimit(Current{60.0F});
   zassert_equal(sim::Plant().Configure(fixture->settings), unimoc::sim::Status::kOk);
   sim::Plant().SetShaftMode(unimoc::sim::ShaftMode::kImposedSpeed, AngularVelocity{});  // locked rotor
   sim::ClearPhaseCurrentOverride();
-  zassert_true(unimoc::hardware::kMotors[0].Initialize(fixture->settings.pwm_frequency, 0U));
+  zassert_true(
+      unimoc::current_control::StartRuntime(fixture->settings, unimoc::hardware::kMotors[0], Current{60.0F}));
   sim::SetFreeRunning(false);
   sim::SetExternalEnable(true);
   kPowerStage.ClearFault();
@@ -200,6 +198,48 @@ ZTEST_F(sim_closed_loop, test_state_stays_finite_under_aggressive_reference) {
       break;  // a trip is a defined outcome; the state must still be finite up to it
     }
   }
+}
+
+ZTEST_F(sim_closed_loop, test_reset_makes_a_run_repeatable) {
+  const auto kRun = [&]() {
+    // Same start as after power-up: platform at rest, controller from its initial state.
+    sim::Reset();
+    zassert_true(unimoc::current_control::StartRuntime(fixture->settings,
+                                                       unimoc::hardware::kMotors[0],
+                                                       Current{60.0F}));
+    sim::SetFreeRunning(false);
+    kPowerStage.ClearFault();
+    zassert_true(kPowerStage.Enable());
+    CurrentControlIsr::Instance().SetCurrentRef({Current{-3.0F}, Current{8.0F}});
+    sim::AdvanceCycles(3U * kCyclesPerMs);
+    return sim::TakeSnapshot();
+  };
+  const auto kFirst = kRun();
+  const auto kSecond = kRun();
+
+  zassert_equal(kFirst.cycle_count, 3U * kCyclesPerMs);
+  zassert_equal(kSecond.cycle_count, kFirst.cycle_count);
+  zassert_equal(kSecond.virtual_time_ns, kFirst.virtual_time_ns);
+  // Bit-identical: the simulation is deterministic.
+  zassert_equal(kSecond.plant.phase_currents.a.Value(), kFirst.plant.phase_currents.a.Value());
+  zassert_equal(kSecond.plant.phase_currents.b.Value(), kFirst.plant.phase_currents.b.Value());
+  zassert_equal(kSecond.plant.rotor_current.q.Value(), kFirst.plant.rotor_current.q.Value());
+  zassert_equal(kSecond.applied[3].a.Value(), kFirst.applied[3].a.Value());
+  zassert_true(kFirst.plant.rotor_current.q.Value() > 5.0F, "the run did something");
+}
+
+ZTEST_F(sim_closed_loop, test_reset_returns_the_plant_to_rest) {
+  CurrentControlIsr::Instance().SetCurrentRef({Current{0.0F}, Current{10.0F}});
+  sim::AdvanceCycles(2U * kCyclesPerMs);
+  zassert_true(sim::TakeSnapshot().plant.rotor_current.q.Value() > 1.0F);
+
+  sim::Reset();
+  const auto kSnapshot = sim::TakeSnapshot();
+  zassert_equal(kSnapshot.cycle_count, 0U);
+  zassert_equal(kSnapshot.virtual_time_ns, uint64_t{0U});
+  zassert_equal(kSnapshot.plant.phase_currents.a.Value(), 0.0F);
+  zassert_equal(kSnapshot.plant.rotor_current.q.Value(), 0.0F);
+  zassert_equal(kPowerStage.GetState(), unimoc::hardware::PowerStageState::kDisabled);
 }
 
 ZTEST_SUITE(sim_closed_loop, nullptr, Setup, Before, After, nullptr);
