@@ -289,6 +289,14 @@ void StepCycle() noexcept {
   irq_unlock(kIrqKey);
 }
 
+void AdvanceCycles(const uint32_t count) noexcept {
+  for (uint32_t i = 0U; i < count; ++i) {
+    StepCycle();
+  }
+}
+
+uint64_t VirtualTimeNs() noexcept { return static_cast<uint64_t>(g_cycle_count) * g_cycle_ns; }
+
 std::array<system::ThreePhase<unit::Ratio>, 4> AppliedDuties() noexcept { return g_applied; }
 
 uint32_t CycleCount() noexcept { return g_cycle_count; }

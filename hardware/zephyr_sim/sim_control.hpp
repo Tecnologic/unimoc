@@ -55,6 +55,12 @@ void SetFreeRunning(bool running) noexcept;
  */
 void StepCycle() noexcept;
 
+/// Runs @p count control cycles synchronously (see StepCycle()).
+void AdvanceCycles(uint32_t count) noexcept;
+
+/// Virtual time since Initialize(): CycleCount() control periods, exact in nanoseconds.
+[[nodiscard]] uint64_t VirtualTimeNs() noexcept;
+
 /// Duties the plant applied in the half periods of the last cycle, in time order.
 [[nodiscard]] std::array<system::ThreePhase<unit::Ratio>, 4> AppliedDuties() noexcept;
 

@@ -54,7 +54,7 @@ inline constexpr uint8_t kNumStartupSteps = static_cast<uint8_t>(FsmState::kNumS
 /// Flat POD holding pass/fail flags and measured values for every startup step.
 ///
 /// Written by HwStartup during each step.  Read-back is available via the
-/// Cyphal `unimoc.startup.results` register and via RTT logging at DONE.
+/// Cyphal `unimoc.startup.results` register and via the Zephyr log at DONE.
 struct StartupResults {
   // ---- per-step pass/fail (indexed by FsmState value) --------------------
   std::array<bool, kNumStartupSteps> passed{};  ///< passed[i] = true iff step i passed.

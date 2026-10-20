@@ -156,4 +156,48 @@ ZTEST_F(sim_closed_loop, test_duties_stay_in_range) {
   }
 }
 
+ZTEST_F(sim_closed_loop, test_slow_update_runs_once_per_control_cycle) {
+  auto& isr = CurrentControlIsr::Instance();
+  isr.SetCurrentRef({Current{0.0F}, Current{5.0F}});
+  constexpr uint32_t kCycles = 1000U;
+  for (uint32_t i = 1U; i <= kCycles; ++i) {
+    sim::StepCycle();
+    // The observer ran directly after each control cycle and left nothing pending.
+    zassert_equal(isr.state.control_cycles, i);
+    zassert_equal(sim::CycleCount(), i);
+    zassert_false(isr.state.observer_pending.load());
+    zassert_equal(isr.state.double_buf.active.load(), i % 2U, "cycle %u", i);
+  }
+  zassert_equal(isr.state.observer_overruns, 0U);
+  // 16 kHz control cycle: exactly 62.5 us each, no rounding drift.
+  zassert_equal(sim::VirtualTimeNs(), uint64_t{kCycles} * 62'500U);
+}
+
+ZTEST_F(sim_closed_loop, test_advance_cycles_matches_single_steps) {
+  sim::AdvanceCycles(7U);
+  zassert_equal(sim::CycleCount(), 7U);
+  zassert_equal(CurrentControlIsr::Instance().state.control_cycles, 7U);
+  sim::AdvanceCycles(0U);
+  zassert_equal(sim::CycleCount(), 7U);
+}
+
+ZTEST_F(sim_closed_loop, test_state_stays_finite_under_aggressive_reference) {
+  auto& isr = CurrentControlIsr::Instance();
+  // Reference far beyond what the DC link can deliver: the loop saturates.
+  isr.SetCurrentRef({Current{-30.0F}, Current{55.0F}});
+  for (unsigned i = 0; i < 20U * kCyclesPerMs; ++i) {
+    sim::StepCycle();
+    zassert_true(Finite(PlantCurrentInControllerFrame()), "plant current at cycle %u", i);
+    zassert_true(std::isfinite(isr.state.u_dq_last.d.Value()) && std::isfinite(isr.state.u_dq_last.q.Value()),
+                 "voltage demand at cycle %u",
+                 i);
+    zassert_true(std::isfinite(isr.mech_obs.theta.Value()) && std::isfinite(isr.mech_obs.omega.Value()),
+                 "observer at cycle %u",
+                 i);
+    if (isr.state.overcurrent_tripped) {
+      break;  // a trip is a defined outcome; the state must still be finite up to it
+    }
+  }
+}
+
 ZTEST_SUITE(sim_closed_loop, nullptr, Setup, Before, After, nullptr);
