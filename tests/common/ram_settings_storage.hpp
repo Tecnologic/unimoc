@@ -48,12 +48,14 @@ class RamSettingsStorage {
   /// Returns the stored value of an entry, empty when it does not exist.
   [[nodiscard]] std::span<const std::byte> Value(const std::string_view key) const noexcept {
     const Entry* entry = Find(key);
-    return entry == nullptr ? std::span<const std::byte>{} : std::span<const std::byte>{entry->value.data(), entry->size};
+    return entry == nullptr ? std::span<const std::byte>{}
+                            : std::span<const std::byte>{entry->value.data(), entry->size};
   }
 
   /// Number of stored entries.
   [[nodiscard]] std::size_t Count() const noexcept {
-    return static_cast<std::size_t>(std::count_if(entries_.begin(), entries_.end(), [](const Entry& entry) { return entry.used; }));
+    return static_cast<std::size_t>(
+        std::count_if(entries_.begin(), entries_.end(), [](const Entry& entry) { return entry.used; }));
   }
 
   /// Write() calls so far.
@@ -134,7 +136,9 @@ class RamSettingsStorage {
     if (self.unavailable_) {
       return settings::SettingsStorageStatus::kUnavailable;
     }
-    const bool kFailNow = self.fail_writes_ || (self.fail_writes_after_ >= 0 && self.writes_ >= static_cast<uint32_t>(self.fail_writes_after_));
+    const bool kFailNow =
+        self.fail_writes_ ||
+        (self.fail_writes_after_ >= 0 && self.writes_ >= static_cast<uint32_t>(self.fail_writes_after_));
     ++self.writes_;
     if (kFailNow || !self.Store(key, value)) {
       return settings::SettingsStorageStatus::kIoError;

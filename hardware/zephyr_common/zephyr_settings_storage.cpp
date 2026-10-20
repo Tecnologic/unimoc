@@ -72,7 +72,9 @@ int OnEntry(const char* key, const size_t length, settings_read_cb read_cb, void
   if (kRead < 0) {
     return static_cast<int>(kRead);
   }
-  context.entry(context.entry_context, key, std::span<const std::byte>{buffer.data(), static_cast<size_t>(kRead)});
+  context.entry(context.entry_context,
+                key,
+                std::span<const std::byte>{buffer.data(), static_cast<size_t>(kRead)});
   return 0;
 }
 
@@ -84,18 +86,21 @@ SettingsStorageStatus LoadAll(void* /*context*/,
   }
   LoadContext context{entry, entry_context};
   const std::array<char, 7> kSubtreeName{'u', 'n', 'i', 'm', 'o', 'c', '\0'};
-  return settings_load_subtree_direct(kSubtreeName.data(), OnEntry, &context) == 0 ? SettingsStorageStatus::kSuccess
-                                                                                  : SettingsStorageStatus::kIoError;
+  return settings_load_subtree_direct(kSubtreeName.data(), OnEntry, &context) == 0
+             ? SettingsStorageStatus::kSuccess
+             : SettingsStorageStatus::kIoError;
 }
 
-SettingsStorageStatus Write(void* /*context*/, const std::string_view key, const std::span<const std::byte> value) noexcept {
+SettingsStorageStatus Write(void* /*context*/,
+                            const std::string_view key,
+                            const std::span<const std::byte> value) noexcept {
   std::array<char, kNameBufferSize> name{};
   // An empty value would delete the entry in the settings subsystem.
   if (value.empty() || !MakeName(key, name) || !EnsureInitialized()) {
     return SettingsStorageStatus::kIoError;
   }
   return settings_save_one(name.data(), value.data(), value.size()) == 0 ? SettingsStorageStatus::kSuccess
-                                                                          : SettingsStorageStatus::kIoError;
+                                                                         : SettingsStorageStatus::kIoError;
 }
 
 SettingsStorageStatus Erase(void* /*context*/, const std::string_view key) noexcept {
@@ -103,7 +108,8 @@ SettingsStorageStatus Erase(void* /*context*/, const std::string_view key) noexc
   if (!MakeName(key, name) || !EnsureInitialized()) {
     return SettingsStorageStatus::kIoError;
   }
-  return settings_delete(name.data()) == 0 ? SettingsStorageStatus::kSuccess : SettingsStorageStatus::kIoError;
+  return settings_delete(name.data()) == 0 ? SettingsStorageStatus::kSuccess
+                                           : SettingsStorageStatus::kIoError;
 }
 
 }  // namespace

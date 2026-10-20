@@ -30,7 +30,8 @@ namespace unimoc::settings {
  * @param power_stage Power stage to watch; it must outlive the gate.
  * @return Gate for `SettingsStore`.
  */
-[[nodiscard]] inline SettingsSaveGate PowerStageSaveGate(const hardware::PowerStageInterface& power_stage) noexcept {
+[[nodiscard]] inline SettingsSaveGate PowerStageSaveGate(
+    const hardware::PowerStageInterface& power_stage) noexcept {
   return SettingsSaveGate{const_cast<hardware::PowerStageInterface*>(&power_stage), [](void* context) {
                             return static_cast<const hardware::PowerStageInterface*>(context)->GetState() ==
                                    hardware::PowerStageState::kDisabled;

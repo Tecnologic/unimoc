@@ -58,8 +58,8 @@ void EraseAllRegisters() {
 
 std::size_t StoredEntries() {
   std::size_t count = 0U;
-  zassert_equal(ZephyrSettingsStorage::Adapter().LoadAll([&](std::string_view /*key*/,
-                                                              std::span<const std::byte> /*value*/) { ++count; }),
+  zassert_equal(ZephyrSettingsStorage::Adapter().LoadAll(
+                    [&](std::string_view /*key*/, std::span<const std::byte> /*value*/) { ++count; }),
                 unimoc::settings::SettingsStorageStatus::kSuccess);
   return count;
 }
@@ -89,10 +89,10 @@ ZTEST(sim_settings_persistence, test_saved_registers_survive_a_new_store) {
   zassert_equal(first.Load(), SettingsStatus::kFactoryDefaults);
   auto operations = first.GetOperations();
   zassert_equal(operations.Update([](NvmSettings& settings) {
-                  settings.pole_pairs = 7U;
-                  settings.stator_r = 0.07_Ohm;
-                  settings.node_id = 42U;
-                }),
+    settings.pole_pairs = 7U;
+    settings.stator_r = 0.07_Ohm;
+    settings.node_id = 42U;
+  }),
                 SettingsStatus::kSuccess);
   zassert_equal(operations.SetNodeName("zms.node"), SettingsStatus::kSuccess);
   zexpect_equal(StoredEntries(), 0U);  // live tuning: nothing written yet
@@ -142,7 +142,9 @@ ZTEST(sim_settings_persistence, test_register_back_at_factory_value_leaves_the_f
   zassert_equal(operations.SaveToFlash(), SettingsStatus::kSuccess);
   zassert_equal(StoredEntries(), 1U);
 
-  zassert_equal(operations.SetNodeId(unimoc::hardware::kSettings.GetSettingsProfile().factory_settings.node_id), SettingsStatus::kSuccess);
+  zassert_equal(operations.SetNodeId(
+                    unimoc::hardware::kSettings.GetSettingsProfile().factory_settings.node_id),
+                SettingsStatus::kSuccess);
   zexpect_equal(operations.SaveToFlash(), SettingsStatus::kSuccess);
   zexpect_equal(StoredEntries(), 0U);
 }
@@ -165,7 +167,8 @@ ZTEST(sim_settings_persistence, test_undecodable_entry_is_reported_and_healed) {
 
   auto store = MakeStore();
   zexpect_equal(store.Load(), SettingsStatus::kInvalidImage);
-  zexpect_equal(store.GetSnapshot().Get().motor_i_max.Value(), unimoc::hardware::kSettings.GetSettingsProfile().factory_settings.motor_i_max.Value());
+  zexpect_equal(store.GetSnapshot().Get().motor_i_max.Value(),
+                unimoc::hardware::kSettings.GetSettingsProfile().factory_settings.motor_i_max.Value());
 
   zexpect_equal(store.GetOperations().SaveToFlash(), SettingsStatus::kSuccess);
   zexpect_equal(StoredEntries(), 0U);

@@ -19,17 +19,21 @@ else()
 endif()
 
 # --- Application core: strict warnings, no Zephyr headers ------------------
-zephyr_library_named(unimoc_core)
-zephyr_library_sources(
+# A plain library of the application: zephyr_library_*() is for Zephyr modules
+# only. zephyr_interface keeps the target flags (ISA, FPU, defines) of the build.
+add_library(unimoc_core STATIC)
+target_sources(unimoc_core PRIVATE
   ${UNIMOC_ROOT}/src/current_control/current_control_isr.cpp
   ${UNIMOC_ROOT}/src/current_control/slow_update.cpp
   ${UNIMOC_ROOT}/src/startup/hw_startup.cpp)
-zephyr_library_include_directories(
+target_include_directories(unimoc_core PRIVATE
   ${UNIMOC_ROOT}/src/current_control
   ${UNIMOC_ROOT}/src/startup
   ${UNIMOC_PLATFORM_DIR})
-zephyr_library_link_libraries(unimoc_lib)
-target_link_libraries(unimoc_core PRIVATE unimoc_strict_warnings)
+target_link_libraries(unimoc_core PRIVATE
+  zephyr_interface
+  unimoc_lib
+  unimoc_strict_warnings)
 
 # --- Application and Zephyr glue (relaxed warnings) ------------------------
 target_sources(app PRIVATE
