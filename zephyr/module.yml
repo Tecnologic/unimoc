@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 name: unimoc
 build:
   # The portable libraries of lib/ (CONFIG_UNIMOC) and the platform choice.

@@ -8,6 +8,8 @@
  *	@file inverter_model.hpp
  *	@brief Averaged two-level three-phase inverter model.
  *
+ *	SPDX-License-Identifier: GPL-3.0-or-later
+ *
  *	This file is part of UNIMOC and is licensed under GPL-3.0-or-later.
  *	See the repository LICENSE file for details.
  */

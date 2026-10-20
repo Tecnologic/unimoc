@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
 # Deterministic motor plant simulation (inverter, motor models, shaft, sensors).
 # Header-only and HAL-free; the native_sim hardware layer binds it separately.
 add_library(unimoc_sim INTERFACE)

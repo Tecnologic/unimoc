@@ -8,6 +8,8 @@
  *	@file pmsm_model.hpp
  *	@brief Electrical d/q model of a permanent-magnet synchronous motor.
  *
+ *	SPDX-License-Identifier: GPL-3.0-or-later
+ *
  *	This file is part of UNIMOC and is licensed under GPL-3.0-or-later.
  *	See the repository LICENSE file for details.
  */

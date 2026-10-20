@@ -8,6 +8,8 @@
  *    @file sim_control.hpp
  *    @brief Inputs of the native_sim hardware layer that a test or shell can set.
  *
+ *    SPDX-License-Identifier: GPL-3.0-or-later
+ *
  *    This file is part of UNIMOC and is licensed under GPL-3.0-or-later.
  *    See the repository LICENSE file for details.
  */

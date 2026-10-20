@@ -15,7 +15,7 @@ hot-path design.
 ### P1 - Integration
 
  - [x] Align the root `CMakeLists.txt` with the C++20 baseline.
- - [ ] Replace the RTT wording in the comment of `src/startup/startup_results.hpp` with the Zephyr log.
+ - [x] Replace the RTT wording in the comment of `src/startup/startup_results.hpp` with the Zephyr log.
  - [ ] Enable the USB CDC-ACM console and Zephyr logging on the BCC.
  - [ ] Add a Zephyr flash backend (NVS or ZMS) for `SettingsStorage`; until then settings are RAM only.
  - [ ] Integrate Cyphal over CAN-FD (libcanard, DSDL, register service, PnP, heartbeat, GetInfo).
@@ -24,7 +24,7 @@ hot-path design.
  - [x] Bring `src/`, `hardware/zephyr_*` and the tests under clang-tidy (Zephyr SCA through CodeChecker, `scripts/twister_sca.sh`).
  - [ ] Bring the `lib/` headers under clang-tidy (excluded by `HeaderFilterRegex`; their API still uses snake_case methods).
  - [ ] Configure the duty DMA from the devicetree (`dmas` of `foc0`, Zephyr DMA API at init) instead of the fixed DMA1 channel 1 / DMAMUX request 53, and enable its clock through `clock_control` instead of writing `RCC->AHB1ENR`. The zero-latency path keeps reading the channel counter directly.
- - [ ] Decide whether the UNIMOC file header gets an `SPDX-License-Identifier` line (Zephyr convention); the file-docs skill defines the header without it.
+ - [x] Add an `SPDX-License-Identifier` line to the UNIMOC file header (C++ files, CMake and YAML files; file-docs skill updated).
 
 ## Prioritized software-in-the-loop plan
 

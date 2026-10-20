@@ -22,6 +22,8 @@
  *        the new plan, entry 3 carries over. Each half period ends with a
  *        current sample and the per-sample overcurrent check.
  *
+ *    SPDX-License-Identifier: GPL-3.0-or-later
+ *
  *    This file is part of UNIMOC and is licensed under GPL-3.0-or-later.
  *    See the repository LICENSE file for details.
  */

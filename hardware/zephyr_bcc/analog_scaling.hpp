@@ -11,6 +11,8 @@
  *    Board constants of the analog front end. Header only and free of
  *    Zephyr and HAL includes, so it can be unit tested on the host.
  *
+ *    SPDX-License-Identifier: GPL-3.0-or-later
+ *
  *    This file is part of UNIMOC and is licensed under GPL-3.0-or-later.
  *    See the repository LICENSE file for details.
  */

@@ -11,6 +11,8 @@
  *    Shared by all Zephyr platforms. The platform is selected by the CMake
  *    build, not by the preprocessor.
  *
+ *    SPDX-License-Identifier: GPL-3.0-or-later
+ *
  *    This file is part of UNIMOC and is licensed under GPL-3.0-or-later.
  *    See the repository LICENSE file for details.
  */

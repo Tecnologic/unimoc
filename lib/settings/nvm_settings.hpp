@@ -8,6 +8,8 @@
  *    @file nvm_settings.hpp
  *    @brief Typed persistent settings for UNIMOC.
  *
+ *    SPDX-License-Identifier: GPL-3.0-or-later
+ *
  *    This file is part of UNIMOC and is licensed under GPL-3.0-or-later.
  *    See the repository LICENSE file for details.
  */

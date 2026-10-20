@@ -8,6 +8,8 @@
  *    @file foc_stm32g4.hpp
  *    @brief TIM8 / ADC1..5 power stage driver of the battery case controller.
  *
+ *    SPDX-License-Identifier: GPL-3.0-or-later
+ *
  *    This file is part of UNIMOC and is licensed under GPL-3.0-or-later.
  *    See the repository LICENSE file for details.
  */

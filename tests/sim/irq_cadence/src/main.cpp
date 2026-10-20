@@ -8,6 +8,8 @@
  *    @file main.cpp
  *    @brief Cycle cadence, duty-plan timing and power stage of the native_sim platform.
  *
+ *    SPDX-License-Identifier: GPL-3.0-or-later
+ *
  *    This file is part of UNIMOC and is licensed under GPL-3.0-or-later.
  *    See the repository LICENSE file for details.
  */

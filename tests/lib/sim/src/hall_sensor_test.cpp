@@ -8,6 +8,8 @@
  *	@file hall_sensor_test.cpp
  *	@brief Tests of the 120 degree Hall sensor model.
  *
+ *	SPDX-License-Identifier: GPL-3.0-or-later
+ *
  *	This file is part of UNIMOC and is licensed under GPL-3.0-or-later.
  *	See the repository LICENSE file for details.
  */

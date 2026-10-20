@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 set(UNIMOC_MOTOR_CONTROL_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
 add_library(unimoc_motor_control_system INTERFACE)

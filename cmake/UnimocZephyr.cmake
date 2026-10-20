@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
 # CMake helpers of the UNIMOC Zephyr module. zephyr/CMakeLists.txt includes
 # this file and calls unimoc_zephyr_libraries() when CONFIG_UNIMOC=y; the
 # application and the tests only link the resulting targets. The hardware

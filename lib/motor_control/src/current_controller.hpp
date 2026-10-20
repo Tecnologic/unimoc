@@ -8,6 +8,8 @@
  *    @file current_controller.hpp
  *    @brief d/q-axis current controller.
  *
+ *    SPDX-License-Identifier: GPL-3.0-or-later
+ *
  *    This file is part of UNIMOC and is licensed under GPL-3.0-or-later.
  *    See the repository LICENSE file for details.
  */

@@ -11,6 +11,8 @@
  *    Direct register access (CMSIS). All pin, timer and channel assignments
  *    come from the foc0 devicetree node, see foc_stm32g4_dt.hpp.
  *
+ *    SPDX-License-Identifier: GPL-3.0-or-later
+ *
  *    This file is part of UNIMOC and is licensed under GPL-3.0-or-later.
  *    See the repository LICENSE file for details.
  */

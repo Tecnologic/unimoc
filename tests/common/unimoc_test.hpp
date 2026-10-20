@@ -14,6 +14,8 @@
  *    from the test (like zassert_*). Each operand is evaluated once; on a
  *    failure the values are printed before the ztest report.
  *
+ *    SPDX-License-Identifier: GPL-3.0-or-later
+ *
  *    This file is part of UNIMOC and is licensed under GPL-3.0-or-later.
  *    See the repository LICENSE file for details.
  */

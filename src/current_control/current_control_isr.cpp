@@ -8,6 +8,8 @@
  *    @file current_control_isr.cpp
  *    @brief Current-control ISR implementation.
  *
+ *    SPDX-License-Identifier: GPL-3.0-or-later
+ *
  *    This file is part of UNIMOC and is licensed under GPL-3.0-or-later.
  *    See the repository LICENSE file for details.
  */

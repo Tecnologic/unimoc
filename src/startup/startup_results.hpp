@@ -1,10 +1,18 @@
-/// \file startup_results.hpp
-/// POD result struct and FSM-state enum for the hardware startup aid.
-///
-/// This file has no platform dependencies — it may be included from any
-/// translation unit on both target and hosted environments.
-///
-/// \copyright (c) Tecnologic SL
+/*
+ *       __  ___   ________  _______  ______
+ *      / / / / | / /  _/  |/  / __ \/ ____/
+ *     / / / /  |/ // // /|_/ / / / / /
+ *    / /_/ / /|  // // /  / / / /___
+ *    \____/_/ |_/___/_/  /_/\____/\____/
+ *
+ *    @file startup_results.hpp
+ *    @brief Result struct and FSM-state enum of the hardware startup aid.
+ *
+ *    SPDX-License-Identifier: GPL-3.0-or-later
+ *
+ *    This file is part of UNIMOC and is licensed under GPL-3.0-or-later.
+ *    See the repository LICENSE file for details.
+ */
 #pragma once
 
 #include <array>

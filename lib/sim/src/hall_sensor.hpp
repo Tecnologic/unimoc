@@ -8,6 +8,8 @@
  *	@file hall_sensor.hpp
  *	@brief Three digital Hall sensors spaced 120 degrees electrical.
  *
+ *	SPDX-License-Identifier: GPL-3.0-or-later
+ *
  *	This file is part of UNIMOC and is licensed under GPL-3.0-or-later.
  *	See the repository LICENSE file for details.
  */

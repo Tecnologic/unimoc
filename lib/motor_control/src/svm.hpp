@@ -8,6 +8,8 @@
  *    @file svm.hpp
  *    @brief Unit-typed space-vector PWM modulator.
  *
+ *    SPDX-License-Identifier: GPL-3.0-or-later
+ *
  *    This file is part of UNIMOC and is licensed under GPL-3.0-or-later.
  *    See the repository LICENSE file for details.
  */

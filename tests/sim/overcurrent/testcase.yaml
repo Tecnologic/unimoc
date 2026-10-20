@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 common:
   tags: unimoc sim
   platform_allow: native_sim/native/64

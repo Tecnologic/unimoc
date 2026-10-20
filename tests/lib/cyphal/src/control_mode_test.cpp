@@ -8,6 +8,8 @@
  *    @file control_mode_test.cpp
  *    @brief ztest coverage for Cyphal control-mode selection.
  *
+ *    SPDX-License-Identifier: GPL-3.0-or-later
+ *
  *    This file is part of UNIMOC and is licensed under GPL-3.0-or-later.
  *    See the repository LICENSE file for details.
  */

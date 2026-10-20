@@ -8,6 +8,8 @@
  *    @file slow_update.hpp
  *    @brief Background current-control update interface.
  *
+ *    SPDX-License-Identifier: GPL-3.0-or-later
+ *
  *    This file is part of UNIMOC and is licensed under GPL-3.0-or-later.
  *    See the repository LICENSE file for details.
  */

@@ -8,6 +8,8 @@
  *  @file sin_cos.hpp
  *  @brief Sine/cosine value type and replaceable angle providers.
  *
+ *  SPDX-License-Identifier: GPL-3.0-or-later
+ *
  *  This file is part of UNIMOC and is licensed under GPL-3.0-or-later.
  *  See the repository LICENSE file for details.
  */

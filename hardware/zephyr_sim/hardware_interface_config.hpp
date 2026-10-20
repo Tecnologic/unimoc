@@ -8,6 +8,8 @@
  *    @file hardware_interface_config.hpp
  *    @brief Static configuration of the simulation (native_sim).
  *
+ *    SPDX-License-Identifier: GPL-3.0-or-later
+ *
  *    This file is part of UNIMOC and is licensed under GPL-3.0-or-later.
  *    See the repository LICENSE file for details.
  */

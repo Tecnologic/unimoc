@@ -13,6 +13,8 @@
  *    (boards/unimoc/bcc/bcc.dts). Nothing in the driver names a pin, an ADC
  *    instance or a channel number.
  *
+ *    SPDX-License-Identifier: GPL-3.0-or-later
+ *
  *    This file is part of UNIMOC and is licensed under GPL-3.0-or-later.
  *    See the repository LICENSE file for details.
  */
