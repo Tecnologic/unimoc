@@ -19,7 +19,7 @@ Run the commands from the west workspace root (it contains `unimoc/`,
 west --version
 cmake --version
 clang-tidy --version      # LLVM 18, as on the ubuntu-24.04 CI runner
-clang-format --version    # same version, the formatting depends on it
+clang-format --version    # exactly 22.1.1 (pip install clang-format==22.1.1); check_format.sh enforces it
 CodeChecker version       # pip install codechecker
 ```
 
@@ -73,6 +73,12 @@ A new suite is a directory with `CMakeLists.txt`, `prj.conf`,
   the same comment.
 
 ## clang-format
+
+The formatting differs between clang-format versions, so the version is
+pinned to 22.1.1 (the version Zephyr's CI uses). `check_format.sh` refuses
+other versions; put the pip binary first on `PATH` or point `CLANG_FORMAT`
+at it. Zephyr's Python requirements install an unpinned clang-format, which
+is why CI installs the pinned one afterwards.
 
 ```text
 unimoc/scripts/check_format.sh          # report (exit 1 when a file is not formatted)

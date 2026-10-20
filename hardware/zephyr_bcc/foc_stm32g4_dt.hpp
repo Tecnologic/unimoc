@@ -34,11 +34,11 @@
 #define UNIMOC_FOC_ADC_CH(name) DT_IO_CHANNELS_INPUT_BY_NAME(UNIMOC_FOC, name)
 
 /// Same as STM32_CLOCK_INFO, but with the designators in declaration order as C++ requires.
-#define UNIMOC_CLOCK_INFO(clk_index, node_id)                                                      \
-  {                                                                                                \
-    .bus = DT_CLOCKS_CELL_BY_IDX(node_id, clk_index, bus) & GENMASK(STM32_CLOCK_DIV_SHIFT - 1, 0), \
-    .div = DT_CLOCKS_CELL_BY_IDX(node_id, clk_index, bus) >> STM32_CLOCK_DIV_SHIFT,                \
-    .enr = DT_CLOCKS_CELL_BY_IDX(node_id, clk_index, bits),                                        \
+#define UNIMOC_CLOCK_INFO(clk_index, node_id)                                                        \
+  {                                                                                                  \
+      .bus = DT_CLOCKS_CELL_BY_IDX(node_id, clk_index, bus) & GENMASK(STM32_CLOCK_DIV_SHIFT - 1, 0), \
+      .div = DT_CLOCKS_CELL_BY_IDX(node_id, clk_index, bus) >> STM32_CLOCK_DIV_SHIFT,                \
+      .enr = DT_CLOCKS_CELL_BY_IDX(node_id, clk_index, bits),                                        \
   }
 
 namespace unimoc::hardware::foc_stm32g4 {

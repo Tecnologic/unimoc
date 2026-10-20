@@ -729,7 +729,9 @@ west twister -T unimoc/tests/lib/motor_control -p native_sim/native/64
 ```
 
 `twister_sca.sh` needs `clang-tidy` (LLVM 18) and CodeChecker
-(`pip install codechecker`) in addition to the Zephyr setup.
+(`pip install codechecker`) in addition to the Zephyr setup;
+`check_format.sh` needs exactly clang-format 22.1.1
+(`pip install clang-format==22.1.1`).
 
 ### Generating the API Documentation
 

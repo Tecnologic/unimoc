@@ -115,7 +115,8 @@ west build -b bcc unimoc/app -d unimoc/app/build/bcc                      # batt
 Earlier sessions lost time on these points; do them from the start:
 
 - **Set up the workspace first** when `west` or `zephyr/` is missing: a
-  Python venv with `west` and `codechecker`, `west init -l unimoc && west
+  Python venv with `west`, `codechecker` and `clang-format==22.1.1` (pinned:
+  `check_format.sh` refuses other versions), `west init -l unimoc && west
   update` from the parent directory of the repository, then the Python
   requirements (`zephyr/scripts/requirements-*.txt`) and the Zephyr SDK
   (minimal bundle plus `arm-zephyr-eabi`, `setup.sh -t arm-zephyr-eabi -h -c`).

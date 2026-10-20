@@ -24,11 +24,14 @@ jobs:
           app-path: unimoc
           toolchains: arm-zephyr-eabi
 
-      - name: Install clang-format, clang-tidy and CodeChecker
+      # After the Zephyr setup: its requirements pull an unpinned clang-format
+      # from pip, which would otherwise come first on PATH.
+      - name: Install clang-format (pinned), clang-tidy and CodeChecker
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang-format clang-tidy
-          pip install codechecker
+          sudo apt-get install -y clang-tidy
+          pip install clang-format==22.1.1 codechecker
+          clang-format --version
 
       - name: clang-format
         run: unimoc/scripts/check_format.sh

@@ -19,13 +19,14 @@ The workspace root is the parent directory of this repository (`west init -l`
 uses the directory above the manifest repository):
 
     mkdir ws && cd ws && git clone --recursive <repo-url> unimoc
-    python3 -m venv .venv && . .venv/bin/activate && pip install west codechecker
+    python3 -m venv .venv && . .venv/bin/activate
+    pip install west codechecker clang-format==22.1.1   # clang-format pinned: the output depends on the version
     west init -l unimoc && west update
     west packages pip --install                  # Zephyr's Python requirements
     west sdk install -t arm-zephyr-eabi          # Zephyr SDK 1.0.1; without GitHub API access:
     #   download zephyr-sdk-1.0.1_linux-x86_64_minimal.tar.xz from the sdk-ng release,
     #   unpack it and run ./setup.sh -t arm-zephyr-eabi -h -c
-    sudo apt-get install clang-tidy clang-format # LLVM 18, as on the CI runner
+    sudo apt-get install clang-tidy              # LLVM 18, as on the CI runner
 
 CMake >= 3.20 (Zephyr's minimum) and Ninja are required. The CI job
 (`.github/workflows/ci-zephyr.yml`) does the same with
