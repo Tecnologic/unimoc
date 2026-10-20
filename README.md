@@ -55,7 +55,7 @@ simulation.
 | **Position** | Absolute multi-turn tracker (±4096+ rev), cascaded P+PI position controller, homing state machine |
 | **Modulation** | Space Vector PWM (SVPWM), dead-time compensation |
 | **Network** | Cyphal (UAVCAN v1) register map — every setting configurable over the bus (planned, see [Cyphal](#cyphal-uavcan-v1-interface)) |
-| **Persistence** | Settings validated with magic + version check; stored in NVM once the Zephyr flash backend exists (RAM only until then) |
+| **Persistence** | Live RAM settings for tuning; one flash entry per changed register (Zephyr settings on ZMS); saving only while the power stage is disabled |
 | **Platform** | HAL-free algorithms; tested on Linux x86-64 with GTest; Zephyr firmware for the BCC (STM32G473) and `native_sim` |
 | **Runtime** | Zephyr threads for logging, shell, USB, Cyphal, and settings; zero-latency IRQs only for the FOC hot path |
 
@@ -109,10 +109,10 @@ lib/
 │   └── transport.hpp             # UDP/CAN/test transport contract
 ├── settings/
 │   ├── nvm_settings.hpp          # Typed aggregate of NVM-backed parameters
-│   ├── settings_codec.hpp        # Versioned explicit settings image codec
+│   ├── settings_registers.hpp    # Register table + byte encoding of one register value
 │   ├── settings_profile.hpp      # Immutable target capabilities and defaults
-│   ├── settings_storage.hpp      # Platform load/save callback contract
-│   └── settings_store.hpp        # Snapshot and authorized mutation API
+│   ├── settings_storage.hpp      # Platform key/value storage contract
+│   └── settings_store.hpp        # Live settings, snapshot, save gate, authorized mutation API
 ├── system/
 │   ├── rotor_angle.hpp           # Q1.31 electrical angle + revolution counter, sin/cos LUT
 │   ├── rotor_system.hpp          # d/q rotating reference frame
@@ -298,21 +298,29 @@ All settings are aggregated in `unimoc::settings::NvmSettings`
 (`lib/settings/nvm_settings.hpp`).  Runtime ownership is provided by
 `unimoc::settings::SettingsStore`.  The design is:
 
-- **Validated** by a magic word (`0x554D4F43` = "UMOC"), a format version, and
-   target capability/cross-field checks. Invalid images are replaced by the
-   target factory profile.
+- **Validated** by target capability and cross-field checks, before a change
+   becomes live and when the stored registers are loaded. Unusable stored
+   registers are replaced by the target factory profile.
 - **Complete** — every tunable parameter from every controller and observer
-  lives in a single flat struct, making it trivial to back up or flash a full
-  drive configuration.
+  lives in a single flat struct.
+- **Live and persistent** — operations change the RAM copy at once (live
+  tuning, no flash access). `SettingsOperations::SaveToFlash()` writes only the
+  registers that changed since the last load or save, one flash entry per
+  register under its Cyphal register name; a register that is back at its
+  factory value is erased. It is refused (`kPersistBlocked`) unless the power
+  stage is disabled, because a flash write can stall the zero-latency control
+  cycle. A register that is not stored has its factory value, so new firmware can
+  add registers without invalidating stored settings.
 - **Platform-agnostic** — the hardware layer supplies an immutable profile and
-   load/save callbacks; targets can use a
-   dedicated flash section.  On the BCC and `native_sim` the settings are kept
-   in RAM only until the Zephyr flash backend (NVS/ZMS) exists.
+   a key/value storage adapter. The Zephyr platforms use the settings
+   subsystem on ZMS in the `storage_partition` (`hardware/zephyr_common/
+   zephyr_settings_storage.cpp`); on `native_sim` that is the flash simulator.
 - **Read-only to application code** — control code receives a
    `SettingsSnapshot`; only an explicitly passed `SettingsOperations` capability
    can commit changes.
 - **Explicitly serialized** — unit wrappers are encoded through their numeric
-   values in a fixed little-endian image. The C++ object layout is not persisted.
+   values as little-endian floats, one value per register
+   (`lib/settings/settings_registers.hpp`). The C++ object layout is not persisted.
 
 ```cpp
 #include "hardware_interface.hpp"
@@ -338,7 +346,7 @@ if (load_status == unimoc::system::SettingsStatus::kStorageError) {
 
 The target profile is compiled into the hardware adapter as a `const` object,
 so stock parameters and immutable safety capabilities are included in the
-firmware image. The writable settings image is separate and is never allowed
+firmware image. The writable settings are separate and are never allowed
 to raise those capabilities.
 
 ---
@@ -637,9 +645,10 @@ calibration through its authorized `SettingsOperations` capability:
    | `adc_gain_a` | `1 / gain_a` computed in CURRENT_SENSE_CALIBRATION |
    | `adc_gain_b` | `1 / gain_b` computed in CURRENT_SENSE_CALIBRATION |
 
-2. Validates and persists the candidate as one settings transaction. A storage
-   failure leaves the active settings unchanged and puts the startup FSM into
-   `FAULT`.
+2. Validates the candidate and applies it to the live settings as one
+   transaction. A rejected candidate leaves the active settings unchanged and puts
+   the startup FSM into `FAULT`. The calibration is not written to flash: save it
+   with `SettingsOperations::SaveToFlash()` once the power stage is disabled.
 
 3. Prints a full summary to the Zephyr log:
    ```

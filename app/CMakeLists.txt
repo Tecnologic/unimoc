@@ -35,6 +35,7 @@ target_link_libraries(unimoc_core PRIVATE unimoc_strict_warnings)
 target_sources(app PRIVATE
   ${UNIMOC_ROOT}/src/main.cpp
   ${UNIMOC_ROOT}/hardware/zephyr_common/system_interface.cpp
+  ${UNIMOC_ROOT}/hardware/zephyr_common/zephyr_settings_storage.cpp
   ${UNIMOC_PLATFORM_DIR}/hardware_interface.cpp)
 foreach(unimoc_platform_source IN LISTS UNIMOC_PLATFORM_EXTRA_SOURCES)
   target_sources(app PRIVATE ${UNIMOC_PLATFORM_DIR}/${unimoc_platform_source})

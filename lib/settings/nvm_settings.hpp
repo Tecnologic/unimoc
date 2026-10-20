@@ -33,28 +33,21 @@ namespace unimoc::settings {
 
 using namespace unit;
 
-/// Magic number stored at the start of every NvmSettings block.
-/// Used to detect an uninitialised or corrupt NVM image.
-inline constexpr uint32_t kNvmMagic = 0x554D4F43U;  // 'UMOC'
-
-/// Layout version of the NvmSettings struct.
-/// Increment whenever the struct layout changes incompatibly.
-inline constexpr uint16_t kNvmVersion = 3U;
-
 /**
  * @brief Aggregate of all persistent (NVM-backed) UNIMOC configuration.
  *
  * Every member that a user can configure via Cyphal registers and that must
- * survive a power cycle lives in this struct.  The hardware NVM driver
- * stores and retrieves this struct atomically (e.g., via a CRC-protected
- * flash page or EEPROM block).
+ * survive a power cycle lives in this struct.  The struct is the live (RAM)
+ * copy; `SettingsStore` persists it one register per key
+ * (settings_registers.hpp), only the registers that differ from the factory
+ * profile.
  *
  * Cyphal register mapping
  * -----------------------
  * Each field corresponds to a named Cyphal register (see cyphal_interface.hpp
  * for the canonical register name strings).  The Cyphal register service
- * (`uavcan.register.Access`) is the write path; on successful write the
- * application flushes the updated NvmSettings to non-volatile storage.
+ * (`uavcan.register.Access`) is the write path into the live copy; saving to
+ * non-volatile storage is a separate, explicit step (`SettingsOperations::SaveToFlash`).
  *
  * Node ID and plug-and-play
  * -------------------------
@@ -69,16 +62,6 @@ inline constexpr uint16_t kNvmVersion = 3U;
  * device boots and operates in a known state without manual configuration.
  */
 struct NvmSettings {
-  // =========================================================================
-  // Header — must be first
-  // =========================================================================
-
-  /// Magic word — set to kNvmMagic by factory defaults.
-  uint32_t magic{kNvmMagic};
-
-  /// Layout version — set to kNvmVersion.
-  uint16_t version{kNvmVersion};
-
   // =========================================================================
   // Node identification
   // =========================================================================
@@ -478,21 +461,6 @@ struct NvmSettings {
   /// Phase-C ADC gain correction factor [dimensionless, ≈ 1.0].
   /// Register: `unimoc.motor.balance.gain_c`
   unit::Ratio phase_balance_c{1.0_ratio};
-
-  // =========================================================================
-  // Validation and safety clamping
-  // =========================================================================
-
-  /**
-   * @brief Return true if the magic word and version match expected values.
-   *
-   * Call this after loading from NVM.  If it returns false the block is
-   * uninitialised or corrupt — reset to defaults and re-save.
-   * @return `true` when the image header matches the current settings format.
-   */
-  [[nodiscard]] constexpr bool IsValid() const noexcept {
-    return magic == kNvmMagic && version == kNvmVersion;
-  }
 
   /// Restore all fields to factory defaults.
   void ResetToDefaults() noexcept { *this = NvmSettings{}; }

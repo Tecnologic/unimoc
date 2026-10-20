@@ -121,11 +121,8 @@ stage is no longer enabled (trip, external break, e-stop), and
 
 ## Known issues
 
-- Not integrated yet: the Cyphal stack, the USB CDC-ACM console and the Zephyr
-  flash settings backend. Logging goes to the Zephyr log; the BCC USB stays
+- Not integrated yet: the Cyphal stack and the USB CDC-ACM console. Logging goes to the Zephyr log; the BCC USB stays
   disabled (`docs/zephyr_port_plan.md`, Phases 4 and 5).
-- `control_mode_test` and `nvm_settings_test` are skipped: they still use the
-  old enumerator names (`POSITION`, `PMSM`) and do not compile against the lib.
 - Pins were taken from the KiCad netlist (Tecnologic/battery-case-controller).
   LEDs, CAN slope, break, hall and pulse signals are in the devicetree; FDCAN3
   and USB have pinctrl but stay disabled until their steps. The gate drivers
@@ -141,8 +138,11 @@ stage is no longer enabled (trip, external break, e-stop), and
 - The schematic symbol of U43 is an STM32G491CxT, the firmware targets the
   STM32G473CBT6 (FDCAN3 on PB3/PB4 and ADC4/ADC5 only exist there).
 - The CAN transceiver is a SN65HVD230 (classic CAN, no CAN FD).
-- Settings are kept in RAM only (`ram_settings_storage.hpp`) until a flash
-  backend exists.
+- Settings persist through the Zephyr settings subsystem on ZMS
+  (`hardware/zephyr_common/zephyr_settings_storage.cpp`): flash simulator on
+  native_sim, the 16 KB `storage_partition` on the BCC. The ZMS behavior on the
+  STM32G4 flash (erase time, garbage collection, power loss) is not verified on
+  the board.
 - The sim plant (`lib/sim`) has no dead time, no ADC noise and no switching
   ripple; the sim checks logic and timing contract, not the time budget.
 - The duty DMA, the CCR preload, the counter start at ARR/2 and the

@@ -15,6 +15,7 @@ target_sources(app PRIVATE
   ${UNIMOC_ROOT}/src/current_control/current_control_isr.cpp
   ${UNIMOC_ROOT}/src/current_control/slow_update.cpp
   ${UNIMOC_ROOT}/hardware/zephyr_common/system_interface.cpp
+  ${UNIMOC_ROOT}/hardware/zephyr_common/zephyr_settings_storage.cpp
   ${UNIMOC_ROOT}/hardware/zephyr_sim/hardware_interface.cpp)
 target_include_directories(app PRIVATE
   ${UNIMOC_ROOT}/src/current_control

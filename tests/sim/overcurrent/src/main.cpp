@@ -42,7 +42,8 @@ void unimoc::hardware::ObserverHandler() noexcept { SlowUpdate::Instance().RunOn
 
 struct sim_overcurrent_fixture {
   unimoc::settings::SettingsStore store{unimoc::hardware::kSettings.GetSettingsProfile(),
-                                        unimoc::hardware::kSettings.GetSettingsStorage()};
+                                        unimoc::hardware::kSettings.GetSettingsStorage(),
+                                        unimoc::settings::SettingsSaveGate::Always()};
 };
 
 namespace {

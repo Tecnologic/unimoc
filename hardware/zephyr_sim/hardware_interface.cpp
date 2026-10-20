@@ -36,8 +36,8 @@
 #include "hot_path_interface.hpp"
 #include "motor_simulation.hpp"
 #include "power_stage_interface.hpp"
-#include "ram_settings_storage.hpp"
 #include "sim_control.hpp"
+#include "zephyr_settings_storage.hpp"
 
 namespace unimoc::hardware {
 
@@ -63,8 +63,7 @@ const settings::SettingsProfile kSettingsProfile = [] {
   return profile;
 }();
 
-RamSettingsStorage g_ram_settings_storage;
-const settings::SettingsStorage kSettingsStorage = g_ram_settings_storage.Adapter();
+const settings::SettingsStorage kSettingsStorage = ZephyrSettingsStorage::Adapter();
 
 // ----- Power stage ----------------------------------------------------------
 

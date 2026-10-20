@@ -13,6 +13,7 @@ set(UNIMOC_ROOT ${ZEPHYR_UNIMOC_MODULE_DIR})
 
 target_sources(app PRIVATE
   src/main.cpp
+  ${UNIMOC_ROOT}/hardware/zephyr_common/zephyr_settings_storage.cpp
   ${UNIMOC_ROOT}/hardware/zephyr_sim/hardware_interface.cpp)
 target_include_directories(app PRIVATE
   ${UNIMOC_ROOT}/hardware/zephyr_sim

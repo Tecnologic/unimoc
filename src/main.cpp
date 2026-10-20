@@ -16,6 +16,7 @@
 #include "current_control_runtime.hpp"
 #include "hardware_interface.hpp"
 #include "hot_path_interface.hpp"
+#include "settings_save_gate.hpp"
 #include "settings_store.hpp"
 #include "slow_update.hpp"
 
@@ -33,13 +34,26 @@ void unimoc::hardware::ObserverHandler() noexcept {
 // needed any more (Zephyr ends it when main() returns).
 int main() {
   // Static: outlives main() for the threads that read or commit settings later.
+  // Settings are saved to flash only while the power stage is disabled.
   static unimoc::settings::SettingsStore settings_store{unimoc::hardware::kSettings.GetSettingsProfile(),
-                                                        unimoc::hardware::kSettings.GetSettingsStorage()};
+                                                        unimoc::hardware::kSettings.GetSettingsStorage(),
+                                                        unimoc::settings::PowerStageSaveGate(
+                                                            unimoc::hardware::kPowerStage)};
   const auto kSettingsStatus = settings_store.Load();
-  if (kSettingsStatus != unimoc::settings::SettingsStatus::kSuccess &&
-      kSettingsStatus != unimoc::settings::SettingsStatus::kFactoryDefaults) {
-    unimoc::hardware::kRuntime.Log(unimoc::hardware::LogLevel::kError, "Failed to load motor settings\n");
-    return 1;
+  switch (kSettingsStatus) {
+    case unimoc::settings::SettingsStatus::kSuccess:
+    case unimoc::settings::SettingsStatus::kFactoryDefaults:
+      break;
+    case unimoc::settings::SettingsStatus::kInvalidImage:
+    case unimoc::settings::SettingsStatus::kInvalidSettings:
+    case unimoc::settings::SettingsStatus::kOutOfRange:
+      // The stored registers are unusable; the factory profile is active.
+      unimoc::hardware::kRuntime.Log(unimoc::hardware::LogLevel::kWarning,
+                                     "Stored settings rejected, using factory settings\n");
+      break;
+    default:
+      unimoc::hardware::kRuntime.Log(unimoc::hardware::LogLevel::kError, "Failed to load motor settings\n");
+      return 1;
   }
 
   const auto kSettingsSnapshot = settings_store.GetSnapshot();

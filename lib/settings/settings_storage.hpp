@@ -6,7 +6,7 @@
  *    \____/_/ |_/___/_/  /_/\____/\____/
  *
  *    @file settings_storage.hpp
- *    @brief Platform-neutral settings storage callbacks.
+ *    @brief Platform boundary for the persistent key/value settings storage.
  *
  *    SPDX-License-Identifier: GPL-3.0-or-later
  *
@@ -18,64 +18,102 @@
 #include <cstddef>
 #include <cstdint>
 #include <span>
+#include <string_view>
 
 namespace unimoc::settings {
 
-/**
- * @brief Result of a platform settings storage operation.
- */
+/// Result of a platform storage operation.
 enum class SettingsStorageStatus : uint8_t {
+  /// The operation completed.
   kSuccess,
+  /// The key does not exist.
   kNotFound,
+  /// There is no persistent storage on this target.
   kUnavailable,
+  /// The storage reported an I/O failure.
   kIoError,
 };
 
 /**
- * @brief Non-owning load/save adapter for a serialized settings image.
+ * @brief Platform adapter for persistent key/value storage.
  *
- * The context and callbacks are supplied by the hardware layer. The settings
- * service owns no file, flash, or EEPROM resources and can therefore be used
- * by hosted and embedded targets alike.
+ * One entry per register: the key is the register name, the value its
+ * encoded bytes (settings_registers.hpp). The Zephyr platforms back it with
+ * the settings subsystem on ZMS (hardware/zephyr_common). All callbacks run
+ * in thread context and may block; they are never called from the hot path.
  */
 class SettingsStorage {
  public:
-  using LoadCallback = SettingsStorageStatus (*)(void* context, std::span<std::byte> image);
-  using SaveCallback = SettingsStorageStatus (*)(void* context, std::span<const std::byte> image);
+  /// Receives one stored entry while the storage is enumerated.
+  using EntryCallback = void (*)(const void* entry_context,
+                                 std::string_view key,
+                                 std::span<const std::byte> value);
+  /// Calls @p entry for every stored entry.
+  using LoadAllCallback = SettingsStorageStatus (*)(void* context,
+                                                    EntryCallback entry,
+                                                    const void* entry_context);
+  /// Stores or replaces one entry.
+  using WriteCallback = SettingsStorageStatus (*)(void* context,
+                                                  std::string_view key,
+                                                  std::span<const std::byte> value);
+  /// Removes one entry; removing a missing entry succeeds.
+  using EraseCallback = SettingsStorageStatus (*)(void* context, std::string_view key);
 
   constexpr SettingsStorage() = default;
 
   /**
    * @brief Constructs a storage adapter from platform callbacks.
    * @param context Opaque platform-owned callback context.
-   * @param load Reads exactly the requested image size.
-   * @param save Atomically writes the supplied image when possible.
+   * @param load_all Enumerates all stored entries.
+   * @param write Writes one entry.
+   * @param erase Erases one entry.
    */
-  constexpr SettingsStorage(void* context, LoadCallback load, SaveCallback save) noexcept
-      : context_{context}, load_{load}, save_{save} {}
+  constexpr SettingsStorage(void* context,
+                            LoadAllCallback load_all,
+                            WriteCallback write,
+                            EraseCallback erase) noexcept
+      : context_{context}, load_all_{load_all}, write_{write}, erase_{erase} {}
 
   /**
-   * @brief Loads a serialized settings image.
-   * @param image Destination buffer with the required image size.
+   * @brief Enumerates all stored entries.
+   * @param visitor Callable `void(std::string_view key, std::span<const std::byte> value)`.
    * @return The platform operation result.
    */
-  [[nodiscard]] SettingsStorageStatus Load(std::span<std::byte> image) const noexcept {
-    return load_ == nullptr ? SettingsStorageStatus::kUnavailable : load_(context_, image);
+  template <typename Visitor>
+  [[nodiscard]] SettingsStorageStatus LoadAll(const Visitor& visitor) const {
+    const EntryCallback kEntry =
+        [](const void* entry_context, std::string_view key, std::span<const std::byte> value) {
+          (*static_cast<const Visitor*>(entry_context))(key, value);
+        };
+    return load_all_ == nullptr ? SettingsStorageStatus::kUnavailable
+                                : load_all_(context_, kEntry, static_cast<const void*>(&visitor));
   }
 
   /**
-   * @brief Saves a serialized settings image.
-   * @param image Complete serialized settings image.
+   * @brief Stores or replaces one entry.
+   * @param key Register name.
+   * @param value Encoded register value.
    * @return The platform operation result.
    */
-  [[nodiscard]] SettingsStorageStatus Save(std::span<const std::byte> image) const noexcept {
-    return save_ == nullptr ? SettingsStorageStatus::kUnavailable : save_(context_, image);
+  [[nodiscard]] SettingsStorageStatus Write(std::string_view key,
+                                            std::span<const std::byte> value) const noexcept {
+    return write_ == nullptr ? SettingsStorageStatus::kUnavailable : write_(context_, key, value);
+  }
+
+  /**
+   * @brief Removes one entry.
+   * @param key Register name.
+   * @return The platform operation result.
+   */
+  [[nodiscard]] SettingsStorageStatus Erase(std::string_view key) const noexcept {
+    return erase_ == nullptr ? SettingsStorageStatus::kUnavailable : erase_(context_, key);
   }
 
  private:
   void* context_{nullptr};
-  LoadCallback load_{nullptr};
-  SaveCallback save_{nullptr};
+  LoadAllCallback load_all_{nullptr};
+  WriteCallback write_{nullptr};
+  EraseCallback erase_{nullptr};
 };
 
 }  // namespace unimoc::settings

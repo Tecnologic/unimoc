@@ -16,48 +16,21 @@
 
 #include "settings_store.hpp"
 #include <zephyr/ztest.h>
-#include <algorithm>
 #include <array>
 #include <cstddef>
-#include <cstring>
-#include <ranges>
+#include <string_view>
 #include <type_traits>
 #include <utility>
-#include "settings_codec.hpp"
+#include "ram_settings_storage.hpp"
 #include "unimoc_test.hpp"
 
 namespace unimoc::settings::test {
 
 using namespace unimoc::unit;
+using unimoc::test::RamSettingsStorage;
+namespace reg = unimoc::cyphal::reg;
 
 namespace {
-
-struct MemoryBackend {
-  std::array<std::byte, kSettingsImageSize> image{};
-  bool has_image{false};
-  bool fail_save{false};
-  uint32_t save_count{0U};
-};
-
-SettingsStorageStatus LoadImage(void* context, std::span<std::byte> image) noexcept {
-  auto& backend = *static_cast<MemoryBackend*>(context);
-  if (!backend.has_image) {
-    return SettingsStorageStatus::kNotFound;
-  }
-  std::ranges::copy(backend.image, image.begin());
-  return SettingsStorageStatus::kSuccess;
-}
-
-SettingsStorageStatus SaveImage(void* context, std::span<const std::byte> image) noexcept {
-  auto& backend = *static_cast<MemoryBackend*>(context);
-  ++backend.save_count;
-  if (backend.fail_save) {
-    return SettingsStorageStatus::kIoError;
-  }
-  std::ranges::copy(image, backend.image.begin());
-  backend.has_image = true;
-  return SettingsStorageStatus::kSuccess;
-}
 
 SettingsProfile MakeProfile() {
   SettingsProfile profile{};
@@ -71,8 +44,24 @@ SettingsProfile MakeProfile() {
   return profile;
 }
 
-SettingsStorage MakeStorage(MemoryBackend& backend) {
-  return SettingsStorage{&backend, LoadImage, SaveImage};
+bool g_save_allowed = true;
+
+SettingsSaveGate MakeGate() {
+  return SettingsSaveGate{nullptr, [](void* /*unused*/) { return g_save_allowed; }};
+}
+
+struct Fixture {
+  RamSettingsStorage backend{};
+  SettingsStore store{MakeProfile(), backend.Adapter(), MakeGate()};
+
+  Fixture() { g_save_allowed = true; }
+};
+
+template <typename T>
+std::array<std::byte, kMaxRegisterValueSize> Bytes(const T& value, std::size_t& size) {
+  std::array<std::byte, kMaxRegisterValueSize> bytes{};
+  size = EncodeRegisterValue(value, bytes);
+  return bytes;
 }
 
 }  // namespace
@@ -81,75 +70,231 @@ ZTEST(settings_store, test_snapshot_exposes_only_const_settings) {
   static_assert(std::is_same_v<decltype(std::declval<const SettingsSnapshot&>().Get()), const NvmSettings&>);
 }
 
-ZTEST(settings_store, test_missing_image_uses_and_persists_factory_defaults) {
-  MemoryBackend backend{};
-  SettingsStore store{MakeProfile(), MakeStorage(backend)};
-
-  zexpect_equal(store.Load(), SettingsStatus::kFactoryDefaults);
-  zexpect_true(backend.has_image);
-  zexpect_equal(store.GetSnapshot().Get().motor_i_max.Value(), 30.0F);
+ZTEST(settings_store, test_empty_storage_uses_factory_defaults_and_writes_nothing) {
+  Fixture ctx;
+  zexpect_equal(ctx.store.Load(), SettingsStatus::kFactoryDefaults);
+  zexpect_equal(ctx.store.GetSnapshot().Get().motor_i_max.Value(), 30.0F);
+  zexpect_equal(ctx.backend.Writes(), 0U);
+  zexpect_equal(ctx.backend.Erases(), 0U);
+  zexpect_equal(ctx.backend.Count(), 0U);
 }
 
-ZTEST(settings_store, test_codec_round_trip_preserves_typed_values) {
-  NvmSettings original{};
-  original.stator_r = 0.23_Ohm;
-  original.l_d = 1.2_mH;
-  original.motor_j = 0.00042_kg_m2;
-  original.pwm_frequency = 32.0_kHz;
+ZTEST(settings_store, test_live_update_changes_ram_only) {
+  Fixture ctx;
+  zassert_equal(ctx.store.Load(), SettingsStatus::kFactoryDefaults);
+  auto operations = ctx.store.GetOperations();
 
-  std::array<std::byte, kSettingsImageSize> image{};
-  NvmSettings decoded{};
-
-  zassert_true(SettingsCodec::Encode(original, image));
-  zassert_true(SettingsCodec::Decode(image, decoded));
-  zexpect_equal(decoded.stator_r.Value(), original.stator_r.Value());
-  zexpect_equal(decoded.l_d.Value(), original.l_d.Value());
-  zexpect_equal(decoded.motor_j.Value(), original.motor_j.Value());
-  zexpect_equal(decoded.pwm_frequency, original.pwm_frequency);
-}
-
-ZTEST(settings_store, test_authorized_operation_updates_and_persists) {
-  MemoryBackend backend{};
-  SettingsStore store{MakeProfile(), MakeStorage(backend)};
-  zassert_equal(store.Load(), SettingsStatus::kFactoryDefaults);
-
-  auto operations = store.GetOperations();
   zexpect_equal(operations.SetMotorCurrentLimit(20.0_A), SettingsStatus::kSuccess);
-  zexpect_equal(store.GetSnapshot().Get().motor_i_max.Value(), 20.0F);
-  zexpect_equal(backend.save_count, 2U);
+  zexpect_equal(ctx.store.GetSnapshot().Get().motor_i_max.Value(), 20.0F);
+  zexpect_equal(operations.UnsavedCount(), 1U);
+  zexpect_equal(ctx.backend.Writes(), 0U);
+  zexpect_equal(ctx.backend.Count(), 0U);
 }
 
-ZTEST(settings_store, test_capability_violation_leaves_snapshot_unchanged) {
-  MemoryBackend backend{};
-  SettingsStore store{MakeProfile(), MakeStorage(backend)};
-  zassert_equal(store.Load(), SettingsStatus::kFactoryDefaults);
-  auto operations = store.GetOperations();
-
-  zexpect_equal(operations.SetMotorCurrentLimit(31.0_A), SettingsStatus::kOutOfRange);
-  zexpect_equal(store.GetSnapshot().Get().motor_i_max.Value(), 30.0F);
-  zexpect_equal(backend.save_count, 1U);
-}
-
-ZTEST(settings_store, test_save_failure_leaves_snapshot_unchanged) {
-  MemoryBackend backend{};
-  SettingsStore store{MakeProfile(), MakeStorage(backend)};
-  zassert_equal(store.Load(), SettingsStatus::kFactoryDefaults);
-  backend.fail_save = true;
-
-  auto operations = store.GetOperations();
-  zexpect_equal(operations.SetMotorCurrentLimit(20.0_A), SettingsStatus::kStorageError);
-  zexpect_equal(store.GetSnapshot().Get().motor_i_max.Value(), 30.0F);
-}
-
-ZTEST(settings_store, test_reset_restores_factory_profile) {
-  MemoryBackend backend{};
-  SettingsStore store{MakeProfile(), MakeStorage(backend)};
-  zassert_equal(store.Load(), SettingsStatus::kFactoryDefaults);
-  auto operations = store.GetOperations();
+ZTEST(settings_store, test_save_writes_only_changed_registers) {
+  Fixture ctx;
+  zassert_equal(ctx.store.Load(), SettingsStatus::kFactoryDefaults);
+  auto operations = ctx.store.GetOperations();
   zassert_equal(operations.SetMotorCurrentLimit(20.0_A), SettingsStatus::kSuccess);
+  zassert_equal(operations.SetNodeId(7U), SettingsStatus::kSuccess);
+
+  zexpect_equal(operations.SaveToFlash(), SettingsStatus::kSuccess);
+  zexpect_equal(ctx.backend.Writes(), 2U);
+  zexpect_true(ctx.backend.Contains(reg::kMotorIMax));
+  zexpect_true(ctx.backend.Contains(reg::kNodeId));
+  zexpect_equal(ctx.backend.Count(), 2U);
+  zexpect_equal(operations.UnsavedCount(), 0U);
+
+  // Nothing changed since: nothing is written.
+  zexpect_equal(operations.SaveToFlash(), SettingsStatus::kSuccess);
+  zexpect_equal(ctx.backend.Writes(), 2U);
+
+  // One more change: exactly one more write.
+  zassert_equal(operations.SetMotorCurrentLimit(25.0_A), SettingsStatus::kSuccess);
+  zexpect_equal(operations.SaveToFlash(), SettingsStatus::kSuccess);
+  zexpect_equal(ctx.backend.Writes(), 3U);
+}
+
+ZTEST(settings_store, test_saved_registers_load_over_the_factory_profile) {
+  Fixture ctx;
+  zassert_equal(ctx.store.Load(), SettingsStatus::kFactoryDefaults);
+  auto operations = ctx.store.GetOperations();
+  zassert_equal(operations.Update([](NvmSettings& settings) {
+    settings.motor_i_max = 20.0_A;
+    settings.stator_r = 0.23_Ohm;
+    settings.pwm_frequency = 32.0_kHz;
+    settings.motor_type = system::MotorType::kAsm;
+    settings.pole_pairs = 7U;
+  }),
+                SettingsStatus::kSuccess);
+  zassert_equal(operations.SaveToFlash(), SettingsStatus::kSuccess);
+
+  SettingsStore reloaded{MakeProfile(), ctx.backend.Adapter(), MakeGate()};
+  zexpect_equal(reloaded.Load(), SettingsStatus::kSuccess);
+  const auto kSnapshot = reloaded.GetSnapshot();
+  const NvmSettings& loaded = kSnapshot.Get();
+  zexpect_equal(loaded.motor_i_max.Value(), 20.0F);
+  zexpect_equal(loaded.stator_r.Value(), 0.23_Ohm .Value());
+  zexpect_equal(loaded.pwm_frequency.Value(), 32000.0F);
+  zexpect_equal(loaded.motor_type, system::MotorType::kAsm);
+  zexpect_equal(loaded.pole_pairs, 7U);
+  zexpect_equal(loaded.battery_drive_current_max.Value(), 12.0F);  // not stored: factory
+  zexpect_equal(reloaded.GetOperations().UnsavedCount(), 0U);
+}
+
+ZTEST(settings_store, test_register_back_at_factory_value_is_erased) {
+  Fixture ctx;
+  zassert_equal(ctx.store.Load(), SettingsStatus::kFactoryDefaults);
+  auto operations = ctx.store.GetOperations();
+  zassert_equal(operations.SetMotorCurrentLimit(20.0_A), SettingsStatus::kSuccess);
+  zassert_equal(operations.SaveToFlash(), SettingsStatus::kSuccess);
+  zassert_true(ctx.backend.Contains(reg::kMotorIMax));
+
+  zassert_equal(operations.SetMotorCurrentLimit(30.0_A), SettingsStatus::kSuccess);
+  zexpect_equal(operations.SaveToFlash(), SettingsStatus::kSuccess);
+  zexpect_false(ctx.backend.Contains(reg::kMotorIMax));
+  zexpect_equal(ctx.backend.Erases(), 1U);
+}
+
+ZTEST(settings_store, test_reset_to_factory_is_live_and_erases_on_save) {
+  Fixture ctx;
+  zassert_equal(ctx.store.Load(), SettingsStatus::kFactoryDefaults);
+  auto operations = ctx.store.GetOperations();
+  zassert_equal(operations.SetMotorCurrentLimit(20.0_A), SettingsStatus::kSuccess);
+  zassert_equal(operations.SaveToFlash(), SettingsStatus::kSuccess);
 
   zexpect_equal(operations.ResetToFactoryDefaults(), SettingsStatus::kSuccess);
-  zexpect_equal(store.GetSnapshot().Get().motor_i_max.Value(), 30.0F);
+  zexpect_equal(ctx.store.GetSnapshot().Get().motor_i_max.Value(), 30.0F);
+  zexpect_true(ctx.backend.Contains(reg::kMotorIMax));  // flash is untouched until saved
+  zexpect_equal(operations.UnsavedCount(), 1U);
+
+  zexpect_equal(operations.SaveToFlash(), SettingsStatus::kSuccess);
+  zexpect_equal(ctx.backend.Count(), 0U);
+}
+
+ZTEST(settings_store, test_save_is_refused_while_the_gate_is_closed) {
+  Fixture ctx;
+  zassert_equal(ctx.store.Load(), SettingsStatus::kFactoryDefaults);
+  auto operations = ctx.store.GetOperations();
+  zassert_equal(operations.SetMotorCurrentLimit(20.0_A), SettingsStatus::kSuccess);
+
+  g_save_allowed = false;
+  zexpect_equal(operations.SaveToFlash(), SettingsStatus::kPersistBlocked);
+  zexpect_equal(ctx.backend.Writes(), 0U);
+  zexpect_equal(operations.UnsavedCount(), 1U);
+  zexpect_equal(ctx.store.GetSnapshot().Get().motor_i_max.Value(), 20.0F);  // live tuning still works
+
+  g_save_allowed = true;
+  zexpect_equal(operations.SaveToFlash(), SettingsStatus::kSuccess);
+  zexpect_equal(ctx.backend.Writes(), 1U);
+}
+
+ZTEST(settings_store, test_default_gate_never_allows_saving) {
+  RamSettingsStorage backend{};
+  SettingsStore store{MakeProfile(), backend.Adapter(), SettingsSaveGate{}};
+  zassert_equal(store.Load(), SettingsStatus::kFactoryDefaults);
+  auto operations = store.GetOperations();
+  zassert_equal(operations.SetNodeId(3U), SettingsStatus::kSuccess);
+  zexpect_equal(operations.SaveToFlash(), SettingsStatus::kPersistBlocked);
+  zexpect_equal(backend.Writes(), 0U);
+}
+
+ZTEST(settings_store, test_capability_violation_leaves_settings_unchanged) {
+  Fixture ctx;
+  zassert_equal(ctx.store.Load(), SettingsStatus::kFactoryDefaults);
+  auto operations = ctx.store.GetOperations();
+
+  zexpect_equal(operations.SetMotorCurrentLimit(31.0_A), SettingsStatus::kOutOfRange);
+  zexpect_equal(ctx.store.GetSnapshot().Get().motor_i_max.Value(), 30.0F);
+  zexpect_equal(operations.UnsavedCount(), 0U);
+}
+
+ZTEST(settings_store, test_write_failure_keeps_the_register_unsaved_and_a_retry_saves_it) {
+  Fixture ctx;
+  zassert_equal(ctx.store.Load(), SettingsStatus::kFactoryDefaults);
+  auto operations = ctx.store.GetOperations();
+  zassert_equal(operations.SetMotorCurrentLimit(20.0_A), SettingsStatus::kSuccess);
+
+  ctx.backend.FailWrites(true);
+  zexpect_equal(operations.SaveToFlash(), SettingsStatus::kStorageError);
+  zexpect_equal(operations.UnsavedCount(), 1U);
+  zexpect_equal(ctx.store.GetSnapshot().Get().motor_i_max.Value(), 20.0F);
+
+  ctx.backend.FailWrites(false);
+  zexpect_equal(operations.SaveToFlash(), SettingsStatus::kSuccess);
+  zexpect_equal(operations.UnsavedCount(), 0U);
+}
+
+ZTEST(settings_store, test_partial_save_keeps_what_was_written) {
+  Fixture ctx;
+  zassert_equal(ctx.store.Load(), SettingsStatus::kFactoryDefaults);
+  auto operations = ctx.store.GetOperations();
+  zassert_equal(operations.Update([](NvmSettings& settings) {
+    settings.node_id = 9U;
+    settings.pole_pairs = 5U;
+    settings.motor_i_max = 20.0_A;
+  }),
+                SettingsStatus::kSuccess);
+
+  ctx.backend.FailWritesAfter(1);
+  zexpect_equal(operations.SaveToFlash(), SettingsStatus::kStorageError);
+  zexpect_equal(ctx.backend.Count(), 1U);
+  zexpect_equal(operations.UnsavedCount(), 2U);
+
+  ctx.backend.FailWritesAfter(-1);
+  zexpect_equal(operations.SaveToFlash(), SettingsStatus::kSuccess);
+  zexpect_equal(ctx.backend.Count(), 3U);
+  zexpect_equal(ctx.backend.Writes(), 4U);  // 1 ok + 1 failed + 2 retried
+}
+
+ZTEST(settings_store, test_undecodable_entry_falls_back_to_factory_and_a_save_removes_it) {
+  Fixture ctx;
+  const std::array<std::byte, 3> kBadSize{};
+  ctx.backend.Put(reg::kMotorIMax, kBadSize);
+
+  zexpect_equal(ctx.store.Load(), SettingsStatus::kInvalidImage);
+  zexpect_equal(ctx.store.GetSnapshot().Get().motor_i_max.Value(), 30.0F);
+
+  zexpect_equal(ctx.store.GetOperations().SaveToFlash(), SettingsStatus::kSuccess);
+  zexpect_false(ctx.backend.Contains(reg::kMotorIMax));
+  zexpect_equal(ctx.store.Load(), SettingsStatus::kFactoryDefaults);
+}
+
+ZTEST(settings_store, test_stored_value_beyond_the_capability_is_rejected) {
+  Fixture ctx;
+  std::size_t size = 0U;
+  const auto kBytes = Bytes(40.0_A, size);
+  ctx.backend.Put(reg::kMotorIMax, std::span<const std::byte>{kBytes.data(), size});
+
+  zexpect_equal(ctx.store.Load(), SettingsStatus::kOutOfRange);
+  zexpect_equal(ctx.store.GetSnapshot().Get().motor_i_max.Value(), 30.0F);
+}
+
+ZTEST(settings_store, test_unknown_keys_are_ignored) {
+  Fixture ctx;
+  const std::array<std::byte, 1> kValue{std::byte{1}};
+  ctx.backend.Put("unimoc.removed.in.a.later.release", kValue);
+  zexpect_equal(ctx.store.Load(), SettingsStatus::kFactoryDefaults);
+}
+
+ZTEST(settings_store, test_unavailable_storage_is_reported) {
+  Fixture ctx;
+  ctx.backend.SetUnavailable(true);
+  zexpect_equal(ctx.store.Load(), SettingsStatus::kStorageUnavailable);
+  zexpect_equal(ctx.store.GetSnapshot().Get().motor_i_max.Value(), 30.0F);
+}
+
+ZTEST(settings_store, test_empty_node_name_is_stored_not_deleted) {
+  Fixture ctx;
+  zassert_equal(ctx.store.Load(), SettingsStatus::kFactoryDefaults);
+  auto operations = ctx.store.GetOperations();
+  zassert_equal(operations.SetNodeName(""), SettingsStatus::kSuccess);
+  zassert_equal(operations.SaveToFlash(), SettingsStatus::kSuccess);
+  zexpect_equal(ctx.backend.Value(reg::kNodeDescription).size(), 1U);  // the terminator
+
+  SettingsStore reloaded{MakeProfile(), ctx.backend.Adapter(), MakeGate()};
+  zexpect_equal(reloaded.Load(), SettingsStatus::kSuccess);
+  zexpect_equal(reloaded.GetSnapshot().Get().identity.GetName().size(), 0U);
 }
 
 }  // namespace unimoc::settings::test

@@ -33,6 +33,20 @@ config UNIMOC_PLATFORM_SIM
 
 endchoice
 
+config UNIMOC_SETTINGS_ZMS
+	bool "Persist settings with the Zephyr settings subsystem on ZMS"
+	default y
+	depends on UNIMOC_PLATFORM_BCC || UNIMOC_PLATFORM_SIM
+	select FLASH
+	select FLASH_MAP
+	select ZMS
+	select SETTINGS
+	help
+	  Registers that differ from the factory profile are stored one entry
+	  each in the storage partition (hardware/zephyr_common/
+	  zephyr_settings_storage.cpp). Needs the 'storage_partition' of the
+	  board devicetree; native_sim uses its flash simulator.
+
 module = UNIMOC
 module-str = UNIMOC
 source "subsys/logging/Kconfig.template.log_config"

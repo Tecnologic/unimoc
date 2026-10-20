@@ -811,7 +811,7 @@ void HwStartup::RunDone() noexcept {
                                                unit::Ratio{kGainB},
                                                unit::Ratio{kGainVdc});
   if (kCommitStatus != settings::SettingsStatus::kSuccess) {
-    EnterFault("failed to persist calibration settings");
+    EnterFault("failed to apply calibration settings");
     return;
   }
 

@@ -27,7 +27,7 @@
 #include "foc_stm32g4.hpp"
 #include "foc_stm32g4_dt.hpp"
 #include "hot_path_interface.hpp"
-#include "ram_settings_storage.hpp"
+#include "zephyr_settings_storage.hpp"
 
 namespace unimoc::hardware {
 
@@ -59,8 +59,7 @@ const settings::SettingsProfile kSettingsProfile = [] {
   return profile;
 }();
 
-RamSettingsStorage g_ram_settings_storage;
-const settings::SettingsStorage kSettingsStorage = g_ram_settings_storage.Adapter();
+const settings::SettingsStorage kSettingsStorage = ZephyrSettingsStorage::Adapter();
 
 // Settling after a switching edge before a sample is clean again [s]. Estimate.
 constexpr float kSwitchingSettleTime = 1.0e-6F;

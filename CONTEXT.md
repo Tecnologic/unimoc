@@ -92,7 +92,9 @@ external API requires different wording.
 | **setpoint subject** | An input subject carrying a runtime command such as torque, speed, position, or excitation. |
 | **telemetry** | Runtime output published by the drive, such as estimated angle, speed, current, or DC voltage. |
 | **NVM** | Non-volatile memory used to retain configuration across power cycles. Use `NvmSettings` for the aggregate settings type. |
-| **persistent setting** | A configuration value stored in NVM and exposed through a register. |
+| **persistent setting** | A configuration value exposed through a register. It is live in RAM at once and reaches flash only through an explicit save. |
+| **live settings** | The RAM copy of `NvmSettings` that the controller uses and that live tuning changes without any flash access. |
+| **save gate** | The `SettingsSaveGate` that allows writing settings to flash only while the power stage is disabled. |
 | **runtime value** | A value used during operation but not retained in NVM, such as a setpoint or telemetry sample. |
 | **factory default** | The known initial value restored when the NVM magic or layout version is invalid. |
 
