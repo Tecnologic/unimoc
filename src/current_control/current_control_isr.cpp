@@ -66,186 +66,137 @@ void CurrentControlIsr::init(const settings::NvmSettings& settings,
   // --- Pre-fill both double-buffer halves with zero-angle sin/cos ---
   for (auto& buf : state.double_buf.buf) {
     for (uint8_t k = 0u; k < NUM_SUB_STEPS; ++k) {
-      // phi_k = 0 + k × omega_init × dt_fast = 0 (omega = 0 at startup)
       buf.sc[k] = system::SinCos<unit::Ratio>(0.0_rad);
+      buf.sc_out[k] = system::SinCos<unit::Ratio>(0.0_rad);
     }
   }
+  state.double_buf.active.store(0u, std::memory_order_release);
 
   // --- Reset algorithm state ---
   cc.reset();
   hfi.reset();
-  sub_step_ = 0u;
-  active_buf_snapshot_ = 0u;
+  // The observer feeds sample 0 of a cycle first; it answers the last
+  // injection step of the previous plan (docs/hotpath_plan.md, section 4).
+  hfi.step = NUM_SUB_STEPS - 1;
   state.samples_ready = false;
+  state.observer_pending.store(false, std::memory_order_release);
+  state.observer_overruns = 0u;
+  state.control_cycles = 0u;
+  state.duty_plan = hardware::DutyPlan{};
   state.phase_duties = system::ThreePhase<unit::Ratio>{0.5_ratio, 0.5_ratio, 0.5_ratio};
 }
 
 // =============================================================================
-// on_jeoc — ADC end-of-injected-conversion handler
+// on_control_cycle — once per NUM_SUB_STEPS PWM half periods, zero latency
 // =============================================================================
 //
-// This function is called from the ADC JEOC ISR at the highest configured IRQ
-// priority.  It must complete in well under one PWM half-period.
+// Must finish before the first PWM boundary after the control boundary: duty
+// entry 0 goes directly into the CCR preload registers.
 //
-static bool duty_in_bounds(const unit::Ratio duty,
-                           const unit::Ratio duty_min,
-                           const unit::Ratio duty_max) noexcept {
-  return duty >= duty_min && duty <= duty_max;
+static bool exceeds(const system::ThreePhase<unit::Current>& i, const float limit) noexcept {
+  return std::abs(i.a.Value()) > limit || std::abs(i.b.Value()) > limit || std::abs(i.c.Value()) > limit;
 }
 
-// -----------------------------------------------------------------------------
-// on_jeoc
-// -----------------------------------------------------------------------------
-
-void CurrentControlIsr::on_jeoc() noexcept {
+void CurrentControlIsr::on_control_cycle() noexcept {
   if (hardware_ == nullptr) return;
+  ++state.control_cycles;
 
   // -------------------------------------------------------------------------
-  // 1. Read ADC samples through the hardware boundary.
+  // 1. Samples of the cycle (oldest first) from the hardware boundary.
   // -------------------------------------------------------------------------
-  const hardware::CurrentControlSamples samples = hardware_->GetCurrentControlSamples();
-  const system::ThreePhase<unit::Current> phase_currents = samples.phase_currents;
+  const hardware::ControlCycleSamples samples = hardware_->GetControlCycleSamples();
   const float v_dc = samples.dc_link.Value();
 
   // -------------------------------------------------------------------------
-  // 1a. Store raw ADC samples — always, regardless of control mode.
-  //     The startup FSM reads these from a lower-priority context.
+  // 1a. Store the newest raw sample — always, regardless of control mode.
+  //     The startup FSM reads it from a lower-priority context.
   // -------------------------------------------------------------------------
-  state.raw_phase_currents = phase_currents;
+  state.raw_phase_currents = samples.phase_currents[NUM_SUB_STEPS - 1u];
   state.raw_vdc = unit::Voltage{v_dc};
 
   // -------------------------------------------------------------------------
-  // 1b. Hard overcurrent limit. Runs before any control computation: a
-  //     runaway controller is cut by the hardware break, and the loop stays
-  //     frozen at neutral duties until the trip is acknowledged.
+  // 1b. Hard overcurrent limit. The hardware has checked every sample and
+  //     tripped the stage already; this repeats the check on the scaled
+  //     currents. The loop stays frozen at neutral duties until the trip is
+  //     acknowledged.
   // -------------------------------------------------------------------------
   if (!state.overcurrent_tripped) {
-    const float limit = state.overcurrent_limit_A;
-    if (std::abs(phase_currents.a.Value()) > limit || std::abs(phase_currents.b.Value()) > limit ||
-        std::abs(phase_currents.c.Value()) > limit) {
+    bool over = samples.overcurrent;
+    for (const auto& i : samples.phase_currents) over = over || exceeds(i, state.overcurrent_limit_A);
+    if (over) {
       hardware::power_stage.Trip();
       state.overcurrent_tripped = true;
     }
   }
   if (state.overcurrent_tripped) {
-    set_phase_duties(system::ThreePhase<unit::Ratio>{0.5_ratio, 0.5_ratio, 0.5_ratio});
-    sub_step_ = (sub_step_ + 1u) & 3u;
-    if (sub_step_ == 0u) {
-      state.samples_ready = true;
-    }
+    set_uniform_duties(system::ThreePhase<unit::Ratio>{0.5_ratio, 0.5_ratio, 0.5_ratio});
+    finish_cycle_without_control();
     return;
   }
 
   // -------------------------------------------------------------------------
-  // 1c. Force-duty mode: write fixed CCR values and skip the control loop.
-  //     ADC samples are stored above so the startup FSM can still monitor
-  //     them for over-current protection.
+  // 1c. Force-duty mode: fixed duties, no control loop.
   // -------------------------------------------------------------------------
   if (force_duty_active) {
-    set_phase_duties(forced_duties);
-    sub_step_ = (sub_step_ + 1u) & 3u;
-    if (sub_step_ == 0u) {
-      state.samples_ready = true;
-    }
+    set_uniform_duties(forced_duties);
+    finish_cycle_without_control();
     return;
   }
 
   // -------------------------------------------------------------------------
-  // 2. Snapshot the active-buffer index at sub-step 0 and reuse it for the
-  //    whole 4-step cycle so that a buffer flip mid-cycle is handled safely.
+  // 2. Angles of this cycle. The observer prepared them for this cycle; if it
+  //    is still busy with the previous one, it is late: count and reuse.
   // -------------------------------------------------------------------------
-  if (sub_step_ == 0u) {
-    active_buf_snapshot_ = state.double_buf.active.load(std::memory_order_acquire);
-  }
-  const uint8_t ab = active_buf_snapshot_;
+  if (state.observer_pending.load(std::memory_order_acquire)) ++state.observer_overruns;
+  const uint8_t ab = state.double_buf.active.load(std::memory_order_acquire);
   SubStepBuffer& sb = state.double_buf.buf[ab];
-  const system::SinCos<unit::Ratio>& sc = sb.sc[sub_step_];
 
   // -------------------------------------------------------------------------
-  // 3. Boundary guard — skip current PI and write neutral duties when any
-  //    duty is outside the 5–95 % window (corrupted ADC samples or
-  //    insufficient PWM headroom for voltage injection).
+  // 3. Clarke per sample, Park with the angle of the sample, mean d/q current.
   // -------------------------------------------------------------------------
-  {
-    const system::ThreePhase<unit::Ratio> applied_duties = hardware_->GetPhaseDuties();
-    if (!duty_in_bounds(applied_duties.a, svm.duty_min, svm.duty_max) ||
-        !duty_in_bounds(applied_duties.b, svm.duty_min, svm.duty_max) ||
-        !duty_in_bounds(applied_duties.c, svm.duty_min, svm.duty_max)) {
-      // Write safe neutral duties (50 %) and skip this control update.
-      set_phase_duties(system::ThreePhase<unit::Ratio>{0.5_ratio, 0.5_ratio, 0.5_ratio});
-      sub_step_ = (sub_step_ + 1u) & 3u;
-      if (sub_step_ == 0u) {
-        state.samples_ready = true;
-      }
-      return;
-    }
+  system::Rotor<unit::Current> i_dq_mean{0.0f, 0.0f};
+  for (uint8_t k = 0u; k < NUM_SUB_STEPS; ++k) {
+    const system::Stator<unit::Current> i_ab = samples.phase_currents[k].ToStator();
+    sb.i_ab_samples[k] = i_ab;
+    const system::Rotor<unit::Current> i_dq = i_ab.ToRotor(sb.sc[k]);
+    i_dq_mean.d += i_dq.d;
+    i_dq_mean.q += i_dq.q;
   }
+  constexpr float inv_n = 1.0f / static_cast<float>(NUM_SUB_STEPS);
+  i_dq_mean.d *= inv_n;
+  i_dq_mean.q *= inv_n;
+  sb.i_dq_mean = i_dq_mean;
 
   // -------------------------------------------------------------------------
-  // 4. Clarke transform: I_a, I_b, I_c -> I_alpha, I_beta
-  // -------------------------------------------------------------------------
-  const system::Stator<unit::Current> i_ab = phase_currents.ToStator();
-
-  // -------------------------------------------------------------------------
-  // 5. Store current sample in the active buffer for SlowUpdate
-  // -------------------------------------------------------------------------
-  sb.i_ab_samples[sub_step_] = i_ab;
-
-  // -------------------------------------------------------------------------
-  // 6. Park transform: I_α, I_β → I_d, I_q
-  // -------------------------------------------------------------------------
-  const system::Rotor<unit::Current> i_dq = i_ab.ToRotor(sc);
-
-  // -------------------------------------------------------------------------
-  // 7. Current PI with decoupling feedforward
+  // 4. Current PI with decoupling feedforward, once per cycle.
   // -------------------------------------------------------------------------
   const system::Rotor<unit::Voltage> u_dq =
-      cc.update(state.i_ref, i_dq, mech_obs.omega, unit::Time{state.dt_fast}, unit::Voltage{v_dc});
-
-  // Store for SlowUpdate (flux observer needs last voltage)
+      cc.update(state.i_ref, i_dq_mean, mech_obs.omega, unit::Time{state.dt_slow}, unit::Voltage{v_dc});
+  sb.u_dq = u_dq;
   state.u_dq_last = u_dq;
 
   // -------------------------------------------------------------------------
-  // 8. HFI voltage injection (α/β frame, added before inverse Park)
-  //    The injection voltage is computed from the current step's sin/cos.
+  // 5. One duty entry per half period: inverse Park with the angle of the
+  //    entry, HFI step k, dead-time compensation from the newest current, SVM.
   // -------------------------------------------------------------------------
-  system::Stator<unit::Voltage> v_inj{0.0f, 0.0f};
-  if (hfi_active) {
-    v_inj = hfi.get_injection_voltage(sc.sin, sc.cos);
+  const system::Stator<unit::Ratio> dtc_ratio = dtc.calculate(sb.i_ab_samples[NUM_SUB_STEPS - 1u]);
+  hardware::DutyPlan plan{};
+  for (uint8_t k = 0u; k < NUM_SUB_STEPS; ++k) {
+    const system::SinCos<unit::Ratio>& sc_out = sb.sc_out[k];
+    system::Stator<unit::Voltage> u_ab = u_dq.ToStator(sc_out);
+    if (hfi_active) {
+      u_ab = u_ab + hfi.get_injection_voltage(static_cast<int>(k), sc_out.sin, sc_out.cos);
+    }
+    plan.duties[k] = svm.CalculateWithDeadTimeCompensation(u_ab, unit::Voltage{v_dc}, dtc_ratio);
   }
 
   // -------------------------------------------------------------------------
-  // 9. Inverse Park: U_d, U_q → U_α, U_β
+  // 6. Write the plan; the observer runs next.
   // -------------------------------------------------------------------------
-  system::Stator<unit::Voltage> u_ab = u_dq.ToStator(sc);
-
-  // Add HFI injection in the α/β frame
-  u_ab = u_ab + v_inj;
-
-  // -------------------------------------------------------------------------
-  // 10. Dead-time compensation (adds a correction in the α/β frame)
-  // -------------------------------------------------------------------------
-  const system::Stator<unit::Ratio> dtc_ratio = dtc.calculate(i_ab);
-
-  // -------------------------------------------------------------------------
-  // 11. Space-vector modulation → normalised duties [0, 1]
-  //     SVM normalises by V_dc and adds the (already normalised) DTC term.
-  // -------------------------------------------------------------------------
-  const system::ThreePhase<unit::Ratio> duties =
-      svm.CalculateWithDeadTimeCompensation(u_ab, unit::Voltage{v_dc}, dtc_ratio);
-
-  // -------------------------------------------------------------------------
-  // 12. Write normalized duties through the hardware boundary.
-  // -------------------------------------------------------------------------
-  set_phase_duties(duties);
-
-  // -------------------------------------------------------------------------
-  // 13. Advance sub-step; at wrap-around signal the slow-update task
-  // -------------------------------------------------------------------------
-  sub_step_ = (sub_step_ + 1u) & 3u;
-  if (sub_step_ == 0u) {
-    state.samples_ready = true;
-  }
+  set_duty_plan(plan);
+  state.observer_buffer = ab;
+  state.observer_pending.store(true, std::memory_order_release);
+  state.samples_ready = true;
 }
 
 // =============================================================================
@@ -272,7 +223,7 @@ void CurrentControlIsr::release_force_duty() noexcept {
 }
 
 // =============================================================================
-// set_adc_trigger_offset
+// set_adc_trigger_offset / set_overcurrent_limit
 // =============================================================================
 
 void CurrentControlIsr::set_adc_trigger_offset(uint32_t offset) noexcept {
@@ -280,10 +231,28 @@ void CurrentControlIsr::set_adc_trigger_offset(uint32_t offset) noexcept {
   if (hardware_ != nullptr) hardware_->SetAdcTriggerOffset(offset);
 }
 
-void CurrentControlIsr::set_phase_duties(const system::ThreePhase<unit::Ratio>& duties) noexcept {
-  state.phase_duties = duties;
-  if (hardware_ != nullptr) hardware_->SetPhaseDuties(duties);
+void CurrentControlIsr::set_overcurrent_limit(const unit::Current limit) noexcept {
+  state.overcurrent_limit_A = limit.Value();
+  if (hardware_ != nullptr) hardware_->SetOvercurrentLimit(limit);
 }
+
+// =============================================================================
+// duty output helpers
+// =============================================================================
+
+void CurrentControlIsr::set_uniform_duties(const system::ThreePhase<unit::Ratio>& duties) noexcept {
+  hardware::DutyPlan plan{};
+  for (auto& entry : plan.duties) entry = duties;
+  set_duty_plan(plan);
+}
+
+void CurrentControlIsr::set_duty_plan(const hardware::DutyPlan& plan) noexcept {
+  state.duty_plan = plan;
+  state.phase_duties = plan.duties[0];
+  if (hardware_ != nullptr) hardware_->SetDutyPlan(plan);
+}
+
+void CurrentControlIsr::finish_cycle_without_control() noexcept { state.samples_ready = true; }
 
 }  // namespace current_control
 }  // namespace unimoc

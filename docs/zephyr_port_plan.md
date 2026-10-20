@@ -10,9 +10,9 @@ settings backend do not exist yet. The phase order below is the plan.
 - Zephyr is the primary OS. Logging, shell, USB, Cyphal, settings and startup
   run in Zephyr threads: logging and shell over USB, Cyphal over CAN-FD
   (battery case controller), later Cyphal/UDP on an STM32H7.
-- Only the FOC hot path runs in zero-latency IRQs. The fast current ISR is the
-  hot path. The quarter-cycle update is open (see Decisions). Nothing else runs
-  at zero latency.
+- Only the FOC hot path runs in zero-latency IRQs: the sample ISR and the
+  control cycle it runs every fourth sample. The observer runs in a
+  software-pended normal-priority interrupt. Nothing else runs at zero latency.
 - Run the simulation on the host with Zephyr `native_sim`.
 - Primary host is Linux. Windows uses WSL2 for the simulation.
 - Remove the legacy firmware completely.
@@ -29,7 +29,7 @@ settings backend do not exist yet. The phase order below is the plan.
 | Repository layout | Same repository. Zephyr application in `app/`, `lib/` consumed via `add_subdirectory`. |
 | Language standard | C++20 (`CONFIG_STD_CPP20`). `AGENTS.md`, `README.md` and the root `CMakeLists.txt` say C++20. |
 | Runtime scope | Zephyr is the primary OS. Only the FOC hot path runs at zero latency. Logging, shell, USB, Cyphal, settings and startup run in threads. |
-| Quarter-cycle update | Open. `docs/hotpath_plan.md` and the current code keep it zero-latency (observers and precomputation). The scope rule above says a thread. The decision needs the user. |
+| Hot-path layout | Decided: 32 kHz PWM, 16 kHz control cycle inside every fourth sample ISR, duty entry 0 into the CCR preload and entries 1 to 3 by DMA, observer in a software-pended normal-priority interrupt (`docs/hotpath_plan.md`). |
 
 ## Review Findings Driving the Plan
 
@@ -42,8 +42,8 @@ settings backend do not exist yet. The phase order below is the plan.
 3. `hardware/host` uses `std::thread`, `<chrono>`, `<fstream>`, an environment
    variable for the settings file and zero-value stubs.
 4. `CurrentControlIsr` and `SlowUpdate` are singletons; `samples_ready` is a
-   `volatile bool`. `on_jeoc()` only calls hardware callbacks, which fits a
-   zero-latency IRQ, but those callbacks must not log or call kernel APIs.
+   `volatile bool`. `on_control_cycle()` only calls hardware callbacks, which
+   fits a zero-latency IRQ, but those callbacks must not log or call kernel APIs.
 5. Cyphal: only identifiers, heartbeat serialization and the `Transport`
    interface exist. DSDL, register service, PnP and GetInfo are missing.
 6. `lib/cymon` (own library, C++17, no canard dependency) is an uninitialised
@@ -76,9 +76,8 @@ settings backend do not exist yet. The phase order below is the plan.
 - `HardwareSystemInterface::Log` maps to Zephyr logging.
 - Shell commands: settings, startup FSM, status, cymon control.
 - `SettingsStorage` callbacks map to NVS/ZMS.
-- Threads: Cyphal, shell, logging, settings. No `main()` wait loop. The slow
-  update stays in the quarter-cycle IRQ until the open decision is made (see
-  Decisions).
+- Threads: Cyphal, shell, logging, settings, later the 2 kHz control thread.
+  No `main()` wait loop. The observer stays in its pended interrupt.
 
 ### Phase 4 - STM32G473 target
 - Custom board with devicetree, no legacy code.
@@ -121,6 +120,6 @@ settings backend do not exist yet. The phase order below is the plan.
 - **CAN-FD on the BCC:** the transceiver is an SN65HVD230 (classic CAN, no CAN
   FD). Phase 5 needs a CAN-FD transceiver on the board, or it runs at classic
   CAN rates.
-- **Quarter-cycle IRQ:** if it stays zero-latency, its observer and Hall work
-  must fit the budget in `docs/hotpath_plan.md` section 7. If it moves to a
-  thread, the plan needs a deadline, and the double buffer must still hold.
+- **Observer deadline:** the observer and later the Hall fusion must finish
+  within one control cycle (62.5 µs) below the sample ISR, see the budget in
+  `docs/hotpath_plan.md` section 4. `state.observer_overruns` counts misses.

@@ -26,10 +26,12 @@ external API requires different wording.
 
 | Preferred term | Meaning and usage |
 |---|---|
-| **hot path** | The FOC work that runs once per half PWM period in a zero-latency IRQ: current read, Park, PI, SVM, and duty write. Only this runs at zero latency. |
+| **hot path** | The FOC work that runs in zero-latency IRQs: the sample ISR and the control cycle. Only this runs at zero latency. |
 | **zero-latency IRQ** | An interrupt that bypasses the Zephyr scheduler and kernel locking (`IRQ_ZERO_LATENCY`). It may not call kernel APIs, log, or lock. |
-| **fast ISR** | The current-control interrupt, the end of the injected ADC sequence (JEOS). It is the hot path. |
-| **quarter-cycle update** | The TIM8 update interrupt, every fourth half period. It runs the observers and precomputes the next four half periods. It is `SlowUpdate` in code. Its zero-latency status is open. |
+| **sample ISR** | The end of the injected ADC sequence (JEOS), once per half PWM period. It copies the raw currents and checks the overcurrent limit. |
+| **control cycle** | Four half PWM periods (16 kHz at 32 kHz PWM). It runs inside every fourth sample ISR: PI once, four duty entries for the next four half periods. `CurrentControlIsr::on_control_cycle()` in code. |
+| **duty plan** | The four duty entries of one control cycle (`DutyPlan`). Entry 0 goes into the CCR preload, entries 1 to 3 are delivered by DMA at the next update events. |
+| **observer** | The flux observer, Kalman filter and HFI after each control cycle, in a software-pended normal-priority interrupt. It computes the angles of the next cycle. `SlowUpdate` in code. |
 | **Zephyr thread** | Any work outside the zero-latency IRQs: logging, shell, USB, Cyphal, settings, and startup sequencing. |
 | **trip** | An overcurrent or fault stop that switches the power stage off. A trip latches a fault until it is cleared. |
 | **dead time** | The gap between the switching edges of a half-bridge that prevents shoot-through. It is set in the `foc0` devicetree node. |

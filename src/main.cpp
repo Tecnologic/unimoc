@@ -18,9 +18,11 @@
 
 namespace {
 
-void CurrentControlInterrupt() noexcept { unimoc::current_control::CurrentControlIsr::instance().on_jeoc(); }
+void ControlCycleInterrupt() noexcept {
+  unimoc::current_control::CurrentControlIsr::instance().on_control_cycle();
+}
 
-void SlowUpdateInterrupt() noexcept { unimoc::current_control::SlowUpdate::instance().run_once(); }
+void ObserverInterrupt() noexcept { unimoc::current_control::SlowUpdate::instance().run_once(); }
 
 }  // namespace
 
@@ -43,8 +45,8 @@ int main() {
     current_control.set_overcurrent_limit(unimoc::hardware::settings.GetSettingsProfile().capabilities.max_phase_current);
     if (!motor.Initialize(settings_snapshot.Get().pwm_frequency,
                           current_control.state.adc_trigger_offset,
-                          CurrentControlInterrupt,
-                          SlowUpdateInterrupt)) {
+                          ControlCycleInterrupt,
+                          ObserverInterrupt)) {
       unimoc::hardware::runtime.Log(unimoc::hardware::LogLevel::kError,
                                     "Failed to initialize motor interface\n");
       return 1;  // Exit if initialization fails

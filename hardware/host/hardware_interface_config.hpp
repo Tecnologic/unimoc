@@ -55,6 +55,9 @@ inline constexpr bool kCpuTemperatureAvailable = false;
 inline constexpr bool kBridgeTemperatureAvailable = false;
 inline constexpr bool kMotorTemperatureAvailable = false;
 
+/// PWM half periods (current samples) per control cycle.
+inline constexpr uint8_t kHalfPeriodsPerCycle = 4U;
+
 inline constexpr uint32_t kCurrentControlIrqPriority = 5U;
 inline constexpr uint32_t kSlowUpdateIrqPriority = 10U;
 

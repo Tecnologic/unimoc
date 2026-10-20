@@ -24,11 +24,9 @@
  */
 #pragma once
 
-#ifndef UNIMOC_CURRENT_CONTROL_SUB_STEP_BUFFER_H_
-#define UNIMOC_CURRENT_CONTROL_SUB_STEP_BUFFER_H_
-
 #include <atomic>
 #include <cstdint>
+#include "rotor_system.hpp"
 #include "sin_cos.hpp"
 #include "stator_system.hpp"
 
@@ -41,80 +39,75 @@ namespace unimoc {
  */
 namespace current_control {
 
-/// Number of HFI sub-steps per slow-update cycle.
+/// PWM half periods (current samples, duty entries, HFI steps) per control cycle.
 inline constexpr uint8_t NUM_SUB_STEPS = 4u;
 
 /**
- * @brief Data shared between the current-control ISR and the slow-update task
- *        for one half of the double buffer.
+ * @brief Data shared between the control cycle and the observer for one half
+ *        of the double buffer.
  *
- * Each element corresponds to one of the @p NUM_SUB_STEPS consecutive PWM
- * half-periods that make up one slow-update cycle.
- *
- * Layout
- * ------
- *  - **sc**            Pre-computed sin/cos for the Park transform at each
- *                      sub-step.  Written by the slow-update task; read by
- *                      the ISR.
- *  - **i_ab_samples**  Clarke-transformed stator current measured by the ISR
- *                      at each sub-step.  Written by the ISR; read by the
- *                      slow-update task.
+ * Index k of the sample arrays is the k-th current sample of the cycle (the
+ * last one at the control boundary). Index k of the output arrays is duty
+ * entry k, which applies to the half period starting k + 1 boundaries after
+ * the control boundary.
  *
  * Ownership protocol
  * ------------------
- * Only one side writes each array:
- *  - SlowUpdate writes `sc[0..3]` into the **inactive** buffer, then flips
- *    `DoubleBuffer::active`.
- *  - The ISR writes `i_ab_samples[sub_step]` into the **active** buffer.
+ *  - The observer writes `sc` and `sc_out` into the **inactive** buffer, then
+ *    flips `DoubleBuffer::active`.
+ *  - The control cycle reads `sc` / `sc_out` of the **active** buffer and
+ *    writes `i_ab_samples`, `i_dq_mean` and `u_dq` into it. The observer reads
+ *    them after the control cycle signalled `observer_pending`.
  *
- * Because SlowUpdate fully prepares the inactive buffer before the atomic
- * flip, the ISR never observes a half-written `sc` set.
+ * Because the observer fully prepares the inactive buffer before the atomic
+ * flip, the control cycle never observes a half-written angle set.
  */
 struct SubStepBuffer {
-  /// Pre-computed sin/cos for each sub-step Park transform.
+  /// Park angles of the current samples of the cycle (estimated angle at each sample).
   system::SinCos<unit::Ratio> sc[NUM_SUB_STEPS]{};
 
-  /// Stator-frame (α/β) current samples recorded by the ISR at each sub-step.
+  /// Inverse-Park angles of the duty entries (estimated angle in the middle of
+  /// the half period each entry applies to, docs/hotpath_plan.md D4).
+  system::SinCos<unit::Ratio> sc_out[NUM_SUB_STEPS]{};
+
+  /// Stator-frame (α/β) current samples of the cycle, written by the control cycle.
   system::Stator<unit::Current> i_ab_samples[NUM_SUB_STEPS]{};
+
+  /// Mean rotor-frame current of the cycle, written by the control cycle.
+  system::Rotor<unit::Current> i_dq_mean{};
+
+  /// Voltage demand of the cycle, rotor frame, written by the control cycle.
+  system::Rotor<unit::Voltage> u_dq{};
 };
 
 /**
  * @brief Ping-pong pair of SubStepBuffers with an atomic active-index.
  *
- * The ISR reads from `buf[active]` and writes current samples into it.
- * The slow-update task writes new sin/cos values into `buf[1 − active]`
- * and then atomically flips `active`.
+ * The control cycle uses `buf[active]`. The observer reads that buffer after
+ * the cycle, writes the angles of the next cycle into `buf[1 − active]` and
+ * then flips `active`.
  *
  * Memory-ordering
  * ---------------
- *  - The slow-update task uses `memory_order_release` on the flip so that all
- *    writes to the inactive buffer are visible to any thread that subsequently
- *    reads `active` with `memory_order_acquire`.
- *  - The ISR uses `memory_order_acquire` when reading `active` at the start
- *    of each sub-step.
- *
- * The ISR is not preempted by the slow-update task (it runs at a higher IRQ
- * priority), so there is no race on `i_ab_samples`: the ISR completes all
- * four writes within the same set of four consecutive half-periods; the
- * slow-update task only reads them after `samples_ready` is set (at the end
- * of sub-step 3), by which time the ISR has moved back to sub-step 0 and is
- * writing into the same buffer again — the slow-update task reads the
- * *previous* four samples.
+ *  - The observer uses `memory_order_release` on the flip so that all writes
+ *    to the inactive buffer are visible to the control cycle, which reads
+ *    `active` with `memory_order_acquire`.
+ *  - The control cycle preempts the observer. When the observer is late (it
+ *    has not flipped when the next cycle starts), the control cycle counts an
+ *    overrun and reuses the old angles.
  */
 struct DoubleBuffer {
   /// The two ping-pong buffers.
   SubStepBuffer buf[2]{};
 
   /**
-   * @brief Index of the buffer currently in use by the ISR (0 or 1).
+   * @brief Index of the buffer used by the next control cycle (0 or 1).
    *
-   * Write with `memory_order_release` (slow-update task).
-   * Read  with `memory_order_acquire` (ISR, beginning of each sub-step cycle).
+   * Write with `memory_order_release` (observer).
+   * Read  with `memory_order_acquire` (control cycle).
    */
   std::atomic<uint8_t> active{0u};
 };
 
 }  // namespace current_control
 }  // namespace unimoc
-
-#endif /* UNIMOC_CURRENT_CONTROL_SUB_STEP_BUFFER_H_ */

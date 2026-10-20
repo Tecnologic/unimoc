@@ -127,13 +127,15 @@ lib/
 
 ## Firmware Architecture
 
-The firmware is one Zephyr application (`app/`) with two execution contexts:
+The firmware is one Zephyr application (`app/`). At 32 kHz PWM the execution
+contexts are (details in [`docs/hotpath_plan.md`](docs/hotpath_plan.md)):
 
 | Context | Runs | Latency |
 |---|---|---|
-| Fast ISR (ADC end of injected sequence, once per half PWM period) | FOC hot path: current read, Park, PI, SVM, duty write, overcurrent check | Zero-latency IRQ |
-| Quarter-cycle update (TIM8 update, every fourth half period) | Observers and precomputation for the next four half periods (`SlowUpdate`) | Zero-latency IRQ today; open decision, see [`docs/hotpath_plan.md`](docs/hotpath_plan.md) |
-| Zephyr threads | Logging, shell, USB console, Cyphal, settings, startup sequencing | Normal scheduling |
+| Sample ISR (ADC end of injected sequence, every half PWM period, 64 kHz) | Raw current copy, overcurrent check on raw counts | Zero-latency IRQ |
+| Control cycle (every fourth sample, 16 kHz) | FOC hot path: mean current, Park, PI once, four duty entries (inverse Park, HFI step, SVM), entry 0 into the CCR preload, entries 1 to 3 by DMA | Zero-latency IRQ |
+| Observer (after each control cycle, 16 kHz) | Flux observer, Kalman, HFI, angles of the next cycle (`SlowUpdate`) | Software-pended normal-priority IRQ |
+| Zephyr threads | Speed and position control (about 2 kHz, planned), logging, shell, USB console, Cyphal, settings, startup sequencing | Normal scheduling |
 
 Zero-latency handlers may not call kernel APIs, log, or lock.  The
 hardware-specific parts are selected by the board and Kconfig, not by

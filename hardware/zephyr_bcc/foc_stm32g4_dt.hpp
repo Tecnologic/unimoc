@@ -97,8 +97,10 @@ static_assert(DT_PROP_LEN(UNIMOC_FOC, io_channel_names) == UNIMOC_SIG_COUNT, "si
 
 inline constexpr uint32_t kDeadTimeNs = DT_PROP(UNIMOC_FOC, dead_time_ns);
 inline constexpr uintptr_t kTimerBase = DT_REG_ADDR(UNIMOC_FOC_TIMER);
+/// TIM8 update vector. The update interrupt itself stays disabled (UIE = 0, only the
+/// DMA request UDE is used), so the vector is free for the software-pended observer.
 inline constexpr unsigned kTimerUpdateIrq = DT_IRQ_BY_NAME(UNIMOC_FOC_TIMER, up, irq);
-/// The fast interrupt is the end of the injected sequence of the first ADC (phase A).
+/// The sample interrupt is the end of the injected sequence of the first ADC (phase A).
 inline constexpr unsigned kFastIrq = DT_IRQN(UNIMOC_FOC_ADC(ia));
 
 // The timer kernel clock equals the APB2 clock only without an APB2 prescaler.

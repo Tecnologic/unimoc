@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# Overcurrent path of the control core on native_sim: the fast interrupt trips
-# the power stage and freezes the loop, a startup run acknowledges the trip.
+# Overcurrent path on native_sim: the per-sample check of the hardware layer
+# trips the power stage, the control cycle freezes the loop, a startup run
+# acknowledges the trip.
 cmake_minimum_required(VERSION 3.20.0)
 
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
@@ -22,4 +23,4 @@ target_include_directories(app PRIVATE
   ${UNIMOC_ROOT}/src/startup
   ${UNIMOC_ROOT}/hardware/zephyr_sim
   ${UNIMOC_ROOT}/hardware/zephyr_common)
-target_link_libraries(app PRIVATE unimoc_lib)
+target_link_libraries(app PRIVATE unimoc_lib unimoc_sim)

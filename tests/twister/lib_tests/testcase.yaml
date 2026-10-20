@@ -21,6 +21,8 @@ tests:
     extra_args: UNIMOC_TEST_SOURCE=motor_control/tests/excitation_controller_test.cpp
   unimoc.lib.motor_control.excitation_observer_test:
     extra_args: UNIMOC_TEST_SOURCE=motor_control/tests/excitation_observer_test.cpp
+  unimoc.lib.motor_control.hfi_test:
+    extra_args: UNIMOC_TEST_SOURCE=motor_control/tests/hfi_test.cpp
   unimoc.lib.motor_control.position_controller_test:
     extra_args: UNIMOC_TEST_SOURCE=motor_control/tests/position_controller_test.cpp
   unimoc.lib.motor_control.position_tracker_test:

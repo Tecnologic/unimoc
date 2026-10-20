@@ -13,6 +13,7 @@ if(CONFIG_UNIMOC_PLATFORM_BCC)
   set(UNIMOC_PLATFORM_EXTRA_SOURCES foc_stm32g4.cpp)
 elseif(CONFIG_UNIMOC_PLATFORM_SIM)
   set(UNIMOC_PLATFORM_DIR ${UNIMOC_ROOT}/hardware/zephyr_sim)
+  set(UNIMOC_PLATFORM_LIBRARIES unimoc_sim)
 else()
   message(FATAL_ERROR "No UNIMOC platform for board '${BOARD}'.")
 endif()
@@ -42,4 +43,4 @@ target_include_directories(app PRIVATE
   ${UNIMOC_ROOT}/src/current_control
   ${UNIMOC_ROOT}/hardware/zephyr_common
   ${UNIMOC_PLATFORM_DIR})
-target_link_libraries(app PRIVATE unimoc_core unimoc_lib)
+target_link_libraries(app PRIVATE unimoc_core unimoc_lib ${UNIMOC_PLATFORM_LIBRARIES})

@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# Checks the interrupt cadence of the native_sim hardware layer: one slow
-# interrupt per kSlowUpdateDivider fast interrupts, fast first.
+# Checks the cycle contract of the native_sim hardware layer: one control and
+# one observer callback per kHalfPeriodsPerCycle half periods, control first,
+# and the half periods each duty-plan entry is applied in.
 cmake_minimum_required(VERSION 3.20.0)
 
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
@@ -16,4 +17,4 @@ target_sources(app PRIVATE
 target_include_directories(app PRIVATE
   ${UNIMOC_ROOT}/hardware/zephyr_sim
   ${UNIMOC_ROOT}/hardware/zephyr_common)
-target_link_libraries(app PRIVATE unimoc_lib)
+target_link_libraries(app PRIVATE unimoc_lib unimoc_sim)

@@ -139,13 +139,29 @@ struct Hfi {
    */
   [[nodiscard]] constexpr system::Stator<unit::Voltage> get_injection_voltage(
       const unit::Ratio sin_th, const unit::Ratio cos_th) const noexcept {
+    return get_injection_voltage(step, sin_th, cos_th);
+  }
+
+  /**
+   * @brief Return the injection voltage of an explicit injection step.
+   *
+   * Used when the voltages of all four steps are planned at once (one
+   * control cycle covers the four PWM half periods of one injection period).
+   *
+   * @param injection_step  Injection step (0–3); other values give zero.
+   * @param sin_th  sin(θ̂) for the half period the step is applied in.
+   * @param cos_th  cos(θ̂) for the half period the step is applied in.
+   * @return        Injection voltage in the α/β frame [V].
+   */
+  [[nodiscard]] constexpr system::Stator<unit::Voltage> get_injection_voltage(
+      const int injection_step, const unit::Ratio sin_th, const unit::Ratio cos_th) const noexcept {
     // d-axis unit vector in α/β: [cos θ̂, sin θ̂]
     // q-axis unit vector in α/β: [−sin θ̂, cos θ̂]
 
     unit::Voltage v_d{};
     unit::Voltage v_q{};
 
-    switch (step) {
+    switch (injection_step) {
       case 0:
         v_d = +v_inject;
         break;  // +Vd

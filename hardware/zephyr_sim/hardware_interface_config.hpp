@@ -39,8 +39,9 @@ inline constexpr bool kCpuTemperatureAvailable = false;
 inline constexpr bool kBridgeTemperatureAvailable = false;
 inline constexpr bool kMotorTemperatureAvailable = false;
 
-// The simulation emulates the same cadence as the BCC: one fast interrupt per
-// PWM half period and one slow interrupt every kSlowUpdateDivider fast interrupts.
-inline constexpr uint32_t kSlowUpdateDivider = 4U;
+// The simulation emulates the same cadence as the BCC: one current sample per
+// PWM half period, one control cycle (control and observer callback) every
+// kHalfPeriodsPerCycle samples.
+inline constexpr uint8_t kHalfPeriodsPerCycle = 4U;
 
 }  // namespace unimoc::hardware

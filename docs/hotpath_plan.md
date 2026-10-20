@@ -1,174 +1,156 @@
-# Plan: Hot Path, Quarter-Cycle IRQ and Hall Sensor Fusion
+# Plan: Control Cycle, Duty DMA and Hall Sensor Fusion
 
-Status: 2026-10-18. All times and cycle counts in this document are estimates from
-the code. None of them is measured on the board (milestone M0 changes that).
+Status: 2026-10-20. All times and cycle counts in this document are estimates
+from the code. None of them is measured on the board (milestone M0 changes that).
 
-Timing base at 20 kHz PWM and 170 MHz: one half period (one JEOS interrupt) is
-25 µs = 4250 cycles, one quarter cycle (four half periods) is 100 µs = 17000 cycles.
+Timing base at 32 kHz PWM and 170 MHz: one half period T_h (one current sample)
+is 15.625 µs = 2656 cycles. One control cycle is four half periods, 62.5 µs =
+10625 cycles (16 kHz).
 
 ## 1. Goal
 
 | Context | Rate | Content |
 |---|---|---|
-| Hot path (JEOS, zero latency) | 40 kHz | Only what depends on the current measurement: Park, PI, inverse Park, SVM, CCR |
-| Quarter-cycle IRQ (TIM8 update, zero latency) | 10 kHz | Precompute everything for the next four half periods, observer, Hall fusion |
-| Control thread (Zephyr, normal priority) | 1 to 2 kHz | Speed controller, later position controller, MTPA, field weakening, setpoint limiting |
+| Sample interrupt (ADC1 JEOS, zero latency) | 64 kHz | Copy the raw currents into the cycle array, overcurrent check on raw counts |
+| Control cycle (inside every 4th sample interrupt, zero latency) | 16 kHz | Mean current, PI once, four duty entries (inverse Park, HFI step, dead-time compensation, SVM), duty plan to the hardware |
+| Observer (software-pended normal interrupt) | 16 kHz | Flux observer, Kalman, HFI demodulation, later Hall fusion, angles of the next cycle |
+| Control thread (Zephyr, normal priority) | about 2 kHz | Speed controller, position controller, MTPA, field weakening, setpoint limiting |
 | Hall edges (EXTI, normal priority) | on edge | Only capture timestamp and Hall code |
 
-Assumption for the precomputation: speed is constant over the four half periods
-(100 µs). Acceleration is not modeled.
+The control cycle and the sample interrupt are the hot path. The observer is
+not zero-latency: it is a normal Zephyr interrupt at the highest normal
+priority, so the project rule (only the hot path is zero-latency) holds. This
+resolves the open decision of the former quarter-cycle IRQ.
 
-**Scope note.** The project rule says only the hot path runs in zero-latency IRQs and
-everything else runs in Zephyr threads (`docs/zephyr_port_plan.md`). This plan, and the
-current code, keep the quarter-cycle IRQ (observers, Hall fusion, plan build) as a
-zero-latency IRQ. That is an open decision, see section 7.
+Assumption for the precomputation: speed is constant over one cycle (62.5 µs).
+Acceleration is not modeled.
 
-## 2. Current State in the Code
+## 2. Timing of One Cycle
 
-- `CurrentControlIsr::on_jeoc()` (980 bytes) does everything in one pass today:
-  reads the ADC through function pointers, overcurrent check, duty range check (reads
-  the CCR back through another function pointer), Clarke, Park, PI with decoupling from the
-  **measured** current, inverse Park, HFI voltage, dead-time compensation, SVM, and writes the
-  duties (not inline).
-- The call to `std::sqrt` in the voltage limiter is compiled to the libm call
-  `sqrtf` (errno handling), not to `vsqrt`.
-- `SlowUpdate::run_once()` (928 bytes) runs today in the TIM8 update callback,
-  polls `samples_ready`, re-parks the four samples, averages them, calls the flux observer,
-  Kalman prediction, HFI, and computes `sc[0..3]` for the next cycle
-  (double buffer with an `active` flip).
-- `MechanicalObserver` is a Kalman filter with the states ω, θ and load torque, with
-  one scalar angle measurement per call to `inject_angle_error()`. Each call **also** runs
-  the covariance prediction. `PmsmFluxObserver::calculate()` calls
-  `inject_angle_error()` itself at the end. The comments mention Hall sensors, but the code
-  has nothing for them. The angle error is not wrapped to (-π, π]. Prediction and
-  correction compute `std::sin/cos` (two calls per cycle).
-- The phase between the core's quarter-cycle counter (`sub_step_`) and the TIM8 update is
-  not synchronized. The update sits at the peak, and CCR1 to 3 have no preload.
-- No Hall capture and no speed controller in the core (only `PositionController`
-  in the library).
+Boundaries B are the peaks and valleys of the center-aligned TIM8 counter.
+B0 is the control boundary of cycle c.
 
-## 3. Decisions
+```
+samples     s0      s1      s2      s3 (B0)
+            |       |       |       |
+------------B-3-----B-2-----B-1-----B0------B1------B2------B3------B4------B5----
+                                    |  ctrl  |
+duty in effect          ... prev[2] | prev[3]| new[0] | new[1] | new[2] | new[3] |
+                                    ^ DMA slot 0 burst (stale, overwritten)
+                                             ^ new[0] from the CCR preload
+                                                      ^ DMA slot 1, 2, 3 ...
+```
 
-**D1 Preload and synchronous quarter-cycle IRQ (recommendation: yes, awaiting confirmation).**
-Today the hot path writes the CCR without preload into the running counter. With RCR=0
-and CCR preload, the new values only take effect at the next boundary (peak or valley;
-in center-aligned mode RCR=0 generates an update event at both). The hot path sets the
-quarter-cycle IRQ pending itself in sub-step 3 via `NVIC_SetPendingIRQ`, so the phase is
-deterministic and the polling of `samples_ready` goes away. This changes the earlier
-requirement "update IRQ with RCR=4". See section 3.1 for the reasoning.
+- **Sampling.** The ADC injected sequence is triggered `adc_trigger_offset`
+  ticks before every boundary (TRGO2 = OC4REF before the peak, OC6REF before the
+  valley). The JEOS interrupt copies ia, ib, ic into the cycle array and
+  compares them with a raw window (`SetOvercurrentWindow`, from
+  `max_phase_current`); a violation sets the break (`EGR = BG`) at once.
+- **Control.** The fourth sample interrupt of the cycle runs the control cycle
+  (`CurrentControlIsr::on_control_cycle()`), then pends the observer.
+- **Duties (variant B).** TIM8 runs with RCR = 0 and CCR1..3 preload. Every
+  update event requests a DMA burst of three words (TIM8_DCR/DMAR) from a
+  circular buffer of four slots (DMA1 channel 1, DMAMUX request TIM8_UP). The
+  burst at B0 (slot 0) writes the value for [B1, B2] before the control cycle
+  has run, so the control cycle writes entry 0 directly into the preload after
+  that burst; entries 1..3 go into slots 1..3. Slot 0 gets entry 3 as a
+  fallback for a late next cycle.
+- **Deadline.** Entry 0 must be in the preload before B1: about 14 µs after the
+  sample. `SetDutyTicks()` checks the DMA counter: one burst done = normal case,
+  no burst done (long trigger lead, control boundary still ahead) = entry 0
+  goes into slot 0, anything else counts as an overrun (`DutyOverruns()`).
+- **Delay.** Entry 0 takes effect 1 T_h after the sample; the middle of the
+  four entries is 3 T_h = 46.9 µs after it. All four entries via DMA (variant A)
+  would add one T_h. A classic 16 kHz single-update loop has about 94 µs.
+- **Angles (D4).** The observer predicts the Park angle of each sample of the
+  next cycle (θ + k·ω·T_h) and the inverse-Park angle of each duty entry
+  (θ + (3 + delay + k)·ω·T_h, `output_delay_half_periods` = 1.5).
+- **Start.** The counter starts at ARR/2, between both trigger compares, so the
+  start produces no spurious ADC trigger. The first boundary is then both the
+  first sample and the first DMA burst, and the sample counter starts at the
+  last index of a cycle.
 
-**D2 Library changes (approved).**
-- `MechanicalObserver`: separate covariance prediction and measurement update
-  (`PredictCovariance(dt)`, `UpdateAngle(ε, R)`). `inject_angle_error()` stays as the
-  combination of the two.
-- `PmsmFluxObserver::calculate()` returns the angle error (the old variant as a wrapper).
-- Optional: replace `std::sin/cos` in the observer with the `SinCos` table.
-- The flux observer runs **always**, also with an encoder connected. It is not switched off,
-  only weighted through its R. Measurement sources for the Kalman filter: flux (always),
-  Hall (if present), optional encoder (small R). With an encoder the flux observer also gives
-  a plausibility check (flux ε against encoder ε). The drift of the voltage model at standstill
-  must be handled in M6 (integrator hold or leakage term at low speed).
+## 3. Duty Range
 
-**D3 Decoupling (decided):** computed from the mean of the last cycle.
+The duties take effect through the preload at the boundaries, so the ISR
+timing no longer limits them. What remains:
 
-**D4 Dedicated angle table for the output side (follows from D1).** With preload, the voltage
-takes effect on average 1.5 half periods after the measurement. The angle for that is
-θ + ω·(k + 1.5)·dt, with the delay as a parameter, tuned on the board. It costs nothing in the
-hot path.
-
-**Hall (decided):** standard 120°. Pole pairs do not matter: the mechanical observer and Hall
-both work in the electrical angle.
-
-### 3.1 Background on D1
-
-**Integer arithmetic: no.** On Cortex-M4F a float multiplication and addition each cost one
-cycle (like their integer counterparts). Only multiply-accumulate (3), division and square
-root (14) are more expensive. Q15/Q31 brings little in the computation cycles and costs
-scaling, overflow checks and rewriting the float-based library (`units`). The time is spent
-in the function pointers, the CCR read-back, `sqrtf` and the divisions. Fixing those fixes M3,
-without integers. The angle is already fixed point (`RotorAngle`, sine table).
-
-**Writing the CCR directly with the current measurement.** The earliest point for a write is
-trigger plus conversion time (about 1.3 µs) plus ISR time, so about 2.5 µs after the
-measurement. But a phase at 90 % duty switches already 2.5 µs after the peak
-(25 µs · (1 − 0.9)), and one at 95 % after 1.25 µs. Then:
-- Only part of the three channels takes effect in this half period, the rest in the next.
-  That distorts the line voltages.
-- The result depends on the ISR jitter (quarter-cycle IRQ before the hot path, flash wait states).
-- The usable duty range shrinks to about 10 to 90 %.
-
-The gain from writing directly: one half period less delay (25 µs at 20 kHz, 12.5 µs at 40 kHz).
-With preload it is 1.5 half periods until the mean effect, directly about 0.5 plus ISR time.
-
-**Effect on the target motors.** Hoverboard hub motors (36 V, phase inductance in the mH range):
-the delay does not matter. Hobby outrunners (200 kV, inductance typically 10 to 50 µH, electrically
-above 1 kHz): at 20 kHz, 37.5 µs at 1.5 kHz control bandwidth is about 20° of phase, which D4
-compensates in the angle. At such a small inductance 20 kHz is tight anyway: the current ripple is
-on the order of 10 A peak-to-peak (25 V, 20 µH). A higher PWM frequency will pay off, and then the
-budget of one half period halves. That also argues for preload, because there the deadline is the
-whole half period.
-
-**STM32H7.** The budget of one half period rises from 4250 to about 12000 cycles (480 MHz) or
-13750 (550 MHz on H723/H725/H73x). The Cortex-M7 has two pipelines and an FPU. On the H7 I would
-place code and hot-path data in ITCM/DTCM (deterministic, no flash wait states) and make sure the
-compiler does not generate double constants (`-fsingle-precision-constant`). The concept (advanced
-timer with break, ADC injected trigger via TRGO) is the same. Preload is also useful there, but
-less essential because of the budget.
+- **Sampling window.** At a peak the phase with the highest duty switches
+  closest to the sample, at a valley the one with the lowest. When that edge
+  lies within `trigger lead + 1 µs` of the boundary, the BCC layer drops the
+  phase and reconstructs it from the other two (three inline sensors,
+  ia + ib + ic = 0). With SVM only one phase switches next to each sample.
+  The phase and parity come from the plan (`AppliedTicks()`, `SampleAtPeak()`).
+- **Minimum pulse.** 3 % of a PWM period (31.25 µs) is 0.94 µs, above the
+  400 ns dead time. Factory `svm_duty_min/max` = 0.03 / 0.97 on the BCC and in
+  the sim profile. To be checked on the scope with the bootstrap supply.
+- **Dead time.** At 32 kHz the 400 ns dead time is 2.6 % of a half period;
+  dead-time compensation matters twice as much as at 16 kHz.
 
 ## 4. Data Flow
 
-The quarter-cycle IRQ fills one plan per cycle (double buffer like `SubStepBuffer`,
-flip with release/acquire) for the next four half periods:
+`SubStepBuffer` (double buffer, flip with release/acquire):
 
-```
-struct HotpathPlan {
-  SinCos sc_in[4];          // Park of the measured current
-  SinCos sc_out[4];         // inverse Park of the demanded voltage (D4)
-  Rotor<Voltage> ff;        // decoupling, constant over the cycle (ω constant)
-  Stator<Voltage> v_inj[4]; // HFI injection per sub-step
-  Rotor<Current> i_ref;     // setpoint, latched here (no torn d/q pair)
-  float inv_vdc;            // 1/V_dc, smoothed, for SVM
-  float v_limit_sq;         // (v_max * V_dc)^2 for the circle limiter
-  float ki_dt_d, ki_dt_q, kb_dt_d, kb_dt_q;  // integrator factors incl. dt
-  float kp_d, kp_q;
-};
-```
+| Field | Writer | Reader |
+|---|---|---|
+| `sc[4]` Park angle per sample | observer (inactive buffer) | control cycle |
+| `sc_out[4]` inverse-Park angle per duty entry | observer (inactive buffer) | control cycle |
+| `i_ab_samples[4]`, `i_dq_mean`, `u_dq` | control cycle (active buffer) | observer |
 
-The hot path only reads the plan and writes back: `i_ab[k]`, `u_dq_last`, duties. The control
-thread writes setpoints into a mailbox, which the quarter-cycle IRQ reads when it builds the plan
-(seqlock or double buffer). No kernel functions are called from the zero-latency contexts.
+`observer_pending` (set by the control cycle, cleared by the observer after the
+flip) hands a cycle to the observer. A control cycle that finds it still set
+counts `observer_overruns` and reuses the old angles.
 
-### Hot path (per half period, target 400 cycles, 2.4 µs)
+**HFI.** One injection period (four steps +d, −d, +q, −q) is one cycle: entry k
+carries step k. Sample k + 1 answers step k, so the observer feeds sample 0 as
+step 3 (end of the previous period) and samples 1..3 as steps 0..2. The mean
+current of the PI is free of the injection response, because the four samples
+cover a whole injection period. The alignment of steps and samples is to be
+verified in the sim once HFI is active in a test.
 
-1. Read two shunt channels, scale with offset and gain, derive the third phase from
-   ia + ib + ic = 0.
-2. Clarke and Park merged with `plan.sc_in[k]`.
-3. Error, PI with `kp`, integrator with `ki_dt`, plus `plan.ff`.
-4. Circle limiter via `v_limit_sq`, square root only when saturated (`__builtin_sqrtf`,
-   build with `-fno-math-errno`).
-5. Inverse Park with `plan.sc_out[k]`, plus `plan.v_inj[k]`.
-6. Dead-time compensation (sign of the current, parameters from the plan), SVM with
-   `plan.inv_vdc` instead of a division.
-7. Clamp duties to 5 to 95 %, write the CCR directly. No read-back, no function pointers. The
-   hardware access object is chosen via CMake and included inline.
-8. The overcurrent check stays before everything else (60 A, `power_stage.Trip()`).
-9. In sub-step 3: set the quarter-cycle IRQ pending.
+The control thread writes setpoints into a mailbox (seqlock or double buffer)
+that the control cycle reads. No kernel functions are called from the
+zero-latency contexts; the observer interrupt may call them (for example to
+wake the control thread every eighth cycle).
 
-### Quarter-cycle IRQ (every 100 µs, budget about 15 µs, target 2500 cycles)
+### Control cycle (target 1500 cycles, 9 µs)
 
-1. Read the samples of the last cycle (re-park them with the `sc_in` of the cycle, average as today).
-2. Mechanical prediction with the mean current (torque from i_d, i_q).
-3. Covariance prediction once, then measurement updates: flux observer, Hall, optional HFI.
-   Each with its own R and an error wrapped to (-π, π].
-4. Build the plan for the next cycle: θ_k = θ + k·ω·dt, `sc_in`, `sc_out`, `ff`, `v_inj`,
-   `inv_vdc`, `v_limit_sq`, integrator factors, `i_ref`.
-5. Power-stage state monitoring (fault, blocked), counters for timing measurement.
+1. Samples of the cycle from the hardware (scaled, the disturbed phase
+   reconstructed). Repeat of the overcurrent check, latch, neutral plan.
+2. Clarke and Park per sample with `sc[k]`, mean.
+3. PI with decoupling once per cycle (dt = 62.5 µs).
+4. Four entries: inverse Park with `sc_out[k]`, plus HFI step k, dead-time
+   compensation from the newest current, SVM.
+5. `SetDutyPlan()`: entry 0 to the preload, 1..3 to the DMA slots.
 
-### Control thread (1 to 2 kHz)
+### Observer (budget about 45 µs, target 3000 cycles)
 
-Speed controller (PI with anti-windup), later position controller (`PositionController`),
-MTPA, field weakening, limiting of the current setpoint (magnitude to `motor_i_max`, 50 A).
-Output: `i_ref` into the mailbox. Input: ω and θ from a snapshot of the observer.
+1. Flux observer with mean current and voltage of the cycle.
+2. Mechanical prediction (torque from i_d, i_q).
+3. HFI demodulation over the four samples (if active), later Hall (M6).
+4. Angles of the next cycle, flip.
+
+### Why the observer is a normal interrupt
+
+| | Second zero-latency level | Normal interrupt (chosen) | Zephyr thread |
+|---|---|---|---|
+| Masked by kernel `irq_lock()` | never | yes, for the few µs of a kernel critical section | yes, plus scheduler |
+| Jitter | only from the sample interrupt | a few µs | tens of µs with USB/CAN/Ethernet load |
+| Kernel API allowed | no | yes (wake the control thread) | yes |
+| 16 kHz overhead | interrupt entry only | interrupt entry only | context switch per cycle (5–8 % CPU) |
+| CAN, USB, Ethernet | delayed up to the observer time every 62.5 µs | delayed up to the observer time (they have lower priority) | could delay the observer past its deadline |
+
+Communication interrupts are served in all variants, as long as the total CPU
+load leaves room: their peripherals buffer frames (FDCAN FIFO, USB endpoint
+buffers, Ethernet DMA descriptors), and a delay of 10 to 20 µs is far below
+their deadlines. A thread is too slow and too jittery for a 62.5 µs deadline.
+A second zero-latency level is the fallback if M0 shows that kernel critical
+sections push the observer past its deadline.
+
+### CPU budget (estimate, per cycle of 10625 cycles)
+
+Sample interrupts 4 × 60, control cycle 1500, observer 3000: about 4700 cycles,
+45 % CPU. Everything else (Zephyr, Cyphal, USB, control thread) gets the rest.
 
 ## 5. Hall Sensor Fusion
 
@@ -177,12 +159,12 @@ Hardware: three Hall signals on PC13, PC14, PC15 (RC-filtered 3k3/2n2, time cons
 (lines 13 to 15) and timestamps from the DWT cycle counter.
 
 **Capture.** The EXTI handler (normal priority, zero-latency IRQs preempt it) stores the Hall code
-and timestamp in a small buffer. Invalid codes (000, 111) are counted as errors. A 10 kHz polling
-in the quarter-cycle IRQ would be too coarse: at 333 Hz electrical, 100 µs is about 12° of error.
+and timestamp in a small buffer. Invalid codes (000, 111) are counted as errors. Polling once per
+control cycle would be too coarse: at 333 Hz electrical, 62.5 µs is about 7.5° of error.
 
 **Measurement model** (both from the same Hall code):
 - *Edge:* the angle of the edge is known from a table of six angles (rising/falling per Hall).
-  The quarter-cycle IRQ converts the timestamp back: ε = wrap(θ_edge + ω̂·age − θ̂). The age includes
+  The observer converts the timestamp back: ε = wrap(θ_edge + ω̂·age − θ̂). The age includes
   the filter delay. R comes from the alignment tolerance (for example ±3° electrical).
 - *Sector:* without an edge only "the angle lies in the 60° sector" is known. The innovation term
   is 0 as long as θ̂ lies in the sector, otherwise the distance to the nearest sector boundary. This
@@ -201,48 +183,68 @@ still pending, until then RAM and shell).
 **Position.** From the fused θ and the pole-pair count, `PositionTracker`/`RotorAngle` gives the mechanical
 position. The absolute reference remains an application question (homing).
 
-**Simulation.** For native_sim, a simple PMSM plant model (ω, θ from torque, currents from voltages) in the
-sim hardware, which generates currents and Hall edges. This runs the hot path including fusion in the twister
-in a closed loop.
+**Simulation.** The plant of `lib/sim` (`MotorSimulation`) generates currents and Hall codes; the sim
+hardware layer does not expose the Hall signals yet (M5).
 
-## 6. Milestones
+## 6. Library Decisions (unchanged)
+
+- **D2** `MechanicalObserver`: separate covariance prediction and measurement update
+  (`PredictCovariance(dt)`, `UpdateAngle(ε, R)`); `PmsmFluxObserver::calculate()` returns the angle
+  error; optional `SinCos` table in the observer. The flux observer runs always, also with an encoder.
+- **D3** Decoupling from the mean current of the cycle.
+- **D4** Dedicated angle table for the output side (`sc_out`), delay as a parameter.
+- **Integer arithmetic: no.** On Cortex-M4F float add and multiply cost one cycle; the time goes into
+  function pointers, `sqrtf` (libm, errno) and divisions.
+- **STM32H7.** Same concept (advanced timer, TRGO, preload, DMA burst). Budget per half period about
+  7500 cycles at 480 MHz; code and plan in ITCM/DTCM, `-fsingle-precision-constant`.
+
+## 7. Simulation (native_sim)
+
+`hardware/zephyr_sim` closes the loop around `MotorSimulation`. A kernel timer in simulated time runs
+one control cycle per expiry (exact mean rate, scheduled from the elapsed time because 62.5 µs is not a
+whole number of 1 µs ticks):
+
+1. control callback and observer callback on the samples of the cycle that ended,
+2. the plant over the next four half periods: the first with entry 3 of the previous plan, the next three
+   with entries 0..2 of the new plan; after each half period a sample and the overcurrent check.
+
+That is the timing of variant B. The sim checks the control logic and this timing contract, not the
+time budget, ADC noise, quantization or dead time (the inverter model has none). Tests:
+`sim_irq_cadence` (cadence and plan timing), `sim_overcurrent` (per-sample trip), `sim_closed_loop`
+(current steps on a locked rotor through the real control core).
+
+## 8. Milestones
 
 Each milestone builds for BCC and native_sim and keeps the twister green.
 
 | M | Content | Evidence |
 |---|---|---|
-| M0 | Timing measurement: DWT cycles around the hot path and the quarter-cycle IRQ, min/mean/max in a ring buffer, output via log/shell. Baseline of today's code. | Numbers from the board |
-| M1 | Implement D1: RCR=0, CCR preload, quarter-cycle IRQ pended by the hot path, `samples_ready` polling removed. The sim mirrors this. | Test for order and cadence |
-| M2 | `HotpathPlan` and plan build in the quarter-cycle IRQ (`sc_in`, `sc_out`, `ff`, `v_inj`, `inv_vdc`, limiter). | Golden test: same inputs, duties as before within tolerance |
-| M3 | Slim the hot path: merged Park, no function pointers, `-fno-math-errno`, saturation without a libm call. | Cycles against the M0 baseline |
-| M4 | Observer API per D2, error wrap, separate R. | gtest with synthetic profiles (constant ω, ramp, noise) |
-| M5 | Hall driver (EXTI, timestamp, plausibility) and sim Hall from the plant model. | ztest with generated edges |
-| M6 | Fusion in the quarter-cycle IRQ: sector and edge measurement, speed gating. | Tests: standstill without drift, acceleration and deceleration, Hall failure, switch to flux-only |
+| M0 | Timing measurement: DWT cycles around sample interrupt, control cycle and observer, min/mean/max, `DutyOverruns()`, `observer_overruns`; output via log/shell. | Numbers from the board |
+| M1 | Done in code: RCR = 0, CCR preload, DMA burst, control cycle in the 4th sample interrupt, pended observer, sim at the 16 kHz cycle. | Twister: `sim_irq_cadence`, `sim_closed_loop` |
+| M2 | Plan values precomputed by the observer (`inv_vdc`, `v_limit_sq`, integrator factors), circle limiter without libm. | Golden test against the current code |
+| M3 | Slim the hot path: no function pointers (hardware access inline per platform), `-fno-math-errno`. | Cycles against the M0 baseline |
+| M4 | Observer API per D2, error wrap, separate R. | gtest with synthetic profiles |
+| M5 | Hall driver (EXTI, timestamp, plausibility) and Hall signals of the sim plant in the sim layer. | ztest with generated edges |
+| M6 | Fusion in the observer: sector and edge measurement, speed gating. | Sim tests: standstill without drift, ramps, Hall failure |
 | M7 | Control thread with speed controller, setpoint limiting and mailbox. | Sim test: step in ω, current limit takes effect |
-| M8 | Board: ADC alignment, offset, Hall table via open-loop run, then closed current controller with the 50 A limit, measurement of the ISR times. | Measurements, oscilloscope |
+| M8 | Board: DMA and preload on the scope, ADC alignment, Hall table, closed current loop with the 50 A limit. | Measurements, oscilloscope |
 
-Order: M0 and M1 first, because D1 decides how much time the hot path has. M2 to M3 then together.
-M4 (library change approved). M5/M6 can run in parallel with M7 after M4.
+## 9. Risks and Open Points
 
-## 7. Risks and Open Points
-
-- **Scope rule (open, decision needed).** The project rule keeps only the hot path in zero-latency
-  IRQs and everything else in Zephyr threads. This plan and the current code keep the quarter-cycle
-  IRQ (observers, Hall fusion, plan build) as a zero-latency IRQ. Either it stays an IRQ and the rule
-  gets an exception, or it becomes a thread with a deadline. The second option changes the double
-  buffer and the one-quarter-cycle timing. Until a decision is made, the plan stands as written.
-- **ISR time.** The estimate (hot path about 400 cycles, quarter-cycle IRQ about 2500) is not measured.
-  If hot path plus quarter-cycle IRQ do not finish within one half period, the hot path start shifts
-  and the control loses a half period. M0 clarifies this early. If it is not enough: lower the PWM
-  frequency or spread the quarter-cycle work over two half periods.
+- **Not run on hardware.** DMA burst, preload, the start at ARR/2 and the parity detection
+  (`TIM8_CR1.DIR` right after the control boundary) are written from the reference manual and only
+  build-tested. M0/M8 must verify them, first with the outputs off.
+- **ADC1 JEOS as "all ADCs done".** The sample interrupt reads ADC2/3/4 as well. This assumes equal
+  sample times and simultaneous triggers on all ADCs (as before).
+- **Overcurrent only in software.** The board has no comparators on the current channels; the check is
+  per sample in the zero-latency interrupt (reaction within about 1 µs plus the half period until the
+  next sample). The analog watchdog of the ADCs is a possible addition.
+- **Observer overrun.** If the observer does not finish within one cycle, the control cycle reuses the
+  old angles (and the sample buffer can race); counted, to be measured in M0.
+- **FPU in zero-latency ISRs.** Lazy stacking costs cycles when a thread uses the FPU. Measure in M0.
 - **Code and data in flash.** At 170 MHz the flash has wait states (the ART cache mitigates them). If the
-  jitter is a problem: place the hot path and the plan in CCM SRAM (Zephyr `CODE_DATA_RELOCATION`). Only
-  after measuring.
-- **FPU in zero-latency ISRs.** Lazy stacking costs cycles when a thread uses the FPU. Measure it in M0.
-- **Hall alignment.** Without a calibrated table, angle errors of up to about ±10° are possible. The edge R
-  must match.
-- **Start-up.** At standstill the fusion only knows the sector (±30°). That is enough for the start with
-  about 87 % torque (cos 30°). The Kalman filter converges at the first edges.
-- **Motor data missing.** Maximum electrical rotation frequency, inductance and resistance of the target
-  motors are needed for R, the thresholds, the controller parameters and the PWM frequency (current ripple
-  at small inductance).
+  jitter is a problem: hot path and buffers in CCM SRAM (Zephyr `CODE_DATA_RELOCATION`). Only after measuring.
+- **Hall alignment.** Without a calibrated table, angle errors of up to about ±10° are possible.
+- **Start-up.** At standstill the fusion only knows the sector (±30°): about 87 % torque (cos 30°).
+- **Motor data missing.** Maximum electrical frequency, inductance and resistance of the target motors are
+  needed for R, the thresholds and the controller parameters.

@@ -69,11 +69,10 @@ const settings::SettingsStorage kSettingsStorage{nullptr, LoadSettings, SaveSett
 HardwareSettingsInterface settings{kSettingsProfile, kSettingsStorage};
 
 // Stub function implementations
-static bool InitializeStub(
-    [[maybe_unused]] const unit::Frequency pwm_frequency,
-    [[maybe_unused]] const uint32_t adc_trigger_offset,
-    [[maybe_unused]] HardwareInterface::CurrentControlCallback current_control_callback,
-    [[maybe_unused]] HardwareInterface::SlowUpdateCallback slow_update_callback) noexcept {
+static bool InitializeStub([[maybe_unused]] const unit::Frequency pwm_frequency,
+                           [[maybe_unused]] const uint32_t adc_trigger_offset,
+                           [[maybe_unused]] HardwareInterface::ControlCycleCallback control_cycle_callback,
+                           [[maybe_unused]] HardwareInterface::ObserverCallback observer_callback) noexcept {
   // Stub: Always return successful initialization
   return true;
 }
@@ -88,19 +87,13 @@ static system::ThreePhase<unit::Voltage> GetPhaseVoltagesStub() noexcept {
   return system::ThreePhase<unit::Voltage>{0.0_V, 0.0_V, 0.0_V};
 }
 
-static CurrentControlSamples GetCurrentControlSamplesStub() noexcept {
-  return CurrentControlSamples{system::ThreePhase<unit::Current>{0.0_A, 0.0_A, 0.0_A}, 0.0_V};
-}
+static ControlCycleSamples GetControlCycleSamplesStub() noexcept { return ControlCycleSamples{}; }
 
 static TemperatureMeasurements GetTemperatureMeasurementsStub() noexcept { return TemperatureMeasurements{}; }
 
-static system::ThreePhase<unit::Ratio> phase_duties_shadow{0.5_ratio, 0.5_ratio, 0.5_ratio};
+static void SetDutyPlanStub([[maybe_unused]] const DutyPlan& plan) noexcept {}
 
-static system::ThreePhase<unit::Ratio> GetPhaseDutiesStub() noexcept { return phase_duties_shadow; }
-
-static void SetPhaseDutiesStub(const system::ThreePhase<unit::Ratio>& duties) noexcept {
-  phase_duties_shadow = duties;
-}
+static void SetOvercurrentLimitStub([[maybe_unused]] unit::Current limit) noexcept {}
 
 static void SetAdcTriggerOffsetStub([[maybe_unused]] uint32_t offset) noexcept {}
 
@@ -116,10 +109,10 @@ static void LogStub([[maybe_unused]] const LogLevel level, const char* const mes
 HardwareInterface motor[MOTORS] = {HardwareInterface(InitializeStub,
                                                      GetPhaseCurrentsStub,
                                                      GetPhaseVoltagesStub,
-                                                     GetCurrentControlSamplesStub,
+                                                     GetControlCycleSamplesStub,
                                                      GetTemperatureMeasurementsStub,
-                                                     GetPhaseDutiesStub,
-                                                     SetPhaseDutiesStub,
+                                                     SetDutyPlanStub,
+                                                     SetOvercurrentLimitStub,
                                                      SetAdcTriggerOffsetStub,
                                                      GetTimerClockFrequencyStub)};
 

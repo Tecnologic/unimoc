@@ -16,10 +16,13 @@ Read `README.md` for the supported motor types and public features, and
   startup sequencing, and all other high-level code run in Zephyr threads.
   The same application runs on the battery case controller (BCC) and on
   `native_sim` for host simulation.
-- **Only the FOC hot path runs in zero-latency IRQs.** The fast current ISR
-  (ADC end of injected sequence, once per half PWM period) is the hot path.
-  The TIM8 quarter-cycle update (`SlowUpdate`) is also zero-latency today, but
-  whether it stays an IRQ is an open decision (`docs/hotpath_plan.md`, section 7).
+- **Only the FOC hot path runs in zero-latency IRQs.** The hot path is the
+  sample ISR (ADC end of injected sequence, once per half PWM period: raw copy
+  and overcurrent check) and the control cycle it runs every fourth sample
+  (16 kHz at 32 kHz PWM: PI once, four duties for the next four half periods,
+  entry 0 into the CCR preload and entries 1 to 3 by DMA). The observer
+  (`SlowUpdate`) runs after each control cycle in a software-pended
+  normal-priority interrupt, not at zero latency (`docs/hotpath_plan.md`).
   Do not add other work to a zero-latency context.
 
 ## Project Layout
@@ -145,8 +148,8 @@ west twister -T unimoc -p native_sim/native/64 -p bcc
 
 ### Zero-latency rules
 
-Code reachable from a zero-latency IRQ (the fast ISR, the quarter-cycle update,
-and their callbacks) must not:
+Code reachable from a zero-latency IRQ (the sample ISR, the control cycle, and
+their callbacks) must not:
 
 - call Zephyr kernel or driver APIs, take locks, or allocate;
 - log, print, or touch the shell, USB, Cyphal, or settings;

@@ -13,6 +13,7 @@
  */
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <optional>
 #include "hardware_interface_config.hpp"
@@ -23,13 +24,39 @@
 namespace unimoc::hardware {
 
 /**
- * @brief ADC values needed by the fast current-control loop.
+ * @brief ADC values of one control cycle (kHalfPeriodsPerCycle PWM half periods).
+ *
+ * The hardware samples the phase currents once per PWM half period, at every
+ * peak and valley of the center-aligned counter. Sample k was taken at the
+ * (k + 1)-th boundary after the previous control boundary, so the last sample
+ * belongs to the boundary of this control cycle.
  */
-struct CurrentControlSamples {
-  /// Phase currents in A/B/C order. The expected invariant is ia + ib + ic = 0.
-  system::ThreePhase<unit::Current> phase_currents{};
+struct ControlCycleSamples {
+  /// Phase currents in A/B/C order, oldest first. The expected invariant is ia + ib + ic = 0.
+  std::array<system::ThreePhase<unit::Current>, kHalfPeriodsPerCycle> phase_currents{};
+  /// DC-link voltage of the last sample.
   unit::Voltage dc_link{};
+  /// A sample of this cycle exceeded the overcurrent limit. The hardware layer
+  /// has already tripped the power stage when this is set.
+  bool overcurrent{false};
 };
+
+/**
+ * @brief Phase duties for the kHalfPeriodsPerCycle PWM half periods after a control boundary.
+ *
+ * Entry k applies to the half period that starts k + 1 boundaries after the
+ * control boundary: entry 0 is written directly into the PWM preload
+ * registers, entries 1 to 3 are delivered by DMA at the following update events.
+ */
+struct DutyPlan {
+  std::array<system::ThreePhase<unit::Ratio>, kHalfPeriodsPerCycle>
+      duties{system::ThreePhase<unit::Ratio>{unit::Ratio{0.5F}, unit::Ratio{0.5F}, unit::Ratio{0.5F}},
+             system::ThreePhase<unit::Ratio>{unit::Ratio{0.5F}, unit::Ratio{0.5F}, unit::Ratio{0.5F}},
+             system::ThreePhase<unit::Ratio>{unit::Ratio{0.5F}, unit::Ratio{0.5F}, unit::Ratio{0.5F}},
+             system::ThreePhase<unit::Ratio>{unit::Ratio{0.5F}, unit::Ratio{0.5F}, unit::Ratio{0.5F}}};
+};
+
+static_assert(kHalfPeriodsPerCycle == 4U, "DutyPlan initializer lists four entries");
 
 /**
  * @brief Optional temperature measurements provided by a hardware target.
@@ -79,72 +106,78 @@ class HardwareSystemInterface {
 /**
  * @brief Callback-based hardware interface for one motor.
  *
- * The hardware target supplies the callbacks. The interface owns the callback
- * callbacks are static platform bindings. The fast-loop callbacks are safe to
- * invoke from interrupt context.
+ * The hardware target supplies the callbacks; they are static platform
+ * bindings. Interrupt layout (see docs/hotpath_plan.md):
+ *  - The hardware samples the currents once per PWM half period and checks
+ *    each sample against the overcurrent limit itself.
+ *  - After kHalfPeriodsPerCycle samples it calls the control-cycle callback in
+ *    the zero-latency context. The callback reads GetControlCycleSamples() and
+ *    writes SetDutyPlan().
+ *  - Then it runs the observer callback in a lower-priority interrupt that
+ *    may be preempted by the sampling interrupt.
  */
 class HardwareInterface {
  public:
-  using CurrentControlCallback = void (*)() noexcept;
-  using SlowUpdateCallback = void (*)() noexcept;
+  using ControlCycleCallback = void (*)() noexcept;
+  using ObserverCallback = void (*)() noexcept;
   using InitializeCallback = bool (*)(unit::Frequency,
                                       uint32_t,
-                                      CurrentControlCallback,
-                                      SlowUpdateCallback) noexcept;
+                                      ControlCycleCallback,
+                                      ObserverCallback) noexcept;
   using GetPhaseCurrentsCallback = system::ThreePhase<unit::Current> (*)() noexcept;
   using GetPhaseVoltagesCallback = system::ThreePhase<unit::Voltage> (*)() noexcept;
-  using GetCurrentControlSamplesCallback = CurrentControlSamples (*)() noexcept;
+  using GetControlCycleSamplesCallback = ControlCycleSamples (*)() noexcept;
   using GetTemperatureMeasurementsCallback = TemperatureMeasurements (*)() noexcept;
-  using GetPhaseDutiesCallback = system::ThreePhase<unit::Ratio> (*)() noexcept;
-  using SetPhaseDutiesCallback = void (*)(const system::ThreePhase<unit::Ratio>&) noexcept;
+  using SetDutyPlanCallback = void (*)(const DutyPlan&) noexcept;
+  using SetOvercurrentLimitCallback = void (*)(unit::Current) noexcept;
   using SetAdcTriggerOffsetCallback = void (*)(uint32_t) noexcept;
   using GetTimerClockFrequencyCallback = uint32_t (*)() noexcept;
 
   /**
    * @brief Constructs a motor hardware interface.
    * @param initialize Initializes the hardware for the requested PWM frequency
-   *                   and ADC trigger offset, then registers the ADC callback.
+   *                   and ADC trigger offset, then registers both callbacks.
    * @param get_phase_currents Reads the three phase currents.
    * @param get_phase_voltages Reads the three phase voltages.
-   * @param get_current_control_samples Reads the fast-loop ADC samples.
+   * @param get_control_cycle_samples Returns the samples of the finished control cycle.
    * @param get_temperature_measurements Reads optional temperature channels.
-   * @param get_phase_duties Reads the currently applied PWM duties.
-   * @param set_phase_duties Writes the three phase PWM duties.
+   * @param set_duty_plan Writes the duties of the next kHalfPeriodsPerCycle half periods.
+   * @param set_overcurrent_limit Sets the per-sample overcurrent limit.
    * @param set_adc_trigger_offset Updates the ADC trigger compare value.
    * @param get_timer_clock_frequency Returns the timer input clock in Hz.
    */
   HardwareInterface(InitializeCallback initialize,
                     GetPhaseCurrentsCallback get_phase_currents,
                     GetPhaseVoltagesCallback get_phase_voltages,
-                    GetCurrentControlSamplesCallback get_current_control_samples,
+                    GetControlCycleSamplesCallback get_control_cycle_samples,
                     GetTemperatureMeasurementsCallback get_temperature_measurements,
-                    GetPhaseDutiesCallback get_phase_duties,
-                    SetPhaseDutiesCallback set_phase_duties,
+                    SetDutyPlanCallback set_duty_plan,
+                    SetOvercurrentLimitCallback set_overcurrent_limit,
                     SetAdcTriggerOffsetCallback set_adc_trigger_offset,
                     GetTimerClockFrequencyCallback get_timer_clock_frequency)
       : initialize_(initialize),
         get_phase_currents_(get_phase_currents),
         get_phase_voltages_(get_phase_voltages),
-        get_current_control_samples_(get_current_control_samples),
+        get_control_cycle_samples_(get_control_cycle_samples),
         get_temperature_measurements_(get_temperature_measurements),
-        get_phase_duties_(get_phase_duties),
-        set_phase_duties_(set_phase_duties),
+        set_duty_plan_(set_duty_plan),
+        set_overcurrent_limit_(set_overcurrent_limit),
         set_adc_trigger_offset_(set_adc_trigger_offset),
         get_timer_clock_frequency_(get_timer_clock_frequency) {}
 
   /**
-   * @brief Initializes the hardware interface and ADC interrupt source.
+   * @brief Initializes the hardware interface and its interrupt sources.
    * @param pwm_frequency Requested PWM switching frequency.
    * @param adc_trigger_offset ADC trigger compare offset in timer ticks.
-   * @param current_control_callback Callback invoked after an ADC sequence.
-   * @param slow_update_callback Callback invoked by the lower-priority update interrupt.
+   * @param control_cycle_callback Zero-latency callback once per control cycle.
+   * @param observer_callback Lower-priority callback after each control cycle.
    * @return True when initialization succeeds.
    */
   [[nodiscard]] bool Initialize(unit::Frequency pwm_frequency,
                                 uint32_t adc_trigger_offset,
-                                CurrentControlCallback current_control_callback,
-                                SlowUpdateCallback slow_update_callback) const noexcept {
-    return initialize_(pwm_frequency, adc_trigger_offset, current_control_callback, slow_update_callback);
+                                ControlCycleCallback control_cycle_callback,
+                                ObserverCallback observer_callback) const noexcept {
+    return initialize_(pwm_frequency, adc_trigger_offset, control_cycle_callback, observer_callback);
   }
 
   /**
@@ -164,10 +197,12 @@ class HardwareInterface {
   }
 
   /**
-   * @brief Reads the ADC values used by the fast current-control loop.
+   * @brief Returns the samples of the control cycle that just finished.
+   *
+   * Only valid inside the control-cycle callback.
    */
-  [[nodiscard]] CurrentControlSamples GetCurrentControlSamples() const noexcept {
-    return get_current_control_samples_();
+  [[nodiscard]] ControlCycleSamples GetControlCycleSamples() const noexcept {
+    return get_control_cycle_samples_();
   }
 
   /**
@@ -178,19 +213,24 @@ class HardwareInterface {
   }
 
   /**
-   * @brief Reads the currently applied normalized PWM duties.
+   * @brief Writes the phase duties of the next kHalfPeriodsPerCycle half periods.
+   *
+   * Must be called inside the control-cycle callback, before the first
+   * boundary after the control boundary.
+   *
+   * @param plan Normalized duties, entry 0 for the first half period.
    */
-  [[nodiscard]] system::ThreePhase<unit::Ratio> GetPhaseDuties() const noexcept {
-    return get_phase_duties_();
-  }
+  void SetDutyPlan(const DutyPlan& plan) const noexcept { set_duty_plan_(plan); }
 
   /**
-   * @brief Writes the three phase PWM duties.
-   * @param duties Normalized duties for phases A, B, and C.
+   * @brief Sets the limit of the per-sample overcurrent check.
+   *
+   * The hardware compares every sample against it (in raw ADC counts where
+   * possible) and trips the power stage at once when a phase exceeds it.
+   *
+   * @param limit Phase-current magnitude; infinity disables the check.
    */
-  void SetPhaseDuties(const system::ThreePhase<unit::Ratio>& duties) const noexcept {
-    set_phase_duties_(duties);
-  }
+  void SetOvercurrentLimit(unit::Current limit) const noexcept { set_overcurrent_limit_(limit); }
 
   /**
    * @brief Updates the timer compare value that triggers ADC conversion.
@@ -207,10 +247,10 @@ class HardwareInterface {
   InitializeCallback initialize_;
   GetPhaseCurrentsCallback get_phase_currents_;
   GetPhaseVoltagesCallback get_phase_voltages_;
-  GetCurrentControlSamplesCallback get_current_control_samples_;
+  GetControlCycleSamplesCallback get_control_cycle_samples_;
   GetTemperatureMeasurementsCallback get_temperature_measurements_;
-  GetPhaseDutiesCallback get_phase_duties_;
-  SetPhaseDutiesCallback set_phase_duties_;
+  SetDutyPlanCallback set_duty_plan_;
+  SetOvercurrentLimitCallback set_overcurrent_limit_;
   SetAdcTriggerOffsetCallback set_adc_trigger_offset_;
   GetTimerClockFrequencyCallback get_timer_clock_frequency_;
 };

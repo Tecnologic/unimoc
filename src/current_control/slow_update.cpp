@@ -37,7 +37,7 @@ void SlowUpdate::init(const settings::NvmSettings& settings, CurrentControlIsr& 
 }
 
 // =============================================================================
-// run_once
+// run_once — after each control cycle, lower priority than the control cycle
 // =============================================================================
 
 bool SlowUpdate::run_once() noexcept {
@@ -47,114 +47,72 @@ bool SlowUpdate::run_once() noexcept {
   auto& mech_obs = isr_->mech_obs;
 
   // -------------------------------------------------------------------------
-  // Poll: nothing to do until the ISR has completed a 4-step cycle
+  // Nothing to do until the control cycle has filled a buffer.
   // -------------------------------------------------------------------------
-  if (!state.samples_ready) return false;
-
-  // -------------------------------------------------------------------------
-  // 1. Clear the flag so the ISR can set it again for the next cycle
-  // -------------------------------------------------------------------------
-  state.samples_ready = false;
+  if (!state.observer_pending.load(std::memory_order_acquire)) return false;
 
   const float dt_fast = state.dt_fast;
   const float dt_slow = state.dt_slow;
 
   // -------------------------------------------------------------------------
-  // 2. Flip buffers first so ISR writes go to the opposite half.
-  //    The old active half now becomes read-only for this SlowUpdate pass.
+  // 1. The buffer of the cycle that just finished.
   // -------------------------------------------------------------------------
-  const uint8_t old_active = state.double_buf.active.load(std::memory_order_acquire);
-  const uint8_t new_active = 1u - old_active;
-  state.double_buf.active.store(new_active, std::memory_order_release);
+  const uint8_t done = state.observer_buffer;
+  const SubStepBuffer& cycle = state.double_buf.buf[done];
+  const system::Rotor<unit::Current> i_dq_mean = cycle.i_dq_mean;
 
   // -------------------------------------------------------------------------
-  // 3. Snapshot the old active buffer used by the just-finished ISR cycle.
+  // 2. PMSM flux observer. calculate() reads mech_obs.sin_theta / cos_theta
+  //    and calls mech_obs.inject_angle_error() at the end.
   // -------------------------------------------------------------------------
-  const SubStepBuffer& old_buf = state.double_buf.buf[old_active];
-
-  // Stack copies from the old half (ISR now writes only to new_active).
-  system::Stator<unit::Current> i_ab_snap[NUM_SUB_STEPS];
-  system::SinCos<unit::Ratio> sc_snap[NUM_SUB_STEPS];
-
-  for (uint8_t k = 0u; k < NUM_SUB_STEPS; ++k) {
-    i_ab_snap[k] = old_buf.i_ab_samples[k];
-    sc_snap[k] = old_buf.sc[k];
-  }
-
-  // Snapshot last voltage demand (written by ISR before samples_ready was set)
-  const system::Rotor<unit::Voltage> u_dq_last = state.u_dq_last;
+  flux_obs.calculate(cycle.u_dq, i_dq_mean, flux_setpoint_, unit::Time{dt_slow}, mech_obs);
 
   // -------------------------------------------------------------------------
-  // 4. Angle-advance correction: re-Park each sample with the sin/cos that
-  //    was active when it was captured.  This corrects for the changing
-  //    electrical angle across the four sub-steps.
-  // -------------------------------------------------------------------------
-  system::Rotor<unit::Current> i_dq[NUM_SUB_STEPS];
-  for (uint8_t k = 0u; k < NUM_SUB_STEPS; ++k) {
-    i_dq[k] = i_ab_snap[k].ToRotor(sc_snap[k]);
-  }
-
-  // -------------------------------------------------------------------------
-  // 5. Mean d/q current over the four sub-steps
-  // -------------------------------------------------------------------------
-  system::Rotor<unit::Current> i_dq_mean{0.0f, 0.0f};
-  for (uint8_t k = 0u; k < NUM_SUB_STEPS; ++k) {
-    i_dq_mean.d += i_dq[k].d;
-    i_dq_mean.q += i_dq[k].q;
-  }
-  constexpr float inv_n = 1.0f / static_cast<float>(NUM_SUB_STEPS);
-  i_dq_mean.d *= inv_n;
-  i_dq_mean.q *= inv_n;
-
-  // -------------------------------------------------------------------------
-  // 6. PMSM flux observer
-  //    calculate() internally reads mech_obs.sin_theta / cos_theta and
-  //    calls mech_obs.inject_angle_error() at the end.
-  // -------------------------------------------------------------------------
-  flux_obs.calculate(u_dq_last, i_dq_mean, flux_setpoint_, unit::Time{dt_slow}, mech_obs);
-
-  // -------------------------------------------------------------------------
-  // 7. Mechanical Kalman predict step (propagates omega and theta forward)
+  // 3. Mechanical Kalman predict step (propagates omega and theta forward by
+  //    one cycle). Afterwards theta is the estimate for the first sample of
+  //    the next cycle.
   // -------------------------------------------------------------------------
   mech_obs.predict(i_dq_mean, unit::Time{dt_slow});
 
   // -------------------------------------------------------------------------
-  // 8. HFI update (if active) — updates step counter and feeds error into
-  //    the Kalman filter via inject_angle_error().
-  //    The HFI observer processes the mean α/β current; it needs the mean
-  //    sin/cos for the Park transform inside update().  We use sc_snap[0]
-  //    as a representative angle for the slow-update epoch.
+  // 4. HFI: sample k + 1 answers injection step k of the plan before it, so
+  //    sample 0 completes the injection period (step 3) and samples 1..3 start
+  //    the next one (steps 0..2). update() advances its step itself.
   // -------------------------------------------------------------------------
   if (isr_->hfi_active) {
-    // Compute mean stator-frame current for HFI
-    system::Stator<unit::Current> i_ab_mean{0.0f, 0.0f};
     for (uint8_t k = 0u; k < NUM_SUB_STEPS; ++k) {
-      i_ab_mean.alpha += i_ab_snap[k].alpha;
-      i_ab_mean.beta += i_ab_snap[k].beta;
+      isr_->hfi.update(cycle.i_ab_samples[k],
+                       cycle.sc[k].sin,
+                       cycle.sc[k].cos,
+                       unit::Time{dt_slow},
+                       mech_obs);
     }
-    i_ab_mean.alpha *= inv_n;
-    i_ab_mean.beta *= inv_n;
-
-    isr_->hfi.update(i_ab_mean, mech_obs.sin_theta, mech_obs.cos_theta, unit::Time{dt_slow}, mech_obs);
   }
 
   // -------------------------------------------------------------------------
-  // 9. Precompute sc[0..3] for the next 4-step cycle into the now-inactive
-  //    old half.
-  //    phi_k = theta + k × omega × dt_fast
-  //    (theta and omega are current Kalman estimates, updated by predict()
-  //    and inject_angle_error() just above.)
+  // 5. Angles of the next cycle into the inactive buffer:
+  //      sample k:     phi = theta + k × omega × dt_fast
+  //      duty entry k: phi = theta + (NUM_SUB_STEPS − 1 + delay + k) × omega × dt_fast
+  //    The next control boundary is the last sample of the next cycle; entry
+  //    k takes effect `delay` + k half periods after it (D4).
   // -------------------------------------------------------------------------
-  SubStepBuffer& new_buf = state.double_buf.buf[old_active];
+  SubStepBuffer& next = state.double_buf.buf[1u - done];
 
   const float theta_now = mech_obs.theta.Value();
-  const float omega_now = mech_obs.omega.Value();
+  const float step = mech_obs.omega.Value() * dt_fast;
+  const float out_offset = static_cast<float>(NUM_SUB_STEPS - 1u) + state.output_delay_half_periods;
 
   for (uint8_t k = 0u; k < NUM_SUB_STEPS; ++k) {
-    const float phi_k = theta_now + static_cast<float>(k) * omega_now * dt_fast;
-    new_buf.sc[k] = system::SinCos<unit::Ratio>(unit::Angle{phi_k});
+    const float k_f = static_cast<float>(k);
+    next.sc[k] = system::SinCos<unit::Ratio>(unit::Angle{theta_now + k_f * step});
+    next.sc_out[k] = system::SinCos<unit::Ratio>(unit::Angle{theta_now + (out_offset + k_f) * step});
   }
 
+  // -------------------------------------------------------------------------
+  // 6. Publish: the next control cycle uses the new buffer.
+  // -------------------------------------------------------------------------
+  state.double_buf.active.store(static_cast<uint8_t>(1u - done), std::memory_order_release);
+  state.observer_pending.store(false, std::memory_order_release);
   return true;
 }
 

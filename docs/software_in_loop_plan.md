@@ -65,8 +65,7 @@ The C++ simulator remains the source of truth for controller execution and physi
 Each motor runtime should expose operations equivalent to:
 
 - `Reset()` - restore settings, controller state, plant state, and virtual time.
-- `RunFastStep()` - execute exactly one `on_jeoc()` interval.
-- `RunSlowUpdate()` - execute the slow observer update when its sample group is complete.
+- `RunControlCycle()` - execute exactly one control cycle (`on_control_cycle()`, then the observer, then the plant over four half periods). On native_sim this is `hardware::sim::StepCycle()`.
 - `AdvanceCycles(count)` - execute a fixed number of coordinated cycles.
 - `Snapshot()` - return controller, plant, timing, and telemetry state.
 

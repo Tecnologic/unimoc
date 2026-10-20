@@ -22,6 +22,8 @@ add_unimoc_test(excitation_observer_test excitation_observer_test.cpp
     LIBRARIES unimoc_motor_control_observer)
 add_unimoc_test(position_tracker_test position_tracker_test.cpp
     LIBRARIES unimoc_motor_control_observer)
+add_unimoc_test(hfi_test hfi_test.cpp
+    LIBRARIES unimoc_motor_control_observer)
 
 add_custom_target(motor_control_tests DEPENDS
     three_phase_system_test
@@ -34,4 +36,5 @@ add_custom_target(motor_control_tests DEPENDS
     excitation_controller_test
     position_controller_test
     excitation_observer_test
-    position_tracker_test)
+    position_tracker_test
+    hfi_test)

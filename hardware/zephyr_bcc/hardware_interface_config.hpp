@@ -39,13 +39,15 @@ inline constexpr bool kCpuTemperatureAvailable = false;
 inline constexpr bool kBridgeTemperatureAvailable = true;
 inline constexpr bool kMotorTemperatureAvailable = true;
 
-// Both interrupts run as Zephyr zero-latency IRQs (IRQ_ZERO_LATENCY): they are
-// never masked by irq_lock() and neither uses a configurable priority. They
-// sit on the same NVIC level, so they do not preempt each other; the sum of
-// both execution times must stay below one PWM period.
+// Interrupt layout (docs/hotpath_plan.md):
 //
-//   fast: ADC1 end of injected sequence, once per PWM half period (current control)
-//   slow: TIM8 update event, once every kSlowUpdateDivider fast interrupts
-inline constexpr uint32_t kSlowUpdateDivider = 4U;
+//   sample:   ADC1 end of injected sequence, zero latency, once per PWM half
+//             period. Copies the raw currents and checks the overcurrent limit.
+//   control:  runs inside every kHalfPeriodsPerCycle-th sample interrupt and
+//             writes the duties of the next kHalfPeriodsPerCycle half periods
+//             (entry 0 directly into the CCR preload, entries 1..3 by DMA).
+//   observer: software-pended normal-priority interrupt after each control
+//             cycle. It is preempted by the sample interrupt.
+inline constexpr uint8_t kHalfPeriodsPerCycle = 4U;
 
 }  // namespace unimoc::hardware

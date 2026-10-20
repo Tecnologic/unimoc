@@ -25,6 +25,10 @@ macro(unimoc_zephyr_libraries)
                      ${CMAKE_CURRENT_BINARY_DIR}/lib/${unimoc_lib_name})
   endforeach()
 
+  # Motor plant simulation (header only). Not part of unimoc_lib: only the
+  # native_sim platform and its tests link it.
+  add_subdirectory(${UNIMOC_ROOT}/lib/sim ${CMAKE_CURRENT_BINARY_DIR}/lib/sim)
+
   add_library(unimoc_lib INTERFACE)
   target_link_libraries(unimoc_lib INTERFACE
     project_options
