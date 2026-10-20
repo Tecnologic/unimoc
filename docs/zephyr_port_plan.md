@@ -76,7 +76,7 @@ settings backend do not exist yet. The phase order below is the plan.
 ### Phase 3 - High-level services
 - `HardwareSystemInterface::Log` maps to Zephyr logging.
 - Shell commands: settings, startup FSM, status, cymon control.
-- `SettingsStorage` callbacks map to NVS/ZMS.
+- `SettingsStorage` callbacks map to the Zephyr settings subsystem on ZMS (`docs/settings_plan.md`).
 - Threads: Cyphal, shell, logging, settings, later the 2 kHz control thread.
   No `main()` wait loop. The observer stays in its pended interrupt.
 

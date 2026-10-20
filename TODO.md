@@ -17,7 +17,7 @@ hot-path design.
  - [x] Align the root `CMakeLists.txt` with the C++20 baseline.
  - [x] Replace the RTT wording in the comment of `src/startup/startup_results.hpp` with the Zephyr log.
  - [ ] Enable the USB CDC-ACM console and Zephyr logging on the BCC.
- - [ ] Add a Zephyr flash backend (NVS or ZMS) for `SettingsStorage`; until then settings are RAM only.
+ - [ ] Persist settings with the Zephyr settings subsystem on ZMS (phases, risks and open questions in [docs/settings_plan.md](docs/settings_plan.md)); until then settings are RAM only.
  - [ ] Integrate Cyphal over CAN-FD (libcanard, DSDL, register service, PnP, heartbeat, GetInfo).
  - [ ] Delete the legacy firmware in `hardware/batterycasecontroller/` once the Zephyr BCC target is verified on the board. `cmake/Modm.cmake`, `cmake/ToolChain.cmake`, `requirements.txt` and `ci-firmware.yml` are already gone.
  - [ ] Implement the hot-path milestones M0 and M4 to M8 from `docs/hotpath_plan.md` (M1 to M3 are in the code, not run on the board).
