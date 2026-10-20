@@ -20,7 +20,7 @@ if ! "$clang_format" --version 2>/dev/null | grep -q "version ${required_version
 fi
 
 mapfile -t files < <(git ls-files '*.c' '*.cpp' '*.h' '*.hpp' |
-  grep -v -e '^lib/cymon/' -e '^hardware/batterycasecontroller/')
+  grep -v -e '^lib/cymon/')
 
 if [[ "${1:-}" == "--fix" ]]; then
   "$clang_format" -i "${files[@]}"

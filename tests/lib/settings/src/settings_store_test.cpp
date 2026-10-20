@@ -16,6 +16,7 @@
 
 #include "settings_store.hpp"
 #include <zephyr/ztest.h>
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <string_view>
@@ -295,6 +296,116 @@ ZTEST(settings_store, test_empty_node_name_is_stored_not_deleted) {
   SettingsStore reloaded{MakeProfile(), ctx.backend.Adapter(), MakeGate()};
   zexpect_equal(reloaded.Load(), SettingsStatus::kSuccess);
   zexpect_equal(reloaded.GetSnapshot().Get().identity.GetName().size(), 0U);
+}
+
+// Records how the store uses the gate and the lock.
+struct Probe {
+  int lock_depth{0};
+  int max_lock_depth{0};
+  int locks{0};
+  int gate_begins{0};
+  int gate_ends{0};
+  bool gate_held{false};
+  bool gate_taken_under_lock{true};
+  bool gate_allowed{true};
+};
+
+Probe g_probe{};
+
+SettingsSaveGate MakeProbeGate() {
+  return SettingsSaveGate{nullptr,
+                          [](void* /*unused*/) {
+                            ++g_probe.gate_begins;
+                            g_probe.gate_taken_under_lock =
+                                g_probe.gate_taken_under_lock && g_probe.lock_depth == 1;
+                            g_probe.gate_held = g_probe.gate_allowed;
+                            return g_probe.gate_allowed;
+                          },
+                          [](void* /*unused*/) {
+                            ++g_probe.gate_ends;
+                            g_probe.gate_held = false;
+                          }};
+}
+
+SettingsLock MakeProbeLock() {
+  return SettingsLock{nullptr,
+                      [](void* /*unused*/) {
+                        ++g_probe.locks;
+                        ++g_probe.lock_depth;
+                        g_probe.max_lock_depth = std::max(g_probe.max_lock_depth, g_probe.lock_depth);
+                      },
+                      [](void* /*unused*/) { --g_probe.lock_depth; }};
+}
+
+ZTEST(settings_store, test_gate_is_held_once_for_the_whole_save) {
+  g_probe = Probe{};
+  RamSettingsStorage backend{};
+  SettingsStore store{MakeProfile(), backend.Adapter(), MakeProbeGate(), MakeProbeLock()};
+  zassert_equal(store.Load(), SettingsStatus::kFactoryDefaults);
+  auto operations = store.GetOperations();
+
+  // Nothing to write: the gate is not even asked.
+  zexpect_equal(operations.SaveToFlash(), SettingsStatus::kSuccess);
+  zexpect_equal(g_probe.gate_begins, 0);
+
+  zassert_equal(operations.SetNodeId(9U), SettingsStatus::kSuccess);
+  zassert_equal(operations.SetMotorCurrentLimit(20.0_A), SettingsStatus::kSuccess);
+  zassert_equal(operations.SetNodeName("probe"), SettingsStatus::kSuccess);
+  zexpect_equal(operations.SaveToFlash(), SettingsStatus::kSuccess);
+  zexpect_equal(backend.Writes(), 3U);
+  zexpect_equal(g_probe.gate_begins, 1);
+  zexpect_equal(g_probe.gate_ends, 1);
+  zexpect_false(g_probe.gate_held);
+  zexpect_true(g_probe.gate_taken_under_lock);
+}
+
+ZTEST(settings_store, test_refused_gate_is_not_released) {
+  g_probe = Probe{};
+  RamSettingsStorage backend{};
+  SettingsStore store{MakeProfile(), backend.Adapter(), MakeProbeGate(), MakeProbeLock()};
+  zassert_equal(store.Load(), SettingsStatus::kFactoryDefaults);
+  auto operations = store.GetOperations();
+  zassert_equal(operations.SetNodeId(9U), SettingsStatus::kSuccess);
+
+  g_probe.gate_allowed = false;
+  zexpect_equal(operations.SaveToFlash(), SettingsStatus::kPersistBlocked);
+  zexpect_equal(g_probe.gate_begins, 1);
+  zexpect_equal(g_probe.gate_ends, 0);
+  zexpect_equal(backend.Writes(), 0U);
+}
+
+ZTEST(settings_store, test_every_operation_runs_under_the_lock) {
+  g_probe = Probe{};
+  RamSettingsStorage backend{};
+  SettingsStore store{MakeProfile(), backend.Adapter(), MakeProbeGate(), MakeProbeLock()};
+  auto operations = store.GetOperations();
+
+  int expected = 0;
+  const auto kCheck = [&expected]() {
+    ++expected;
+    zexpect_equal(g_probe.locks, expected);
+    zexpect_equal(g_probe.lock_depth, 0);
+  };
+  zassert_equal(store.Load(), SettingsStatus::kFactoryDefaults);
+  kCheck();
+  (void)store.GetSnapshot();
+  kCheck();
+  zassert_equal(operations.Update([](NvmSettings& settings) {
+    // The operation itself runs under the lock.
+    zexpect_equal(g_probe.lock_depth, 1);
+    settings.node_id = 4U;
+  }),
+                SettingsStatus::kSuccess);
+  kCheck();
+  zassert_equal(operations.SetNodeId(5U), SettingsStatus::kSuccess);
+  kCheck();
+  zexpect_equal(operations.UnsavedCount(), 1U);
+  kCheck();
+  zexpect_equal(operations.SaveToFlash(), SettingsStatus::kSuccess);
+  kCheck();
+  zassert_equal(operations.ResetToFactoryDefaults(), SettingsStatus::kSuccess);
+  kCheck();
+  zexpect_equal(g_probe.max_lock_depth, 1);  // never taken twice (the lock need not be recursive)
 }
 
 }  // namespace unimoc::settings::test

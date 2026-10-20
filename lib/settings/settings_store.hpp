@@ -199,34 +199,47 @@ template <typename T>
  *
  * Writing flash can stall the CPU for milliseconds, which the zero-latency
  * control cycle cannot tolerate, so the application allows it only while the
- * power stage is disabled. A default-constructed gate never allows it.
+ * power stage is disabled. The gate brackets a whole save: TryBegin() checks
+ * the condition and, on success, holds it (the power stage cannot be enabled)
+ * until End(). A default-constructed gate never allows saving.
  */
 class SettingsSaveGate {
  public:
-  /// Returns true when saving is allowed at this moment.
-  using AllowedCallback = bool (*)(void* context);
+  /// Returns true and holds the save condition when saving is allowed now.
+  using BeginCallback = bool (*)(void* context);
+  /// Releases the save condition taken by a successful BeginCallback.
+  using EndCallback = void (*)(void* context);
 
   constexpr SettingsSaveGate() = default;
 
   /**
-   * @brief Constructs a gate from a platform callback.
+   * @brief Constructs a gate from platform callbacks.
    * @param context Opaque callback context.
-   * @param allowed Returns true while saving is safe.
+   * @param begin Returns true and holds the condition while saving is safe.
+   * @param end Releases the condition; may be null when nothing is held.
    */
-  constexpr SettingsSaveGate(void* context, AllowedCallback allowed) noexcept
-      : context_{context}, allowed_{allowed} {}
+  constexpr SettingsSaveGate(void* context, BeginCallback begin, EndCallback end = nullptr) noexcept
+      : context_{context}, begin_{begin}, end_{end} {}
 
   /// A gate that always allows saving (host tests, tools without a power stage).
   [[nodiscard]] static constexpr SettingsSaveGate Always() noexcept {
     return SettingsSaveGate{nullptr, [](void* /*unused*/) { return true; }};
   }
 
-  /// Returns true when saving is allowed now.
-  [[nodiscard]] bool Allowed() const noexcept { return allowed_ != nullptr && allowed_(context_); }
+  /// Returns true and holds the save condition until End() when saving is allowed now.
+  [[nodiscard]] bool TryBegin() const noexcept { return begin_ != nullptr && begin_(context_); }
+
+  /// Releases the condition taken by a successful TryBegin().
+  void End() const noexcept {
+    if (end_ != nullptr) {
+      end_(context_);
+    }
+  }
 
  private:
   void* context_{nullptr};
-  AllowedCallback allowed_{nullptr};
+  BeginCallback begin_{nullptr};
+  EndCallback end_{nullptr};
 };
 
 /**
@@ -268,7 +281,8 @@ class SettingsOperations {
    * Nothing is written to flash until SaveToFlash().
    *
    * @tparam Operation Callable accepting `NvmSettings&`.
-   * @param operation Operation-specific mutation applied to a copy.
+   * @param operation Operation-specific mutation applied to a copy. It runs
+   *                  under the store lock and must not call into the store.
    * @return The validation result.
    */
   template <typename Operation>
@@ -333,7 +347,9 @@ class SettingsOperations {
    * Only registers whose live value differs from the stored one are written;
    * a register that is back at its factory value is erased instead. Refused
    * with `kPersistBlocked` unless the save gate allows it (power stage
-   * disabled). Registers saved before an error stay saved.
+   * disabled); the gate is held for the whole save, so the power stage cannot
+   * be enabled while flash is written. Registers saved before an error stay
+   * saved.
    *
    * @return `kSuccess`, `kPersistBlocked`, or the storage error.
    */
@@ -365,7 +381,9 @@ class SettingsOperations {
  * factory profile: a register that is not stored has its factory value, so a
  * new firmware can add registers without invalidating stored settings.
  *
- * The store is not thread safe: serialize calls (one settings thread).
+ * Every public operation runs under the SettingsLock given at construction,
+ * so several threads may share the store. Without a lock, serialize the calls
+ * (one settings thread).
  */
 class SettingsStore {
  public:
@@ -374,13 +392,16 @@ class SettingsStore {
    * @param profile Immutable target capabilities and factory values.
    * @param storage Platform key/value storage.
    * @param save_gate Decides when flash may be written (power stage disabled).
+   * @param lock Serializes the threads that use the store; none by default.
    */
   SettingsStore(const SettingsProfile& profile,
                 const SettingsStorage& storage,
-                const SettingsSaveGate& save_gate) noexcept
+                const SettingsSaveGate& save_gate,
+                const SettingsLock& lock = SettingsLock{}) noexcept
       : profile_{profile},
         storage_{storage},
         save_gate_{save_gate},
+        lock_{lock},
         settings_{profile.factory_settings},
         stored_{profile.factory_settings} {}
 
@@ -395,6 +416,7 @@ class SettingsStore {
    *         nothing is stored, or the cause of a fallback or storage error.
    */
   SettingsStatus Load() noexcept {
+    const Guard kGuard{lock_};
     if (!settings_store_internal::IsValidProfile(profile_)) {
       return SettingsStatus::kInvalidSettings;
     }
@@ -442,7 +464,10 @@ class SettingsStore {
    * @brief Returns a read-only copy of the live settings.
    * @return Snapshot containing the current settings.
    */
-  [[nodiscard]] SettingsSnapshot GetSnapshot() const { return SettingsSnapshot{settings_}; }
+  [[nodiscard]] SettingsSnapshot GetSnapshot() const {
+    const Guard kGuard{lock_};
+    return SettingsSnapshot{settings_};
+  }
 
   /**
    * @brief Creates the authorized operation capability.
@@ -457,6 +482,20 @@ class SettingsStore {
   [[nodiscard]] const SettingsProfile& GetProfile() const noexcept { return profile_; }
 
  private:
+  /// Holds the store lock for one public operation.
+  class Guard {
+   public:
+    explicit Guard(const SettingsLock& lock) noexcept : lock_{&lock} { lock_->Lock(); }
+    ~Guard() { lock_->Unlock(); }
+    Guard(const Guard&) = delete;
+    Guard& operator=(const Guard&) = delete;
+    Guard(Guard&&) = delete;
+    Guard& operator=(Guard&&) = delete;
+
+   private:
+    const SettingsLock* lock_;
+  };
+
   SettingsStatus Commit(const NvmSettings& candidate) noexcept {
     const SettingsStatus kValidation = settings_store_internal::Validate(candidate, profile_.capabilities);
     if (kValidation != SettingsStatus::kSuccess) {
@@ -468,6 +507,7 @@ class SettingsStore {
 
   SettingsStatus SaveChanged() noexcept {
     SettingsStatus result = SettingsStatus::kSuccess;
+    bool saving = false;  // the gate is held from the first write to the end
     ForEachRegister(
         [&](std::string_view key, const auto& live, auto& stored, const auto& factory) {
           if (result != SettingsStatus::kSuccess) {
@@ -478,10 +518,14 @@ class SettingsStore {
           if (!kChanged && !(erase_defaults_ && kAtFactory)) {
             return;
           }
-          // Checked before every write: the power stage may have been enabled meanwhile.
-          if (!save_gate_.Allowed()) {
-            result = SettingsStatus::kPersistBlocked;
-            return;
+          // Taken before the first write and held to the end: the power stage
+          // cannot be enabled while flash is written.
+          if (!saving) {
+            if (!save_gate_.TryBegin()) {
+              result = SettingsStatus::kPersistBlocked;
+              return;
+            }
+            saving = true;
           }
           SettingsStorageStatus status = SettingsStorageStatus::kSuccess;
           if (kAtFactory) {
@@ -499,6 +543,9 @@ class SettingsStore {
         std::as_const(settings_),
         stored_,
         std::as_const(profile_.factory_settings));
+    if (saving) {
+      save_gate_.End();
+    }
     if (result == SettingsStatus::kSuccess) {
       erase_defaults_ = false;
     }
@@ -519,6 +566,7 @@ class SettingsStore {
   SettingsProfile profile_{};
   SettingsStorage storage_;
   SettingsSaveGate save_gate_;
+  SettingsLock lock_;
   NvmSettings settings_{};      ///< Live settings (RAM).
   NvmSettings stored_{};        ///< What the storage holds, as far as known.
   bool erase_defaults_{false};  ///< Erase registers at factory value on the next save.
@@ -528,6 +576,7 @@ class SettingsStore {
 
 template <typename Operation>
 SettingsStatus SettingsOperations::Update(Operation&& operation) const {
+  const SettingsStore::Guard kGuard{store_->lock_};
   NvmSettings candidate = store_->settings_;
   std::forward<Operation>(operation)(candidate);
   return store_->Commit(candidate);
@@ -564,11 +613,18 @@ inline SettingsStatus SettingsOperations::ApplyAdcCalibration(unit::Current offs
 }
 
 inline SettingsStatus SettingsOperations::ResetToFactoryDefaults() const {
+  const SettingsStore::Guard kGuard{store_->lock_};
   return store_->Commit(store_->profile_.factory_settings);
 }
 
-inline SettingsStatus SettingsOperations::SaveToFlash() const { return store_->SaveChanged(); }
+inline SettingsStatus SettingsOperations::SaveToFlash() const {
+  const SettingsStore::Guard kGuard{store_->lock_};
+  return store_->SaveChanged();
+}
 
-inline std::size_t SettingsOperations::UnsavedCount() const { return store_->CountUnsaved(); }
+inline std::size_t SettingsOperations::UnsavedCount() const {
+  const SettingsStore::Guard kGuard{store_->lock_};
+  return store_->CountUnsaved();
+}
 
 }  // namespace unimoc::settings

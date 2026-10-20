@@ -34,11 +34,13 @@ void unimoc::hardware::ObserverHandler() noexcept {
 // needed any more (Zephyr ends it when main() returns).
 int main() {
   // Static: outlives main() for the threads that read or commit settings later.
-  // Settings are saved to flash only while the power stage is disabled.
+  // Settings are saved to flash only while the power stage is disabled, and
+  // the platform lock serializes the threads that share the store.
   static unimoc::settings::SettingsStore settings_store{unimoc::hardware::kSettings.GetSettingsProfile(),
                                                         unimoc::hardware::kSettings.GetSettingsStorage(),
                                                         unimoc::settings::PowerStageSaveGate(
-                                                            unimoc::hardware::kPowerStage)};
+                                                            unimoc::hardware::kPowerStage),
+                                                        unimoc::hardware::kSettings.GetSettingsLock()};
   const auto kSettingsStatus = settings_store.Load();
   switch (kSettingsStatus) {
     case unimoc::settings::SettingsStatus::kSuccess:

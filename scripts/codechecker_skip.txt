@@ -3,7 +3,6 @@
 -*/unimoc/app/build/*
 -*/unimoc/build/*
 -*/unimoc/lib/cymon/*
--*/unimoc/hardware/batterycasecontroller/*
 +*/unimoc/app/*
 +*/unimoc/hardware/*
 +*/unimoc/lib/*

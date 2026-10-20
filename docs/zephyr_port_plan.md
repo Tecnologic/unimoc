@@ -25,7 +25,7 @@ settings backend do not exist yet. The phase order below is the plan.
 | Topic | Decision |
 |---|---|
 | Zephyr version | 4.4.0 (released 2026-04-14), pinned in `west.yml`. A 4.5.0 release was not confirmed as of 2026-10-19; upgrade later via the migration guide. |
-| Legacy firmware | Presets, CMake glue and launch config are removed. `hardware/batterycasecontroller/`, `cmake/Modm.cmake`, `cmake/ToolChain.cmake`, `requirements.txt` and `.github/workflows/ci-firmware.yml` are still to be deleted once the Zephyr target builds. |
+| Legacy firmware | Removed: the modm firmware, `cmake/Modm.cmake`, `cmake/ToolChain.cmake`, `requirements.txt` and `.github/workflows/ci-firmware.yml` were deleted in `6ca28d1`. The last legacy release stays on `main` until `develop` is merged there. |
 | Repository layout | Same repository. Zephyr application in `app/`, `lib/` consumed via `add_subdirectory`. |
 | Language standard | C++20 (`CONFIG_STD_CPP20`). `AGENTS.md`, `README.md` and the root `CMakeLists.txt` say C++20. |
 | Runtime scope | Zephyr is the primary OS. Only the FOC hot path runs at zero latency. Logging, shell, USB, Cyphal, settings and startup run in threads. |

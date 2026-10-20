@@ -15,6 +15,7 @@
  */
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 
 namespace unimoc::hardware {
@@ -36,7 +37,13 @@ enum class PowerStageState : uint8_t {
  * state without software in the loop.
  *
  * Disable() and Trip() are safe to call from any interrupt, including
- * zero-latency ones.
+ * zero-latency ones. Enable() runs in thread context only.
+ *
+ * HoldOffEnable() keeps Enable() from releasing the outputs, for example
+ * while flash is written: on the single-bank STM32G4 a flash write stalls the
+ * zero-latency control cycle for milliseconds, which must not happen with the
+ * outputs released. Enable() and the hold-off exclude each other, so a stage
+ * found disabled after HoldOffEnable() stays disabled until ReleaseEnable().
  */
 class PowerStageInterface {
  public:
@@ -51,8 +58,34 @@ class PowerStageInterface {
                       StateCallback get_state) noexcept
       : enable_(enable), disable_(disable), trip_(trip), clear_fault_(clear_fault), get_state_(get_state) {}
 
-  /// Releases the outputs. Fails (false) while the external enable is missing or a fault is latched.
-  [[nodiscard]] bool Enable() const noexcept { return enable_(); }
+  /**
+   * @brief Releases the outputs.
+   * @return False while the external enable is missing, a fault is latched or
+   *         Enable() is held off (HoldOffEnable()); the outputs stay off then.
+   */
+  [[nodiscard]] bool Enable() const noexcept {
+    if (enable_lock_.test_and_set(std::memory_order_acquire)) {
+      return false;  // held off, or a concurrent Enable()
+    }
+    const bool kEnabled = enable_();
+    enable_lock_.clear(std::memory_order_release);
+    return kEnabled;
+  }
+
+  /**
+   * @brief Keeps Enable() from releasing the outputs until ReleaseEnable().
+   *
+   * Thread context only. Check GetState() afterwards: the hold-off does not
+   * switch an already enabled stage off.
+   *
+   * @return False when it is already held off or an Enable() is running.
+   */
+  [[nodiscard]] bool HoldOffEnable() const noexcept {
+    return !enable_lock_.test_and_set(std::memory_order_acquire);
+  }
+
+  /// Ends a successful HoldOffEnable().
+  void ReleaseEnable() const noexcept { enable_lock_.clear(std::memory_order_release); }
 
   /// Switches the outputs off. No fault is latched.
   void Disable() const noexcept { disable_(); }
@@ -71,6 +104,8 @@ class PowerStageInterface {
   ActionCallback trip_;
   ActionCallback clear_fault_;
   StateCallback get_state_;
+  /// Set while Enable() runs or while it is held off.
+  mutable std::atomic_flag enable_lock_;
 };
 
 extern const PowerStageInterface kPowerStage;  ///< Power stage hardware boundary.

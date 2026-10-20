@@ -216,7 +216,7 @@ void TripPowerStage() noexcept { foc_stm32g4::PowerStageTrip(); }
 
 }  // namespace hot_path
 
-const HardwareSettingsInterface kSettings{kSettingsProfile, kSettingsStorage};
+const HardwareSettingsInterface kSettings{kSettingsProfile, kSettingsStorage, ZephyrSettingsStorage::Lock()};
 
 const PowerStageInterface kPowerStage{foc_stm32g4::PowerStageEnable,
                                       foc_stm32g4::PowerStageDisable,

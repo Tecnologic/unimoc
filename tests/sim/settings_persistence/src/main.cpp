@@ -42,7 +42,8 @@ namespace sim = unimoc::hardware::sim;
 SettingsStore MakeStore() {
   return SettingsStore{unimoc::hardware::kSettings.GetSettingsProfile(),
                        ZephyrSettingsStorage::Adapter(),
-                       unimoc::settings::PowerStageSaveGate(kPowerStage)};
+                       unimoc::settings::PowerStageSaveGate(kPowerStage),
+                       unimoc::hardware::kSettings.GetSettingsLock()};
 }
 
 // Removes every register from the storage: each test starts from an empty flash.
@@ -132,6 +133,23 @@ ZTEST(sim_settings_persistence, test_saving_needs_the_power_stage_disabled) {
   zexpect_equal(operations.SaveToFlash(), SettingsStatus::kPersistBlocked);
   kPowerStage.ClearFault();
   zexpect_equal(operations.SaveToFlash(), SettingsStatus::kSuccess);
+}
+
+ZTEST(sim_settings_persistence, test_enable_is_held_off_while_a_save_runs) {
+  const auto kGate = unimoc::settings::PowerStageSaveGate(kPowerStage);
+  zassert_equal(kPowerStage.GetState(), PowerStageState::kDisabled);
+
+  zassert_true(kGate.TryBegin());
+  zexpect_false(kGate.TryBegin());  // one save at a time
+  zexpect_false(kPowerStage.Enable());
+  zexpect_equal(kPowerStage.GetState(), PowerStageState::kDisabled);
+  kGate.End();
+
+  zassert_true(kPowerStage.Enable());
+  zexpect_false(kGate.TryBegin());  // enabled: refused, and Enable() is not held off
+  kPowerStage.Disable();
+  zassert_true(kPowerStage.Enable());
+  kPowerStage.Disable();
 }
 
 ZTEST(sim_settings_persistence, test_register_back_at_factory_value_leaves_the_flash) {
