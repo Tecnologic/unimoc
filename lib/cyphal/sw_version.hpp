@@ -21,18 +21,22 @@
 #include <app_version.h>
 #endif
 
-#ifndef UNIMOC_SW_VERSION_MAJOR
+namespace unimoc::cyphal {
+
 #ifdef APP_VERSION_MAJOR
-#define UNIMOC_SW_VERSION_MAJOR APP_VERSION_MAJOR
+/// Software major version from the Zephyr application VERSION file.
+inline constexpr unsigned kSwVersionMajor = APP_VERSION_MAJOR;
 #else
-#define UNIMOC_SW_VERSION_MAJOR 1
-#endif
+/// Software major version (fallback without <app_version.h>).
+inline constexpr unsigned kSwVersionMajor = 1;
 #endif
 
-#ifndef UNIMOC_SW_VERSION_MINOR
 #ifdef APP_VERSION_MINOR
-#define UNIMOC_SW_VERSION_MINOR APP_VERSION_MINOR
+/// Software minor version from the Zephyr application VERSION file.
+inline constexpr unsigned kSwVersionMinor = APP_VERSION_MINOR;
 #else
-#define UNIMOC_SW_VERSION_MINOR 0
+/// Software minor version (fallback without <app_version.h>).
+inline constexpr unsigned kSwVersionMinor = 0;
 #endif
-#endif
+
+}  // namespace unimoc::cyphal

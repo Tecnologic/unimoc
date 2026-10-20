@@ -47,9 +47,9 @@ enum class Mode : uint8_t {
 static constexpr std::size_t HEARTBEAT_PAYLOAD_SIZE = 7;
 
 /// Software major version from the Zephyr application VERSION file.
-static constexpr uint8_t SW_VERSION_MAJOR = static_cast<uint8_t>(UNIMOC_SW_VERSION_MAJOR);
+static constexpr uint8_t SW_VERSION_MAJOR = static_cast<uint8_t>(kSwVersionMajor);
 /// Software minor version from the Zephyr application VERSION file.
-static constexpr uint8_t SW_VERSION_MINOR = static_cast<uint8_t>(UNIMOC_SW_VERSION_MINOR);
+static constexpr uint8_t SW_VERSION_MINOR = static_cast<uint8_t>(kSwVersionMinor);
 
 /// Vendor-specific status code that encodes the software version.
 /// Bit layout: bits[18:10] = MAJOR (9 bits), bits[9:0] = MINOR (10 bits).

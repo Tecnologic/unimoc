@@ -20,13 +20,9 @@
 #include <optional>
 
 /**
- * @namespace unimoc global namespace
+ * @namespace unimoc::cyphal Cyphal protocol and application definitions
  */
-namespace unimoc {
-/**
- * @namespace cyphal Cyphal protocol and application definitions
- */
-namespace cyphal {
+namespace unimoc::cyphal {
 
 /**
  * @brief Active outer control loop selection.
@@ -91,7 +87,7 @@ enum class ControlMode : unsigned char {
  *         unsupported setpoint.
  */
 template <std::floating_point T>
-[[nodiscard]] inline std::optional<ControlMode> select_control_mode_from_udral_servo_rotation(
+[[nodiscard]] inline std::optional<ControlMode> SelectControlModeFromUdralServoRotation(
     const T angular_position,
     const T angular_velocity,
     const T angular_acceleration,
@@ -111,5 +107,4 @@ template <std::floating_point T>
   return std::nullopt;
 }
 
-}  // namespace cyphal
-}  // namespace unimoc
+}  // namespace unimoc::cyphal

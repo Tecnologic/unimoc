@@ -26,7 +26,7 @@ namespace unimoc::cyphal::test {
 // --- Default construction
 ZTEST(node_identity, test_default_name) {
   NodeIdentity identity;
-  zexpect_str_equal(&identity.name[0], "unimoc");
+  zexpect_str_equal(identity.name.data(), "unimoc");
 }
 
 ZTEST(node_identity, test_default_versions) {
@@ -40,32 +40,32 @@ ZTEST(node_identity, test_default_versions) {
 // --- set_name / get_name
 ZTEST(node_identity, test_set_and_get_name) {
   NodeIdentity identity;
-  identity.set_name("my.drive.node");
-  zexpect_equal(identity.get_name(), std::string_view("my.drive.node"));
+  identity.SetName("my.drive.node");
+  zexpect_equal(identity.GetName(), std::string_view("my.drive.node"));
 }
 
 ZTEST(node_identity, test_set_name_truncates_at_max_len) {
   NodeIdentity identity;
   // Build a 60-char string — should be truncated to NODE_NAME_MAX_LEN (50)
   const std::string kLongName(60, 'x');
-  identity.set_name(kLongName);
-  zexpect_equal(identity.get_name().size(), static_cast<std::size_t>(NODE_NAME_MAX_LEN));
-  zexpect_equal(identity.name[NODE_NAME_MAX_LEN], '\0');
+  identity.SetName(kLongName);
+  zexpect_equal(identity.GetName().size(), static_cast<std::size_t>(kNodeNameMaxLen));
+  zexpect_equal(identity.name[kNodeNameMaxLen], '\0');
 }
 
 ZTEST(node_identity, test_set_name_empty) {
   NodeIdentity identity;
-  identity.set_name("");
-  zexpect_equal(identity.get_name().size(), 0U);
+  identity.SetName("");
+  zexpect_equal(identity.GetName().size(), 0U);
   zexpect_equal(identity.name[0], '\0');
 }
 
 ZTEST(node_identity, test_set_name_exactly_max_len) {
   NodeIdentity identity;
-  const std::string kExact(NODE_NAME_MAX_LEN, 'a');
-  identity.set_name(kExact);
-  zexpect_equal(identity.get_name().size(), static_cast<std::size_t>(NODE_NAME_MAX_LEN));
-  zexpect_equal(identity.name[NODE_NAME_MAX_LEN], '\0');
+  const std::string kExact(kNodeNameMaxLen, 'a');
+  identity.SetName(kExact);
+  zexpect_equal(identity.GetName().size(), static_cast<std::size_t>(kNodeNameMaxLen));
+  zexpect_equal(identity.name[kNodeNameMaxLen], '\0');
 }
 
 // --- Equality
@@ -78,7 +78,7 @@ ZTEST(node_identity, test_equality_default) {
 ZTEST(node_identity, test_inequality_name) {
   NodeIdentity a;
   NodeIdentity b;
-  b.set_name("other");
+  b.SetName("other");
   zexpect_not_equal(a, b);
 }
 

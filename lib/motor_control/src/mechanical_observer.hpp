@@ -23,13 +23,9 @@
 #include "rotor_system.hpp"
 
 /**
- * @namespace unimoc global namespace
+ * @namespace unimoc::observer observer algorithms namespace
  */
-namespace unimoc {
-/**
- * @namespace observer observer algorithms namespace
- */
-namespace observer {
+namespace unimoc::observer {
 
 using namespace unit;
 
@@ -155,13 +151,13 @@ struct MechanicalObserver {
   // =========================================================================
 
   /// State error covariance matrix P (3×3, row-major).
-  T p[3][3]{};
+  std::array<std::array<T, 3>, 3> p{};
 
   /// Predicted covariance matrix P_k (3×3, row-major, working storage).
-  T pk[3][3]{};
+  std::array<std::array<T, 3>, 3> pk{};
 
   /// Kalman gain vector k (3 elements, one per state).
-  T k[3]{};
+  std::array<T, 3> k{};
 
   /// Innovation covariance scalar S.
   T s{};
@@ -341,16 +337,9 @@ struct MechanicalObserver {
     m_l = unit::Torque{};
     m_el = unit::Torque{};
 
-    for (int i = 0; i < 3; ++i) {
-      for (int j = 0; j < 3; ++j) {
-        p[i][j] = pk[i][j] = static_cast<T>(0);
-      }
-    }
-
-    for (int i = 0; i < 3; ++i) {
-      k[i] = static_cast<T>(0);
-    }
-
+    p = {};
+    pk = {};
+    k = {};
     s = static_cast<T>(0);
 
     sin_theta = unit::Ratio{std::sin(theta.Value())};
@@ -375,5 +364,4 @@ struct MechanicalObserver {
   }
 };
 
-}  // namespace observer
-}  // namespace unimoc
+}  // namespace unimoc::observer

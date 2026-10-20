@@ -65,7 +65,10 @@ A new suite is a directory with `CMakeLists.txt`, `prj.conf`,
 ## clang-tidy rules
 
 - The root `.clang-tidy` applies to `src/`, `hardware/`, `tests/` and `app/`
-  sources and their headers. `lib/` headers are not checked yet.
+  sources and to the headers of `lib/` (except the `lib/cymon` submodule).
+  The analysis needs `clang-tidy` and `CodeChecker` in `PATH`;
+  `twister_sca.sh` stops when one is missing. CI uses the distribution's
+  clang-tidy (18 on Ubuntu 24.04); newer versions add checks that CI does not run.
 - `hardware/zephyr_*` and `tests/` have a `.clang-tidy` that only disables
   checks Zephyr's macros cannot meet (registration objects, do-while,
   C casts, varargs). `src/startup/` allows its printf-style logging.

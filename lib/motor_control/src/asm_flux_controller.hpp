@@ -19,13 +19,9 @@
 #include "units.hpp"
 
 /**
- * @namespace unimoc global namespace
+ * @namespace unimoc::control control algorithms namespace
  */
-namespace unimoc {
-/**
- * @namespace control control algorithms namespace
- */
-namespace control {
+namespace unimoc::control {
 
 using namespace unit;
 
@@ -160,5 +156,4 @@ struct AsmFluxController {
   }
 };
 
-}  // namespace control
-}  // namespace unimoc
+}  // namespace unimoc::control

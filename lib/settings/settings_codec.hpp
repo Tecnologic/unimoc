@@ -256,7 +256,7 @@ class SettingsCodec {
     settings_codec_internal::Writer writer{image};
     return writer.WriteUint32(settings.magic) && writer.WriteUint16(settings.version) &&
            writer.WriteUint8(settings.node_id) &&
-           writer.WriteBytes(std::span{settings.identity.name}.data(), sizeof(settings.identity.name)) &&
+           writer.WriteBytes(settings.identity.name.data(), settings.identity.name.size()) &&
            writer.WriteUint8(settings.identity.hw_version_major) &&
            writer.WriteUint8(settings.identity.hw_version_minor) &&
            writer.WriteUint8(settings.identity.sw_version_major) &&
@@ -319,7 +319,7 @@ class SettingsCodec {
 
     if (!reader.ReadUint32(decoded.magic) || !reader.ReadUint16(decoded.version) ||
         !reader.ReadUint8(decoded.node_id) ||
-        !reader.ReadBytes(std::span{decoded.identity.name}.data(), sizeof(decoded.identity.name)) ||
+        !reader.ReadBytes(decoded.identity.name.data(), decoded.identity.name.size()) ||
         !reader.ReadUint8(decoded.identity.hw_version_major) ||
         !reader.ReadUint8(decoded.identity.hw_version_minor) ||
         !reader.ReadUint8(decoded.identity.sw_version_major) ||

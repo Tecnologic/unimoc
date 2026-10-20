@@ -78,7 +78,7 @@ ZTEST(nvm_settings, test_reset_to_defaults_is_valid) {
 // --- Identity defaults are preserved
 ZTEST(nvm_settings, test_identity_default_name) {
   NvmSettings settings;
-  zexpect_equal(settings.identity.get_name(), std::string_view("unimoc"));
+  zexpect_equal(settings.identity.GetName(), std::string_view("unimoc"));
 }
 
 // --- Node ID can be updated to valid range

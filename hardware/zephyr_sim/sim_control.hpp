@@ -59,8 +59,8 @@ void StepCycle() noexcept;
 
 /// State of the simulated platform after a number of control cycles.
 struct Snapshot {
-  uint32_t cycle_count;                                    ///< Control cycles since Initialize() or Reset().
-  uint64_t virtual_time_ns;                                ///< Virtual time of the cycle count [ns].
+  uint32_t cycle_count{};                                  ///< Control cycles since Initialize() or Reset().
+  uint64_t virtual_time_ns{};                              ///< Virtual time of the cycle count [ns].
   ::unimoc::sim::SimulationOutput plant;                   ///< Plant output at the end of the last cycle.
   std::array<system::ThreePhase<unit::Ratio>, 4> applied;  ///< Duties of the last cycle, in time order.
 };

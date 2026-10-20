@@ -10,6 +10,10 @@
 # and bcc; a -T or -p argument replaces the respective default.
 set -euo pipefail
 repo="$(cd "$(dirname "$0")/.." && pwd)"
+# Without the analyzers CodeChecker finds nothing and the run passes silently.
+for tool in clang-tidy CodeChecker; do
+  command -v "$tool" >/dev/null || { echo "error: $tool not found in PATH" >&2; exit 1; }
+done
 topdir="$(cd "$repo" && west topdir)"
 
 platforms=(-p native_sim/native/64 -p bcc)

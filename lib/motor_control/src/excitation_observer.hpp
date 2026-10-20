@@ -21,13 +21,9 @@
 #include "units.hpp"
 
 /**
- * @namespace unimoc global namespace
+ * @namespace unimoc::observer observer algorithms namespace
  */
-namespace unimoc {
-/**
- * @namespace observer observer algorithms namespace
- */
-namespace observer {
+namespace unimoc::observer {
 
 using namespace unit;
 
@@ -126,5 +122,4 @@ struct ExcitationObserver {
   }
 };
 
-}  // namespace observer
-}  // namespace unimoc
+}  // namespace unimoc::observer

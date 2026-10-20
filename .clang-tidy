@@ -17,22 +17,22 @@ Checks: >
 # constant. The suggested replacement (gsl::at or .at()) adds an abort path to
 # the zero-latency hot path, so the check is off.
 
-# Headers of the application core, the platforms and the shared test helpers
-# are checked with the source that includes them. The pattern names their
-# directories exactly: twister mirrors the source path in its output, so a
-# looser pattern would also match the generated Zephyr headers there. lib/
-# headers are not checked (library under review).
-HeaderFilterRegex: '.*/unimoc/(src/[a-z_]+|hardware(/[a-z_]+)?|tests/common)/[^/]+\.(h|hpp)$'
+# Headers of the application core, the libraries, the platforms and the shared
+# test helpers are checked with the source that includes them. The pattern
+# names their directories exactly: twister mirrors the source path in its
+# output, so a looser pattern would also match the generated Zephyr headers
+# there.
+HeaderFilterRegex: '.*/unimoc/(src/[a-z_]+|lib/[a-z_]+(/src)?|hardware(/[a-z_]+)?|tests/common)/[^/]+\.(h|hpp)$'
 
 WarningsAsErrors: ""
 
 CheckOptions:
-  # Phase (a, b, c), axis (d, q) and per-phase names (ia, da, ...) are the
-  # vocabulary of the motor-control code.
+  # Phase (a, b, c), axis (d, q), per-phase names (ia, da, ...) and the time
+  # step (dt) are the vocabulary of the motor-control code.
   - key: readability-identifier-length.IgnoredVariableNames
-    value: "^(a|b|c|d|q|ia|ib|ic|da|db|dc)$"
+    value: "^(a|b|c|d|q|dt|ia|ib|ic|da|db|dc)$"
   - key: readability-identifier-length.IgnoredParameterNames
-    value: "^(a|b|c|d|q|ia|ib|ic|da|db|dc)$"
+    value: "^(a|b|c|d|q|dt|ia|ib|ic|da|db|dc)$"
   # Zephyr macros (LOG_*, K_USEC, zassert) would dominate the count.
   - key: readability-function-cognitive-complexity.IgnoreMacros
     value: true

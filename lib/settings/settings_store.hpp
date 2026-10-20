@@ -403,7 +403,7 @@ inline SettingsStatus SettingsOperations::SetMotorCurrentLimit(unit::Current cur
 }
 
 inline SettingsStatus SettingsOperations::SetNodeName(std::string_view name) const {
-  return Update([name](NvmSettings& settings) { settings.identity.set_name(name); });
+  return Update([name](NvmSettings& settings) { settings.identity.SetName(name); });
 }
 
 inline SettingsStatus SettingsOperations::ApplyAdcCalibration(unit::Current offset_a,

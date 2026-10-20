@@ -22,13 +22,9 @@
 #include "three_phase_system.hpp"
 
 /**
- * @namespace unimoc global namespace
+ * @namespace unimoc::control control algorithms namespace
  */
-namespace unimoc {
-/**
- * @namespace control control algorithms namespace
- */
-namespace control {
+namespace unimoc::control {
 
 /**
  * @brief Dead-time compensation for a three-phase voltage-source inverter.
@@ -122,5 +118,4 @@ struct DeadTimeCompensation {
   }
 };
 
-}  // namespace control
-}  // namespace unimoc
+}  // namespace unimoc::control

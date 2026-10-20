@@ -22,7 +22,7 @@ hot-path design.
  - [ ] Delete the legacy firmware in `hardware/batterycasecontroller/` once the Zephyr BCC target is verified on the board. `cmake/Modm.cmake`, `cmake/ToolChain.cmake`, `requirements.txt` and `ci-firmware.yml` are already gone.
  - [ ] Implement the hot-path milestones M0 and M4 to M8 from `docs/hotpath_plan.md` (M1 to M3 are in the code, not run on the board).
  - [x] Bring `src/`, `hardware/zephyr_*` and the tests under clang-tidy (Zephyr SCA through CodeChecker, `scripts/twister_sca.sh`).
- - [ ] Bring the `lib/` headers under clang-tidy (excluded by `HeaderFilterRegex`; their API still uses snake_case methods).
+ - [x] Bring the `lib/unimoc` headers under clang-tidy (`HeaderFilterRegex`; API renamed to PascalCase methods). `lib/cymon` is still outside: it is not built in the Zephyr workspace yet.
  - [ ] Configure the duty DMA from the devicetree (`dmas` of `foc0`, Zephyr DMA API at init) instead of the fixed DMA1 channel 1 / DMAMUX request 53, and enable its clock through `clock_control` instead of writing `RCC->AHB1ENR`. The zero-latency path keeps reading the channel counter directly.
  - [x] Add an `SPDX-License-Identifier` line to the UNIMOC file header (C++ files, CMake and YAML files; file-docs skill updated).
 

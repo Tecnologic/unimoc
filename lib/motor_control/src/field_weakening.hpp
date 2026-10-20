@@ -21,13 +21,9 @@
 #include "units.hpp"
 
 /**
- * @namespace unimoc global namespace
+ * @namespace unimoc::control control algorithms namespace
  */
-namespace unimoc {
-/**
- * @namespace control control algorithms namespace
- */
-namespace control {
+namespace unimoc::control {
 
 using namespace unit;
 
@@ -102,5 +98,4 @@ struct FieldWeakening {
   constexpr void Reset() noexcept { i_d_fw = unit::Current{}; }
 };
 
-}  // namespace control
-}  // namespace unimoc
+}  // namespace unimoc::control

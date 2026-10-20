@@ -16,27 +16,24 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <cstring>
 #include <string_view>
 #include "cyphal/sw_version.hpp"
 
 /**
- * @namespace unimoc global namespace
+ * @namespace unimoc::cyphal Cyphal protocol and application definitions
  */
-namespace unimoc {
-/**
- * @namespace cyphal Cyphal protocol and application definitions
- */
-namespace cyphal {
+namespace unimoc::cyphal {
 
 /// Maximum length of the node name string (bytes, excluding NUL terminator).
 /// Matches the UAVCAN/Cyphal GetInfo response limit.
-inline constexpr uint8_t NODE_NAME_MAX_LEN = 50;
+inline constexpr uint8_t kNodeNameMaxLen = 50;
 
 /// Length of the hardware unique-ID array (bytes).
 /// Matches the UAVCAN/Cyphal GetInfo response layout.
-inline constexpr uint8_t UNIQUE_ID_LEN = 16;
+inline constexpr uint8_t kUniqueIdLen = 16;
 
 /**
  * @brief Node identity record for a UNIMOC drive node.
@@ -74,7 +71,7 @@ struct NodeIdentity {
   /// Human-readable UTF-8 node name (NUL-terminated).
   /// Matches the `uavcan.node.description` register.
   /// Maximum NODE_NAME_MAX_LEN meaningful characters.
-  char name[NODE_NAME_MAX_LEN + 1]{"unimoc"};
+  std::array<char, kNodeNameMaxLen + 1> name{'u', 'n', 'i', 'm', 'o', 'c'};
 
   /// Hardware version — major component (read-only, set at compile time).
   uint8_t hw_version_major{1};
@@ -82,9 +79,9 @@ struct NodeIdentity {
   uint8_t hw_version_minor{0};
 
   /// Software version — major component (read-only, set from git version).
-  uint8_t sw_version_major{static_cast<uint8_t>(UNIMOC_SW_VERSION_MAJOR)};
+  uint8_t sw_version_major{static_cast<uint8_t>(kSwVersionMajor)};
   /// Software version — minor component.
-  uint8_t sw_version_minor{static_cast<uint8_t>(UNIMOC_SW_VERSION_MINOR)};
+  uint8_t sw_version_minor{static_cast<uint8_t>(kSwVersionMinor)};
 
   // -------------------------------------------------------------------------
   // Helpers
@@ -95,23 +92,27 @@ struct NodeIdentity {
    *
    * Copies at most NODE_NAME_MAX_LEN characters and ensures NUL-termination.
    *
-   * @param s  New name (truncated if longer than NODE_NAME_MAX_LEN).
+   * @param new_name  New name (truncated if longer than NODE_NAME_MAX_LEN).
    */
-  constexpr void set_name(std::string_view s) noexcept {
-    const std::size_t len = std::min(s.size(), static_cast<std::size_t>(NODE_NAME_MAX_LEN));
-    for (std::size_t i = 0; i < len; ++i) name[i] = s[i];
-    name[len] = '\0';
+  constexpr void SetName(std::string_view new_name) noexcept {
+    const std::size_t kLen = std::min(new_name.size(), static_cast<std::size_t>(kNodeNameMaxLen));
+    for (std::size_t i = 0; i < kLen; ++i) {
+      name[i] = new_name[i];
+    }
+    name[kLen] = '\0';
   }
 
   /**
    * @brief Return the node name as a string_view.
    * @return The NUL-terminated name without the trailing NUL character.
    */
-  [[nodiscard]] constexpr std::string_view get_name() const noexcept {
+  [[nodiscard]] constexpr std::string_view GetName() const noexcept {
     // Find actual length without relying on strlen (constexpr friendly)
     std::size_t len = 0;
-    while (len <= NODE_NAME_MAX_LEN && name[len] != '\0') ++len;
-    return std::string_view(name, len);
+    while (len <= kNodeNameMaxLen && name[len] != '\0') {
+      ++len;
+    }
+    return {name.data(), len};
   }
 
   /**
@@ -120,7 +121,7 @@ struct NodeIdentity {
    * @return `true` when the name and all version fields match.
    */
   [[nodiscard]] constexpr bool operator==(const NodeIdentity& other) const noexcept {
-    return get_name() == other.get_name() && hw_version_major == other.hw_version_major &&
+    return GetName() == other.GetName() && hw_version_major == other.hw_version_major &&
            hw_version_minor == other.hw_version_minor && sw_version_major == other.sw_version_major &&
            sw_version_minor == other.sw_version_minor;
   }
@@ -135,5 +136,4 @@ struct NodeIdentity {
   }
 };
 
-}  // namespace cyphal
-}  // namespace unimoc
+}  // namespace unimoc::cyphal
