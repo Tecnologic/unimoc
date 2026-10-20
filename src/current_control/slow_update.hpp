@@ -138,7 +138,7 @@ class SlowUpdate {
   /// Pointer to the ISR instance set by Init().
   CurrentControlIsr* isr_{nullptr};
 
-  /// Flux setpoint used by flux_obs.calculate() — written by outer loop.
+  /// Flux setpoint used by flux_obs.Calculate() — written by outer loop.
   system::Rotor<unit::MagneticFlux> flux_setpoint_{0.0F, 0.0F};
 };
 

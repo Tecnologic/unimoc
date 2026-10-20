@@ -53,7 +53,7 @@ using namespace unit;
 template <std::floating_point T = float>
 struct Mtpa {
   /// Permanent-magnet flux linkage ψ_PM [Wb].
-  unit::MagneticFlux flux_pm{};
+  unit::MagneticFlux flux_pm;
 
   /// d-axis inductance L_d [H].
   unit::Inductance L_d{1.0_mH};

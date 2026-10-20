@@ -103,7 +103,7 @@ struct ExcitationController {
 
   /// Minimum rotor excitation current i_f_ref [A] (≥ 0 for unidirectional
   /// exciters; may be negative for reversible H-bridge drives).
-  unit::Current i_f_min{};
+  unit::Current i_f_min;
 
   /// Maximum rotor excitation current i_f_ref [A].
   unit::Current i_f_max{10.0_A};
@@ -119,18 +119,18 @@ struct ExcitationController {
   ///  - FluxMode:    desired effective flux linkage ψ_f* [Wb].
   ///
   /// Write this member from the Cyphal subscription callback in CurrentMode.
-  unit::Current current_setpoint{};
+  unit::Current current_setpoint;
 
   /// Flux-mode rotor field setpoint [Wb].
   /// Write this member from the Cyphal subscription callback in FluxMode.
-  unit::MagneticFlux flux_setpoint{};
+  unit::MagneticFlux flux_setpoint;
 
   // -------------------------------------------------------------------------
   // State
   // -------------------------------------------------------------------------
 
   /// PI integrator state [A].
-  unit::Current integrator{};
+  unit::Current integrator;
 
   // -------------------------------------------------------------------------
   // Output (read by hardware excitation driver each cycle)
@@ -140,7 +140,7 @@ struct ExcitationController {
   ///
   /// Feed this value into the hardware excitation driver (H-bridge duty
   /// cycle, DAC voltage, or brushless exciter current command) every cycle.
-  unit::Current i_f_ref{};
+  unit::Current i_f_ref;
 
   /**
    * @brief Update the excitation controller.

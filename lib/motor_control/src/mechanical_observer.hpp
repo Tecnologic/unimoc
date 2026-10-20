@@ -44,7 +44,7 @@ using namespace unit;
  * estimated electrical rotor angle [rad], and m̂_l is the estimated load
  * torque [N·m].
  *
- * Prediction step  (call predict() once per control cycle)
+ * Prediction step  (call Predict() once per control cycle)
  * ---------------------------------------------------------
  * The electric torque is computed from the rotor-frame d/q currents:
  *
@@ -59,7 +59,7 @@ using namespace unit;
  * After prediction ω̂ is clamped to [omega_min, omega_max] to enforce
  * hardware speed limits, and θ̂ is wrapped to (−π, π].
  *
- * Measurement update  (call inject_angle_error() once per control cycle)
+ * Measurement update  (call InjectAngleError() once per control cycle)
  * -----------------------------------------------------------------------
  * An external angle measurement (from a flux observer, HFI, or hall sensors)
  * provides the innovation:
@@ -79,7 +79,7 @@ using namespace unit;
  *
  * Outputs
  * -------
- * After each call to predict() or inject_angle_error(), the fields
+ * After each call to Predict() or InjectAngleError(), the fields
  * sin_theta and cos_theta are updated so downstream Park/inverse-Park
  * transforms can use them directly.
  *
@@ -92,27 +92,27 @@ struct MechanicalObserver {
   // =========================================================================
 
   /// Permanent-magnet flux linkage ψ_PM [Wb].
-  unit::MagneticFlux psi{};
+  unit::MagneticFlux psi;
 
   /// d-axis inductance L_d [H].
-  unit::Inductance L_d{};
+  unit::Inductance L_d;
 
   /// q-axis inductance L_q [H].
-  unit::Inductance L_q{};
+  unit::Inductance L_q;
 
   /// Rotor + load inertia J [kg·m²].
-  unit::Inertia J{};
+  unit::Inertia J;
 
   // =========================================================================
   // Speed limits  (set from motor / hardware constraints)
   // =========================================================================
 
   /// Maximum electrical angular velocity in the forward direction [rad/s].
-  unit::AngularVelocity omega_max{};
+  unit::AngularVelocity omega_max;
 
   /// Maximum electrical angular velocity in the reverse direction [rad/s]
   /// (must be ≤ 0).
-  unit::AngularVelocity omega_min{};
+  unit::AngularVelocity omega_min;
 
   // =========================================================================
   // Kalman filter noise parameters
@@ -129,23 +129,23 @@ struct MechanicalObserver {
   // =========================================================================
 
   /// Estimated electrical angular velocity ω̂ [rad/s].
-  unit::AngularVelocity omega{};
+  unit::AngularVelocity omega;
 
   /// Estimated electrical rotor angle θ̂ [rad], wrapped to (−π, π].
-  unit::Angle theta{};
+  unit::Angle theta;
 
   /// Estimated load torque m̂_l [N·m].
-  unit::Torque m_l{};
+  unit::Torque m_l;
 
   /// Last computed electrical torque m_el [N·m].
-  unit::Torque m_el{};
+  unit::Torque m_el;
 
   // =========================================================================
-  // Outputs (updated by predict() and inject_angle_error())
+  // Outputs (updated by Predict() and InjectAngleError())
   // =========================================================================
 
   /// sin(θ̂) — ready for use in Park / inverse-Park transforms.
-  unit::Ratio sin_theta{};
+  unit::Ratio sin_theta;
 
   /// cos(θ̂) — ready for use in Park / inverse-Park transforms.
   unit::Ratio cos_theta{1.0_ratio};
@@ -197,7 +197,7 @@ struct MechanicalObserver {
    * integrates the mechanical equations of motion, and clamps ω̂ to
    * [omega_min, omega_max] to enforce hardware limits.
    *
-   * Call once per PWM/control interrupt **before** inject_angle_error().
+   * Call once per PWM/control interrupt **before** InjectAngleError().
    *
    * @param i_dq  Measured rotor-frame d/q stator current [A].
    * @param dt    Control period.
@@ -214,13 +214,16 @@ struct MechanicalObserver {
     omega += unit::AngularVelocity{kTsj * (m_el.Value() - m_l.Value())};
 
     // Clamp to hardware speed limits
-    if (omega > omega_max)
+    if (omega > omega_max) {
       omega = omega_max;
-    else if (omega < omega_min)
+    } else if (omega < omega_min) {
       omega = omega_min;
+    }
 
     // Recover from NaN/Inf
-    if (!std::isfinite(omega.Value())) omega = unit::AngularVelocity{};
+    if (!std::isfinite(omega.Value())) {
+      omega = unit::AngularVelocity{};
+    }
 
     // Integrate angle
     theta += unit::Angle{omega.Value() * dt.Value()};
@@ -239,7 +242,7 @@ struct MechanicalObserver {
    * This is also the entry point used by the ASM flux observer and HFI
    * observer to inject auxiliary angle information into the same estimator.
    *
-   * Call once per PWM/control interrupt **after** predict().
+   * Call once per PWM/control interrupt **after** Predict().
    *
    * @param angle_error  Innovation ε = θ_measured − θ̂.
    * @param dt           Control period.
@@ -306,12 +309,15 @@ struct MechanicalObserver {
     m_l += unit::Torque{k[2] * kAngleErrorValue};
 
     // Re-clamp after correction
-    if (omega > omega_max)
+    if (omega > omega_max) {
       omega = omega_max;
-    else if (omega < omega_min)
+    } else if (omega < omega_min) {
       omega = omega_min;
+    }
 
-    if (!std::isfinite(omega.Value())) omega = unit::AngularVelocity{};
+    if (!std::isfinite(omega.Value())) {
+      omega = unit::AngularVelocity{};
+    }
 
     WrapAngle(theta);
 
@@ -335,10 +341,15 @@ struct MechanicalObserver {
     m_l = unit::Torque{};
     m_el = unit::Torque{};
 
-    for (int i = 0; i < 3; ++i)
-      for (int j = 0; j < 3; ++j) p[i][j] = pk[i][j] = static_cast<T>(0);
+    for (int i = 0; i < 3; ++i) {
+      for (int j = 0; j < 3; ++j) {
+        p[i][j] = pk[i][j] = static_cast<T>(0);
+      }
+    }
 
-    for (int i = 0; i < 3; ++i) k[i] = static_cast<T>(0);
+    for (int i = 0; i < 3; ++i) {
+      k[i] = static_cast<T>(0);
+    }
 
     s = static_cast<T>(0);
 
@@ -353,8 +364,12 @@ struct MechanicalObserver {
     constexpr T kTwoPi = static_cast<T>(2) * kPi;
     T angle_value = angle.Value();
 
-    while (angle_value > kPi) angle_value -= kTwoPi;
-    while (angle_value <= -kPi) angle_value += kTwoPi;
+    while (angle_value > kPi) {
+      angle_value -= kTwoPi;
+    }
+    while (angle_value <= -kPi) {
+      angle_value += kTwoPi;
+    }
 
     angle = unit::Angle{angle_value};
   }

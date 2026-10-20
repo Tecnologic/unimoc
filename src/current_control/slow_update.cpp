@@ -68,7 +68,7 @@ bool SlowUpdate::RunOnce() noexcept {
 
   // -------------------------------------------------------------------------
   // 2. PMSM flux observer. calculate() reads mech_obs.sin_theta / cos_theta
-  //    and calls mech_obs.inject_angle_error() at the end.
+  //    and calls mech_obs.InjectAngleError() at the end.
   // -------------------------------------------------------------------------
   flux_obs.Calculate(cycle.u_dq, kCurrentDqMean, flux_setpoint_, unit::Time{kDtSlow}, mech_obs);
 

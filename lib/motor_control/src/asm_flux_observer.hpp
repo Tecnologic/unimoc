@@ -70,7 +70,7 @@ using namespace unit;
  * -------------------------------
  * The rotor flux angle θ_flux = atan2(ψ̂_rβ, ψ̂_rα) is the field reference
  * frame angle for FOC.  It is injected into the MechanicalObserver's shared
- * PLL via inject_angle_error() so that both observers converge on the same
+ * PLL via InjectAngleError() so that both observers converge on the same
  * angle estimate, enabling a smooth PMSM↔ASM transition if needed.
  *
  * @tparam T  Floating-point type (float by default).
@@ -118,27 +118,27 @@ struct AsmFluxObserver {
   // -------------------------------------------------------------------------
 
   /// Estimated α-axis stator current [A].
-  unit::Current i_alpha_hat{};
+  unit::Current i_alpha_hat;
   /// Estimated β-axis stator current [A].
-  unit::Current i_beta_hat{};
+  unit::Current i_beta_hat;
 
   /// Estimated α-axis rotor flux linkage [Wb].
-  unit::MagneticFlux psi_r_alpha{};
+  unit::MagneticFlux psi_r_alpha;
   /// Estimated β-axis rotor flux linkage [Wb].
-  unit::MagneticFlux psi_r_beta{};
+  unit::MagneticFlux psi_r_beta;
 
   // -------------------------------------------------------------------------
   // Outputs (updated by update())
   // -------------------------------------------------------------------------
 
   /// Estimated rotor flux magnitude |ψ̂_r| [Wb].
-  unit::MagneticFlux flux_magnitude{};
+  unit::MagneticFlux flux_magnitude;
 
   /// Estimated rotor flux angle θ_flux = atan2(ψ̂_rβ, ψ̂_rα) [rad].
-  unit::Angle flux_angle{};
+  unit::Angle flux_angle;
 
   /// sin(θ_flux) — ready for field-oriented transforms.
-  unit::Ratio sin_flux{};
+  unit::Ratio sin_flux;
   /// cos(θ_flux) — ready for field-oriented transforms.
   unit::Ratio cos_flux{1.0_ratio};
 

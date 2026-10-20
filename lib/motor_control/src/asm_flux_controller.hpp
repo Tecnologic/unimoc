@@ -91,7 +91,7 @@ struct AsmFluxController {
 
   /// Minimum d-axis current [A] (must be ≥ 0; negative magnetising current
   /// is not useful in a squirrel-cage motor).
-  unit::Current i_d_min{};
+  unit::Current i_d_min;
 
   /// Maximum d-axis current [A].
   unit::Current i_d_max{10.0_A};
@@ -101,17 +101,17 @@ struct AsmFluxController {
   // -------------------------------------------------------------------------
 
   /// PI integrator state [A].
-  unit::Current integrator{};
+  unit::Current integrator;
 
   // -------------------------------------------------------------------------
   // Output
   // -------------------------------------------------------------------------
 
   /// d-axis current reference i_d* [A] (updated by update()).
-  unit::Current i_d_ref{};
+  unit::Current i_d_ref;
 
   /// Computed slip angular frequency ω_slip [rad/s] (updated by update()).
-  unit::AngularVelocity omega_slip{};
+  unit::AngularVelocity omega_slip;
 
   /**
    * @brief Update the flux controller.

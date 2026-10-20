@@ -52,10 +52,10 @@ namespace control {
 template <std::floating_point T = float>
 struct DeadTimeCompensation {
   /// Dead time of the gate driver [s].
-  unit::Time dead_time{};
+  unit::Time dead_time;
 
   /// PWM switching frequency [Hz].
-  unit::Frequency f_pwm{};
+  unit::Frequency f_pwm;
 
   /**
    * @brief Threshold current [A] for the soft sign function.
@@ -64,7 +64,7 @@ struct DeadTimeCompensation {
    * sign rather than a hard ±1, which avoids large voltage spikes and chattering
    * near zero-crossings.
    */
-  unit::Current i_threshold{};
+  unit::Current i_threshold;
 
   /**
    * @brief Load dead-time compensation parameters from NVM settings.

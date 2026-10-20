@@ -85,10 +85,10 @@ struct ExcitationObserver {
   // -------------------------------------------------------------------------
 
   /// Estimated (filtered) rotor excitation current î_f [A].
-  unit::Current i_f_hat{};
+  unit::Current i_f_hat;
 
   /// Estimated effective rotor flux linkage ψ̂_f = L_m · î_f [Wb].
-  unit::MagneticFlux psi_f_hat{};
+  unit::MagneticFlux psi_f_hat;
 
   /**
    * @brief Update the excitation observer.

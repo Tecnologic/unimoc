@@ -209,21 +209,21 @@ class SettingsOperations {
    *                allocation.
    * @return The validation and persistence result.
    */
-  SettingsStatus SetNodeId(uint8_t node_id) const;
+  [[nodiscard]] SettingsStatus SetNodeId(uint8_t node_id) const;
 
   /**
    * @brief Changes the configured motor current limit.
    * @param current New maximum resultant motor current.
    * @return The validation and persistence result.
    */
-  SettingsStatus SetMotorCurrentLimit(unit::Current current) const;
+  [[nodiscard]] SettingsStatus SetMotorCurrentLimit(unit::Current current) const;
 
   /**
    * @brief Changes the persisted node name.
    * @param name New UTF-8 node name; it is truncated to the protocol limit.
    * @return The validation and persistence result.
    */
-  SettingsStatus SetNodeName(std::string_view name) const;
+  [[nodiscard]] SettingsStatus SetNodeName(std::string_view name) const;
 
   /**
    * @brief Commits ADC calibration results as one transaction.
@@ -234,11 +234,11 @@ class SettingsOperations {
    * @param gain_vdc DC-link voltage-sense gain.
    * @return The validation and persistence result.
    */
-  SettingsStatus ApplyAdcCalibration(unit::Current offset_a,
-                                     unit::Current offset_b,
-                                     unit::Ratio gain_a,
-                                     unit::Ratio gain_b,
-                                     unit::Ratio gain_vdc) const;
+  [[nodiscard]] SettingsStatus ApplyAdcCalibration(unit::Current offset_a,
+                                                   unit::Current offset_b,
+                                                   unit::Ratio gain_a,
+                                                   unit::Ratio gain_b,
+                                                   unit::Ratio gain_vdc) const;
 
   /**
    * @brief Returns the immutable hardware capabilities used for validation.
@@ -250,7 +250,7 @@ class SettingsOperations {
    * @brief Replaces settings with the immutable target factory profile.
    * @return The validation and persistence result.
    */
-  SettingsStatus ResetToFactoryDefaults() const;
+  [[nodiscard]] SettingsStatus ResetToFactoryDefaults() const;
 
  private:
   explicit SettingsOperations(SettingsStore& store) noexcept : store_{&store} {}

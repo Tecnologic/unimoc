@@ -35,7 +35,7 @@ enum class MotorType : unsigned char {
   /// Asynchronous (Induction) Motor.
   /// Requires: rotor-flux observer (AsmFluxObserver), flux controller
   ///           (AsmFluxController), mechanical observer fed via
-  ///           inject_angle_error(), SVPWM, dead-time compensation.
+  ///           InjectAngleError(), SVPWM, dead-time compensation.
   kAsm,
 
   /// Electrically Excited Synchronous Machine (wound-rotor synchronous motor).

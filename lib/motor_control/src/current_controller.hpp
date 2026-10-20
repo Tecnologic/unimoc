@@ -92,7 +92,7 @@ using namespace unit;
  *   cc.v_max = settings.current_v_max;
  *
  *   // In the ISR:
- *   auto u_dq = cc.update(i_ref, i_meas, omega, dt_fast, v_dc);
+ *   auto u_dq = cc.Update(i_ref, i_meas, omega, dt_fast, v_dc);
  * @endcode
  *
  * @tparam T  Floating-point type (float by default).
@@ -110,7 +110,7 @@ struct CurrentController {
   unit::Inductance L_q{1.0_mH};
 
   /// Permanent-magnet flux linkage ψ_PM [Wb].
-  unit::MagneticFlux psi{};
+  unit::MagneticFlux psi;
 
   // =========================================================================
   // Controller gains
@@ -155,10 +155,10 @@ struct CurrentController {
   // =========================================================================
 
   /// d-axis integrator accumulator [V].
-  unit::Voltage integrator_d{};
+  unit::Voltage integrator_d;
 
   /// q-axis integrator accumulator [V].
-  unit::Voltage integrator_q{};
+  unit::Voltage integrator_q;
 
   // =========================================================================
   // Public API

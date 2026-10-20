@@ -71,7 +71,7 @@ struct FieldWeakening {
   // -------------------------------------------------------------------------
 
   /// Integrator state: field-weakening d-axis current [A].
-  unit::Current i_d_fw{};
+  unit::Current i_d_fw;
 
   /**
    * @brief Update the field-weakening integrator and return the i_d correction.

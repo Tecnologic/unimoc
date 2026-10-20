@@ -84,7 +84,7 @@ namespace observer {
  * Feeding the MechanicalObserver Kalman filter
  * ---------------------------------------------
  * The estimated angle error derived from the flux vector is injected into
- * the MechanicalObserver via inject_angle_error(), so both estimators share
+ * the MechanicalObserver via InjectAngleError(), so both estimators share
  * the same rotor-angle reference.
  *
  * @tparam T  Floating-point type (float by default).
@@ -96,13 +96,13 @@ struct PmsmFluxObserver {
   // =========================================================================
 
   /// Stator phase resistance R_s [Ω].
-  unit::Resistance rs{};
+  unit::Resistance rs;
 
   /// d-axis inductance L_d [H].
-  unit::Inductance L_d{};
+  unit::Inductance L_d;
 
   /// q-axis inductance L_q [H].
-  unit::Inductance L_q{};
+  unit::Inductance L_q;
 
   // =========================================================================
   // Feedback (anti-drift) gains
@@ -110,36 +110,36 @@ struct PmsmFluxObserver {
 
   /// d-axis feedback gain C_d [1/s].  Larger values reduce drift faster but
   /// also damp transient response.
-  unit::InverseTime C_d{};
+  unit::InverseTime C_d;
 
   /// q-axis feedback gain C_q [1/s].
-  unit::InverseTime C_q{};
+  unit::InverseTime C_q;
 
   // =========================================================================
   // Observer state
   // =========================================================================
 
   /// Stator-frame integrated flux α-component ψ_α [Wb].
-  unit::MagneticFlux psi_alpha{};
+  unit::MagneticFlux psi_alpha;
 
   /// Stator-frame integrated flux β-component ψ_β [Wb].
-  unit::MagneticFlux psi_beta{};
+  unit::MagneticFlux psi_beta;
 
   /// Rotor-frame d-axis back-EMF feedback term fb_d [V].
-  unit::Voltage fb_d{};
+  unit::Voltage fb_d;
 
   /// Rotor-frame q-axis back-EMF feedback term fb_q [V].
-  unit::Voltage fb_q{};
+  unit::Voltage fb_q;
 
   // =========================================================================
   // Outputs (updated by calculate())
   // =========================================================================
 
   /// Estimated PM flux in the rotor d-axis [Wb] (after inductance subtraction).
-  unit::MagneticFlux psi_pm_d{};
+  unit::MagneticFlux psi_pm_d;
 
   /// Estimated PM flux in the rotor q-axis [Wb] (after inductance subtraction).
-  unit::MagneticFlux psi_pm_q{};
+  unit::MagneticFlux psi_pm_q;
 
   // =========================================================================
   // Public API

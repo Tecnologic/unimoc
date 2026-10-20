@@ -53,7 +53,7 @@ using namespace unit;
  *   Step 2:  +V_inj in estimated q-axis  →  sample Δî_dq
  *   Step 3:  −V_inj in estimated q-axis  →  sample Δî_dq
  *
- * The caller must apply the injection voltage (returned by get_injection_voltage())
+ * The caller must apply the injection voltage (returned by GetInjectionVoltage())
  * to the modulator before each step, sample the current afterwards, and then
  * call update() with that current sample.
  *
@@ -71,7 +71,7 @@ using namespace unit;
  *       − (Δî_d(2) − Δî_d(3))
  *
  * which is proportional to sin(2ε).  This signal is fed to
- * MechanicalObserver::inject_angle_error() after scaling, so that both the
+ * MechanicalObserver::InjectAngleError() after scaling, so that both the
  * HFI and the back-EMF observer share the same PLL.
  *
  * Note: HFI has an inherent 180° pole ambiguity because sin(2ε) = sin(2(ε+π)).
@@ -87,7 +87,7 @@ struct Hfi {
   // -------------------------------------------------------------------------
 
   /// HFI injection voltage [V] (referred to V_dc; typically 5–20 % of Vdc).
-  unit::Voltage v_inject{};
+  unit::Voltage v_inject;
 
   /**
    * @brief Gain that maps the measured current error to the PLL angle injection [rad/A].
@@ -105,14 +105,14 @@ struct Hfi {
   int step{0};
 
   // Stored d/q current samples from each injection step
-  unit::Current i_d_step0{};
-  unit::Current i_q_step0{};
-  unit::Current i_d_step1{};
-  unit::Current i_q_step1{};
-  unit::Current i_d_step2{};
-  unit::Current i_q_step2{};
-  unit::Current i_d_step3{};
-  unit::Current i_q_step3{};
+  unit::Current i_d_step0;
+  unit::Current i_q_step0;
+  unit::Current i_d_step1;
+  unit::Current i_q_step1;
+  unit::Current i_d_step2;
+  unit::Current i_q_step2;
+  unit::Current i_d_step3;
+  unit::Current i_q_step3;
 
   /**
    * @brief Load HFI parameters from NVM settings.
@@ -196,7 +196,7 @@ struct Hfi {
    * period during which the injection was applied.
    *
    * When a full 4-step cycle is complete (after step 3) the angle error is
-   * extracted and injected into @p mech_obs via inject_angle_error().
+   * extracted and injected into @p mech_obs via InjectAngleError().
    *
    * @param i_ab    Measured stator current in the α/β frame [A].
    * @param sin_th  sin(θ̂) from MechanicalObserver.
