@@ -37,8 +37,8 @@ criteria.
 
 ### P1 - Build the single-motor vertical slice
 
- - [ ] Implement a validated PMSM plant model using `NvmSettings`, existing frame types, and unit types.
- - [ ] Add plant tests for electrical dynamics, torque direction, pole-pair scaling, mechanics, friction, parameter validation, and repeatability.
+ - [x] Implement a validated PMSM plant model using `NvmSettings`, existing frame types, and unit types (`lib/sim/`, `MotorSimulation`, with 120 degree Hall sensors).
+ - [x] Add plant tests for electrical dynamics, torque direction, pole-pair scaling, mechanics, friction, parameter validation, and repeatability (`lib/sim/tests/`).
  - [ ] Connect one host runtime and its ISR I/O to the PMSM plant instead of the zero-value host stubs.
  - [ ] Add a deterministic end-to-end C++ step-response test through the actual current-control runtime.
  - [ ] Add exact fast-loop/slow-loop cadence tests and finite-state checks for NaN/Inf and unstable output.
@@ -76,7 +76,7 @@ criteria.
 
 ### P4 - Expand fidelity and application scope
 
- - [ ] Add ASM and EESM plants behind the common plant contract.
+ - [ ] Add ASM and EESM plants behind the common plant contract (`MotorModel` concept and the `MotorSimulation::Model` variant in `lib/sim/`).
  - [ ] Add startup, observer, field-weakening, homing, and control-mode transition scenarios.
  - [ ] Add vehicle-level models for shared battery/DC-link behavior, wheels, differential load, road load, and torque vectoring.
  - [ ] Add fault injection, profiling, and large-N motor trace tooling.

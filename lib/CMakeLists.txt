@@ -8,6 +8,7 @@ add_subdirectory(cyphal)
 add_subdirectory(units)
 add_subdirectory(settings)
 add_subdirectory(motor_control)
+add_subdirectory(sim)
 add_subdirectory(cymon)
 
 target_link_libraries(unimoc_lib INTERFACE

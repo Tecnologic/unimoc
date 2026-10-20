@@ -14,6 +14,7 @@
 
 #include "rotor_angle.hpp"
 #include <gtest/gtest.h>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <numbers>
@@ -189,4 +190,34 @@ TEST_F(RotorAngleTest, EqualityComparesPhaseAndRevolutions) {
   EXPECT_EQ(RotorAngle::FromRaw(1234, 5), RotorAngle::FromRaw(1234, 5));
   EXPECT_NE(RotorAngle::FromRaw(1234, 5), RotorAngle::FromRaw(1234, 6));
   EXPECT_NE(RotorAngle::FromRaw(1234, 5), RotorAngle::FromRaw(1235, 5));
+}
+
+TEST_F(RotorAngleTest, FromAbsoluteRawInvertsAbsoluteRaw) {
+  constexpr std::int64_t kRevolution = 0x1'0000'0000LL;
+  constexpr std::int64_t kHalfRevolution = 0x8000'0000LL;
+  const std::array<std::int64_t, 9> kPositions = {0,
+                                                  1,
+                                                  -1,
+                                                  kHalfRevolution - 1,
+                                                  kHalfRevolution,
+                                                  -kHalfRevolution,
+                                                  -kHalfRevolution - 1,
+                                                  (7 * kRevolution) + 12345,
+                                                  (-7 * kRevolution) - 12345};
+  for (const std::int64_t kPosition : kPositions) {
+    const RotorAngle kAngle = RotorAngle::FromAbsoluteRaw(kPosition);
+    EXPECT_EQ(kAngle.AbsoluteRaw(), kPosition);
+  }
+
+  // +pi lands on the seam: phase -pi of the next revolution.
+  EXPECT_EQ(RotorAngle::FromAbsoluteRaw(kHalfRevolution), RotorAngle::FromRaw(INT32_MIN, 1));
+  EXPECT_EQ(RotorAngle::FromAbsoluteRaw(-kHalfRevolution), RotorAngle::FromRaw(INT32_MIN, 0));
+}
+
+TEST_F(RotorAngleTest, FromAbsoluteRawScalesMechanicalToElectricalExactly) {
+  constexpr std::int64_t kPolePairs = 7;
+  const RotorAngle kMechanical = RotorAngle::FromAngle(Angle{(3.0F * kTwoPi) + 0.3F});
+  const RotorAngle kElectrical = RotorAngle::FromAbsoluteRaw(kMechanical.AbsoluteRaw() * kPolePairs);
+  EXPECT_EQ(kElectrical.AbsoluteRaw(), kMechanical.AbsoluteRaw() * kPolePairs);
+  EXPECT_NEAR(kElectrical.AbsoluteAngle().Value(), kMechanical.AbsoluteAngle().Value() * 7.0F, 1.0e-4F);
 }

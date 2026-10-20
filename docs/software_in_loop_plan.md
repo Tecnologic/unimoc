@@ -241,6 +241,39 @@ After the PMSM runtime and tests are stable:
 5. Profile large N-motor runs.
 6. Add process-per-motor hosting only if isolation or deployment realism justifies its coordination cost. Reuse the same Cyphal-facing protocol.
 
+## Implemented Plant Library (`lib/sim/`)
+
+The plant contract and the first model exist as the header-only target
+`unimoc_sim` (`unimoc::sim`). It is not linked into `unimoc_lib`; the
+`native_sim` hardware layer binds it in a separate step.
+
+- `MotorSimulation` is the one API for every motor type. `Configure()` takes
+  `SimulationParameters`; `ParametersFromSettings()` (or the `NvmSettings`
+  overload of `Configure()`) makes the motor type follow
+  `NvmSettings::motor_type`. A type without a model is rejected with
+  `Status::kUnsupportedMotorType` and the previous configuration stays active.
+- Per step (normally half a PWM period): averaged inverter voltage from the held
+  duties, electrical model step with the mechanical state held, shaft step,
+  Hall evaluation. `Output()` returns the sample at the end of the step: phase
+  currents and voltages, DC-link voltage, torque, mechanical and electrical
+  angle and speed, and the Hall signals.
+- Electrical models fulfil the `MotorModel` concept (`motor_model.hpp`) and are
+  held in a `std::variant`, so there is no heap and no virtual dispatch. Only
+  `PmsmModel` exists so far (backward-Euler d/q model with saliency). ASM and
+  EESM models plug in behind the same concept; `ElectricalInput` already carries
+  the field voltage for the EESM.
+- `MechanicalModel` integrates inertia, load torque, viscous and Coulomb
+  friction, or imposes a speed (dynamometer, locked rotor). The electrical
+  angle is derived exactly from the mechanical `RotorAngle` with
+  `RotorAngle::FromAbsoluteRaw()`.
+- `HallSensor` models three digital Hall sensors 120 degrees electrical apart
+  with a mounting offset; it reports the code and the interpolated age of the
+  last edge, as a timer-captured Hall input would.
+
+Not modelled yet: dead time and switch drops, diode freewheeling of an open
+bridge (an open stator forces zero current), saturation, temperature, Hall
+faults and sensor noise.
+
 ## Suggested Repository Layout
 
 ```text

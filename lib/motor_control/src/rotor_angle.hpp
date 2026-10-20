@@ -65,6 +65,29 @@ class RotorAngle {
   }
 
   /**
+   * @brief Constructs a rotor angle from an exact absolute position.
+   * @param absolute_raw Absolute position in Q1.31 counts, 2^32 counts per revolution, as
+   * returned by AbsoluteRaw().
+   * @return The corresponding rotor angle. The phase lies in [-pi, pi).
+   *
+   * @note This is the exact inverse of AbsoluteRaw(). Scaling an absolute position by an
+   * integer, for example a mechanical angle by the pole-pair count, therefore stays exact.
+   * Positions outside the int32 revolution range wrap the revolution counter.
+   */
+  static constexpr RotorAngle FromAbsoluteRaw(std::int64_t absolute_raw) noexcept {
+    // Round to the nearest revolution so the remaining phase lies in [-2^31, 2^31).
+    // Shift a non-negative offset value so the division floors without relying on
+    // arithmetic right shifts of negative numbers.
+    const std::int64_t kShifted = absolute_raw + detail::kCountsPerHalfRevolution;
+    std::int64_t revolutions = kShifted / detail::kCountsPerRevolution;
+    if ((kShifted % detail::kCountsPerRevolution) < 0) {
+      --revolutions;
+    }
+    const std::int64_t kPhase = absolute_raw - (revolutions * detail::kCountsPerRevolution);
+    return FromRaw(static_cast<std::int32_t>(kPhase), static_cast<std::int32_t>(revolutions));
+  }
+
+  /**
    * @brief Advances the angle by an offset and updates the revolution counter.
    * @param offset Angle to add; may span any number of revolutions.
    *
