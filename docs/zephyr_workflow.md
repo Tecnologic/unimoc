@@ -121,11 +121,17 @@ stage is no longer enabled (trip, external break, e-stop), and
 
 ## Known issues
 
-- Not integrated yet: the Cyphal stack and the USB CDC-ACM console. Logging goes to the Zephyr log; the BCC USB stays
-  disabled (`docs/zephyr_port_plan.md`, Phases 4 and 5).
+- Not integrated yet: the Cyphal stack (`docs/zephyr_port_plan.md`, Phase 5).
+- The BCC application puts the console, the shell UART and the log on USB
+  CDC-ACM (`app/boards/bcc.conf`, `app/boards/bcc.overlay`); the log also goes
+  to SEGGER RTT. The 48 MHz USB clock is the HSI48, trimmed by the CRS on the
+  USB SOF (`hardware/zephyr_bcc/usb_clock_recovery.cpp`, because the Zephyr
+  STM32G4 clock driver ignores `crs-usb-sof`). Built only; enumeration and the
+  CRS lock are checked on the board. The VID/PID are the Zephyr test defaults.
+  Test builds for the BCC keep the RTT console.
 - Pins were taken from the KiCad netlist (Tecnologic/battery-case-controller).
   LEDs, CAN slope, break, hall and pulse signals are in the devicetree; FDCAN3
-  and USB have pinctrl but stay disabled until their steps. The gate drivers
+  has pinctrl but stays disabled until its step; USB is enabled. The gate drivers
   (LM5109B) have no enable pin. Not run on hardware yet.
 - Limits (BCC and sim profile): `max_phase_current` 60 A is the hard trip
   limit of the power stage (the INA240A2 chain saturates at about +-66 A, so

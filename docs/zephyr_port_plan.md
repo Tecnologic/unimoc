@@ -2,8 +2,9 @@
 
 Status (2026-10-19): direction accepted. The Zephyr application (`app/`),
 the `native_sim` platform and the BCC platform code exist (see
-`docs/zephyr_workflow.md`). The Cyphal stack, the USB console and the flash
-settings backend do not exist yet. The phase order below is the plan.
+`docs/zephyr_workflow.md`). The Cyphal stack does not exist yet; the
+flash settings backend and the BCC USB CDC-ACM console are built but not run on
+the board. The phase order below is the plan.
 
 ## Goals
 
