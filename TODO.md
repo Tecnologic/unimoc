@@ -7,24 +7,41 @@ phases, [docs/zephyr_workflow.md](docs/zephyr_workflow.md) for the build and
 interrupt layout, and [docs/hotpath_plan.md](docs/hotpath_plan.md) for the
 hot-path design.
 
-### P0 - Decisions
+There is no board access at the moment. The open items are ordered so that
+work verifiable with twister on `native_sim` and the BCC build comes first;
+items that need the board are collected below and wait for hardware access.
+
+### P0 - Without hardware (twister on `native_sim`, BCC build)
+
+ - [ ] Merge `main` into `develop` once the `feature/zephyr-port` PR is merged: keep the deletions for the modm and hosted-build files (61 modify/delete conflicts), resolve `.clang-tidy`, `.gitignore`, `.gitmodules`, `README.md` and `src/main.cpp` by hand, decide whether `lib/gitversion` is dropped or feeds GetInfo, and check `hardware/HardwareLimits.hpp` against the devicetree limits. Close `copilot/fix-pr-10-from-main-to-develop` unmerged.
+ - [ ] Settings follow-ups 1 and 2 from [docs/settings_plan.md](docs/settings_plan.md): hold off `PowerStage::Enable()` while a flash save runs, and serialize access to `SettingsStore` (one owner thread or a lock) before the shell or Cyphal write settings.
+ - [ ] Implement the hot-path milestones M4 to M7 from `docs/hotpath_plan.md` (observer API, Hall driver and sim Hall signals, Hall fusion, control thread), tested with ztest and the sim plant.
+ - [ ] Run a small Cyphal/UDP feasibility spike between `native_sim` and `pycyphal` (see the SIL plan below); it settles the DSDL generation for both transports.
+ - [ ] Integrate Cyphal (libcanard, DSDL, register service, PnP, heartbeat, GetInfo) and the shell command `settings show|save|reset` (settings open items 3 and 4), tested on `native_sim`. CAN-FD on `native_sim` needs `vcan` in the WSL2 kernel (unverified); CAN-FD on the BCC waits for the transceiver decision.
+ - [ ] Write the M0 instrumentation (DWT cycle counters around the sample ISR, control cycle and observer, min/mean/max, overrun counters, output through log and shell); build-tested only until the board is available.
+ - [ ] Enable the USB CDC-ACM console and Zephyr logging in the BCC configuration (build only; enumeration is checked on the board).
+ - [ ] Remove the stale references to the deleted legacy firmware `hardware/batterycasecontroller/` (deleted in `6ca28d1`): `AGENTS.md`, `docs/zephyr_port_plan.md`, the file-docs skill, `scripts/check_format.sh`, `scripts/codechecker_skip.txt` and `docs/Doxyfile`.
+ - [ ] Confirm the CAN-FD transceiver change for the BCC (the board has an SN65HVD230, classic CAN). A board decision, no board access needed.
+
+### P1 - Blocked on hardware access
+
+ - [ ] M0 on the board: timing numbers for the sample ISR, control cycle and observer.
+ - [ ] M8 first step with the outputs off: DMA burst, preload, start at ARR/2, parity detection and ADC alignment on the scope; check the USB console.
+ - [ ] Verify ZMS, the flash stall and the size of the settings partition on the BCC board (settings plan, "Not verified on hardware").
+ - [ ] Configure the duty DMA from the devicetree (`dmas` of `foc0`, Zephyr DMA API at init) instead of the fixed DMA1 channel 1 / DMAMUX request 53, and enable its clock through `clock_control` instead of writing `RCC->AHB1ENR`. The zero-latency path keeps reading the channel counter directly. Do this after the M8 first step, so the fixed configuration is a verified reference.
+ - [ ] M8 remainder: Hall table, closed current loop with the 50 A limit.
+ - [ ] Merge `develop` into `main` as the first Zephyr release (tag it) once the board items above pass; `main` still holds the legacy firmware.
+
+### Done
 
  - [x] Decide the hot-path layout: 32 kHz PWM, 16 kHz control cycle in the sample ISR, duties by CCR preload plus DMA (variant B), observer in a software-pended normal-priority interrupt (`docs/hotpath_plan.md`).
- - [ ] Confirm the CAN-FD transceiver change for the BCC (the board has an SN65HVD230, classic CAN).
-
-### P1 - Integration
-
  - [x] Align the root `CMakeLists.txt` with the C++20 baseline.
  - [x] Replace the RTT wording in the comment of `src/startup/startup_results.hpp` with the Zephyr log.
- - [ ] Enable the USB CDC-ACM console and Zephyr logging on the BCC.
  - [x] Persist settings per register with the Zephyr settings subsystem on ZMS, live RAM tuning and a gated `SaveToFlash()` ([docs/settings_plan.md](docs/settings_plan.md)).
- - [ ] Settings follow-ups: hold off `PowerStage::Enable()` while a flash save runs, serialize access to `SettingsStore`, verify ZMS and the flash stall on the BCC board (see the open items in [docs/settings_plan.md](docs/settings_plan.md)).
- - [ ] Integrate Cyphal over CAN-FD (libcanard, DSDL, register service, PnP, heartbeat, GetInfo).
- - [ ] Delete the legacy firmware in `hardware/batterycasecontroller/` once the Zephyr BCC target is verified on the board. `cmake/Modm.cmake`, `cmake/ToolChain.cmake`, `requirements.txt` and `ci-firmware.yml` are already gone.
- - [ ] Implement the hot-path milestones M0 and M4 to M8 from `docs/hotpath_plan.md` (M1 to M3 are in the code, not run on the board).
+ - [x] Delete the legacy firmware in `hardware/batterycasecontroller/` together with `cmake/Modm.cmake`, `cmake/ToolChain.cmake`, `requirements.txt` and `ci-firmware.yml`.
+ - [x] Hot-path milestones M1 to M3 in code (not run on the board).
  - [x] Bring `src/`, `hardware/zephyr_*` and the tests under clang-tidy (Zephyr SCA through CodeChecker, `scripts/twister_sca.sh`).
  - [x] Bring the `lib/unimoc` headers under clang-tidy (`HeaderFilterRegex`; API renamed to PascalCase methods). `lib/cymon` is still outside: it is not built in the Zephyr workspace yet.
- - [ ] Configure the duty DMA from the devicetree (`dmas` of `foc0`, Zephyr DMA API at init) instead of the fixed DMA1 channel 1 / DMAMUX request 53, and enable its clock through `clock_control` instead of writing `RCC->AHB1ENR`. The zero-latency path keeps reading the channel counter directly.
  - [x] Add an `SPDX-License-Identifier` line to the UNIMOC file header (C++ files, CMake and YAML files; file-docs skill updated).
 
 ## Prioritized software-in-the-loop plan
