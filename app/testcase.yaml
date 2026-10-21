@@ -20,5 +20,11 @@ tests:
       pytest_root:
         - "../tests/integration/cyphal_sim"
       pytest_dut_scope: session
+      # platformdirs >= 4.13 registers a pytest plugin; with a second, older
+      # platformdirs on the path (pip --user on the CI runner's system
+      # Python) its entry point fails to import and pytest aborts at start.
+      pytest_args:
+        - "-p"
+        - "no:platformdirs"
     timeout: 300
     tags: unimoc app cyphal

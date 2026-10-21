@@ -163,6 +163,10 @@ stage is no longer enabled (trip, external break, e-stop), and
 - The console and the log of the BCC are on SEGGER RTT. USB and the shell are
   not used (the CDC-ACM console and the HSI48/CRS clock recovery were removed
   on 2026-10-21); USB returns for DFU recovery.
+- The pytest scenario runs pytest with `-p no:platformdirs`
+  (`app/testcase.yaml`): platformdirs 4.13 registers a pytest plugin, and on
+  the CI runner (`pip --user` on the system Python) an older platformdirs on
+  the path makes its import fail before any test runs.
 - The app board files of the simulation are named for the 64-bit target
   (`app/boards/native_sim_native_64.*`); the 32-bit `native_sim` build does
   not pick them up.
