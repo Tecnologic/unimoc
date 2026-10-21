@@ -253,6 +253,11 @@ functions and `memset`. No libm function (`sqrtf` was there before
 - **FPU in zero-latency ISRs.** Lazy stacking costs cycles when a thread uses the FPU. Measure in M0.
 - **Code and data in flash.** At 170 MHz the flash has wait states (the ART cache mitigates them). If the
   jitter is a problem: hot path and buffers in CCM SRAM (Zephyr `CODE_DATA_RELOCATION`). Only after measuring.
+- **Check: is the hot path in CCM SRAM on the G4?** Today it is not: the sample ISR, the control cycle and
+  their buffers are linked to flash and SRAM1 (nothing uses `CODE_DATA_RELOCATION`). Check the map file
+  after any change to the linking. Running from CCM SRAM (32 KB on the G473, I-bus at 0x10000000) would
+  also keep the hot path free of the flash stall while a write runs in bank 1 (settings, see
+  `docs/settings_plan.md`). The settings gate still holds the stage disabled during a save.
 - **Hall alignment.** Without a calibrated table, angle errors of up to about ±10° are possible.
 - **Start-up.** At standstill the fusion only knows the sector (±30°): about 87 % torque (cos 30°).
 - **Motor data missing.** Maximum electrical frequency, inductance and resistance of the target motors are

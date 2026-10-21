@@ -202,19 +202,20 @@ zephyr_udc0: &usb {
 		/*
 		 * Dual-bank mode (option bit DBANK = 1, the factory default):
 		 * bank 1 is 0x00000 to 0x3ffff, bank 2 is 0x40000 to 0x7ffff, 2 KB pages.
-		 * The image stays in bank 1, so a settings write in bank 2 does not
-		 * stall instruction fetch (read while write). 0x40000 to 0x7bfff is
-		 * kept free for a second image (firmware update).
+		 * Image and settings share bank 1; a settings save runs only with the
+		 * power stage disabled (SettingsSaveGate), so its stall of the
+		 * instruction fetch is harmless. Bank 2 stays free for the image of a
+		 * firmware update over Cyphal, written while bank 1 runs.
 		 */
 		slot0_partition: partition@0 {
 			label = "image-0";
-			reg = <0x00000000 DT_SIZE_K(256)>;
+			reg = <0x00000000 DT_SIZE_K(240)>;
 		};
 
 		/* Settings: one ZMS entry per register that differs from the factory profile. */
-		storage_partition: partition@7c000 {
+		storage_partition: partition@3c000 {
 			label = "storage";
-			reg = <0x0007c000 DT_SIZE_K(16)>;
+			reg = <0x0003c000 DT_SIZE_K(16)>;
 		};
 	};
 };

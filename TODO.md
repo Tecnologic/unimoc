@@ -17,13 +17,14 @@ items that need the board are collected below and wait for hardware access.
  - [ ] Run a small Cyphal/UDP feasibility spike between `native_sim` and `pycyphal` (see the SIL plan below); it settles the DSDL generation for both transports.
  - [ ] Integrate Cyphal (libcanard, DSDL, register service, PnP, heartbeat, GetInfo) and the shell command `settings show|save|reset` (settings open items 1 and 2), tested on `native_sim`. CAN-FD on `native_sim` needs `vcan` in the WSL2 kernel (unverified); CAN-FD on the BCC waits for the transceiver decision.
  - [ ] Write the M0 instrumentation (DWT cycle counters around the sample ISR, control cycle and observer, min/mean/max, overrun counters, output through log and shell); build-tested only until the board is available.
+ - [ ] Check whether the hot path (sample ISR, control cycle, buffers) belongs in CCM SRAM on the G4 (`docs/hotpath_plan.md`, "Risks and Open Points"); decide with the M0 timing numbers.
  - [ ] Confirm the CAN-FD transceiver change for the BCC (the board has an SN65HVD230, classic CAN). A board decision, no board access needed.
 
 ### P1 - Blocked on hardware access
 
  - [ ] M0 on the board: timing numbers for the sample ISR, control cycle and observer.
  - [ ] M8 first step with the outputs off: DMA burst, preload, start at ARR/2, parity detection and ADC alignment on the scope; check the USB console (enumeration, CRS lock of the HSI48) and pick a UNIMOC USB VID/PID instead of the Zephyr test IDs.
- - [ ] Verify ZMS, the dual-bank option bit (read while write: no flash stall of the hot path during a save) and the size of the settings partition on the BCC board (settings plan, "Not verified on hardware").
+ - [ ] Verify ZMS, the flash stall, the dual-bank option bit (DBANK, bank 2 free for Cyphal firmware updates) and the size of the settings partition on the BCC board (settings plan, "Not verified on hardware").
  - [ ] Configure the duty DMA from the devicetree (`dmas` of `foc0`, Zephyr DMA API at init) instead of the fixed DMA1 channel 1 / DMAMUX request 53, and enable its clock through `clock_control` instead of writing `RCC->AHB1ENR`. The zero-latency path keeps reading the channel counter directly. Do this after the M8 first step, so the fixed configuration is a verified reference.
  - [ ] M8 remainder: Hall table, closed current loop with the 50 A limit.
  - [ ] Merge `develop` into `main` as the first Zephyr release (tag it) once the board items above pass; `main` still holds the legacy firmware.

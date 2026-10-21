@@ -97,15 +97,17 @@ Cyphal register service / shell / startup FSM                 (threads)
   power loss during a write. The BCC partition is 16 KB (8 pages of 2 KB) so
   that all registers plus a spare sector fit; this is an estimate to check on
   the board.
-- **Read while write.** The BCC carries an STM32G473CET6 (512 KB). In its
-  dual-bank mode (option bit DBANK = 1, the factory default) the code partition
-  is bank 1 (`0x00000`, 256 KB) and the `storage_partition` is the end of
-  bank 2 (`0x7c000`), so a settings write should not stall instruction fetch
-  of the zero-latency control cycle. The option bit and the absence of the
-  stall are still to be checked on the board. The gate stays: it keeps the
-  save out of a running drive regardless of the flash layout.
+- **Flash writes stall instruction fetch** in the same bank. The BCC carries
+  an STM32G473CET6 (512 KB, dual bank with option bit DBANK = 1, the factory
+  default). The code partition (`0x00000`, 240 KB) and the `storage_partition`
+  (`0x3c000`, the end of bank 1) share bank 1, so a save stalls the
+  zero-latency control cycle. The gate holds the stage disabled for the whole
+  save (`Enable()` fails meanwhile, see "Concurrency"); the stall itself is
+  still to be measured on the board. Bank 2 (`0x40000`, 256 KB) is kept free
+  for the image of a firmware update over Cyphal, which can be written while
+  bank 1 runs.
 - Flash use (BCC app, Zephyr v4.4.0, size optimized): about 100 KB of the
-  256 KB code partition, of which the settings subsystem, ZMS and the flash
+  240 KB code partition, of which the settings subsystem, ZMS and the flash
   driver take about 6 KB.
 
 ## Open items
