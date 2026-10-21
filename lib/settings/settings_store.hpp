@@ -88,7 +88,8 @@ namespace settings_store_internal {
          std::isfinite(settings.adc_offset_b.Value()) && std::isfinite(settings.adc_gain_a.Value()) &&
          std::isfinite(settings.adc_gain_b.Value()) && std::isfinite(settings.adc_gain_vdc.Value()) &&
          std::isfinite(settings.phase_balance_a.Value()) && std::isfinite(settings.phase_balance_b.Value()) &&
-         std::isfinite(settings.phase_balance_c.Value());
+         std::isfinite(settings.phase_balance_c.Value()) && std::isfinite(settings.telemetry_rate.Value()) &&
+         std::isfinite(settings.command_timeout.Value());
 }
 
 [[nodiscard]] inline bool IsValidEnumValues(const NvmSettings& settings) noexcept {
@@ -115,6 +116,13 @@ namespace settings_store_internal {
          limits.max_motor_current.Value() <= limits.max_phase_current.Value() &&
          limits.max_battery_drive_current.Value() > 0.0F && limits.max_battery_charge_current.Value() >= 0.0F;
 }
+
+/// Largest Cyphal subject-ID.
+inline constexpr uint16_t kMaxSubjectId = 8191U;
+/// Highest telemetry rate the Cyphal thread serves.
+inline constexpr unit::Frequency kMaxTelemetryRate{1000.0F};
+/// Longest readiness and setpoint timeout.
+inline constexpr unit::Time kMaxCommandTimeout{10.0F};
 
 [[nodiscard]] inline SettingsStatus Validate(const NvmSettings& settings,
                                              const HardwareCapabilities& limits) noexcept {
@@ -157,6 +165,17 @@ namespace settings_store_internal {
       settings.adc_gain_b.Value() <= 0.0F || settings.adc_gain_vdc.Value() <= 0.0F ||
       settings.phase_balance_a.Value() <= 0.0F || settings.phase_balance_b.Value() <= 0.0F ||
       settings.phase_balance_c.Value() <= 0.0F) {
+    return SettingsStatus::kOutOfRange;
+  }
+
+  // Cyphal subject-IDs are 0..8191; 65535 disables the port.
+  const auto kIsSubjectId = [](const uint16_t port_id) {
+    return port_id <= kMaxSubjectId || port_id == cyphal::kUnsetPortId;
+  };
+  if (!kIsSubjectId(settings.sub_readiness_id) || !kIsSubjectId(settings.sub_current_setpoint_id) ||
+      !kIsSubjectId(settings.sub_torque_setpoint_id) || !kIsSubjectId(settings.pub_telemetry_id) ||
+      settings.telemetry_rate.Value() < 0.0F || settings.telemetry_rate > kMaxTelemetryRate ||
+      settings.command_timeout.Value() <= 0.0F || settings.command_timeout > kMaxCommandTimeout) {
     return SettingsStatus::kOutOfRange;
   }
 

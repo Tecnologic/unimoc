@@ -7,12 +7,12 @@ in [docs/system_plan.md](docs/system_plan.md).
 ### Cart system (see `docs/system_plan.md`)
 
  - [ ] CAN FD bus test (phase C2): BCC and G4 evaluation boards on a cart-length harness, 1/4 and 1/2 Mbit/s, bus load and latency at 250 and 500 Hz; choose the bit rate and the cycle rate.
- - [ ] Check `vcan` (CAN FD MTU) on WSL2 for the multi-node simulation; fallback Cyphal/UDP over the `native_sim` TAP driver (NSOS passes no multicast socket options in 4.4).
+ - [ ] Check `vcan` (CAN FD MTU) on WSL2 for the multi-node simulation. A single simulated node already works without it over the slcan pseudo terminals (classic CAN); several nodes on one bus need `vcan` (or Cyphal/UDP over the `native_sim` TAP driver; NSOS passes no multicast socket options in 4.4).
  - [ ] Regenerative braking in the drive: DC-link overvoltage limit and trip, regen limit from the battery state, reported to the VDC; tested in the sim (section 7.1).
  - [ ] Requirements and part choice for the STM32G4 redesign of the hardware_4850 logic board (STM32G473RET6 or G474RET6, pin and ADC check, section 5.2).
  - [ ] Generalize `hardware/zephyr_bcc` to the G4 family so the 4850 logic board shares the hot path (board differences in the devicetree).
  - [ ] Split `app/` into `apps/drive/` and `apps/vdc/` (later `apps/pedal/` and `apps/bms/`) and add `lib/vehicle/`; update `AGENTS.md`, `README.md` and `docs/zephyr_workflow.md`. The VDC firmware lives in this repository (decided); the VDC MCU starts on a G4.
- - [ ] Define the DSDL namespace (wheel command, drive status, pedal state, battery status) with every message in one CAN FD frame.
+ - [ ] Define the cart messages in the DSDL namespace `dsdl/unimoc/` (wheel command, drive status, pedal state, battery status), every message in one CAN FD frame. The namespace exists with `unimoc.drive.CurrentSetpoint`, `unimoc.drive.Telemetry` and `unimoc.sim.Plant`.
  - [ ] BMS controller with brake chopper as `apps/bms/` with `lib/battery/` (section 5.5): board (BCC or new G4 board), cell monitoring front end, chopper in hardware (G4 comparator to timer), resistor sizing, battery status message.
 
 ## Zephyr port and hot path
@@ -29,16 +29,21 @@ items that need the board are collected below and wait for hardware access.
 ### P0 - Without hardware (twister on `native_sim`, BCC build)
 
  - [ ] Implement the hot-path milestones M4 to M7 from `docs/hotpath_plan.md` (observer API, Hall driver and sim Hall signals, Hall fusion, control thread), tested with ztest and the sim plant.
- - [ ] Run a small Cyphal feasibility spike between `native_sim` and `pycyphal`, on `vcan` (CAN FD) with UDP over TAP as the fallback (see the SIL plan below); it settles the DSDL generation for both transports.
- - [ ] Integrate Cyphal (libcanard, DSDL, register service, PnP, heartbeat, GetInfo) and the shell command `settings show|save|reset` (settings open items 1 and 2), tested on `native_sim`. CAN-FD on `native_sim` needs `vcan` in the WSL2 kernel (unverified); CAN-FD on the BCC waits for the transceiver decision.
- - [ ] Write the M0 instrumentation (DWT cycle counters around the sample ISR, control cycle and observer, min/mean/max, overrun counters, output through log and shell); build-tested only until the board is available.
+ - [ ] Connect the startup FSM (`HwStartup`) to Cyphal: the `unimoc.startup.*` registers of `cyphal_interface.hpp` (run, step, external measurements, results) in a register provider, the FSM stepped from the Cyphal thread; test on `native_sim`.
+ - [ ] Speed and position setpoints over Cyphal (`uavcan.sub.speed_setpoint`, UDRAL servo); needs the control thread of M7.
+ - [ ] cymon traces over Cyphal (the submodule is still not built; it needs CMake 4).
+ - [ ] Firmware update over Cyphal: `ExecuteCommand BEGIN_SOFTWARE_UPDATE`, `uavcan.file.Read` into flash bank 2, bootloader swap; USB DFU as recovery.
+ - [ ] Simulation-control commands over Cyphal for deterministic runs (reset, fixed-cycle advance, run-until; SIL P2); today the simulation runs in real time.
+ - [ ] Live tuning while engaged: register writes reach the controller only by a runtime restart while disengaged (`docs/settings_plan.md`, open item 1).
+ - [ ] Write the M0 instrumentation (DWT cycle counters around the sample ISR, control cycle and observer, min/mean/max, overrun counters, output through the log and Cyphal registers); build-tested only until the board is available.
  - [ ] Check whether the hot path (sample ISR, control cycle, buffers) belongs in CCM SRAM on the G4 (`docs/hotpath_plan.md`, "Risks and Open Points"); decide with the M0 timing numbers.
  - [ ] Confirm the CAN-FD transceiver change for the BCC (the board has an SN65HVD230, classic CAN). A board decision, no board access needed.
 
 ### P1 - Blocked on hardware access
 
  - [ ] M0 on the board: timing numbers for the sample ISR, control cycle and observer.
- - [ ] M8 first step with the outputs off: DMA burst, preload, start at ARR/2, parity detection and ADC alignment on the scope; check the USB console (enumeration, CRS lock of the HSI48) and pick a UNIMOC USB VID/PID instead of the Zephyr test IDs.
+ - [ ] M8 first step with the outputs off: DMA burst, preload, start at ARR/2, parity detection and ADC alignment on the scope.
+ - [ ] Cyphal on the BCC: FDCAN3 bit timing at 1 Mbit/s with CAN FD frames through the SN65HVD230, the Rs pin, heartbeat, registers and the RTT log with a USB CAN FD adapter and yakut; plug-and-play with `yakut monitor --plug-and-play`.
  - [ ] Verify ZMS, the flash stall, the dual-bank option bit (DBANK, bank 2 free for Cyphal firmware updates) and the size of the settings partition on the BCC board (settings plan, "Not verified on hardware").
  - [ ] Configure the duty DMA from the devicetree (`dmas` of `foc0`, Zephyr DMA API at init) instead of the fixed DMA1 channel 1 / DMAMUX request 53, and enable its clock through `clock_control` instead of writing `RCC->AHB1ENR`. The zero-latency path keeps reading the channel counter directly. Do this after the M8 first step, so the fixed configuration is a verified reference.
  - [ ] M8 remainder: Hall table, closed current loop with the 50 A limit.
@@ -58,7 +63,10 @@ items that need the board are collected below and wait for hardware access.
  - [x] Merge `main` into `develop` (`542c501`): the modm and hosted-build files stay deleted, `lib/gitversion` is dropped (the GetInfo version source is part of the Cyphal item), and `hardware/HardwareLimits.hpp` is replaced by the BCC settings profile. Its legacy BCC values (100 A phase, 80 A motor, 50 A battery drive, 20 A charge) were checked against the profile in `hardware/zephyr_bcc/hardware_interface.cpp`: the profile keeps the lower 60 A phase trip and 50 A motor limit, the battery limits are equal. Closing `copilot/fix-pr-10-from-main-to-develop` is left to the repository owner.
  - [x] Settings follow-ups: `PowerStageInterface::Enable()` is held off while a flash save runs, and `SettingsStore` takes a platform lock (Zephyr `k_mutex`) around every operation ([docs/settings_plan.md](docs/settings_plan.md), "Concurrency").
  - [x] Remove the stale references to the deleted legacy firmware `hardware/batterycasecontroller/` (`AGENTS.md`, `docs/zephyr_port_plan.md`, the file-docs skill, `scripts/check_format.sh`, `scripts/codechecker_skip.txt`, `docs/Doxyfile`).
- - [x] Enable the USB CDC-ACM console and Zephyr logging in the BCC application (`app/boards/bcc.conf`, `bcc.overlay`; HSI48 with CRS on the USB SOF; log also on RTT). Build only; link limited to the code partition (`CONFIG_USE_DT_CODE_PARTITION`).
+ - [x] ~~Enable the USB CDC-ACM console~~ Superseded (2026-10-21): USB and the shell were dropped; the bench log is on RTT and on the bus. Link limited to the code partition (`CONFIG_USE_DT_CODE_PARTITION`).
+ - [x] Cyphal over CAN-FD as the primary interface (2026-10-21): libcanard 4.0 + O1Heap + Nunavut DSDL pinned in `west.yml`; heartbeat, port list, GetInfo, register List/Access on the settings store (77 registers), ExecuteCommand (restart, store, factory reset, emergency stop), PnP v1, diagnostic records from the Zephyr log; drive application (readiness, current and torque setpoints with timeouts and limits, telemetry); shared between BCC (FDCAN3) and `native_sim` (SocketCAN plus slcan pseudo terminals, plant registers and plant trace). Tests `unimoc.lib.cyphal`, `unimoc.sim.cyphal_drive`; checked with yakut 0.14 against the simulation. Not run on the board.
+ - [x] Fix the ExecuteCommand status codes in `cyphal_interface.hpp` (BAD_COMMAND and BAD_STATE were swapped against the specification) and remove the heartbeat serializer that packed health and mode into one byte.
+ - [x] `app/boards/native_sim.*` were never applied to the 64-bit build: renamed to `native_sim_native_64.*` (1 us tick, real time).
 
 ## Prioritized software-in-the-loop plan
 
@@ -83,9 +91,9 @@ criteria.
 
 ### P1 - Resolve the Cyphal transport path
 
- - [ ] Run a small Cyphal/UDP feasibility spike between `native_sim` and `pycyphal` on localhost (WSL2).
- - [ ] Select the C++ transport and DSDL generation approach for registers, setpoints, telemetry, and heartbeat.
- - [ ] Confirm one register exchange and one telemetry subject before designing the full simulator protocol.
+ - [x] Feasibility: `native_sim` with pycyphal/yakut over Cyphal/CAN, SocketCAN `vcan0` or the slcan pseudo terminals (no UDP needed for one node).
+ - [x] Transport and DSDL: libcanard 4.0 (C) behind `cyphal::Transport`, Nunavut C serialization.
+ - [x] Register exchange and telemetry subject confirmed with yakut (register list/read/write, `unimoc.drive.Telemetry`, `unimoc.sim.Plant`, diagnostic records).
 
 ### P2 - Add coordinated multi-motor simulation
 
@@ -94,12 +102,12 @@ criteria.
  - [ ] Add independent constant/viscous load models and tests for isolated motors, unique node IDs, reset, and repeatability.
  - [ ] Add a shared load interface suitable for shaft, wheel, battery, differential, and torque-vectoring models.
 
-### P2 - Expose the simulator over Cyphal/UDP
+### P2 - Expose the simulator over Cyphal (CAN)
 
  - [ ] Build a host simulator executable around the coordinator.
- - [ ] Map standard Cyphal register operations to the settings operation boundary.
- - [ ] Route torque, speed, position, and excitation setpoints into the normal controller input path.
- - [ ] Publish telemetry and heartbeat with explicit virtual-time semantics.
+ - [x] Map standard Cyphal register operations to the settings operation boundary.
+ - [ ] Route torque, speed, position, and excitation setpoints into the normal controller input path (torque and d/q current done; speed, position and excitation open).
+ - [ ] Publish telemetry and heartbeat with explicit virtual-time semantics (published in real time today; the telemetry carries the control-cycle count).
  - [ ] Add simulation-control commands for reset, fixed-cycle advance, run-until, snapshot, and clock status.
  - [ ] Add protocol and localhost end-to-end tests for single- and multi-node operation.
 

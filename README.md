@@ -11,7 +11,7 @@ embedded micro-controllers (STM32 series, first the STM32G473 battery case
 controller).  The algorithm code is portable and tested with Zephyr's ztest
 and twister on `native_sim`.
 
-Zephyr is the primary OS: logging, shell, USB, Cyphal, and settings run in
+Zephyr is the primary OS: logging, Cyphal/CAN FD, and settings run in
 Zephyr threads.  Only the FOC hot path runs in zero-latency interrupts.  The
 same firmware runs on Linux through Zephyr's `native_sim` with a motor
 simulation.
@@ -54,10 +54,10 @@ simulation.
 | **Control** | MTPA, field-weakening, ASM flux PI, EESM excitation PI (current or flux mode) |
 | **Position** | Absolute multi-turn tracker (±4096+ rev), cascaded P+PI position controller, homing state machine |
 | **Modulation** | Space Vector PWM (SVPWM), dead-time compensation |
-| **Network** | Cyphal (UAVCAN v1) register map — every setting configurable over the bus (planned, see [Cyphal](#cyphal-uavcan-v1-interface)) |
+| **Network** | Cyphal (UAVCAN v1) over CAN FD — every setting a register, arming, setpoints, telemetry and the log on the bus, also for the simulation (see [Cyphal](#cyphal-uavcan-v1-interface)) |
 | **Persistence** | Live RAM settings for tuning; one flash entry per changed register (Zephyr settings on ZMS); saving only while the power stage is disabled |
 | **Platform** | HAL-free algorithms; tested on Linux x86-64 with GTest; Zephyr firmware for the BCC (STM32G473) and `native_sim` |
-| **Runtime** | Zephyr threads for logging, shell, USB, Cyphal, and settings; zero-latency IRQs only for the FOC hot path |
+| **Runtime** | Zephyr threads for logging, Cyphal, and settings; zero-latency IRQs only for the FOC hot path |
 
 ---
 
@@ -101,12 +101,14 @@ lib/
 │   │   ├── position_tracker.hpp     # Absolute multi-turn position + homing
 │   │   └── *_system.hpp              # Rotor, stator, and three-phase coordinate systems
 ├── cyphal/
+│   ├── can_media.hpp             # CAN interface boundary (frames in and out)
+│   ├── canard_transport.hpp      # Cyphal/CAN transport on libcanard + O1Heap
 │   ├── control_mode.hpp          # Cyphal setpoint-to-control-mode mapping
-│   ├── cyphal_interface.hpp      # Register names + subject port IDs
-│   ├── heartbeat.hpp             # Heartbeat serialization
-│   ├── node.hpp                  # Transport-injected Cyphal node shell
+│   ├── cyphal_interface.hpp      # Register names + subject port IDs + command codes
+│   ├── node.hpp                  # Node services: heartbeat, GetInfo, registers, commands, PnP, log
 │   ├── node_identity.hpp         # Node name + hw/sw version
-│   └── transport.hpp             # UDP/CAN/test transport contract
+│   ├── register_value.hpp        # uavcan.register.Value helpers, register provider boundary
+│   └── transport.hpp             # Transfer-level transport contract (CAN, later UDP, tests)
 ├── settings/
 │   ├── nvm_settings.hpp          # Typed aggregate of NVM-backed parameters
 │   ├── settings_registers.hpp    # Register table + byte encoding of one register value
@@ -134,7 +136,7 @@ contexts are (details in [`docs/hotpath_plan.md`](docs/hotpath_plan.md)):
 | Sample ISR (ADC end of injected sequence, every half PWM period, 64 kHz) | Raw current copy, overcurrent check on raw counts | Zero-latency IRQ |
 | Control cycle (every fourth sample, 16 kHz) | FOC hot path: mean current, Park, PI once, four duty entries (inverse Park, HFI step, SVM), entry 0 into the CCR preload, entries 1 to 3 by DMA | Zero-latency IRQ |
 | Observer (after each control cycle, 16 kHz) | Flux observer, Kalman, HFI, angles of the next cycle (`SlowUpdate`) | Software-pended normal-priority IRQ |
-| Zephyr threads | Speed and position control (about 2 kHz, planned), logging, shell, USB console, Cyphal, settings, startup sequencing | Normal scheduling |
+| Zephyr threads | Speed and position control (about 2 kHz, planned), logging (RTT), the Cyphal node, settings, startup sequencing | Normal scheduling |
 
 Zero-latency handlers may not call kernel APIs, log, or lock.  The
 hardware-specific parts are selected by the board and Kconfig, not by
@@ -144,151 +146,135 @@ hardware-specific parts are selected by the board and Kconfig, not by
 
 ## Cyphal (UAVCAN v1) Interface
 
-UNIMOC exposes its complete configuration and runtime control via
-[Cyphal](https://opencyphal.org/) (UAVCAN v1).  No physical access to the
-hardware is required after initial deployment.
+UNIMOC is configured, commanded and traced over
+[Cyphal](https://opencyphal.org/) v1.0 on CAN FD.  The same node code runs on
+the battery case controller (FDCAN3) and on `native_sim`; only the CAN
+interfaces and the simulation registers are platform specific.
 
-> **Status:** the Cyphal stack is not integrated in the Zephyr build yet.  The
-> repository has the identifiers, the register and subject names, and the
-> heartbeat serialization.  DSDL, the register service, plug-and-play, and
-> the CAN-FD and UDP transports are planned (`docs/zephyr_port_plan.md`,
-> Phases 5 and 6).  The sections below describe the target interface.
+> **Status:** integrated and tested on `native_sim` (ztest scenarios
+> `unimoc.lib.cyphal` and `unimoc.sim.cyphal_drive`, and by hand with yakut).
+> The BCC builds with the node on FDCAN3 but has not run on the board; its
+> SN65HVD230 is a classic CAN transceiver, so CAN FD frames run at 1 Mbit/s
+> without bit rate switch (`boards/unimoc/bcc/bcc.dts`).  Not implemented
+> yet: firmware update over Cyphal, the speed and position setpoints, the
+> startup FSM registers (`unimoc.startup.*`) and the cymon traces.
 
-### Node ID and Plug-and-Play
+### Stack
 
-If the `uavcan.node.id` register is **0** (the factory default for a blank
-device) the firmware automatically initiates the Cyphal plug-and-play
-node-ID allocation protocol
-(`uavcan.pnp.NodeIDAllocationData.2`).  Once an ID is granted by the
-allocator it is written back to `uavcan.node.id` and persisted to NVM so that
-the same ID is reused on every subsequent reset.
-
-Set a fixed node ID by writing the register:
-```
-uavcan.node.id = <1..127>
-```
-
-### Node Identity
-
-Each drive has a human-readable identity string (up to 50 UTF-8 bytes) that
-is returned in `uavcan.node.GetInfo` responses and stored in NVM.
-
-Set the node name via Cyphal:
-```
-uavcan.node.description = "unimoc.propulsion.left"
-```
-
-The `NodeIdentity` struct carries hardware and software version numbers
-(read-only). The 16-byte MCU unique-ID used during PnP allocation is read
-directly from hardware at runtime.
-
-### Settings via Registers
-
-Every parameter in `NvmSettings` is accessible as a named Cyphal register
-(`uavcan.register.Access` service, `uavcan.register.List` enumeration), so all
-in-RAM configuration values are traceable with tools like **Cymon**.
-Writing a register updates the in-RAM value and schedules an NVM flush.
-
-Full register name table (`lib/cyphal/cyphal_interface.hpp`):
-
-| Register | Type | Description |
+| Layer | Where | Content |
 |---|---|---|
-| `uavcan.node.id` | `uavcan.primitive.scalar.Natural16.1.0` | Node ID (0 = PnP) |
-| `uavcan.node.description` | `uavcan.primitive.String.1.0` | Human-readable node name |
-| `unimoc.motor.type` | `uavcan.primitive.scalar.Natural8.1.0` | 0=PMSM, 1=ASM, 2=EESM |
-| `unimoc.motor.pole_pairs` | `uavcan.primitive.scalar.Natural8.1.0` | Motor pole-pair count |
-| `unimoc.control.mode` | `uavcan.primitive.scalar.Natural8.1.0` | Boot control mode (0=TORQUE, 1=SPEED, 2=POSITION) |
-| `unimoc.motor.stator.R` | `uavcan.primitive.scalar.Real32.1.0` | Stator resistance [Ω] |
-| `unimoc.motor.stator.L` | `uavcan.primitive.scalar.Real32.1.0` | Stator inductance [H] |
-| `unimoc.motor.pmsm.flux_pm` | `uavcan.primitive.scalar.Real32.1.0` | PM flux linkage ψ_PM [Wb] |
-| `unimoc.motor.pmsm.L_d` | `uavcan.primitive.scalar.Real32.1.0` | d-axis inductance [H] |
-| `unimoc.motor.pmsm.L_q` | `uavcan.primitive.scalar.Real32.1.0` | q-axis inductance [H] |
-| `unimoc.motor.asm.R_r` | `uavcan.primitive.scalar.Real32.1.0` | ASM rotor resistance [Ω] |
-| `unimoc.motor.asm.R_s` | `uavcan.primitive.scalar.Real32.1.0` | ASM stator resistance [Ω] |
-| `unimoc.motor.asm.L_s` | `uavcan.primitive.scalar.Real32.1.0` | ASM stator inductance [H] |
-| `unimoc.motor.asm.L_r` | `uavcan.primitive.scalar.Real32.1.0` | ASM rotor inductance [H] |
-| `unimoc.motor.asm.L_m` | `uavcan.primitive.scalar.Real32.1.0` | ASM mutual inductance [H] |
-| `unimoc.observer.mech.g_i` | `uavcan.primitive.scalar.Real32.1.0` | Back-EMF observer current gain [1/s] |
-| `unimoc.observer.mech.g_e` | `uavcan.primitive.scalar.Real32.1.0` | Back-EMF observer EMF gain [V/(A·s)] |
-| `unimoc.observer.mech.pll_kp` | `uavcan.primitive.scalar.Real32.1.0` | PLL proportional gain |
-| `unimoc.observer.mech.pll_ki` | `uavcan.primitive.scalar.Real32.1.0` | PLL integral gain |
-| `unimoc.observer.asm_flux.g_i` | `uavcan.primitive.scalar.Real32.1.0` | ASM flux observer current gain [1/s] |
-| `unimoc.observer.asm_flux.g_flux` | `uavcan.primitive.scalar.Real32.1.0` | ASM flux observer flux gain [Wb/(A·s)] |
-| `unimoc.control.asm_flux.kp` | `uavcan.primitive.scalar.Real32.1.0` | ASM flux PI proportional gain [A/Wb] |
-| `unimoc.control.asm_flux.ki` | `uavcan.primitive.scalar.Real32.1.0` | ASM flux PI integral gain [A/(Wb·s)] |
-| `unimoc.control.asm_flux.i_d_min` | `uavcan.primitive.scalar.Real32.1.0` | ASM flux min d-axis current [A] |
-| `unimoc.control.asm_flux.i_d_max` | `uavcan.primitive.scalar.Real32.1.0` | ASM flux max d-axis current [A] |
-| `unimoc.control.fw.v_max` | `uavcan.primitive.scalar.Real32.1.0` | Field-weakening voltage limit (normalised) |
-| `unimoc.control.fw.ki` | `uavcan.primitive.scalar.Real32.1.0` | Field-weakening integrator gain [A/(V·s)] |
-| `unimoc.control.fw.i_d_min` | `uavcan.primitive.scalar.Real32.1.0` | Field-weakening min i_d [A] |
-| `unimoc.control.svm.duty_min` | `uavcan.primitive.scalar.Real32.1.0` | SVM minimum duty cycle |
-| `unimoc.control.svm.duty_max` | `uavcan.primitive.scalar.Real32.1.0` | SVM maximum duty cycle |
-| `unimoc.control.dtc.dead_time` | `uavcan.primitive.scalar.Real32.1.0` | Dead time [s] |
-| `unimoc.control.dtc.f_pwm` | `uavcan.primitive.scalar.Real32.1.0` | PWM frequency [Hz] |
-| `unimoc.control.dtc.i_threshold` | `uavcan.primitive.scalar.Real32.1.0` | Dead-time zero-crossing threshold [A] |
-| `unimoc.observer.hfi.v_inject` | `uavcan.primitive.scalar.Real32.1.0` | HFI injection voltage [V] |
-| `unimoc.observer.hfi.error_gain` | `uavcan.primitive.scalar.Real32.1.0` | HFI current-error to angle gain [rad/A] |
-| `unimoc.control.excitation.mode` | `uavcan.primitive.scalar.Natural8.1.0` | EESM excitation mode (0=current, 1=flux) |
-| `unimoc.control.excitation.L_m` | `uavcan.primitive.scalar.Real32.1.0` | EESM mutual inductance [H] |
-| `unimoc.control.excitation.kp` | `uavcan.primitive.scalar.Real32.1.0` | Excitation PI proportional gain [V/A] |
-| `unimoc.control.excitation.ki` | `uavcan.primitive.scalar.Real32.1.0` | Excitation PI integral gain [V/(A·s)] |
-| `unimoc.control.excitation.i_f_min` | `uavcan.primitive.scalar.Real32.1.0` | Min excitation current [A] |
-| `unimoc.control.excitation.i_f_max` | `uavcan.primitive.scalar.Real32.1.0` | Max excitation current [A] |
-| `unimoc.observer.excitation.tau` | `uavcan.primitive.scalar.Real32.1.0` | Excitation observer LPF time constant [s] |
-| `unimoc.observer.excitation.L_m` | `uavcan.primitive.scalar.Real32.1.0` | Excitation observer L_m [H] |
-| `unimoc.control.pos.kp` | `uavcan.primitive.scalar.Real32.1.0` | Position loop P gain [rad/s per rad] |
-| `unimoc.control.pos.kp_speed` | `uavcan.primitive.scalar.Real32.1.0` | Speed loop P gain |
-| `unimoc.control.pos.ki_speed` | `uavcan.primitive.scalar.Real32.1.0` | Speed loop I gain |
-| `unimoc.control.pos.speed_limit` | `uavcan.primitive.scalar.Real32.1.0` | Max velocity [rad/s] |
-| `unimoc.control.pos.accel_limit` | `uavcan.primitive.scalar.Real32.1.0` | Max acceleration [rad/s²] |
-| `unimoc.control.pos.position_tolerance` | `uavcan.primitive.scalar.Real32.1.0` | In-position threshold [rad] |
-| `unimoc.control.pos.speed_tolerance` | `uavcan.primitive.scalar.Real32.1.0` | In-position speed threshold [rad/s] |
-| `unimoc.control.pos.homing_speed` | `uavcan.primitive.scalar.Real32.1.0` | Homing search velocity [rad/s] |
-| `unimoc.startup.run` | `uavcan.primitive.scalar.Natural8.1.0` | Write `1` to start startup FSM, `0` to abort |
-| `unimoc.startup.step` | `uavcan.primitive.scalar.Natural8.1.0` | Write `1` to advance to the next step |
-| `unimoc.startup.ext_current_A` | `uavcan.primitive.scalar.Real32.1.0` | External clamp-meter reading [A] for current-sense calibration |
-| `unimoc.startup.ext_vdc_V` | `uavcan.primitive.scalar.Real32.1.0` | External voltmeter reading [V] for V_dc calibration |
-| `unimoc.startup.results` | `uavcan.primitive.scalar.Natural8[]` | Read-back: pass/fail per FSM step (1=pass, 0=fail/pending) |
-| `unimoc.startup.gain_a` | `uavcan.primitive.scalar.Real32.1.0` | Phase-A current-sense gain correction (written at DONE) |
-| `unimoc.startup.gain_b` | `uavcan.primitive.scalar.Real32.1.0` | Phase-B current-sense gain correction (written at DONE) |
-| `unimoc.startup.gain_vdc` | `uavcan.primitive.scalar.Real32.1.0` | V_dc ADC gain correction (written at DONE) |
-| `unimoc.startup.adc_offset_a` | `uavcan.primitive.scalar.Real32.1.0` | Phase-A current-sense zero offset [A] (written at DONE) |
-| `unimoc.startup.adc_offset_b` | `uavcan.primitive.scalar.Real32.1.0` | Phase-B current-sense zero offset [A] (written at DONE) |
+| DSDL | `dsdl/unimoc/` + OpenCyphal public types | Vendor types `unimoc.drive.CurrentSetpoint.0.1`, `unimoc.drive.Telemetry.0.1`, `unimoc.sim.Plant.0.1`; Nunavut generates the C serialization at configure time |
+| Transport | `lib/cyphal/canard_transport.*` | libcanard 4.0 with an O1Heap arena, one TX queue per CAN interface (redundant interfaces, mixed MTU) |
+| Node | `lib/cyphal/node.*` | Heartbeat, `uavcan.node.port.List`, GetInfo, `uavcan.register.List/Access`, ExecuteCommand, plug-and-play (`uavcan.pnp.NodeIDAllocationData.1.0`), `uavcan.diagnostic.Record` |
+| Drive application | `src/drive/` | Settings registers, arming, setpoints, telemetry, commands |
+| Zephyr glue | `hardware/zephyr_common/` | Cyphal thread, CAN interface on the chosen `zephyr,canbus`, log backend to `uavcan.diagnostic.Record` |
+| Platform | `hardware/zephyr_bcc/`, `hardware/zephyr_sim/` | BCC: transceiver pin. Sim: slcan pseudo terminals, plant registers and plant trace |
 
-### Setpoints via Subjects
+libcanard, O1Heap and the public regulated data types are pinned in
+`west.yml`; Nunavut is a Python requirement
+(`pip install -r unimoc/scripts/requirements-cyphal.txt`).
 
-Runtime setpoints are **ephemeral** (not stored in NVM) and arrive via Cyphal
-publisher subjects each control cycle.  The active control mode determines
-which subjects are acted on. For UDRAL servo setpoints
-(`reg.udral.service.actuator.servo/_.0.1` + `reg.udral.physics.dynamics.rotation.Planar.0.1`),
-mode switching follows setpoint precedence: first finite kinematics field
-(`position` then `velocity`) selects the mode, otherwise finite `torque`
-falls back to torque mode.
+### Node ID, identity and plug-and-play
 
-| Subject | Default port ID | Direction | Description |
+`uavcan.node.id` is 0 on a fresh BCC: the node then requests an ID with
+`uavcan.pnp.NodeIDAllocationData.1.0` (an allocator such as
+`yakut monitor --plug-and-play <db>` answers) and stores the allocated ID.
+The simulation starts with node-ID 10 (`--node-id=<n>` overrides it per
+process).  GetInfo reports the name from `uavcan.node.description`, the
+hardware version of the platform, the software version from `app/VERSION`, the
+git hash as `software_vcs_revision_id` and the hwinfo device ID as unique-ID
+(also the register `uavcan.node.unique_id`).  A changed node-ID or port-ID
+takes effect after a restart.
+
+### Settings via registers
+
+Every persistent setting (`ForEachRegister()` in
+`lib/settings/settings_registers.hpp`, 77 registers) is a Cyphal register
+under the same name; `yakut rl <node>` lists them.  Units and floats are
+`real32[1]`, counts and enums `natural8[1]`, `uavcan.node.id` and the port-IDs
+`natural16[1]`, the name a string; writes accept any numeric type.  A write is
+validated against the hardware capabilities and changes the RAM settings
+only; a rejected write answers with the unchanged value.  The drive applies
+new settings to the controller while it is disengaged (at the latest when it
+engages).  `ExecuteCommand STORE_PERSISTENT_STATES` (65530) saves them to
+flash, refused (`BAD_STATE`) while the power stage is enabled.
+
+### Ports of the drive
+
+| Register | Default | Type | Function |
 |---|---|---|---|
-| `torque_sp` | 100 | → (subscribe) | Torque / q-axis current setpoint |
-| `speed_sp` | 101 | → (subscribe) | Speed setpoint [rad/s] |
-| `position_sp` | 102 | → (subscribe) | Position setpoint [rad] (requires homing) |
-| `control_mode` | 103 | → (subscribe) | Legacy explicit mode override (0/1/2) |
-| `excitation_sp` | 104 | → (subscribe) | EESM excitation setpoint (A or Wb) |
-| `homing_trigger` | 105 | → (subscribe) | Any message starts homing sequence |
+| `uavcan.sub.readiness.id` | 106 | `reg.udral.service.common.Readiness.0.1` | `ENGAGED` (3) releases the power stage, `SLEEP`/`STANDBY` disable it |
+| `uavcan.sub.current_setpoint.id` | 107 | `unimoc.drive.CurrentSetpoint.0.1` | d/q current setpoint [A] |
+| `uavcan.sub.torque_setpoint.id` | 100 | `uavcan.si.unit.torque.Scalar.1.0` | Torque [N m], converted to i_q with 3/2 p ψ_PM |
+| `uavcan.pub.telemetry.id` | 212 | `unimoc.drive.Telemetry.0.1` | Current controller trace at `unimoc.telemetry.rate` (20 Hz) |
+| `uavcan.pub.sim_plant.id` (sim only) | 213 | `unimoc.sim.Plant.0.1` | Plant truth: phase currents, shaft angle and speed, torque, Hall code |
 
-Port IDs are reconfigurable via `uavcan.sub.<name>.id` registers.
-All input/output subjects can be inspected live in Cymon.
+Each port has a read-only `.type` register.  Readiness and setpoints must be
+refreshed within `unimoc.control.command_timeout` (0.5 s): a missing
+readiness disengages the drive, a missing setpoint falls back to zero
+current.  The current vector is limited to `unimoc.motor.limits.i_max`.  An
+overcurrent trip or a power stage fault while engaged disengages the drive;
+it engages again only after a readiness other than `ENGAGED` (re-arm).
 
-### Telemetry Subjects
+### Commands (uavcan.node.ExecuteCommand)
 
-| Subject | Default port ID | Direction | Description |
-|---|---|---|---|
-| `rotor_angle` | 200 | ← (publish) | Estimated electrical angle [rad] |
-| `rotor_speed` | 201 | ← (publish) | Estimated electrical angular velocity [rad/s] |
-| `shaft_position` | 202 | ← (publish) | Absolute shaft position referenced to home [rad] |
-| `in_position` | 203 | ← (publish) | In-position flag |
-| `homing_state` | 204 | ← (publish) | Homing FSM state (0–4) |
-| `dc_voltage` | 205 | ← (publish) | DC-link voltage [V] |
-| `phase_current` | 206 | ← (publish) | Phase current magnitude [A] |
-| `excitation_current` | 207 | ← (publish) | EESM rotor excitation current î_f [A] |
+| Command | Effect |
+|---|---|
+| 65535 RESTART | Disengages and restarts (the simulation re-executes itself) |
+| 65532 FACTORY_RESET | Factory settings in RAM and flash; refused while engaged |
+| 65531 EMERGENCY_STOP | Disengages; engaging is refused until a restart |
+| 65530 STORE_PERSISTENT_STATES | Saves the RAM settings to flash; refused while engaged |
+
+### Logging
+
+The bench log of the BCC goes to SEGGER RTT; USB and the shell are not used.
+Every Zephyr log line up to `CONFIG_UNIMOC_CYPHAL_LOG_LEVEL` (info) and the
+drive events (engaged, disengaged and why) are also published as
+`uavcan.diagnostic.Record`.
+
+### Simulation over Cyphal
+
+The simulation (`native_sim`) runs in real time with the PMSM plant and has
+two kinds of CAN interfaces:
+
+- **SocketCAN `vcan0`** (CAN FD), the same Zephyr CAN driver path as the
+  board.  Needs the `vcan` kernel module; `--can-if=<name>` selects another
+  interface.
+- **slcan pseudo terminals** (classic CAN), for hosts without `vcan` (WSL2
+  kernels without CAN): `uart_1` to `uart_4`, one tool process each; the
+  terminals form one bus.
+
+```sh
+pip install -r unimoc/scripts/requirements-cyphal-tools.txt   # yakut, python-can
+west build -b native_sim/native/64 unimoc/app -d unimoc/app/build/sim
+
+# with vcan (once, as root): modprobe vcan; ip link add vcan0 type vcan;
+#                            ip link set vcan0 mtu 72 up
+unimoc/app/build/sim/zephyr/zephyr.exe        # prints "uart_1 connected to pseudotty: /dev/pts/N"
+
+. unimoc/scripts/sim_yakut_env.sh             # vcan0, or: . unimoc/scripts/sim_yakut_env.sh /dev/pts/N
+yakut call 10 uavcan.node.getinfo
+yakut rl 10                                   # all registers
+yakut reg 10 unimoc.sim.shaft_mode 1          # imposed speed (0 rad/s: locked rotor)
+yakut pub --period 0.05 106:reg.udral.service.common.Readiness '{value: 3}' \
+              107:unimoc.drive.CurrentSetpoint '{i_d: 0, i_q: 5}'    # second terminal
+yakut sub 212:unimoc.drive.Telemetry 213:unimoc.sim.Plant           # third terminal
+yakut sub uavcan.diagnostic.Record
+yakut cmd 10 65530                            # store the settings (flash.bin in the working directory)
+```
+
+With slcan, each yakut process needs its own terminal (`/dev/pts/N`,
+`N+1`, ...); the terminal numbers can change when the simulation restarts.
+Simulation registers (volatile): `unimoc.sim.shaft_mode` (0 free, 1 imposed
+speed), `unimoc.sim.imposed_speed` [rad/s], `unimoc.sim.load_torque` [N m],
+`unimoc.sim.dc_link_voltage` [V], `unimoc.sim.external_enable`, and
+`unimoc.sim.plant_follows_settings` (the plant takes the motor parameters of
+the settings when they are applied).
+
+The rotor angle of the controller comes from its observer only (the Hall
+fusion is milestone M5/M6 of `docs/hotpath_plan.md`); at standstill the
+estimate drifts, so the current loop is meaningful in the controller frame
+(telemetry), not yet as a torque on the simulated shaft.
 
 ---
 
@@ -353,11 +339,10 @@ to raise those capabilities.
 
 ## Hardware Bring-Up Guide
 
-> **Status:** not runnable yet.  The procedure needs the Cyphal registers, which
-> are not integrated in the Zephyr build yet (`docs/zephyr_port_plan.md`).  The
-> steps below describe the target behavior.  Log lines go to the Zephyr log, on
-> the USB CDC-ACM console of the BCC (debug connector J42; built, enumeration not
-> yet checked on the board) and on SEGGER RTT.
+> **Status:** not runnable yet.  The Cyphal node runs, but the startup FSM is
+> not connected to it: the `unimoc.startup.*` registers below do not exist yet
+> (`TODO.md`).  The steps describe the target behavior.  Log lines go to the
+> Zephyr log on SEGGER RTT and as `uavcan.diagnostic.Record` on the bus.
 
 `HwStartup` is a step-by-step bring-up wizard for commissioning a new UNIMOC
 board.  It verifies the ADC signal chain, gate drivers, and DC-link voltage

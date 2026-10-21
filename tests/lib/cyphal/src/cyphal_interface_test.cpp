@@ -220,6 +220,16 @@ ZTEST(cyphal_interface, test_param_flags_are_distinct_bits) {
 
 ZTEST(cyphal_interface, test_status_success) { zexpect_equal(cmd::kStatusSuccess, 0U); }
 
+// Values of uavcan.node.ExecuteCommand.1.3 Response.STATUS_*.
+ZTEST(cyphal_interface, test_status_codes_match_the_specification) {
+  zexpect_equal(cmd::kStatusFailure, 1U);
+  zexpect_equal(cmd::kStatusNotAuthorized, 2U);
+  zexpect_equal(cmd::kStatusBadCommand, 3U);
+  zexpect_equal(cmd::kStatusBadParameter, 4U);
+  zexpect_equal(cmd::kStatusBadState, 5U);
+  zexpect_equal(cmd::kStatusInternalError, 6U);
+}
+
 ZTEST(cyphal_interface, test_status_codes_unique) {
   const std::array<uint8_t, 6> kStatuses = {
       cmd::kStatusSuccess,

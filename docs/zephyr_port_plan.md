@@ -1,16 +1,18 @@
 # Zephyr Port Plan
 
-Status (2026-10-19): direction accepted. The Zephyr application (`app/`),
+Status (2026-10-21): direction accepted. The Zephyr application (`app/`),
 the `native_sim` platform and the BCC platform code exist (see
-`docs/zephyr_workflow.md`). The Cyphal stack does not exist yet; the
-flash settings backend and the BCC USB CDC-ACM console are built but not run on
-the board. The phase order below is the plan.
+`docs/zephyr_workflow.md`). The Cyphal/CAN node (Phase 5) runs on
+`native_sim` and is built for the BCC; the flash settings backend and FDCAN3
+are built but not run on the board. USB and the shell were dropped: the bench
+log is on RTT and on the bus. The phase order below is the plan.
 
 ## Goals
 
-- Zephyr is the primary OS. Logging, shell, USB, Cyphal, settings and startup
-  run in Zephyr threads: logging and shell over USB, Cyphal over CAN-FD
-  (battery case controller and the cart, `docs/system_plan.md`).
+- Zephyr is the primary OS. Logging, Cyphal, settings and startup run in
+  Zephyr threads: Cyphal over CAN-FD is the operating interface (battery case
+  controller, the cart and the simulation, `docs/system_plan.md`), the log
+  goes to RTT and as `uavcan.diagnostic.Record` on the bus.
 - Only the FOC hot path runs in zero-latency IRQs: the sample ISR and the
   control cycle it runs every fourth sample. The observer runs in a
   software-pended normal-priority interrupt. Nothing else runs at zero latency.
@@ -29,7 +31,8 @@ the board. The phase order below is the plan.
 | Legacy firmware | Removed: the modm firmware, `cmake/Modm.cmake`, `cmake/ToolChain.cmake`, `requirements.txt` and `.github/workflows/ci-firmware.yml` were deleted in `6ca28d1`. The last legacy release stays on `main` until `develop` is merged there. |
 | Repository layout | Same repository. Zephyr application in `app/`, `lib/` consumed via `add_subdirectory`. |
 | Language standard | C++20 (`CONFIG_STD_CPP20`). `AGENTS.md`, `README.md` and the root `CMakeLists.txt` say C++20. |
-| Runtime scope | Zephyr is the primary OS. Only the FOC hot path runs at zero latency. Logging, shell, USB, Cyphal, settings and startup run in threads. |
+| Runtime scope | Zephyr is the primary OS. Only the FOC hot path runs at zero latency. Logging, Cyphal, settings and startup run in threads. |
+| Operating interface | Cyphal/CAN-FD only (decided 2026-10-21). No shell, no USB console: registers, commands and telemetry over Cyphal, the bench log on RTT. USB comes back for DFU recovery. |
 | Hot-path layout | Decided: 32 kHz PWM, 16 kHz control cycle inside every fourth sample ISR, duty entry 0 into the CCR preload and entries 1 to 3 by DMA, observer in a software-pended normal-priority interrupt (`docs/hotpath_plan.md`). |
 
 ## Review Findings Driving the Plan
@@ -46,7 +49,8 @@ the board. The phase order below is the plan.
    `volatile bool`. `OnControlCycle()` only calls hardware callbacks, which
    fits a zero-latency IRQ, but those callbacks must not log or call kernel APIs.
 5. Cyphal: only identifiers, heartbeat serialization and the `Transport`
-   interface exist. DSDL, register service, PnP and GetInfo are missing.
+   interface existed. Resolved in Phase 5 (the old heartbeat serializer
+   packed health and mode into one byte and was removed).
 6. `lib/cymon` (own library, C++17, no canard dependency) is an uninitialised
    submodule; `add_subdirectory(cymon)` fails without it.
 7. Small items: `option(HARDWARE_DIRECTORY ...)` misuse, platform-dependent
@@ -69,16 +73,19 @@ the board. The phase order below is the plan.
   plant from `docs/software_in_loop_plan.md`.
 - Fast loop driven from virtual time, not from a real interrupt.
 - Settings via flash simulator (replaces the environment-variable file).
-- Log and shell on UART (PTY or stdin/stdout) via devicetree `chosen` nodes, so
-  application code is identical on target and simulation.
+- Log on the console (stdout); Cyphal on SocketCAN and slcan pseudo
+  terminals (Phase 5), so application code is identical on target and
+  simulation.
 - Default `native_sim` is 32-bit (needs multilib); `native_sim/native/64` is the
   fallback.
 
 ### Phase 3 - High-level services
 - `HardwareSystemInterface::Log` maps to Zephyr logging.
-- Shell commands: settings, startup FSM, status, cymon control.
+- ~~Shell commands~~: dropped (2026-10-21); settings, status and commands
+  are Cyphal registers and ExecuteCommand. Startup FSM and cymon follow over
+  Cyphal.
 - `SettingsStorage` key/value callbacks map to the Zephyr settings subsystem on ZMS (`docs/settings_plan.md`, implemented).
-- Threads: Cyphal, shell, logging, settings, later the 2 kHz control thread.
+- Threads: Cyphal, logging, settings, later the 2 kHz control thread.
   No `main()` wait loop. The observer stays in its pended interrupt.
 
 ### Phase 4 - STM32G473 target
@@ -87,17 +94,27 @@ the board. The phase order below is the plan.
   with `IRQ_ZERO_LATENCY`. Spike required: the Zephyr ADC API is unlikely to
   cover injected conversions.
 - Zero-latency IRQ rules: no kernel calls, no logging, no locks in the ISR path.
-- Logging and shell over USB CDC-ACM using the current USB device stack.
-  RTT stays optional.
+- Logging over SEGGER RTT. ~~USB CDC-ACM console~~ dropped; USB returns
+  for DFU recovery.
 
-### Phase 5 - Cyphal over CAN-FD
-- libcanard 4.x (supports CAN FD; needs a constant-time allocator such as
-  O1Heap) plus Nunavut-generated DSDL.
-- `CanardTransport : cyphal::Transport` on the Zephyr CAN API.
-- Node-ID/PnP, register service to `SettingsStore`, heartbeat, GetInfo.
-- cymon traces over Cyphal services; `Tick()` from a timer or task.
-- native_sim: SocketCAN snippet (`socketcan-native-sim`) with `vcan0`; CAN FD
-  needs a larger MTU on the vcan interface.
+### Phase 5 - Cyphal over CAN-FD (implemented on native_sim, built for the BCC)
+- Done: libcanard 4.0 with O1Heap, Nunavut 2.3 C serialization generated at
+  configure time (`lib/cyphal/CMakeLists.txt`), all pinned in `west.yml` and
+  `scripts/requirements-cyphal.txt`.
+- Done: `CanardTransport : cyphal::Transport` over `cyphal::CanMedia`; the
+  Zephyr CAN API media (`hardware/zephyr_common/zephyr_can_media.cpp`) serves
+  the BCC (FDCAN3) and native_sim (SocketCAN `vcan0`). Redundant interfaces
+  with their own MTU.
+- Done: heartbeat, port list, GetInfo, register List/Access on
+  `SettingsStore` (all 77 persistent registers), ExecuteCommand (restart,
+  store, factory reset, emergency stop), PnP v1, `uavcan.diagnostic.Record`
+  with a Zephyr log backend; drive application in `src/drive/` (readiness,
+  current and torque setpoints, telemetry).
+- Done: native_sim without `vcan`: slcan on four pseudo terminals
+  (`hardware/zephyr_sim/slcan_media.cpp`), checked with yakut 0.14.
+- Open: cymon traces over Cyphal; firmware update (file service into bank
+  2); speed and position setpoints (need the control thread, M7); the startup
+  FSM registers; the board run (transceiver, bit timing).
 
 ### Phase 6 - Cyphal/UDP (simulation fallback only)
 - The cart uses Cyphal/CAN-FD and an STM32G4 logic board; an STM32H7 with
@@ -116,10 +133,10 @@ the board. The phase order below is the plan.
 
 ## Risks and Open Points
 
-- native_sim is Linux only. Whether the default WSL2 kernel provides `vcan` and
-  USB/IP modules is unverified. Default path: UART PTY for the console and
-  `vcan` for Cyphal/CAN-FD; Cyphal/UDP over TAP if `vcan` is missing; USB as
-  an optional extra.
+- native_sim is Linux only. Whether the default WSL2 kernel provides `vcan` is
+  unverified. Default path: `vcan` for Cyphal/CAN-FD; without it the slcan
+  pseudo terminals of the simulation (classic CAN, no kernel module).
+  Cyphal/UDP over TAP is no longer needed for a single node.
 - C++20 with `std::atomic` and `<span>` under Zephyr's C++ library settings
   needs a short spike.
 - ZLI constraints on the callbacks behind `HardwareInterface`.

@@ -47,6 +47,87 @@ config UNIMOC_SETTINGS_ZMS
 	  zephyr_settings_storage.cpp). Needs the 'storage_partition' of the
 	  board devicetree; native_sim uses its flash simulator.
 
+config UNIMOC_CYPHAL
+	bool "Cyphal/CAN node of the drive"
+	depends on UNIMOC_PLATFORM_BCC || UNIMOC_PLATFORM_SIM
+	select CAN
+	select HWINFO
+	select REBOOT
+	help
+	  Runs the Cyphal node of the drive in a Zephyr thread
+	  (hardware/zephyr_common/cyphal_runtime.cpp): heartbeat, GetInfo,
+	  registers on the settings store, ExecuteCommand, plug-and-play,
+	  readiness and setpoints, telemetry and the log as
+	  uavcan.diagnostic.Record. The CAN interface is the chosen
+	  zephyr,canbus; native_sim adds a serial-line CAN interface.
+
+if UNIMOC_CYPHAL
+
+config UNIMOC_CYPHAL_CAN_FD
+	bool "Use CAN FD frames"
+	default y
+	select CAN_FD_MODE
+	help
+	  Sends Cyphal/CAN with 64 byte CAN FD frames when the controller
+	  supports it, otherwise classic 8 byte frames.
+
+config UNIMOC_CYPHAL_CAN_BRS
+	bool "Bit rate switch in CAN FD frames"
+	default y
+	depends on UNIMOC_CYPHAL_CAN_FD
+	help
+	  Sets BRS in sent CAN FD frames: the data phase uses the data bit
+	  rate of the controller (bitrate-data in the devicetree). Without a
+	  higher data bit rate it has no effect.
+
+config UNIMOC_CYPHAL_THREAD_PRIORITY
+	int "Priority of the Cyphal thread"
+	default 5
+
+config UNIMOC_CYPHAL_THREAD_STACK_SIZE
+	int "Stack size of the Cyphal thread"
+	default 8192
+
+config UNIMOC_CYPHAL_ARENA_SIZE
+	int "Memory arena of libcanard [bytes]"
+	default 24576
+	help
+	  O1Heap arena for the TX queues, the RX sessions and multi-frame
+	  transfers.
+
+config UNIMOC_CYPHAL_LOG_BACKEND
+	bool "Log as uavcan.diagnostic.Record"
+	default y
+	depends on LOG
+	help
+	  A Zephyr log backend hands the log lines to the Cyphal thread,
+	  which publishes them on the bus.
+
+config UNIMOC_CYPHAL_LOG_LEVEL
+	int "Highest log level sent over Cyphal"
+	default 3
+	range 1 4
+	depends on UNIMOC_CYPHAL_LOG_BACKEND
+	help
+	  1 error, 2 warning, 3 info, 4 debug.
+
+config UNIMOC_CYPHAL_SLCAN
+	bool "Serial-line CAN interface on pseudo terminals (native_sim)"
+	default y
+	depends on UNIMOC_PLATFORM_SIM
+	select SERIAL
+	select UART_INTERRUPT_DRIVEN
+	help
+	  A second CAN interface of the simulated drive in the Lawicel
+	  (slcan) ASCII protocol on the pseudo terminals listed in the
+	  slcan-uarts property of zephyr,user, with classic 8 byte frames.
+	  One tool process per terminal; the terminals form one bus. It lets
+	  pycyphal and yakut reach the simulation without SocketCAN (WSL2
+	  kernels without vcan): UAVCAN__CAN__IFACE="slcan:/dev/pts/<n>",
+	  UAVCAN__CAN__MTU=8, UAVCAN__CAN__BITRATE="1000000 1000000".
+
+endif # UNIMOC_CYPHAL
+
 module = UNIMOC
 module-str = UNIMOC
 source "subsys/logging/Kconfig.template.log_config"

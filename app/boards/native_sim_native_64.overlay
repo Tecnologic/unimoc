@@ -1,0 +1,47 @@
+/*
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ *
+ * Cyphal interfaces of the simulated drive:
+ * - can0: SocketCAN on the host interface vcan0 (CAN FD, MTU 72), override
+ *   with --can-if=<name>. Missing on the host: the drive runs without it.
+ * - uart1 to uart4: pseudo terminals with the slcan protocol (classic CAN)
+ *   for hosts without vcan, one per tool process; they form one bus. The
+ *   boot output names them ("uart_1 connected to pseudotty: /dev/pts/N").
+ */
+
+/ {
+	chosen {
+		zephyr,canbus = &can0;
+	};
+
+	zephyr,user {
+		slcan-uarts = <&uart1 &uart2 &uart3 &uart4>;
+	};
+
+	uart2: uart_2 {
+		status = "okay";
+		compatible = "zephyr,native-pty-uart";
+		current-speed = <0>;
+	};
+
+	uart3: uart_3 {
+		status = "okay";
+		compatible = "zephyr,native-pty-uart";
+		current-speed = <0>;
+	};
+
+	uart4: uart_4 {
+		status = "okay";
+		compatible = "zephyr,native-pty-uart";
+		current-speed = <0>;
+	};
+};
+
+&can0 {
+	status = "okay";
+	host-interface = "vcan0";
+};
+
+&uart1 {
+	status = "okay";
+};

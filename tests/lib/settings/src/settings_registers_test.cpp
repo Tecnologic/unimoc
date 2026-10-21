@@ -39,7 +39,7 @@ ZTEST(settings_registers, test_every_register_has_a_unique_short_name) {
         names[count++] = name;
       },
       kSettings);
-  zexpect_equal(count, 71U);
+  zexpect_equal(count, 77U);
 }
 
 ZTEST(settings_registers, test_every_register_round_trips_and_fits_the_buffer) {
@@ -54,6 +54,8 @@ ZTEST(settings_registers, test_every_register_round_trips_and_fits_the_buffer) {
           field = field * 1.5F + 0.25F;
         } else if constexpr (std::is_same_v<Field, uint8_t>) {
           field = static_cast<uint8_t>(field + 3U);
+        } else if constexpr (std::is_same_v<Field, uint16_t>) {
+          field = static_cast<uint16_t>(field + 0x0101U);
         }
       },
       source);
@@ -72,7 +74,7 @@ ZTEST(settings_registers, test_every_register_round_trips_and_fits_the_buffer) {
       },
       source,
       decoded);
-  zexpect_equal(visited, 71U);
+  zexpect_equal(visited, 77U);
 
   ForEachRegister(
       [&](std::string_view name, const auto& expected, const auto& actual) {

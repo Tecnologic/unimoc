@@ -24,6 +24,7 @@
 		zephyr,sram = &sram0;
 		zephyr,flash = &flash0;
 		zephyr,code-partition = &slot0_partition;
+		zephyr,canbus = &fdcan3;
 	};
 
 	/* Status LEDs, anode at the MCU pin through 470 R, cathode at GND. */
@@ -166,30 +167,26 @@
 };
 
 /*
- * CAN: SN65HVD230 on FDCAN3 (PB3 RX, PB4 TX). That transceiver is a classic
- * CAN part (up to 1 Mbit/s), not a CAN FD transceiver. The controller is
- * enabled in the CAN step; it needs a PLLQ based FDCAN clock first.
+ * CAN: SN65HVD230 on FDCAN3 (PB3 RX, PB4 TX), the Cyphal/CAN interface. That
+ * transceiver is a classic CAN part (up to 1 Mbit/s), not a CAN FD
+ * transceiver: CAN FD frames run at 1 Mbit/s in both phases (no bit rate
+ * switch). The kernel clock is PCLK1 (170 MHz): 1 and 2 Mbit/s divide
+ * evenly, 4 Mbit/s does not (needs another clock with a CAN FD transceiver).
+ * The Rs pin (can-slope-gpios) is driven low by the application. Not run on
+ * the board yet.
+ *
+ * USB (PA11/PA12, debug connector J42) is not used by the firmware until the
+ * DFU recovery path exists; the bench log is on RTT.
  */
 &fdcan3 {
+	clocks = <&rcc STM32_CLOCK(APB1, 25)>,
+		 <&rcc STM32_SRC_PCLK FDCAN_SEL(2)>;
 	pinctrl-0 = <&fdcan3_rx_pb3 &fdcan3_tx_pb4>;
 	pinctrl-names = "default";
-	status = "disabled";
-};
-
-/*
- * USB full speed on PA11/PA12 (debug connector J42). The 48 MHz clock is the
- * HSI48, trimmed by the clock recovery system on the USB start of frame (the
- * 170 MHz PLL gives no 48 MHz on PLLQ; PLLQ stays free for FDCAN). The
- * application adds the CDC ACM console (app/boards/bcc.overlay).
- */
-&clk_hsi48 {
-	/* CRS on the USB SOF: hardware/zephyr_bcc/usb_clock_recovery.cpp. */
-	status = "okay";
-};
-
-zephyr_udc0: &usb {
-	pinctrl-0 = <&usb_dm_pa11 &usb_dp_pa12>;
-	pinctrl-names = "default";
+	bitrate = <1000000>;
+	sample-point = <875>;
+	bitrate-data = <1000000>;
+	sample-point-data = <875>;
 	status = "okay";
 };
 

@@ -1,0 +1,6 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Python requirements of the Cyphal stack, on top of Zephyr's requirements.
+# Build: Nunavut generates the C serialization of the DSDL types
+# (lib/cyphal/CMakeLists.txt). Pinned: the generated code depends on it.
+nunavut==2.3.1

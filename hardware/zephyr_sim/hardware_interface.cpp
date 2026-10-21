@@ -49,6 +49,9 @@ static_assert(kHalfPeriodsPerCycle == 4U, "sim::AppliedDuties() returns four ent
 
 const settings::SettingsProfile kSettingsProfile = [] {
   settings::SettingsProfile profile{};
+  // A fixed Cyphal node-ID, so tools reach a fresh simulation without a
+  // plug-and-play allocator (--node-id overrides it per process).
+  profile.factory_settings.node_id = 10U;
   profile.factory_settings.pwm_frequency = 32.0_kHz;  // 16 kHz control cycle
   // Same duty range as the BCC (sampling window and minimum pulse, see there).
   profile.factory_settings.svm_duty_min = 0.03_ratio;

@@ -27,7 +27,8 @@
  *
  *  1. **Registers** (`uavcan.register.Access` / `uavcan.register.List`)
  *     — Named key/value pairs for persistent settings.  Writing a register
- *     updates the in-RAM copy and triggers an NVM flush.
+ *     updates the in-RAM copy; ExecuteCommand STORE_PERSISTENT_STATES saves
+ *     the changed registers to flash.
  *
  *  2. **Subjects** (publisher/subscriber port IDs)
  *     — Real-time data exchange: setpoints flow *in*, status/telemetry flow
@@ -38,9 +39,9 @@
  * =========================
  * If `uavcan.node.id` register equals 0 (NVM default for a fresh device)
  * the firmware participates in the Cyphal plug-and-play node-ID allocation
- * protocol (`uavcan.pnp.NodeIDAllocationData.2`).  Once an ID is allocated
- * it is written back to `uavcan.node.id` and persisted to NVM so that the
- * same ID is used after every subsequent reset.
+ * protocol (`uavcan.pnp.NodeIDAllocationData.1.0`, the Cyphal/CAN version).
+ * Once an ID is allocated it is written back to `uavcan.node.id` and
+ * persisted to NVM so that the same ID is used after every subsequent reset.
  *
  * Node identity
  * =============
@@ -65,10 +66,13 @@
  * All settings available via Cyphal
  * ==================================
  * Every field of NvmSettings has a corresponding register entry listed in the
- * `reg` namespace below.  Writing any of those registers over Cyphal updates
- * the parameter in RAM and schedules an NVM flush.  This means the complete
- * drive configuration (motor parameters, controller gains, limits, identity)
- * is accessible and persistent without physical access to the hardware.
+ * `reg` namespace below (the table is `ForEachRegister()` in
+ * settings_registers.hpp).  Writing any of those registers over Cyphal
+ * updates the parameter in RAM; a store command persists it.  The complete
+ * drive configuration (motor parameters, controller gains, limits, identity,
+ * ports) is accessible without physical access to the hardware.  Not every
+ * name below is served yet: the `unimoc.startup.*` run/step/result
+ * registers wait for the startup FSM integration.
  */
 
 namespace unimoc::cyphal {
@@ -435,6 +439,52 @@ inline constexpr const char* kBalanceGainB = "unimoc.motor.balance.gain_b";
 /// Type: real32[1] (read/write, persistent)
 inline constexpr const char* kBalanceGainC = "unimoc.motor.balance.gain_c";
 
+// --- Cyphal ports of the drive (standard port-ID registers) ---
+//
+// Port-ID registers follow the Cyphal convention `uavcan.<pub|sub>.<name>.id`
+// (natural16[1], 65535 = disabled) with a read-only `.type` companion that
+// names the data type. A changed port-ID takes effect after a restart.
+
+/// Readiness (arming) of the drive: SLEEP/STANDBY disable, ENGAGED enables.
+/// Data type: reg.udral.service.common.Readiness.0.1
+/// Type: natural16[1] (read/write, persistent)
+inline constexpr const char* kSubReadinessId = "uavcan.sub.readiness.id";
+/// Type name of the readiness subscription. Type: string (read-only)
+inline constexpr const char* kSubReadinessType = "uavcan.sub.readiness.type";
+
+/// d/q current setpoint of the drive.
+/// Data type: unimoc.drive.CurrentSetpoint.0.1
+/// Type: natural16[1] (read/write, persistent)
+inline constexpr const char* kSubCurrentSetpointId = "uavcan.sub.current_setpoint.id";
+/// Type name of the current setpoint subscription. Type: string (read-only)
+inline constexpr const char* kSubCurrentSetpointType = "uavcan.sub.current_setpoint.type";
+
+/// Torque setpoint, converted to i_q with the PMSM torque constant.
+/// Data type: uavcan.si.unit.torque.Scalar.1.0
+/// Type: natural16[1] (read/write, persistent)
+inline constexpr const char* kSubTorqueSetpointId = "uavcan.sub.torque_setpoint.id";
+/// Type name of the torque setpoint subscription. Type: string (read-only)
+inline constexpr const char* kSubTorqueSetpointType = "uavcan.sub.torque_setpoint.type";
+
+/// Current-controller trace of the drive.
+/// Data type: unimoc.drive.Telemetry.0.1
+/// Type: natural16[1] (read/write, persistent)
+inline constexpr const char* kPubTelemetryId = "uavcan.pub.telemetry.id";
+/// Type name of the telemetry publication. Type: string (read-only)
+inline constexpr const char* kPubTelemetryType = "uavcan.pub.telemetry.type";
+
+/// Publication rate of the telemetry [Hz]; 0 stops it.
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kTelemetryRate = "unimoc.telemetry.rate";
+
+/// Time without a new readiness or setpoint message after which the drive
+/// disengages (readiness) or falls back to zero current (setpoints) [s].
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kCommandTimeout = "unimoc.control.command_timeout";
+
+/// Hardware unique-ID of the node (MCU UID). Type: unstructured (read-only)
+inline constexpr const char* kNodeUniqueId = "uavcan.node.unique_id";
+
 }  // namespace reg
 
 // ============================================================================
@@ -456,9 +506,9 @@ inline constexpr uint16_t kUnsetPortId = 0xFFFFU;
 /// @defgroup sub_ports Subscriber (input) subjects — setpoints received by UNIMOC
 /// @{
 
-/// Torque (q-axis current) setpoint [A·m or normalised, depends on scale].
-/// Data type: uavcan.si.unit.torque.Scalar.1.0 or reg.udral.physics.dynamics.rotation.PlanarTs
-/// Register: `uavcan.sub.torque_sp.id`
+/// Torque setpoint [N m]; the drive converts it to i_q (PMSM torque constant).
+/// Data type: uavcan.si.unit.torque.Scalar.1.0
+/// Register: `uavcan.sub.torque_setpoint.id`
 inline constexpr uint16_t kSubTorqueSetpoint = 100U;
 
 /// Speed (mechanical angular velocity) setpoint [rad/s].
@@ -481,6 +531,16 @@ inline constexpr uint16_t kSubControlMode = 103U;
 /// Data type: uavcan.primitive.scalar.Real32.1.0
 /// Register: `uavcan.sub.excitation_sp.id`
 inline constexpr uint16_t kSubExcitationSetpoint = 104U;
+
+/// Readiness (arming) of the drive.
+/// Data type: reg.udral.service.common.Readiness.0.1
+/// Register: `uavcan.sub.readiness.id`
+inline constexpr uint16_t kSubReadiness = 106U;
+
+/// d/q current setpoint.
+/// Data type: unimoc.drive.CurrentSetpoint.0.1
+/// Register: `uavcan.sub.current_setpoint.id`
+inline constexpr uint16_t kSubCurrentSetpoint = 107U;
 
 /// Homing trigger: any value on this subject starts the homing sequence.
 /// Data type: uavcan.primitive.scalar.Bit.1.0
@@ -567,6 +627,16 @@ inline constexpr uint16_t kPubMeasPsi = 210U;
 /// Register: `uavcan.pub.meas_balance.id`
 inline constexpr uint16_t kPubMeasBalance = 211U;
 
+/// Current-controller trace.
+/// Data type: unimoc.drive.Telemetry.0.1
+/// Register: `uavcan.pub.telemetry.id`
+inline constexpr uint16_t kPubTelemetry = 212U;
+
+/// Plant state of the native_sim drive (simulation truth).
+/// Data type: unimoc.sim.Plant.0.1
+/// Register: `uavcan.pub.sim_plant.id` (native_sim only, not persistent)
+inline constexpr uint16_t kPubSimPlant = 213U;
+
 /// @}
 
 // ============================================================================
@@ -636,22 +706,24 @@ namespace cmd {
 /// The command was accepted and is being executed (or has completed).
 inline constexpr uint8_t kStatusSuccess = 0U;
 
-/// The command was rejected because the node is not in a state that allows
-/// the requested operation.
+/// The command could not be started or did not reach its outcome.
 inline constexpr uint8_t kStatusFailure = 1U;
 
-/// The command code is not supported by this node.
+/// The command was denied for lack of authorization.
 inline constexpr uint8_t kStatusNotAuthorized = 2U;
 
-/// The command is syntactically valid but cannot be executed in the current
-/// node state (e.g. motor still running when a calibration is requested).
-inline constexpr uint8_t kStatusBadState = 3U;
+/// The command code is unknown to or not supported by this node.
+inline constexpr uint8_t kStatusBadCommand = 3U;
 
 /// The supplied parameter is out of range or malformed.
 inline constexpr uint8_t kStatusBadParameter = 4U;
 
-/// The command code is unknown to this node.
-inline constexpr uint8_t kStatusBadCommand = 5U;
+/// The node is not in a state that allows the command (e.g. the drive is
+/// engaged when a flash save is requested).
+inline constexpr uint8_t kStatusBadState = 5U;
+
+/// The command should have succeeded but an unexpected failure occurred.
+inline constexpr uint8_t kStatusInternalError = 6U;
 
 // -------------------------------------------------------------------------
 // Standard Cyphal execute command codes (Cyphal specification §5.3.4)

@@ -1,0 +1,47 @@
+# Trace of the current controller, published by the drive on the port of the
+# register uavcan.pub.telemetry.id at unimoc.telemetry.rate.
+#
+# The values are a snapshot of the last control cycle; they are read without
+# locking the control cycle, so single values may come from neighbouring cycles.
+# Every message fits in one CAN FD frame.
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+uint32 control_cycles
+# Control cycles since the controller was started (16 kHz at 32 kHz PWM). Wraps around.
+
+float32 i_d
+float32 i_q
+# Measured current in the rotor frame of the controller [A].
+
+float32 i_d_ref
+float32 i_q_ref
+# Current setpoint the control cycle works on [A].
+
+float32 u_d
+float32 u_q
+# Voltage demand of the current controller in the rotor frame [V].
+
+float32 electrical_angle
+# Rotor angle estimate of the observer, electrical [rad], 0 to 2 pi.
+
+float32 electrical_speed
+# Speed estimate of the observer, electrical [rad/s].
+
+float32 dc_link_voltage
+# Measured DC-link voltage [V].
+
+uint3 power_stage
+uint3 POWER_STAGE_DISABLED = 0
+uint3 POWER_STAGE_ENABLED = 1
+uint3 POWER_STAGE_FAULT = 2
+uint3 POWER_STAGE_BLOCKED = 3
+# State of the power stage outputs. BLOCKED: the external enable is missing.
+
+bool overcurrent_tripped
+# The control cycle tripped the power stage on overcurrent; cleared by the next arm.
+
+bool engaged
+# The drive is ENGAGED: the power stage is released for the current setpoint.
+
+@sealed

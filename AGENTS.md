@@ -12,8 +12,9 @@ Read `README.md` for the supported motor types and public features, and
 
 ## Runtime Scope
 
-- **Zephyr is the primary OS.** Logging, shell, USB, Cyphal, settings storage,
-  startup sequencing, and all other high-level code run in Zephyr threads.
+- **Zephyr is the primary OS.** Logging (RTT on the BCC), the Cyphal node,
+  settings storage, startup sequencing, and all other high-level code run in
+  Zephyr threads. USB and the shell are not used (USB returns for DFU).
   The same application runs on the battery case controller (BCC) and on
   `native_sim` for host simulation.
 - **Only the FOC hot path runs in zero-latency IRQs.** The hot path is the
@@ -35,10 +36,16 @@ Read `README.md` for the supported motor types and public features, and
   `unimoc_lib`.
 - `lib/settings/`, `lib/units/`, and `lib/cyphal/` are separate library
   dependencies. The Zephyr build links them through `unimoc_lib`
-  (`cmake/UnimocZephyr.cmake`).
+  (`cmake/UnimocZephyr.cmake`). `lib/cyphal/` is the portable Cyphal stack:
+  libcanard and O1Heap (west projects, `modules/lib/`), the C serialization
+  that Nunavut generates at configure time from the public regulated data
+  types and `dsdl/unimoc/`, the transport and the node services.
+- `dsdl/unimoc/` is the UNIMOC DSDL namespace (every message fits in one CAN
+  FD frame). Changing a type there changes the bus protocol.
 - `src/` contains the application core: `current_control/` (hot-path ISR and
-  slow update), `startup/` (startup FSM), and `main.cpp`. It stays free of
-  Zephyr headers.
+  slow update), `startup/` (startup FSM), `drive/` (the Cyphal application:
+  settings registers, arming, setpoints, telemetry, commands) and `main.cpp`.
+  It stays free of Zephyr headers.
 - `zephyr/` makes the repository a Zephyr module: `module.yml` (board and
   devicetree roots, test roots), `Kconfig` (`CONFIG_UNIMOC`, the platform
   choice `CONFIG_UNIMOC_PLATFORM_*`, the log level) and `CMakeLists.txt`,
@@ -52,18 +59,26 @@ Read `README.md` for the supported motor types and public features, and
   holds the pinout, timers, ADC trigger, dead time, and sample times.
 - `hardware/zephyr_bcc/` is the BCC platform (STM32G4 hot-path bindings).
   `hardware/zephyr_sim/` is the `native_sim` platform. `hardware/zephyr_common/`
-  is the shared Zephyr glue (system interface, settings storage and lock).
-  `hardware/hardware_interface.hpp` and `hardware/power_stage_interface.hpp`
+  is the shared Zephyr glue (system interface, settings storage and lock, the
+  Cyphal thread, the CAN interface on the chosen `zephyr,canbus`, the log
+  backend to `uavcan.diagnostic.Record`). All Cyphal code is shared between
+  the platforms except `cyphal_platform.cpp` of each platform (BCC:
+  transceiver pin; sim: slcan pseudo terminals, `unimoc.sim.*` registers,
+  plant trace). `hardware/hardware_interface.hpp`,
+  `hardware/power_stage_interface.hpp` and `hardware/cyphal_platform.hpp`
   are the platform-independent boundaries.
 - `hardware/hot_path_interface.hpp` is the link-time bound hardware access of
   the zero-latency hot path.
 - `tests/` contains all tests, as ztest suites run by twister:
   `tests/lib/<library>/` covers `lib/<library>`, `tests/sim/<name>/` runs the
   application core against the `native_sim` platform and the motor plant
-  (cycle cadence, overcurrent, closed loop). `tests/common/` holds the shared
-  float checks.
+  (cycle cadence, overcurrent, closed loop, the Cyphal drive). `tests/common/`
+  holds the shared float checks and the in-memory CAN bus of the Cyphal
+  tests.
 - `scripts/` holds the validation scripts (`check_format.sh`,
-  `twister_sca.sh`) that CI runs as well.
+  `twister_sca.sh`) that CI runs as well, the Python requirements of the
+  Cyphal build (`requirements-cyphal.txt`, Nunavut) and tools
+  (`requirements-cyphal-tools.txt`, yakut), and `sim_yakut_env.sh`.
 - `docs/` contains the plans and the workflow notes. `TODO.md` lists open topics.
 - `lib/cymon/` is a submodule.
   Do not modify `lib/cymon/` unless the task explicitly concerns that
@@ -115,10 +130,15 @@ Earlier sessions lost time on these points; do them from the start:
 - **Set up the workspace first** when `west` or `zephyr/` is missing: a
   Python venv with `west`, `codechecker` and `clang-format==22.1.1` (pinned:
   `check_format.sh` refuses other versions), `west init -l unimoc && west
-  update` from the parent directory of the repository, then the Python
-  requirements (`zephyr/scripts/requirements-*.txt`) and the Zephyr SDK
+  update` from the parent directory of the repository (it also fetches
+  libcanard, O1Heap and the public regulated data types), then the Python
+  requirements (`zephyr/scripts/requirements-*.txt` and
+  `unimoc/scripts/requirements-cyphal.txt`: Nunavut, without it the
+  configuration fails) and the Zephyr SDK
   (minimal bundle plus `arm-zephyr-eabi`, `setup.sh -t arm-zephyr-eabi -h -c`).
   Initialize the `lib/cymon` submodule. Do not fall back to a hosted build.
+- **`check_format.sh` only checks files known to git** (`git ls-files`): run
+  clang-format on new files before they are added.
 - **Tests are ztest under twister.** Never add GoogleTest, a hosted CMake
   target or a test that only runs outside twister. New tests go into the
   matching `tests/lib/<library>/src/` or a new `tests/<area>/<name>/`
@@ -172,7 +192,7 @@ Code reachable from a zero-latency IRQ (the sample ISR, the control cycle, and
 their callbacks) must not:
 
 - call Zephyr kernel or driver APIs, take locks, or allocate;
-- log, print, or touch the shell, USB, Cyphal, or settings;
+- log, print, or touch Cyphal, the CAN driver, or settings;
 - call libm functions (use `-fno-math-errno` and builtins) or use function
   pointers for the hot-path hardware access (`docs/hotpath_plan.md`).
 

@@ -116,6 +116,12 @@ void ForEachRegister(const Visitor& visit, Settings&... settings) {
   visit(reg::kBalanceGainA, settings.phase_balance_a...);
   visit(reg::kBalanceGainB, settings.phase_balance_b...);
   visit(reg::kBalanceGainC, settings.phase_balance_c...);
+  visit(reg::kSubReadinessId, settings.sub_readiness_id...);
+  visit(reg::kSubCurrentSetpointId, settings.sub_current_setpoint_id...);
+  visit(reg::kSubTorqueSetpointId, settings.sub_torque_setpoint_id...);
+  visit(reg::kPubTelemetryId, settings.pub_telemetry_id...);
+  visit(reg::kTelemetryRate, settings.telemetry_rate...);
+  visit(reg::kCommandTimeout, settings.command_timeout...);
 }
 
 namespace settings_registers_internal {
@@ -144,7 +150,8 @@ inline void PutFloat(const float value, std::span<std::byte, 4> out) noexcept {
  * @brief Encodes one register value (little endian).
  *
  * Units and floats are 4 byte IEEE floats, `uint8_t` and 8 bit enums one
- * byte, the node name its characters and a terminator. No value is empty:
+ * byte, `uint16_t` (port-IDs) two bytes, the node name its characters and a
+ * terminator. No value is empty:
  * the Zephyr settings subsystem treats an empty value as a deletion.
  *
  * @param value Register field.
@@ -167,6 +174,10 @@ template <typename T>
   } else if constexpr (kIsEnumByte<T>) {
     out[0] = static_cast<std::byte>(value);
     return 1U;
+  } else if constexpr (std::is_same_v<T, uint16_t>) {
+    out[0] = static_cast<std::byte>(value & 0xFFU);
+    out[1] = static_cast<std::byte>(value >> 8U);
+    return 2U;
   } else {
     // Node name: characters up to the first terminator, then the terminator.
     static_assert(std::is_same_v<T, std::array<char, cyphal::kNodeNameMaxLen + 1U>>);
@@ -208,6 +219,13 @@ template <typename T>
       return false;
     }
     value = static_cast<T>(stored[0]);
+    return true;
+  } else if constexpr (std::is_same_v<T, uint16_t>) {
+    if (stored.size() != 2U) {
+      return false;
+    }
+    value =
+        static_cast<uint16_t>(static_cast<uint16_t>(stored[0]) | (static_cast<uint16_t>(stored[1]) << 8U));
     return true;
   } else {
     static_assert(std::is_same_v<T, std::array<char, cyphal::kNodeNameMaxLen + 1U>>);

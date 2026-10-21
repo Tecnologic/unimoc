@@ -1,0 +1,8 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# PC tools for the Cyphal bus and the native_sim drive (not needed to build).
+# yakut over SocketCAN, or over the slcan pseudo terminals of the simulation
+# (python-can with pyserial). See README.md, "Simulation over Cyphal".
+yakut~=0.14
+pycyphal[transport-can-pythoncan]~=1.27
+pyserial~=3.5

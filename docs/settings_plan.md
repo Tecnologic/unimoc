@@ -27,12 +27,12 @@ Cyphal register service / shell / startup FSM                 (threads)
 
 - **One key per register.** The key is the Cyphal register name
   (`cyphal::reg`), the Zephyr entry is `unimoc/<register name>`. The table of
-  71 persistent registers is `ForEachRegister()` in
+  77 persistent registers is `ForEachRegister()` in
   `lib/settings/settings_registers.hpp`; adding a register is one line there
   plus the field in `NvmSettings`. The same table will drive the Cyphal
   register service.
 - **Value encoding.** Units and floats are little-endian IEEE floats,
-  `uint8_t` and 8 bit enums one byte, the node name its characters plus a
+  `uint8_t` and 8 bit enums one byte, `uint16_t` port-IDs two bytes, the node name its characters plus a
   terminator. No value is empty, because `settings_save_one()` deletes an
   entry on an empty value.
 - **Only differences from the factory profile are stored.** A register that is
@@ -88,8 +88,8 @@ Cyphal register service / shell / startup FSM                 (threads)
 
 | Scenario | Covers |
 |----------|--------|
-| `unimoc.lib.settings` (`settings_registers_test`, `settings_store_test`) | register table (71 unique names, round trip of every register, encoding, sizes), live update without flash access, write only changed registers, erase at factory value, gate (held once per save, not released when refused), lock around every operation, partial and failed saves, undecodable and out-of-range entries, unknown keys, empty node name |
-| `unimoc.sim.settings_persistence` (native_sim) | the real settings subsystem and ZMS on the flash simulator: save and reload through a second store, the gate with the real power stage (enabled and fault block, `Enable()` held off during a save), erase at factory value, empty node name, undecodable entry healed by a save, all 71 registers rewritten 40 times (garbage collection and capacity of the partition) |
+| `unimoc.lib.settings` (`settings_registers_test`, `settings_store_test`) | register table (77 unique names, round trip of every register, encoding, sizes), live update without flash access, write only changed registers, erase at factory value, gate (held once per save, not released when refused), lock around every operation, partial and failed saves, undecodable and out-of-range entries, unknown keys, empty node name |
+| `unimoc.sim.settings_persistence` (native_sim) | the real settings subsystem and ZMS on the flash simulator: save and reload through a second store, the gate with the real power stage (enabled and fault block, `Enable()` held off during a save), erase at factory value, empty node name, undecodable entry healed by a save, all 77 registers rewritten 40 times (garbage collection and capacity of the partition) |
 
 ## Not verified on hardware
 
@@ -110,13 +110,25 @@ Cyphal register service / shell / startup FSM                 (threads)
   240 KB code partition, of which the settings subsystem, ZMS and the flash
   driver take about 6 KB.
 
+## Cyphal register service
+
+Implemented (2026-10-21): `src/drive/settings_register_provider.cpp` exposes
+every register of `ForEachRegister()` over `uavcan.register.List/Access`.
+Reads take the live settings, writes go through `Update()` and its
+validation; a rejected write answers with the unchanged value.
+`ExecuteCommand` 65530 (STORE_PERSISTENT_STATES) runs `SaveToFlash()`
+(`BAD_STATE` when the gate refuses), 65532 (FACTORY_RESET) resets and saves.
+The shell command planned here was dropped with the shell. The Cyphal ports
+(`uavcan.sub.*.id`, `uavcan.pub.telemetry.id`), the telemetry rate and the
+command timeout are persistent registers too. GetInfo takes the hardware and
+software versions from the firmware (`hardware_interface_config.hpp`,
+`app/VERSION`), not from the settings.
+
 ## Open items
 
-1. Cyphal register service and a shell command (`settings show|save|reset`)
-   built on `ForEachRegister()`.
-2. Persistent registers for the hardware and software version are not stored
-   (they are compile-time values); check that GetInfo reads them from the
-   firmware, not from the settings.
+1. Register writes that change the controller are applied by restarting the
+   runtime while the drive is disengaged; live tuning while engaged (gains
+   without a restart) is open.
 
 Done: holding off `PowerStage::Enable()` during a save and serializing the
 store (see "Concurrency").

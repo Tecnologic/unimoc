@@ -1,10 +1,15 @@
 # Host Software-in-the-Loop Plan
 
-> **Status (2026-10-19):** partly superseded. The single-motor host runtime is
+> **Status (2026-10-21):** partly superseded. The single-motor host runtime is
 > the Zephyr `native_sim` platform (`hardware/zephyr_sim/`, see
-> `docs/zephyr_port_plan.md`, Phase 2), not `hardware/host/`. The portable
-> simulation library, the multi-motor coordinator and the Python GUI plans
-> still apply. Where this file says `hardware/host`, read `hardware/zephyr_sim`.
+> `docs/zephyr_port_plan.md`, Phase 2), not `hardware/host/`. The network
+> interface is **Cyphal/CAN**, not Cyphal/UDP: the simulation is a real-time
+> Cyphal node on SocketCAN `vcan0` or on slcan pseudo terminals, reachable
+> with pycyphal and yakut (README.md, "Simulation over Cyphal"). The
+> portable simulation library, the multi-motor coordinator, the
+> virtual-time simulation commands and the Python GUI plans still apply.
+> Where this file says `hardware/host`, read `hardware/zephyr_sim`; where it
+> says Cyphal/UDP, read Cyphal/CAN.
 
 ## Goal
 

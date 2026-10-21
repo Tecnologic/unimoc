@@ -1,0 +1,33 @@
+# State of the simulated motor (simulation truth), published by the native_sim
+# drive on the port of the register uavcan.pub.sim_plant.id together with
+# unimoc.drive.Telemetry. Compare it with the estimates of the controller.
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+uint32 control_cycles
+# Control cycles of the simulated platform since its start or reset.
+
+float32 i_a
+float32 i_b
+float32 i_c
+# Phase currents of the plant [A].
+
+float32 mechanical_angle
+# Absolute mechanical shaft angle, unwrapped [rad].
+
+float32 mechanical_speed
+# Mechanical shaft speed [rad/s].
+
+float32 electrical_angle
+# Electrical rotor angle, 0 to 2 pi [rad].
+
+float32 electromagnetic_torque
+# Electromagnetic torque [N m].
+
+float32 dc_link_voltage
+# DC-link voltage of the ideal supply [V].
+
+uint3 hall_code
+# Hall code: bit 0 = A, bit 1 = B, bit 2 = C.
+
+@sealed
