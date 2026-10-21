@@ -1,9 +1,13 @@
 name: Zephyr
 on:
+  # Feature branches are checked by their pull request only; a push trigger
+  # for them would run the same commit twice. Pushes to the integration
+  # branches (merges) still run.
   push:
-    branches: [main, develop, "copilot/**", "claude/**"]
+    branches: [main, develop]
   pull_request:
     branches: [main, develop, "copilot/**"]
+  workflow_dispatch:
 concurrency:
   group: zephyr-${{ github.ref }}
   cancel-in-progress: true
