@@ -23,7 +23,7 @@ items that need the board are collected below and wait for hardware access.
 
  - [ ] M0 on the board: timing numbers for the sample ISR, control cycle and observer.
  - [ ] M8 first step with the outputs off: DMA burst, preload, start at ARR/2, parity detection and ADC alignment on the scope; check the USB console (enumeration, CRS lock of the HSI48) and pick a UNIMOC USB VID/PID instead of the Zephyr test IDs.
- - [ ] Verify ZMS, the flash stall and the size of the settings partition on the BCC board (settings plan, "Not verified on hardware").
+ - [ ] Verify ZMS, the dual-bank option bit (read while write: no flash stall of the hot path during a save) and the size of the settings partition on the BCC board (settings plan, "Not verified on hardware").
  - [ ] Configure the duty DMA from the devicetree (`dmas` of `foc0`, Zephyr DMA API at init) instead of the fixed DMA1 channel 1 / DMAMUX request 53, and enable its clock through `clock_control` instead of writing `RCC->AHB1ENR`. The zero-latency path keeps reading the channel counter directly. Do this after the M8 first step, so the fixed configuration is a verified reference.
  - [ ] M8 remainder: Hall table, closed current loop with the 50 A limit.
  - [ ] Merge `develop` into `main` as the first Zephyr release (tag it) once the board items above pass; `main` still holds the legacy firmware.
@@ -42,7 +42,7 @@ items that need the board are collected below and wait for hardware access.
  - [x] Merge `main` into `develop` (`542c501`): the modm and hosted-build files stay deleted, `lib/gitversion` is dropped (the GetInfo version source is part of the Cyphal item), and `hardware/HardwareLimits.hpp` is replaced by the BCC settings profile. Its legacy BCC values (100 A phase, 80 A motor, 50 A battery drive, 20 A charge) were checked against the profile in `hardware/zephyr_bcc/hardware_interface.cpp`: the profile keeps the lower 60 A phase trip and 50 A motor limit, the battery limits are equal. Closing `copilot/fix-pr-10-from-main-to-develop` is left to the repository owner.
  - [x] Settings follow-ups: `PowerStageInterface::Enable()` is held off while a flash save runs, and `SettingsStore` takes a platform lock (Zephyr `k_mutex`) around every operation ([docs/settings_plan.md](docs/settings_plan.md), "Concurrency").
  - [x] Remove the stale references to the deleted legacy firmware `hardware/batterycasecontroller/` (`AGENTS.md`, `docs/zephyr_port_plan.md`, the file-docs skill, `scripts/check_format.sh`, `scripts/codechecker_skip.txt`, `docs/Doxyfile`).
- - [x] Enable the USB CDC-ACM console and Zephyr logging in the BCC application (`app/boards/bcc.conf`, `bcc.overlay`; HSI48 with CRS on the USB SOF; log also on RTT). Build only; link limited to the 120 KB code partition (`CONFIG_USE_DT_CODE_PARTITION`).
+ - [x] Enable the USB CDC-ACM console and Zephyr logging in the BCC application (`app/boards/bcc.conf`, `bcc.overlay`; HSI48 with CRS on the USB SOF; log also on RTT). Build only; link limited to the code partition (`CONFIG_USE_DT_CODE_PARTITION`).
 
 ## Prioritized software-in-the-loop plan
 

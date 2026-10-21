@@ -16,6 +16,7 @@ CONFIG_ZERO_LATENCY_IRQS=y
 CONFIG_CLOCK_CONTROL=y
 CONFIG_PINCTRL=y
 
-# Link into the 120 KB code partition only: an image that grows into the
-# settings storage partition fails to link instead of overwriting it.
+# Link into the 256 KB code partition (flash bank 1) only: an image that grows
+# into bank 2 fails to link instead of losing read while write for the
+# settings partition.
 CONFIG_USE_DT_CODE_PARTITION=y

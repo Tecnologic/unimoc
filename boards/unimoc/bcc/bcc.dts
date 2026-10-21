@@ -1,5 +1,5 @@
 /*
- * UNIMOC Battery Case Controller (BCC), STM32G473CBT6.
+ * UNIMOC Battery Case Controller (BCC), STM32G473CET6 (512 KB flash, 128 KB SRAM).
  *
  * Pin assignment taken from the KiCad netlist of Tecnologic/battery-case-controller.
  * Note: the schematic symbol U43 is an STM32G491CxT, but CAN on PB3/PB4 is FDCAN3
@@ -13,7 +13,7 @@
  */
 
 /dts-v1/;
-#include <st/g4/stm32g473Xb.dtsi>
+#include <st/g4/stm32g473Xe.dtsi>
 #include <st/g4/stm32g473c(b-c-e)tx-pinctrl.dtsi>
 
 / {
@@ -199,15 +199,22 @@ zephyr_udc0: &usb {
 		#address-cells = <1>;
 		#size-cells = <1>;
 
+		/*
+		 * Dual-bank mode (option bit DBANK = 1, the factory default):
+		 * bank 1 is 0x00000 to 0x3ffff, bank 2 is 0x40000 to 0x7ffff, 2 KB pages.
+		 * The image stays in bank 1, so a settings write in bank 2 does not
+		 * stall instruction fetch (read while write). 0x40000 to 0x7bfff is
+		 * kept free for a second image (firmware update).
+		 */
 		slot0_partition: partition@0 {
 			label = "image-0";
-			reg = <0x00000000 DT_SIZE_K(120)>;
+			reg = <0x00000000 DT_SIZE_K(256)>;
 		};
 
 		/* Settings: one ZMS entry per register that differs from the factory profile. */
-		storage_partition: partition@1e000 {
+		storage_partition: partition@7c000 {
 			label = "storage";
-			reg = <0x0001e000 DT_SIZE_K(16)>;
+			reg = <0x0007c000 DT_SIZE_K(16)>;
 		};
 	};
 };
