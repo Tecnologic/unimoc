@@ -9,7 +9,7 @@ controller, Cyphal/UDP over Single Pair Ethernet) is drafted in
  - [ ] Spike C2: Cyphal/UDP on 10BASE-T1S between an STM32H7 evaluation board with a LAN867x on RMII and a LAN8651 node (PLCA, multicast, latency and bus load at 500 Hz); Zephyr 4.4 driver limits in section 6.4.
  - [ ] Switch the `native_sim` network for Cyphal/UDP to the TAP driver (NSOS passes no multicast socket options in 4.4) and check TAP on WSL2.
  - [ ] Regenerative braking in the drive: DC-link overvoltage limit and trip, regen limit from the battery state, reported to the VDC; tested in the sim (section 7.1).
- - [ ] Decide the VDC platform (STM32H7 with Zephyr recommended) and whether it lives in this repository (`apps/vdc/`, `lib/vehicle/`).
+ - [ ] Decide the VDC MCU (STM32H7 or STM32G4 with Zephyr). The VDC firmware lives in this repository (`apps/vdc/`, `lib/vehicle/`, decided).
  - [ ] Requirements for the H7 + SPE redesign of the hardware_4850 logic board (section 5.2).
  - [ ] Decide whether a brake chopper is needed for braking with a full or disconnected battery.
 

@@ -85,7 +85,7 @@ record.
 | USB | Firmware update (DFU) only on the cart. The CDC-ACM log stays until Cyphal runs on the board, then logs go out as `uavcan.diagnostic.Record`. | One operating interface; USB stays the recovery path. |
 | Settings | Cyphal registers on the existing `SettingsStore` (`docs/settings_plan.md`). | Already designed that way. |
 | Firmware update | Cyphal file service into the second flash bank (G4: bank 2, `docs/settings_plan.md`); USB DFU as recovery. | Update all nodes from the VDC or a PC without opening the cart. |
-| VDC platform | Open; recommendation in section 5.3. | Decided after the drive bring-up (phase D). |
+| VDC firmware | **In this repository**, as a second Zephyr application (`apps/vdc/`) with a portable `lib/vehicle/`. The MCU is a Zephyr-supported STM32 (H7 or G4, section 5.3); a Raspberry Pi or an ESP32-P4 are out, they do not run this repository's Zephyr build. | One toolchain, one CI, shared libraries and DSDL, the whole cart in the simulation. |
 
 ## 5. Hardware Plan
 
@@ -146,9 +146,8 @@ drive without.
 
 **Impact of a Zephyr VDC on this repository:**
 
-- `app/` becomes `apps/drive/` and `apps/vdc/` (two Zephyr applications), or
-  the VDC goes into a separate repository that uses this one as a west
-  module. In this repository it shares `lib/units`, `lib/settings`,
+- `app/` becomes `apps/drive/` and `apps/vdc/` (two Zephyr applications,
+  decided). The VDC shares `lib/units`, `lib/settings`,
   `lib/cyphal`, the DSDL namespace, `hardware/zephyr_common` and CI.
 - New portable library `lib/vehicle/` (torque distribution, yaw-rate
   control, vehicle state estimation) with ztest suites in `tests/lib/vehicle/`.
@@ -350,8 +349,8 @@ Not a safety concept; a list of what one must cover.
 
 ## 12. Open Questions
 
-1. **VDC platform:** STM32H7 with Zephyr (recommended), Raspberry Pi or
-   ESP32-P4 (section 5.3); in this repository or separate.
+1. **VDC MCU:** STM32H7 or STM32G4 with Zephyr (the firmware lives in this
+   repository, decided).
 2. **SPE parts:** LAN867x on RMII (preferred) or LAN865x on SPI; PLCA node
    count and cable length in the cart; result of the spike C2.
 3. **H7 part:** exact type and package for the 4850 logic outline.
