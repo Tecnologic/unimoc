@@ -17,6 +17,7 @@
 
 #include <cstdint>
 #include "cyphal/control_mode.hpp"
+#include "cyphal/cyphal_interface.hpp"
 #include "cyphal/node_identity.hpp"
 #include "motor_type.hpp"
 #include "units.hpp"
@@ -461,6 +462,37 @@ struct NvmSettings {
   /// Phase-C ADC gain correction factor [dimensionless, ≈ 1.0].
   /// Register: `unimoc.motor.balance.gain_c`
   unit::Ratio phase_balance_c{1.0_ratio};
+
+  // =========================================================================
+  // Cyphal ports and timing
+  //
+  // Port-IDs are applied at the next start; 65535 (cyphal::kUnsetPortId)
+  // disables the port.
+  // =========================================================================
+
+  /// Readiness subscription (reg.udral.service.common.Readiness.0.1).
+  /// Register: `uavcan.sub.readiness.id`
+  uint16_t sub_readiness_id{cyphal::kSubReadiness};
+
+  /// Current setpoint subscription (unimoc.drive.CurrentSetpoint.0.1).
+  /// Register: `uavcan.sub.current_setpoint.id`
+  uint16_t sub_current_setpoint_id{cyphal::kSubCurrentSetpoint};
+
+  /// Torque setpoint subscription (uavcan.si.unit.torque.Scalar.1.0).
+  /// Register: `uavcan.sub.torque_setpoint.id`
+  uint16_t sub_torque_setpoint_id{cyphal::kSubTorqueSetpoint};
+
+  /// Telemetry publication (unimoc.drive.Telemetry.0.1).
+  /// Register: `uavcan.pub.telemetry.id`
+  uint16_t pub_telemetry_id{cyphal::kPubTelemetry};
+
+  /// Telemetry publication rate; 0 stops it.
+  /// Register: `unimoc.telemetry.rate`
+  unit::Frequency telemetry_rate{20.0_Hz};
+
+  /// Readiness and setpoint timeout.
+  /// Register: `unimoc.control.command_timeout`
+  unit::Time command_timeout{0.5_s};
 
   /// Restore all fields to factory defaults.
   void ResetToDefaults() noexcept { *this = NvmSettings{}; }

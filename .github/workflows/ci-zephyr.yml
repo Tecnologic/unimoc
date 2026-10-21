@@ -1,9 +1,13 @@
 name: Zephyr
 on:
+  # Feature branches are checked by their pull request only; a push trigger
+  # for them would run the same commit twice. Pushes to the integration
+  # branches (merges) still run.
   push:
-    branches: [main, develop, "copilot/**", "claude/**"]
+    branches: [main, develop]
   pull_request:
     branches: [main, develop, "copilot/**"]
+  workflow_dispatch:
 concurrency:
   group: zephyr-${{ github.ref }}
   cancel-in-progress: true
@@ -26,11 +30,14 @@ jobs:
 
       # After the Zephyr setup: its requirements pull an unpinned clang-format
       # from pip, which would otherwise come first on PATH.
-      - name: Install clang-format (pinned), clang-tidy and CodeChecker
+      - name: Install clang-format (pinned), clang-tidy, CodeChecker, Nunavut and pycyphal
         run: |
           sudo apt-get update
           sudo apt-get install -y clang-tidy
           pip install clang-format==22.1.1 codechecker
+          pip install -r unimoc/scripts/requirements-cyphal.txt
+          # pycyphal integration tests of the simulation (unimoc.app.cyphal_integration)
+          pip install -r unimoc/scripts/requirements-cyphal-tools.txt
           clang-format --version
 
       - name: clang-format
@@ -38,6 +45,19 @@ jobs:
 
       - name: Twister with clang-tidy (native_sim, bcc)
         run: unimoc/scripts/twister_sca.sh
+
+      # A failing pytest scenario only prints its command line in the twister
+      # output: show the failure summary of each one as an annotation.
+      - name: Report pytest failures
+        if: failure()
+        run: |
+          for log in $(find twister-out -name twister_harness.log); do
+            if grep -qE "^(FAILED|ERROR) |^E  " "$log"; then
+              summary=$(grep -E "^(FAILED|ERROR) |^E  |Error:|error:" "$log" | head -40 | sed 's/%/%25/g' | tr '\n' '\r' | sed 's/\r/%0A/g')
+              echo "::error title=pytest ${log#twister-out/}::${summary}"
+              echo "----- $log"; tail -150 "$log"
+            fi
+          done
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -47,3 +67,5 @@ jobs:
             twister-out/twister.json
             twister-out/twister_report.xml
             twister-out/**/sca/codechecker/
+            twister-out/**/twister_harness.log
+            twister-out/**/handler.log

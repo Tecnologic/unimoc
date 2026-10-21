@@ -34,7 +34,7 @@ external API requires different wording.
 | **duty plan** | The four duty entries of one control cycle (`DutyPlan`). Entry 0 goes into the CCR preload, entries 1 to 3 are delivered by DMA at the next update events. |
 | **hot-path interface** | `hardware/hot_path_interface.hpp`: the hardware access of the control cycle (`hot_path::GetControlCycleSamples`, `SetDutyPlan`, `TripPowerStage`) and the two handlers the platform calls. Bound at link time per platform, no function pointers. |
 | **observer** | The flux observer, Kalman filter and HFI after each control cycle, in a software-pended normal-priority interrupt. It computes the angles of the next cycle. `SlowUpdate` in code. |
-| **Zephyr thread** | Any work outside the zero-latency IRQs: logging, shell, USB, Cyphal, settings, and startup sequencing. |
+| **Zephyr thread** | Any work outside the zero-latency IRQs: logging, the Cyphal thread, settings, and startup sequencing. |
 | **trip** | An overcurrent or fault stop that switches the power stage off. A trip latches a fault until it is cleared. |
 | **dead time** | The gap between the switching edges of a half-bridge that prevents shoot-through. It is set in the `foc0` devicetree node. |
 
@@ -85,8 +85,8 @@ external API requires different wording.
 |---|---|
 | **Cyphal** | The network protocol used by UNIMOC. Write **Cyphal (UAVCAN v1)** when introducing it; use **Cyphal** afterward. |
 | **node** | One networked drive on the Cyphal bus. |
-| **node ID** | The numeric Cyphal identity in the range `1..127`; `0` means that plug-and-play allocation is requested. |
-| **register** | A named, persistent configuration entry accessed through the Cyphal register service. |
+| **node ID** | The numeric Cyphal identity in the range `1..127`; `0` in `uavcan.node.id` means that plug-and-play allocation is requested. |
+| **register** | A named entry accessed through the Cyphal register service: a persistent setting, a port-ID, a read-only type name or a volatile simulation input. |
 | **subject** | A Cyphal publish/subscribe data channel. Use **input subject** for a subscribed command and **output subject** for published telemetry. |
 | **service** | A Cyphal request/response interaction, distinct from a subject. |
 | **setpoint subject** | An input subject carrying a runtime command such as torque, speed, position, or excitation. |
@@ -96,7 +96,13 @@ external API requires different wording.
 | **live settings** | The RAM copy of `NvmSettings` that the controller uses and that live tuning changes without any flash access. |
 | **save gate** | The `SettingsSaveGate` that allows writing settings to flash only while the power stage is disabled. |
 | **runtime value** | A value used during operation but not retained in NVM, such as a setpoint or telemetry sample. |
-| **factory default** | The known initial value restored when the NVM magic or layout version is invalid. |
+| **factory default** | The value of a register that is not stored: the factory profile of the platform. A register at its factory value is erased from flash on save. |
+| **engaged** | The drive state in which the power stage is released for the setpoint. Entered on readiness `ENGAGED` (`reg.udral.service.common.Readiness`), left on `SLEEP`/`STANDBY`, a readiness timeout, a trip or a power stage fault. Use **disengaged** for the opposite, not "disarmed". |
+| **re-arm** | After a trip or fault while engaged, the drive engages again only after a readiness other than `ENGAGED`. |
+| **command timeout** | `unimoc.control.command_timeout`: the drive disengages without readiness and falls back to zero current without setpoints for longer than this time. |
+| **CAN interface** | One CAN connection of a node behind `cyphal::CanMedia`: a CAN controller (FDCAN, SocketCAN) or the slcan pseudo terminals of the simulation. Several interfaces are redundant interfaces of one node. |
+| **DSDL** | The Cyphal data type definitions. Standard types come from the OpenCyphal public regulated data types, UNIMOC types from `dsdl/unimoc/`; Nunavut generates their C serialization. |
+| **slcan** | The Lawicel ASCII serial-line CAN protocol; the simulation offers it on pseudo terminals for tools on hosts without `vcan`. |
 
 ## Naming Rules
 

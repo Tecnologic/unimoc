@@ -7,3 +7,24 @@ tests:
       - native_sim/native/64
       - bcc
     tags: unimoc app
+  # The simulation as a Cyphal node, tested from pycyphal over its slcan
+  # pseudo terminal (tests/integration/cyphal_sim). Needs pycyphal, python-can
+  # and pyserial (scripts/requirements-cyphal-tools.txt); skipped without them.
+  unimoc.app.cyphal_integration:
+    harness: pytest
+    platform_allow:
+      - native_sim/native/64
+    integration_platforms:
+      - native_sim/native/64
+    harness_config:
+      pytest_root:
+        - "../tests/integration/cyphal_sim"
+      pytest_dut_scope: session
+      # platformdirs >= 4.13 registers a pytest plugin; with a second, older
+      # platformdirs on the path (pip --user on the CI runner's system
+      # Python) its entry point fails to import and pytest aborts at start.
+      pytest_args:
+        - "-p"
+        - "no:platformdirs"
+    timeout: 300
+    tags: unimoc app cyphal

@@ -14,6 +14,7 @@
  *    See the repository LICENSE file for details.
  */
 #include "current_control_runtime.hpp"
+#include "cyphal_platform.hpp"
 #include "hardware_interface.hpp"
 #include "hot_path_interface.hpp"
 #include "settings_save_gate.hpp"
@@ -30,8 +31,9 @@ void unimoc::hardware::ObserverHandler() noexcept {
 }
 
 // Sets up the drive and returns. Afterwards the control runs in the platform
-// interrupts and everything else in Zephyr threads; the main thread is not
-// needed any more (Zephyr ends it when main() returns).
+// interrupts and everything else in Zephyr threads (the Cyphal node in its
+// own thread); the main thread is not needed any more (Zephyr ends it when
+// main() returns).
 int main() {
   // Static: outlives main() for the threads that read or commit settings later.
   // Settings are saved to flash only while the power stage is disabled, and
@@ -70,5 +72,7 @@ int main() {
     }
   }
 
+  // Cyphal/CAN: setpoints, registers, telemetry and the log (motor 0).
+  unimoc::hardware::StartCyphal(settings_store);
   return 0;
 }

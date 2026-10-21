@@ -11,6 +11,10 @@ manifest:
   remotes:
     - name: zephyrproject-rtos
       url-base: https://github.com/zephyrproject-rtos
+    - name: opencyphal
+      url-base: https://github.com/OpenCyphal
+    - name: pavel-kirienko
+      url-base: https://github.com/pavel-kirienko
 
   projects:
     - name: zephyr
@@ -24,6 +28,22 @@ manifest:
           - hal_stm32
           - picolibc
           - segger
+
+    # Cyphal stack (docs/system_plan.md, "Protocol"). Plain sources, not Zephyr
+    # modules: lib/cyphal/CMakeLists.txt compiles them into unimoc_cyphal.
+    - name: libcanard
+      remote: opencyphal
+      revision: v4.0.0
+      path: modules/lib/libcanard
+    - name: o1heap
+      remote: pavel-kirienko
+      revision: 2.2.0
+      path: modules/lib/o1heap
+    # Standard DSDL (uavcan, reg); Nunavut generates the C serialization.
+    - name: public_regulated_data_types
+      remote: opencyphal
+      revision: 86e2f332419ff015f4cc9f1bb7843b02d5f7a5ed
+      path: modules/lib/public_regulated_data_types
 
   self:
     path: unimoc

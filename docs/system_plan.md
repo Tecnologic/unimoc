@@ -93,7 +93,7 @@ record.
 | Logic board MCU | **STM32G4** for the 4850 logic board (section 5.2), the same family as the BCC. | One hot-path platform: `hardware/zephyr_bcc` is the base, no H7 port. FDCAN on chip. |
 | VDC firmware | **In this repository**, as a second Zephyr application (`apps/vdc/`) with a portable `lib/vehicle/`. The MCU is a Zephyr-supported STM32 (G4 or H7, section 5.3); a Raspberry Pi or an ESP32-P4 are out, they do not run this repository's Zephyr build. | One toolchain, one CI, shared libraries and DSDL, the whole cart in the simulation. |
 | Cyphal/serial | Not used. | No maintained C implementation (libserard). |
-| USB | Firmware update (DFU) only on the cart. The CDC-ACM log stays until Cyphal runs on the board, then logs go out as `uavcan.diagnostic.Record`. | One operating interface; USB stays the recovery path. |
+| USB | Firmware update (DFU) only, later. The CDC-ACM console and the shell were dropped (2026-10-21): the bench log is on RTT, the log also goes out as `uavcan.diagnostic.Record`. | One operating interface; USB stays the recovery path. |
 | Settings | Cyphal registers on the existing `SettingsStore` (`docs/settings_plan.md`). | Already designed that way. |
 | Firmware update | Cyphal file service into flash bank 2 (512 KB dual-bank G4, `docs/settings_plan.md`); USB DFU as recovery. | Update all nodes over the bus without opening the cart. |
 
@@ -216,9 +216,10 @@ it; the firmware is portable between both.
 
 ### 6.2 Messages (first draft)
 
-Subject and register IDs are not assigned yet; they are fixed in a DSDL
-namespace in this repository before any firmware uses them. Every message
-fits in one CAN FD frame.
+The DSDL namespace is `dsdl/unimoc/` (2026-10-21: `unimoc.drive.CurrentSetpoint`,
+`unimoc.drive.Telemetry`, `unimoc.sim.Plant`, port-IDs as registers with
+defaults in `lib/cyphal/cyphal_interface.hpp`). The cart messages below are
+not defined yet. Every message fits in one CAN FD frame.
 
 | Message | From → to | Rate | Content |
 |---|---|---|---|
@@ -265,9 +266,12 @@ status at 50 to 100 Hz adds less than 1 % and is not in the table:
   `socketcan-native-sim` snippet, a larger MTU on `vcan` for CAN FD). pycyphal
   connects to the same interface. Creating `vcan` needs root once; whether the
   WSL2 kernel has the `vcan` module is unverified.
-- **Fallback:** Cyphal/UDP with the `native_sim` TAP driver (`eth_native_tap`)
-  and libudpard 2.x. The offloaded sockets (NSOS) of Zephyr 4.4 pass no
-  multicast socket options, so they cannot carry Cyphal/UDP.
+- **Fallback without `vcan`:** the simulation offers slcan (Lawicel) on four
+  pseudo terminals that form one classic CAN bus; pycyphal and yakut use them
+  with their python-can slcan media (implemented 2026-10-21). Cyphal/UDP with
+  the TAP driver and libudpard stays an option for multi-node simulations;
+  the offloaded sockets (NSOS) of Zephyr 4.4 pass no multicast socket
+  options, so they cannot carry Cyphal/UDP.
 - **Cart:** pycyphal on a USB CAN FD adapter (SocketCAN on Linux).
 
 ### 6.5 Comparison with Single Pair Ethernet (10BASE-T1S)
