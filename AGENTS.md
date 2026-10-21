@@ -3,7 +3,7 @@
 UNIMOC is a platform-independent C++ motor-control library and Zephyr firmware
 for field-oriented control (FOC) of multi-phase electric motors. One drive
 typically controls one motor; multiple drives can be networked through Cyphal
-(UAVCAN v1) over CAN-FD on the STM32G4 and over UDP on the STM32H7.
+(UAVCAN v1) over CAN-FD on the STM32G4 (`docs/system_plan.md`).
 
 Read `README.md` for the supported motor types and public features, and
 `CONTEXT.md` for the project's domain vocabulary. The port decisions are in
