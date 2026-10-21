@@ -102,7 +102,9 @@ the board. The phase order below is the plan.
 ### Phase 6 - Cyphal/UDP on STM32H7 (later)
 - libudpard over Zephyr sockets. Its current documentation describes a v3.0
   alpha redesign, so pin a version deliberately.
-- native_sim: offloaded sockets over loopback, no root required.
+- native_sim: TAP driver (`eth_native_tap`) with Zephyr's IP stack. The
+  offloaded sockets (NSOS) of 4.4 pass no multicast socket options, which
+  Cyphal/UDP needs (`docs/system_plan.md`, section 6.4).
 - Sets up the Python or Rust GUI from `TODO.md`.
 
 ### Phase 7 - CI and documentation

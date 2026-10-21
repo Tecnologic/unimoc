@@ -1,7 +1,17 @@
 # TODO list for open topics
 
-The overall direction (cart with four wheel drives, steering, VDC, Cyphal/UDP
-over Single Pair Ethernet) is drafted in [docs/system_plan.md](docs/system_plan.md).
+The overall direction (cart with four wheel drives, central vehicle dynamics
+controller, Cyphal/UDP over Single Pair Ethernet) is drafted in
+[docs/system_plan.md](docs/system_plan.md).
+
+### Cart system (see `docs/system_plan.md`)
+
+ - [ ] Spike C2: Cyphal/UDP on 10BASE-T1S between an STM32H7 evaluation board with a LAN867x on RMII and a LAN8651 node (PLCA, multicast, latency and bus load at 500 Hz); Zephyr 4.4 driver limits in section 6.4.
+ - [ ] Switch the `native_sim` network for Cyphal/UDP to the TAP driver (NSOS passes no multicast socket options in 4.4) and check TAP on WSL2.
+ - [ ] Regenerative braking in the drive: DC-link overvoltage limit and trip, regen limit from the battery state, reported to the VDC; tested in the sim (section 7.1).
+ - [ ] Decide the VDC platform (STM32H7 with Zephyr recommended) and whether it lives in this repository (`apps/vdc/`, `lib/vehicle/`).
+ - [ ] Requirements for the H7 + SPE redesign of the hardware_4850 logic board (section 5.2).
+ - [ ] Decide whether a brake chopper is needed for braking with a full or disconnected battery.
 
 ## Zephyr port and hot path
 
@@ -17,7 +27,7 @@ items that need the board are collected below and wait for hardware access.
 ### P0 - Without hardware (twister on `native_sim`, BCC build)
 
  - [ ] Implement the hot-path milestones M4 to M7 from `docs/hotpath_plan.md` (observer API, Hall driver and sim Hall signals, Hall fusion, control thread), tested with ztest and the sim plant.
- - [ ] Run a small Cyphal/UDP feasibility spike between `native_sim` and `pycyphal` (see the SIL plan below); it settles the DSDL generation for both transports.
+ - [ ] Run a small Cyphal/UDP feasibility spike between `native_sim` (TAP network) and `pycyphal` (see the SIL plan below); it settles the DSDL generation for both transports.
  - [ ] Integrate Cyphal (libcanard, DSDL, register service, PnP, heartbeat, GetInfo) and the shell command `settings show|save|reset` (settings open items 1 and 2), tested on `native_sim`. CAN-FD on `native_sim` needs `vcan` in the WSL2 kernel (unverified); CAN-FD on the BCC waits for the transceiver decision.
  - [ ] Write the M0 instrumentation (DWT cycle counters around the sample ISR, control cycle and observer, min/mean/max, overrun counters, output through log and shell); build-tested only until the board is available.
  - [ ] Check whether the hot path (sample ISR, control cycle, buffers) belongs in CCM SRAM on the G4 (`docs/hotpath_plan.md`, "Risks and Open Points"); decide with the M0 timing numbers.
