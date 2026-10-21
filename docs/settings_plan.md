@@ -94,16 +94,21 @@ Cyphal register service / shell / startup FSM                 (threads)
 ## Not verified on hardware
 
 - ZMS on the STM32G4 flash: erase time, garbage collection and recovery after a
-  power loss during a write. The BCC partition was widened from 8 KB to 16 KB
-  (`0x1e000`, 8 pages of 2 KB) so that all registers plus a spare sector fit;
-  this is an estimate to check on the board.
-- **Flash writes stall instruction fetch** on the single-bank STM32G4 while the
-  zero-latency control cycle runs from flash. The gate holds the stage disabled
-  for the whole save (`Enable()` fails meanwhile, see "Concurrency"); the stall
-  itself, and whether the hot path must run from RAM during a save, is still to
-  be measured on the board.
-- The settings subsystem, ZMS and flash driver cost on the 120 KB code
-  partition (the BCC app builds; the size has not been compared).
+  power loss during a write. The BCC partition is 16 KB (8 pages of 2 KB) so
+  that all registers plus a spare sector fit; this is an estimate to check on
+  the board.
+- **Flash writes stall instruction fetch** in the same bank. The BCC carries
+  an STM32G473CET6 (512 KB, dual bank with option bit DBANK = 1, the factory
+  default). The code partition (`0x00000`, 240 KB) and the `storage_partition`
+  (`0x3c000`, the end of bank 1) share bank 1, so a save stalls the
+  zero-latency control cycle. The gate holds the stage disabled for the whole
+  save (`Enable()` fails meanwhile, see "Concurrency"); the stall itself is
+  still to be measured on the board. Bank 2 (`0x40000`, 256 KB) is kept free
+  for the image of a firmware update over Cyphal, which can be written while
+  bank 1 runs.
+- Flash use (BCC app, Zephyr v4.4.0, size optimized): about 100 KB of the
+  240 KB code partition, of which the settings subsystem, ZMS and the flash
+  driver take about 6 KB.
 
 ## Open items
 

@@ -141,8 +141,8 @@ stage is no longer enabled (trip, external break, e-stop), and
 - Nothing watches the power stage after the startup run is DONE except the
   per-sample overcurrent trip; the hardware break still works. The board has no
   comparators on the current channels; the analog watchdog is not configured.
-- The schematic symbol of U43 is an STM32G491CxT, the firmware targets the
-  STM32G473CBT6 (FDCAN3 on PB3/PB4 and ADC4/ADC5 only exist there).
+- The schematic symbol of U43 is an STM32G491CxT, the board carries and the
+  firmware targets the STM32G473CET6 (512 KB flash, dual bank) (FDCAN3 on PB3/PB4 and ADC4/ADC5 only exist there).
 - The CAN transceiver is a SN65HVD230 (classic CAN, no CAN FD).
 - Settings persist through the Zephyr settings subsystem on ZMS
   (`hardware/zephyr_common/zephyr_settings_storage.cpp`): flash simulator on
