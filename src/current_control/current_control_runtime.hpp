@@ -18,13 +18,14 @@
 #include "current_control_isr.hpp"
 #include "hardware_interface.hpp"
 #include "nvm_settings.hpp"
+#include "outer_loop.hpp"
 #include "slow_update.hpp"
 #include "units.hpp"
 
 namespace unimoc::current_control {
 
 /**
- * @brief Initializes the control cycle and the observer and starts the motor's cycle source.
+ * @brief Initializes the control cycle, the observer and the outer loop and starts the motor's cycle source.
  *
  * Shared by the application and the native_sim scenarios, so that both run
  * the same start sequence. Calling it again restarts the controller from its
@@ -41,7 +42,8 @@ namespace unimoc::current_control {
   auto& current_control = CurrentControlIsr::Instance();
   auto& slow_update = SlowUpdate::Instance();
   current_control.Init(settings, motor, motor.GetTimerClockFrequency());
-  slow_update.Init(settings, current_control);
+  slow_update.Init(settings, current_control, motor);
+  OuterLoop::Instance().Init(settings, current_control);
   current_control.SetOvercurrentLimit(overcurrent_limit);
   return motor.Initialize(settings.pwm_frequency, current_control.state.adc_trigger_offset);
 }

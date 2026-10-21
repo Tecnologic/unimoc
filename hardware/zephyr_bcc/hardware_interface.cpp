@@ -19,6 +19,7 @@
  */
 
 #include "hardware_interface.hpp"
+#include <zephyr/drivers/gpio.h>
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -36,6 +37,9 @@ using namespace unit;
 // One control cycle consumes the samples of one hardware cycle.
 static_assert(kHalfPeriodsPerCycle == current_control::kNumSubSteps,
               "control cycle and hardware cycle cover the same half periods");
+// The DWT cycle counter runs at the core clock (HCLK).
+static_assert(DT_PROP(DT_NODELABEL(rcc), clock_frequency) == kTimestampFrequency,
+              "the timestamp clock is the core clock");
 
 namespace {
 
@@ -74,8 +78,71 @@ void UpdateGuard() noexcept {
   g_guard_ticks = foc_stm32g4::TriggerLead() + kSettle;
 }
 
+// ----- Hall sensors ----------------------------------------------------------
+//
+// Hall A, B, C on PC13..PC15 (zephyr,user hall-gpios, RC filtered, about
+// 7 us). Every edge raises the EXTI interrupt (normal priority, preempted by
+// the zero-latency interrupts); the handler only reads the code and the DWT
+// timestamp and queues them for the observer. Not run on the board yet: the
+// code order (bit 0 = A) and the edge directions follow the convention of
+// observer::HallDecoder; the offset is calibrated (unimoc.observer.hall.offset).
+
+const std::array<struct gpio_dt_spec, 3> kHallInputs = {{
+    GPIO_DT_SPEC_GET_BY_IDX(DT_PATH(zephyr_user), hall_gpios, 0),
+    GPIO_DT_SPEC_GET_BY_IDX(DT_PATH(zephyr_user), hall_gpios, 1),
+    GPIO_DT_SPEC_GET_BY_IDX(DT_PATH(zephyr_user), hall_gpios, 2),
+}};
+
+observer::HallEventQueue<16U> g_hall_events;
+struct gpio_callback g_hall_callback;
+bool g_hall_ready = false;
+
+uint8_t ReadHallCode() noexcept {
+  uint8_t code = 0U;
+  for (std::size_t sensor = 0U; sensor < kHallInputs.size(); ++sensor) {
+    if (gpio_pin_get_dt(&kHallInputs[sensor]) > 0) {
+      code = static_cast<uint8_t>(code | (1U << sensor));
+    }
+  }
+  return code;
+}
+
+void OnHallEdge(const struct device* /*port*/, struct gpio_callback* /*callback*/, uint32_t /*pins*/) {
+  const uint32_t kTimestamp = foc_stm32g4::Timestamp();
+  (void)g_hall_events.Push(observer::HallEvent{ReadHallCode(), kTimestamp});
+}
+
+bool InitHall() noexcept {
+  if (!g_hall_ready) {
+    gpio_port_pins_t pins = 0U;
+    for (const auto& input : kHallInputs) {
+      if (!gpio_is_ready_dt(&input) || input.port != kHallInputs[0].port ||
+          gpio_pin_configure_dt(&input, GPIO_INPUT) != 0 ||
+          gpio_pin_interrupt_configure_dt(&input, GPIO_INT_EDGE_BOTH) != 0) {
+        return false;
+      }
+      pins |= BIT(input.pin);
+    }
+    gpio_init_callback(&g_hall_callback, OnHallEdge, pins);
+    if (gpio_add_callback(kHallInputs[0].port, &g_hall_callback) != 0) {
+      return false;
+    }
+    g_hall_ready = true;
+  }
+  // The observer starts from the present code.
+  g_hall_events.Clear();
+  (void)g_hall_events.Push(observer::HallEvent{ReadHallCode(), foc_stm32g4::Timestamp()});
+  return true;
+}
+
+// The observer interrupt is the only consumer.
+bool PopHallEvent(observer::HallEvent& event) noexcept { return g_hall_events.Pop(event); }
+
 bool Initialize(Frequency pwm_frequency, uint32_t adc_trigger_offset) noexcept {
   if (!foc_stm32g4::Initialize(pwm_frequency, adc_trigger_offset)) {
+    return false;
+  }
+  if (!InitHall()) {
     return false;
   }
   UpdateGuard();
@@ -198,6 +265,7 @@ ControlCycleSamples GetControlCycleSamples() noexcept {
   }
   samples.dc_link = Voltage{analog::CountsToVoltage(raw.vdc)};
   samples.overcurrent = raw.overcurrent;
+  samples.timestamp = raw.timestamp;
   return samples;
 }
 
@@ -230,6 +298,7 @@ const std::array<HardwareInterface, kMotorCount> kMotors = {HardwareInterface(In
                                                                               GetTemperatureMeasurements,
                                                                               SetOvercurrentLimit,
                                                                               SetAdcTriggerOffset,
-                                                                              GetTimerClockFrequency)};
+                                                                              GetTimerClockFrequency,
+                                                                              PopHallEvent)};
 
 }  // namespace unimoc::hardware

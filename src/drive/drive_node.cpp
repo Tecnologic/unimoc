@@ -16,15 +16,20 @@
  */
 
 #include "drive_node.hpp"
+#include <reg/udral/physics/dynamics/rotation/Planar_0_1.h>
 #include <reg/udral/service/common/Readiness_0_1.h>
+#include <uavcan/si/unit/angle/Scalar_1_0.h>
+#include <uavcan/si/unit/angular_velocity/Scalar_1_0.h>
 #include <uavcan/si/unit/torque/Scalar_1_0.h>
 #include <unimoc/drive/CurrentSetpoint_0_1.h>
 #include <unimoc/drive/Telemetry_0_1.h>
 #include <array>
 #include <cmath>
 #include <numbers>
+#include <optional>
 #include "current_control_isr.hpp"
 #include "current_control_runtime.hpp"
+#include "cyphal/control_mode.hpp"
 #include "power_stage_interface.hpp"
 #include "sin_cos.hpp"
 
@@ -33,6 +38,8 @@ namespace unimoc::drive {
 namespace {
 
 using current_control::CurrentControlIsr;
+using current_control::OuterLoop;
+using current_control::OuterSetpoint;
 using hardware::kPowerStage;
 using hardware::PowerStageState;
 
@@ -41,10 +48,13 @@ struct InfoRegister {
   std::string_view type;  ///< Empty: the unique-ID register.
 };
 
-constexpr std::array<InfoRegister, 5> kInfoRegisters{{
+constexpr std::array<InfoRegister, 8> kInfoRegisters{{
     {cyphal::reg::kSubReadinessType, "reg.udral.service.common.Readiness.0.1"},
     {cyphal::reg::kSubCurrentSetpointType, "unimoc.drive.CurrentSetpoint.0.1"},
     {cyphal::reg::kSubTorqueSetpointType, "uavcan.si.unit.torque.Scalar.1.0"},
+    {cyphal::reg::kSubSpeedSetpointType, "uavcan.si.unit.angular_velocity.Scalar.1.0"},
+    {cyphal::reg::kSubPositionSetpointType, "uavcan.si.unit.angle.Scalar.1.0"},
+    {cyphal::reg::kSubServoSetpointType, "reg.udral.physics.dynamics.rotation.Planar.0.1"},
     {cyphal::reg::kPubTelemetryType, "unimoc.drive.Telemetry.0.1"},
     {cyphal::reg::kNodeUniqueId, ""},
 }};
@@ -97,7 +107,9 @@ DriveNode::DriveNode(cyphal::CyphalNode& node,
       motor_{&motor},
       hooks_{hooks},
       settings_registers_{store},
-      info_registers_{unique_id} {}
+      info_registers_{unique_id},
+      startup_{CurrentControlIsr::Instance(), store.GetOperations()},
+      startup_registers_{startup_, engaged_} {}
 
 bool DriveNode::Start(const uint64_t now_us) noexcept {
   now_us_ = now_us;
@@ -106,6 +118,9 @@ bool DriveNode::Start(const uint64_t now_us) noexcept {
   readiness_port_ = live.sub_readiness_id;
   current_setpoint_port_ = live.sub_current_setpoint_id;
   torque_setpoint_port_ = live.sub_torque_setpoint_id;
+  speed_setpoint_port_ = live.sub_speed_setpoint_id;
+  position_setpoint_port_ = live.sub_position_setpoint_id;
+  servo_setpoint_port_ = live.sub_servo_setpoint_id;
   telemetry_ = cyphal::Publisher{live.pub_telemetry_id, cyphal::Priority::kHigh, 0U};
   // The runtime was started by main() with these settings.
   applied_writes_ = settings_registers_.WriteCount();
@@ -113,6 +128,7 @@ bool DriveNode::Start(const uint64_t now_us) noexcept {
 
   bool subscribed = node_->AddRegisterProvider(settings_registers_);
   subscribed = node_->AddRegisterProvider(info_registers_) && subscribed;
+  subscribed = node_->AddRegisterProvider(startup_registers_) && subscribed;
   subscribed =
       node_->Subscribe(readiness_port_, reg_udral_service_common_Readiness_0_1_EXTENT_BYTES_, *this) &&
       subscribed;
@@ -122,6 +138,17 @@ bool DriveNode::Start(const uint64_t now_us) noexcept {
   subscribed =
       node_->Subscribe(torque_setpoint_port_, uavcan_si_unit_torque_Scalar_1_0_EXTENT_BYTES_, *this) &&
       subscribed;
+  subscribed = node_->Subscribe(speed_setpoint_port_,
+                                uavcan_si_unit_angular_velocity_Scalar_1_0_EXTENT_BYTES_,
+                                *this) &&
+               subscribed;
+  subscribed =
+      node_->Subscribe(position_setpoint_port_, uavcan_si_unit_angle_Scalar_1_0_EXTENT_BYTES_, *this) &&
+      subscribed;
+  subscribed = node_->Subscribe(servo_setpoint_port_,
+                                reg_udral_physics_dynamics_rotation_Planar_0_1_EXTENT_BYTES_,
+                                *this) &&
+               subscribed;
   subscribed = node_->AddPublisher(telemetry_) && subscribed;
   node_->SetCommandHandler(*this);
   node_->SetNodeIdListener(*this);
@@ -143,8 +170,9 @@ void DriveNode::Spin(const uint64_t now_us) noexcept {
     engage_requested_ = false;
     Engage();
   }
+  SpinStartup();
 
-  auto& isr = CurrentControlIsr::Instance();
+  const auto& isr = CurrentControlIsr::Instance();
   if (engaged_) {
     if (now_us - last_readiness_us_ > command_timeout_us_) {
       Disengage("readiness timeout");
@@ -153,14 +181,13 @@ void DriveNode::Spin(const uint64_t now_us) noexcept {
       Disengage(isr.state.overcurrent_tripped ? "overcurrent trip" : "power stage fault");
     }
   }
-  if (engaged_) {
-    if (setpoint_active_ && now_us - last_setpoint_us_ > command_timeout_us_) {
-      setpoint_active_ = false;
-      setpoint_d_ = 0.0F;
-      setpoint_q_ = 0.0F;
-    }
-    isr.SetCurrentRef({unit::Current{setpoint_d_}, unit::Current{setpoint_q_}});
+  if (engaged_ && setpoint_active_ && now_us - last_setpoint_us_ > command_timeout_us_) {
+    ClearSetpoint();
   }
+  // The outer loop commands zero current while the drive is disengaged.
+  OuterSetpoint setpoint = setpoint_;
+  setpoint.active = engaged_;
+  OuterLoop::Instance().SetSetpoint(setpoint);
 
   if (!engaged_ && settings_registers_.WriteCount() != applied_writes_) {
     settings_pending_ = true;
@@ -194,16 +221,35 @@ void DriveNode::LoadParameters(const settings::NvmSettings& settings) noexcept {
   torque_constant_ = 1.5F * static_cast<float>(settings.pole_pairs) * settings.flux_pm.Value();
 }
 
+void DriveNode::SpinStartup() noexcept {
+  if (startup_.IsActive()) {
+    startup_active_ = true;
+    startup_.RunOnce();  // one sample of the control cycle per spin
+    return;
+  }
+  if (startup_active_) {
+    // DONE or FAULT: the outputs are off again. DONE wrote the calibration
+    // to the settings; the controller restarts with it. A FAULT leaves the
+    // control cycle at forced neutral duties: back to the control loop.
+    startup_active_ = false;
+    CurrentControlIsr::Instance().ReleaseForceDuty();
+    settings_pending_ = true;
+  }
+}
+
 bool DriveNode::ApplySettings() noexcept {
+  if (kPowerStage.GetState() == PowerStageState::kEnabled) {
+    // Not while the outputs are released (engaged, startup aid): the next
+    // engage or the end of the startup run applies them.
+    settings_pending_ = true;
+    return false;
+  }
   applied_writes_ = settings_registers_.WriteCount();
   settings_pending_ = false;
   const settings::SettingsSnapshot kSnapshot = store_->GetSnapshot();
   const settings::NvmSettings& live = kSnapshot.Get();
   LoadParameters(live);
 
-  if (kPowerStage.GetState() == PowerStageState::kEnabled) {
-    return false;  // not while the outputs are released; the next engage applies them
-  }
   if (!current_control::StartRuntime(live, *motor_, store_->GetProfile().capabilities.max_phase_current)) {
     (void)node_->Log(cyphal::Severity::kError, "settings rejected by the hardware (PWM frequency)");
     return false;
@@ -221,6 +267,12 @@ void DriveNode::OnMessage(const cyphal::Transfer& transfer, const uint64_t now_u
     OnCurrentSetpoint(transfer, now_us);
   } else if (transfer.port_id == torque_setpoint_port_) {
     OnTorqueSetpoint(transfer, now_us);
+  } else if (transfer.port_id == speed_setpoint_port_) {
+    OnSpeedSetpoint(transfer, now_us);
+  } else if (transfer.port_id == position_setpoint_port_) {
+    OnPositionSetpoint(transfer, now_us);
+  } else if (transfer.port_id == servo_setpoint_port_) {
+    OnServoSetpoint(transfer, now_us);
   }
 }
 
@@ -255,7 +307,7 @@ void DriveNode::OnCurrentSetpoint(const cyphal::Transfer& transfer, const uint64
   if (unimoc_drive_CurrentSetpoint_0_1_deserialize_(&setpoint, InputBytes(transfer.payload), &size) < 0) {
     return;
   }
-  SetSetpoint(setpoint.i_d, setpoint.i_q, now_us);
+  SetCurrentSetpoint(setpoint.i_d, setpoint.i_q, now_us);
 }
 
 void DriveNode::OnTorqueSetpoint(const cyphal::Transfer& transfer, const uint64_t now_us) noexcept {
@@ -265,10 +317,59 @@ void DriveNode::OnTorqueSetpoint(const cyphal::Transfer& transfer, const uint64_
       torque_constant_ <= 0.0F) {
     return;
   }
-  SetSetpoint(0.0F, torque.newton_meter / torque_constant_, now_us);
+  SetCurrentSetpoint(0.0F, torque.newton_meter / torque_constant_, now_us);
 }
 
-void DriveNode::SetSetpoint(const float i_d, const float i_q, const uint64_t now_us) noexcept {
+void DriveNode::OnSpeedSetpoint(const cyphal::Transfer& transfer, const uint64_t now_us) noexcept {
+  uavcan_si_unit_angular_velocity_Scalar_1_0 speed{};
+  std::size_t size = transfer.payload.size();
+  if (uavcan_si_unit_angular_velocity_Scalar_1_0_deserialize_(&speed, InputBytes(transfer.payload), &size) <
+      0) {
+    return;
+  }
+  SetSpeedSetpoint(speed.radian_per_second, now_us);
+}
+
+void DriveNode::OnPositionSetpoint(const cyphal::Transfer& transfer, const uint64_t now_us) noexcept {
+  uavcan_si_unit_angle_Scalar_1_0 position{};
+  std::size_t size = transfer.payload.size();
+  if (uavcan_si_unit_angle_Scalar_1_0_deserialize_(&position, InputBytes(transfer.payload), &size) < 0) {
+    return;
+  }
+  SetPositionSetpoint(position.radian, now_us);
+}
+
+void DriveNode::OnServoSetpoint(const cyphal::Transfer& transfer, const uint64_t now_us) noexcept {
+  reg_udral_physics_dynamics_rotation_Planar_0_1 servo{};
+  std::size_t size = transfer.payload.size();
+  if (reg_udral_physics_dynamics_rotation_Planar_0_1_deserialize_(&servo, InputBytes(transfer.payload), &size) <
+      0) {
+    return;
+  }
+  const float kPosition = servo.kinematics.angular_position.radian;
+  const float kSpeed = servo.kinematics.angular_velocity.radian_per_second;
+  const float kTorque = servo._torque.newton_meter;
+  const std::optional<cyphal::ControlMode> kMode = cyphal::SelectControlModeFromUdralServoRotation(
+      kPosition, kSpeed, servo.kinematics.angular_acceleration.radian_per_second_per_second, kTorque);
+  if (!kMode.has_value()) {
+    return;  // nothing the drive can control: the setpoint is ignored
+  }
+  switch (*kMode) {
+    case cyphal::ControlMode::kPosition:
+      SetPositionSetpoint(kPosition, now_us);
+      break;
+    case cyphal::ControlMode::kSpeed:
+      SetSpeedSetpoint(kSpeed, now_us);
+      break;
+    case cyphal::ControlMode::kTorque:
+      if (torque_constant_ > 0.0F) {
+        SetCurrentSetpoint(0.0F, kTorque / torque_constant_, now_us);
+      }
+      break;
+  }
+}
+
+void DriveNode::SetCurrentSetpoint(const float i_d, const float i_q, const uint64_t now_us) noexcept {
   if (!std::isfinite(i_d) || !std::isfinite(i_q)) {
     return;
   }
@@ -276,14 +377,47 @@ void DriveNode::SetSetpoint(const float i_d, const float i_q, const uint64_t now
   const float kMagnitude = std::sqrt((i_d * i_d) + (i_q * i_q));
   const float kScale =
       (kMagnitude > current_limit_ && kMagnitude > 0.0F) ? current_limit_ / kMagnitude : 1.0F;
-  setpoint_d_ = i_d * kScale;
-  setpoint_q_ = i_q * kScale;
+  setpoint_ = OuterSetpoint{};
+  setpoint_.mode = cyphal::ControlMode::kTorque;
+  setpoint_.current = {unit::Current{i_d * kScale}, unit::Current{i_q * kScale}};
   last_setpoint_us_ = now_us;
   setpoint_active_ = true;
 }
 
+void DriveNode::SetSpeedSetpoint(const float speed, const uint64_t now_us) noexcept {
+  if (!std::isfinite(speed)) {
+    return;
+  }
+  setpoint_ = OuterSetpoint{};
+  setpoint_.mode = cyphal::ControlMode::kSpeed;
+  setpoint_.speed = unit::AngularVelocity{speed};  // limited by the outer loop
+  last_setpoint_us_ = now_us;
+  setpoint_active_ = true;
+}
+
+void DriveNode::SetPositionSetpoint(const float position, const uint64_t now_us) noexcept {
+  if (!std::isfinite(position)) {
+    return;
+  }
+  setpoint_ = OuterSetpoint{};
+  setpoint_.mode = cyphal::ControlMode::kPosition;
+  setpoint_.position = unit::Angle{position};
+  last_setpoint_us_ = now_us;
+  setpoint_active_ = true;
+}
+
+void DriveNode::ClearSetpoint() noexcept {
+  setpoint_active_ = false;
+  setpoint_ = OuterSetpoint{};
+}
+
 void DriveNode::Engage() noexcept {
   if (engaged_ || emergency_stop_) {
+    return;
+  }
+  if (startup_.IsActive()) {
+    rearm_required_ = true;
+    (void)node_->Log(cyphal::Severity::kWarning, "engage refused: the startup aid is running");
     return;
   }
   if (settings_pending_ || settings_registers_.WriteCount() != applied_writes_) {
@@ -292,10 +426,8 @@ void DriveNode::Engage() noexcept {
     }
   }
   auto& isr = CurrentControlIsr::Instance();
-  setpoint_active_ = false;
-  setpoint_d_ = 0.0F;
-  setpoint_q_ = 0.0F;
-  isr.SetCurrentRef({unit::Current{}, unit::Current{}});
+  ClearSetpoint();
+  OuterLoop::Instance().SetSetpoint(OuterSetpoint{});
   // ENGAGED is the explicit acknowledgement of a latched trip (as HwStartup::RequestRun()).
   isr.ClearOvercurrentTrip();
   kPowerStage.ClearFault();
@@ -309,11 +441,11 @@ void DriveNode::Engage() noexcept {
 }
 
 void DriveNode::Disengage(const std::string_view reason) noexcept {
-  kPowerStage.Disable();
-  CurrentControlIsr::Instance().SetCurrentRef({unit::Current{}, unit::Current{}});
-  setpoint_active_ = false;
-  setpoint_d_ = 0.0F;
-  setpoint_q_ = 0.0F;
+  ClearSetpoint();
+  OuterLoop::Instance().SetSetpoint(OuterSetpoint{});
+  if (engaged_ || !startup_.IsActive()) {
+    kPowerStage.Disable();  // the outputs of a startup run stay with the FSM
+  }
   if (engaged_) {
     engaged_ = false;
     std::array<char, 64> text{};
@@ -333,12 +465,14 @@ uint8_t DriveNode::OnCommand(const uint16_t command, std::span<const uint8_t> /*
   auto operations = store_->GetOperations();
   switch (command) {
     case cyphal::cmd::kCommandRestart:
+      startup_.RequestAbort();
       Disengage("restart");
       restart_requested_ = true;
       restart_at_us_ = now_us_ + kRestartDelayUs;
       return cyphal::cmd::kStatusSuccess;
     case cyphal::cmd::kCommandEmergencyStop:
       emergency_stop_ = true;
+      startup_.RequestAbort();
       Disengage("emergency stop");
       return cyphal::cmd::kStatusSuccess;
     case cyphal::cmd::kCommandStorePersistentStates: {
@@ -350,7 +484,7 @@ uint8_t DriveNode::OnCommand(const uint16_t command, std::span<const uint8_t> /*
                                                                     : cyphal::cmd::kStatusFailure;
     }
     case cyphal::cmd::kCommandFactoryReset: {
-      if (engaged_) {
+      if (engaged_ || startup_.IsActive()) {
         return cyphal::cmd::kStatusBadState;
       }
       if (operations.ResetToFactoryDefaults() != settings::SettingsStatus::kSuccess) {

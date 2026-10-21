@@ -201,6 +201,7 @@ ISR_DIRECT_DECLARE(SampleIsr) {
   }
   g_sample_index = 0U;
   g_cycle.vdc = kAdcVdc->JDR1;
+  g_cycle.timestamp = DWT->CYCCNT;  // the control boundary, in the clock of the Hall events
   ControlCycleHandler();
   g_cycle.overcurrent = false;
   NVIC_SetPendingIRQ(static_cast<IRQn_Type>(kObserverIrq));
@@ -339,6 +340,9 @@ bool Initialize(const unit::Frequency pwm_frequency, const uint32_t adc_trigger_
   }
 
   InitDma();
+  // Timestamp clock (Hall edges, control boundary): the DWT cycle counter.
+  CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+  DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
   // The first sample belongs to the first boundary, which is also the first
   // DMA burst (slot 0): it is the last sample of a cycle.
   g_sample_index = kHalfPeriodsPerCycle - 1U;
@@ -437,6 +441,8 @@ void SetDutyTicks(const TickPlan& ticks) noexcept {
 uint32_t DutyOverruns() noexcept { return g_duty_overruns; }
 
 const CycleRaw& CycleSamples() noexcept { return g_cycle; }
+
+uint32_t Timestamp() noexcept { return DWT->CYCCNT; }
 
 const PhaseTicks& AppliedTicks(const uint8_t sample) noexcept { return g_applied[sample]; }
 

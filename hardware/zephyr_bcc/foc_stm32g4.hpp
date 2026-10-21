@@ -119,9 +119,18 @@ struct CycleRaw {
   std::array<RawCurrents, kHalfPeriodsPerCycle> currents;  ///< oldest first
   uint32_t vdc;                                            ///< of the last sample
   bool overcurrent;                                        ///< a sample left the window
+  uint32_t timestamp;                                      ///< Timestamp() at the last sample
 };
 
 [[nodiscard]] const CycleRaw& CycleSamples() noexcept;
+
+/**
+ * @brief The timestamp clock of the drive: the DWT cycle counter.
+ *
+ * Counts core clock cycles (kTimestampFrequency) and wraps every 25 s;
+ * Initialize() starts it. A plain register read, usable in every context.
+ */
+[[nodiscard]] uint32_t Timestamp() noexcept;
 
 /// Compare values that were active while sample k of the current cycle was taken.
 [[nodiscard]] const PhaseTicks& AppliedTicks(uint8_t sample) noexcept;

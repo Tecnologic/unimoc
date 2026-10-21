@@ -58,9 +58,11 @@ void LogFormatted(const hardware::LogLevel level, const char* const format, ...)
 // =============================================================================
 
 void HwStartup::RequestRun() noexcept {
-  if (state_ != FsmState::kIdle) {
-    return;
+  if (IsActive()) {
+    return;  // a run is in progress; DONE and FAULT start a new one
   }
+  state_ = FsmState::kIdle;
+  results.current_state = FsmState::kIdle;
 
   // Reset all results and counters
   results = StartupResults{};
@@ -798,6 +800,8 @@ void HwStartup::RunCurrentSenseCalibration() noexcept {
 // =============================================================================
 
 void HwStartup::RunDone() noexcept {
+  // The bring-up ends with the outputs off; the application releases them again.
+  hardware::kPowerStage.Disable();
   cc_->ReleaseForceDuty();
 
   const float kGainA = (results.gain_a > 1e-4F) ? (1.0F / results.gain_a) : 1.0F;

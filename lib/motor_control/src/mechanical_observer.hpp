@@ -18,7 +18,10 @@
 #include <array>
 #include <cmath>
 #include <concepts>
+#include <cstddef>
+#include <cstdint>
 #include <numbers>
+#include "angle_wrap.hpp"
 #include "nvm_settings.hpp"
 #include "rotor_system.hpp"
 
@@ -42,40 +45,50 @@ using namespace unit;
  *
  * Prediction step  (call Predict() once per control cycle)
  * ---------------------------------------------------------
- * The electric torque is computed from the rotor-frame d/q currents:
+ * The electric (shaft) torque is computed from the rotor-frame d/q currents:
  *
- *   m_el = (3/2) · [ψ_PM · i_q + (L_d − L_q) · i_d · i_q]
+ *   m_el = (3/2) · p · [ψ_PM · i_q + (L_d − L_q) · i_d · i_q]
  *
- * The states are then propagated using Euler forward integration:
+ * The states are then propagated using Euler forward integration; the
+ * electrical speed changes p times faster than the shaft speed:
  *
- *   ω̂  += (dt/J) · (m_el − m̂_l)
+ *   ω̂  += (dt/J) · (p · m_el − m̂_l)
  *   θ̂  += ω̂ · dt
  *   m̂_l unchanged (load is modelled as a random walk)
  *
- * After prediction ω̂ is clamped to [omega_min, omega_max] to enforce
- * hardware speed limits, and θ̂ is wrapped to (−π, π].
+ * The load torque m̂_l is referred to the electrical speed (p times the
+ * shaft load torque), so its process noise Q acts on the electrical speed
+ * like that of the other states.
  *
- * Measurement update  (call InjectAngleError() once per control cycle)
- * -----------------------------------------------------------------------
- * An external angle measurement (from a flux observer, HFI, or hall sensors)
- * provides the innovation:
+ * After prediction ω̂ is clamped to twice [omega_min, omega_max], a guard
+ * against a numeric runaway (the outer loop enforces the speed limits on
+ * the setpoint; an estimate pinned at the limit would hide an overspeed),
+ * and θ̂ is wrapped to (−π, π].
  *
- *   ε = θ_measured − θ̂
+ * Measurement updates  (docs/hotpath_plan.md, D2)
+ * ----------------------------------------------
+ * Once per control cycle PredictCovariance() propagates the state-error
+ * covariance with the linearised state-transition matrix (process noise Q,
+ * applied uniformly to the three state variances). Then any number of
+ * independent measurements correct the state, each with its own noise:
  *
- * A Kalman filter with process noise Q (scalar, applied uniformly to all
- * three state variances) and measurement noise R (scalar) computes the
- * optimal gain k and corrects the state:
+ *   UpdateAngle(ε, R):  ε = θ_measured − θ̂, wrapped to (−π, π]
+ *                       (flux observer, Hall edge and sector, HFI)
+ *   UpdateSpeed(ε, R):  ε = ω_measured − ω̂  (Hall speed bound)
+ *
+ * Each update computes the Kalman gain k for its measurement and corrects
  *
  *   ω̂  += k[0] · ε
  *   θ̂  += k[1] · ε
  *   m̂_l += k[2] · ε
  *
- * The covariance propagation uses the linearised state-transition matrix
- * evaluated at the current dt and J.
+ * Sequential scalar updates are the exact Kalman update for independent
+ * measurements. InjectAngleError(ε, dt) is PredictCovariance(dt) followed
+ * by UpdateAngle(ε, R) with the default R, for observers that own a cycle.
  *
  * Outputs
  * -------
- * After each call to Predict() or InjectAngleError(), the fields
+ * After each call to Predict() or an update, the fields
  * sin_theta and cos_theta are updated so downstream Park/inverse-Park
  * transforms can use them directly.
  *
@@ -99,6 +112,9 @@ struct MechanicalObserver {
   /// Rotor + load inertia J [kg·m²].
   unit::Inertia J;
 
+  /// Pole-pair count p: electrical per mechanical angle.
+  uint8_t pole_pairs{1U};
+
   // =========================================================================
   // Speed limits  (set from motor / hardware constraints)
   // =========================================================================
@@ -117,7 +133,7 @@ struct MechanicalObserver {
   /// Process noise variance Q (applied to all three state covariances).
   T Q{static_cast<T>(1e-5)};
 
-  /// Measurement noise variance R.
+  /// Default measurement noise variance R of an angle measurement [rad²].
   T R{static_cast<T>(1e-4)};
 
   // =========================================================================
@@ -130,14 +146,14 @@ struct MechanicalObserver {
   /// Estimated electrical rotor angle θ̂ [rad], wrapped to (−π, π].
   unit::Angle theta;
 
-  /// Estimated load torque m̂_l [N·m].
+  /// Estimated load torque m̂_l, referred to the electrical speed (p times the shaft load torque) [N·m].
   unit::Torque m_l;
 
-  /// Last computed electrical torque m_el [N·m].
+  /// Last computed electrical (shaft) torque m_el [N·m].
   unit::Torque m_el;
 
   // =========================================================================
-  // Outputs (updated by Predict() and InjectAngleError())
+  // Outputs (updated by Predict() and the measurement updates)
   // =========================================================================
 
   /// sin(θ̂) — ready for use in Park / inverse-Park transforms.
@@ -179,6 +195,7 @@ struct MechanicalObserver {
     L_d = settings.l_d;
     L_q = settings.l_q;
     J = settings.motor_j;
+    pole_pairs = settings.pole_pairs;
     omega_max = settings.motor_omega_max;
     omega_min = settings.motor_omega_min;
     Q = settings.mech_obs_q;
@@ -190,135 +207,115 @@ struct MechanicalObserver {
    * @brief Prediction step — propagate the mechanical model one control cycle.
    *
    * Computes the electrical torque from the rotor-frame d/q current vector,
-   * integrates the mechanical equations of motion, and clamps ω̂ to
-   * [omega_min, omega_max] to enforce hardware limits.
+   * integrates the mechanical equations of motion, and clamps ω̂ to twice
+   * [omega_min, omega_max] (numeric guard).
    *
-   * Call once per PWM/control interrupt **before** InjectAngleError().
+   * Call once per control cycle after the measurement updates; it moves the
+   * estimate to the reference time of the next cycle.
    *
    * @param i_dq  Measured rotor-frame d/q stator current [A].
    * @param dt    Control period.
    */
   constexpr void Predict(const system::Rotor<unit::Current>& i_dq, const unit::Time dt) noexcept {
     const T kTsj = dt.Value() / J.Value();
+    const T kPolePairs = static_cast<T>(pole_pairs);
 
-    // Electric torque: T_e = (3/2) · [ψ_PM · i_q + (L_d − L_q) · i_d · i_q]
-    m_el =
-        unit::Torque{static_cast<T>(1.5) * (psi.Value() * i_dq.q.Value() +
-                                            (L_d.Value() - L_q.Value()) * i_dq.d.Value() * i_dq.q.Value())};
+    // Shaft torque: T_e = (3/2) · p · [ψ_PM · i_q + (L_d − L_q) · i_d · i_q]
+    m_el = unit::Torque{static_cast<T>(1.5) * kPolePairs *
+                        (psi.Value() * i_dq.q.Value() +
+                         (L_d.Value() - L_q.Value()) * i_dq.d.Value() * i_dq.q.Value())};
 
-    // Integrate angular velocity
-    omega += unit::AngularVelocity{kTsj * (m_el.Value() - m_l.Value())};
-
-    // Clamp to hardware speed limits
-    if (omega > omega_max) {
-      omega = omega_max;
-    } else if (omega < omega_min) {
-      omega = omega_min;
-    }
-
-    // Recover from NaN/Inf
-    if (!std::isfinite(omega.Value())) {
-      omega = unit::AngularVelocity{};
-    }
+    // Integrate the electrical angular velocity
+    omega += unit::AngularVelocity{kTsj * (kPolePairs * m_el.Value() - m_l.Value())};
+    ClampSpeed();
 
     // Integrate angle
     theta += unit::Angle{omega.Value() * dt.Value()};
-    WrapAngle(theta);
+    theta = observer::WrapAngle(theta);
 
     sin_theta = unit::Ratio{std::sin(theta.Value())};
     cos_theta = unit::Ratio{std::cos(theta.Value())};
   }
 
   /**
-   * @brief Measurement update — Kalman correction from an external angle error.
+   * @brief Covariance prediction for one control cycle: P = F·P·Fᵀ + Q·I.
    *
-   * Propagates the state-error covariance using the linearised mechanics model
-   * and then applies the Kalman-optimal correction to [ω̂, θ̂, m̂_l].
+   * State-transition matrix, linearised about the current state:
    *
-   * This is also the entry point used by the ASM flux observer and HFI
-   * observer to inject auxiliary angle information into the same estimator.
+   *   F = | 1    0   -tsj |      tsj = dt / J
+   *       | dt   1    0   |
+   *       | 0    0    1   |
    *
-   * Call once per PWM/control interrupt **after** Predict().
+   * Call once per control cycle, before the measurement updates of that cycle.
+   *
+   * @param dt Control period.
+   */
+  constexpr void PredictCovariance(const unit::Time dt) noexcept {
+    const T kTsj = dt.Value() / J.Value();
+    const T kDt = dt.Value();
+
+    pk[0][2] = p[0][2] - p[2][2] * kTsj;
+
+    pk[0][0] = p[0][0] + Q - p[2][0] * kTsj - pk[0][2] * kTsj;
+    pk[1][0] = p[1][0] + p[0][0] * kDt - kTsj * (p[1][2] + p[0][2] * kDt);
+    pk[2][0] = p[2][0] - kTsj * p[2][2];
+
+    pk[0][1] = p[0][1] + kDt * (p[0][0] - kTsj * p[2][0]) - kTsj * p[2][1];
+    pk[1][1] = p[1][1] + Q + p[0][1] * kDt + kDt * (p[1][0] + p[0][0] * kDt);
+    pk[2][1] = p[2][1] + p[2][0] * kDt;
+
+    // p[0][2] already stored in pk[0][2] above
+    pk[1][2] = p[1][2] + p[0][2] * kDt;
+    pk[2][2] = p[2][2] + Q;
+
+    p = pk;
+  }
+
+  /**
+   * @brief Kalman update with an angle measurement (H = [0, 1, 0]).
+   *
+   * @param innovation  ε = θ_measured − θ̂; wrapped to (−π, π] here.
+   * @param r           Measurement noise variance of this measurement [rad²]; positive.
+   */
+  constexpr void UpdateAngle(const unit::Angle innovation, const T r) noexcept {
+    Correct(1U, WrapAngle(innovation).Value(), r);
+  }
+
+  /**
+   * @brief Kalman update with a speed measurement (H = [1, 0, 0]).
+   *
+   * @param innovation  ε = ω_measured − ω̂ [rad/s, electrical].
+   * @param r           Measurement noise variance of this measurement [(rad/s)²]; positive.
+   */
+  constexpr void UpdateSpeed(const unit::AngularVelocity innovation, const T r) noexcept {
+    Correct(0U, innovation.Value(), r);
+  }
+
+  /**
+   * @brief Holds the estimate still: the rotor is known to stand.
+   *
+   * Sets ω̂ = 0 and the load torque to the torque balance (m̂_l = p · m_el),
+   * so the prediction does not accelerate the estimate either. Angle and
+   * covariance are kept. For a standstill detected from outside, such as
+   * Hall sensors without an edge for a long time.
+   */
+  constexpr void HoldStill() noexcept {
+    omega = unit::AngularVelocity{};
+    m_l = m_el * static_cast<T>(pole_pairs);
+  }
+
+  /**
+   * @brief Covariance prediction and angle update with the default noise R.
+   *
+   * This is the entry point of the ASM flux observer and the HFI observer,
+   * which inject their angle information once per period.
    *
    * @param angle_error  Innovation ε = θ_measured − θ̂.
    * @param dt           Control period.
    */
   constexpr void InjectAngleError(const unit::Angle angle_error, const unit::Time dt) noexcept {
-    const T kTsj = dt.Value() / J.Value();
-    const T kAngleErrorValue = angle_error.Value();
-
-    // -----------------------------------------------------------------
-    // Covariance prediction  P_k = F·P·Fᵀ + Q·I
-    //
-    // State-transition matrix (linearised about current state):
-    //   F = | 1    0   -tsj |
-    //       | dt   1    0   |
-    //       | 0    0    1   |
-    // -----------------------------------------------------------------
-
-    pk[0][2] = p[0][2] - p[2][2] * kTsj;
-
-    pk[0][0] = p[0][0] + Q - p[2][0] * kTsj - pk[0][2] * kTsj;
-    pk[1][0] = p[1][0] + p[0][0] * dt.Value() - kTsj * (p[1][2] + p[0][2] * dt.Value());
-    pk[2][0] = p[2][0] - kTsj * p[2][2];
-
-    pk[0][1] = p[0][1] + dt.Value() * (p[0][0] - kTsj * p[2][0]) - kTsj * p[2][1];
-    pk[1][1] = p[1][1] + Q + p[0][1] * dt.Value() + dt.Value() * (p[1][0] + p[0][0] * dt.Value());
-    pk[2][1] = p[2][1] + p[2][0] * dt.Value();
-
-    // p[0][2] already stored in pk[0][2] above
-    pk[1][2] = p[1][2] + p[0][2] * dt.Value();
-    pk[2][2] = p[2][2] + Q;
-
-    // -----------------------------------------------------------------
-    // Innovation covariance and Kalman gain
-    //   S   = H · P_k · Hᵀ + R  =  pk[1][1] + R  (H = [0, 1, 0])
-    //   k   = P_k · Hᵀ / S
-    // -----------------------------------------------------------------
-    s = static_cast<T>(1) / (pk[1][1] + R);
-    k[0] = pk[0][1] * s;
-    k[1] = pk[1][1] * s;
-    k[2] = pk[2][1] * s;
-
-    // -----------------------------------------------------------------
-    // Covariance update  P = (I − k·H) · P_k
-    // -----------------------------------------------------------------
-    const T k1m1 = k[1] - static_cast<T>(1);
-
-    p[0][0] = pk[0][0] - k[0] * pk[1][0];
-    p[1][0] = -pk[1][0] * k1m1;
-    p[2][0] = pk[2][0] - k[2] * pk[1][0];
-
-    p[0][1] = pk[0][1] - k[0] * pk[1][1];
-    p[1][1] = -pk[1][1] * k1m1;
-    p[2][1] = pk[2][1] - k[2] * pk[1][1];
-
-    p[0][2] = pk[0][2] - k[0] * pk[1][2];
-    p[1][2] = -pk[1][2] * k1m1;
-    p[2][2] = pk[2][2] - k[2] * pk[1][2];
-
-    // -----------------------------------------------------------------
-    // State correction
-    // -----------------------------------------------------------------
-    omega += unit::AngularVelocity{k[0] * kAngleErrorValue};
-    theta += unit::Angle{k[1] * kAngleErrorValue};
-    m_l += unit::Torque{k[2] * kAngleErrorValue};
-
-    // Re-clamp after correction
-    if (omega > omega_max) {
-      omega = omega_max;
-    } else if (omega < omega_min) {
-      omega = omega_min;
-    }
-
-    if (!std::isfinite(omega.Value())) {
-      omega = unit::AngularVelocity{};
-    }
-
-    WrapAngle(theta);
-
-    sin_theta = unit::Ratio{std::sin(theta.Value())};
-    cos_theta = unit::Ratio{std::cos(theta.Value())};
+    PredictCovariance(dt);
+    UpdateAngle(angle_error, R);
   }
 
   /**
@@ -347,20 +344,53 @@ struct MechanicalObserver {
   }
 
  private:
-  /// Wrap angle to (−π, π].
-  static constexpr void WrapAngle(unit::Angle& angle) noexcept {
-    constexpr T kPi = std::numbers::pi_v<T>;
-    constexpr T kTwoPi = static_cast<T>(2) * kPi;
-    T angle_value = angle.Value();
+  /// Range of the speed estimate relative to the speed limits.
+  static constexpr T kSpeedGuard = static_cast<T>(2);
 
-    while (angle_value > kPi) {
-      angle_value -= kTwoPi;
+  /// Clamps the speed estimate to twice the speed limits and recovers from NaN/Inf.
+  constexpr void ClampSpeed() noexcept {
+    const unit::AngularVelocity kUpper = omega_max * kSpeedGuard;
+    const unit::AngularVelocity kLower = omega_min * kSpeedGuard;
+    if (omega > kUpper) {
+      omega = kUpper;
+    } else if (omega < kLower) {
+      omega = kLower;
     }
-    while (angle_value <= -kPi) {
-      angle_value += kTwoPi;
+    if (!std::isfinite(omega.Value())) {
+      omega = unit::AngularVelocity{};
+    }
+  }
+
+  /**
+   * @brief Scalar Kalman update of the measured state @p state (0 = ω, 1 = θ).
+   *
+   *   S = P[s][s] + r,   k = P[:, s] / S,   P = P − k · P[s, :],   x += k · ε
+   */
+  constexpr void Correct(const std::size_t state, const T innovation, const T r) noexcept {
+    const T kVariance = p[state][state] + r;
+    if (!(kVariance > static_cast<T>(0)) || !std::isfinite(innovation)) {
+      return;  // no usable measurement
+    }
+    s = static_cast<T>(1) / kVariance;
+    for (std::size_t row = 0U; row < 3U; ++row) {
+      k[row] = p[row][state] * s;
+    }
+    const std::array<T, 3> kMeasuredRow = p[state];
+    for (std::size_t row = 0U; row < 3U; ++row) {
+      for (std::size_t column = 0U; column < 3U; ++column) {
+        p[row][column] -= k[row] * kMeasuredRow[column];
+      }
     }
 
-    angle = unit::Angle{angle_value};
+    omega += unit::AngularVelocity{k[0] * innovation};
+    theta += unit::Angle{k[1] * innovation};
+    m_l += unit::Torque{k[2] * innovation};
+    ClampSpeed();
+
+    theta = observer::WrapAngle(theta);
+
+    sin_theta = unit::Ratio{std::sin(theta.Value())};
+    cos_theta = unit::Ratio{std::cos(theta.Value())};
   }
 };
 

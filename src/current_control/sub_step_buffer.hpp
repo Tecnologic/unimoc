@@ -70,6 +70,10 @@ struct SubStepBuffer {
 
   /// Voltage demand of the cycle, rotor frame, written by the control cycle.
   system::Rotor<unit::Voltage> u_dq;
+
+  /// Timestamp of the last sample (the control boundary), written by the
+  /// control cycle; the clock of the Hall events (hardware::kTimestampFrequency).
+  uint32_t timestamp{0U};
 };
 
 /**

@@ -37,6 +37,17 @@ void SetPhaseCurrentOverride(float a, float b, float c) noexcept;
 void ClearPhaseCurrentOverride() noexcept;
 
 /**
+ * @brief Replaces the Hall code the simulated sensors report (sensor fault injection).
+ *
+ * The change is captured like an edge at the end of the next half period;
+ * 0 or 7 is a broken or unpowered sensor set.
+ */
+void SetHallCodeOverride(uint8_t code) noexcept;
+
+/// Reports the Hall code of the plant again.
+void ClearHallCodeOverride() noexcept;
+
+/**
  * @brief The simulated drive (inverter, motor, shaft, Hall sensors).
  *
  * Initialize() configures it from the factory settings when it is not yet

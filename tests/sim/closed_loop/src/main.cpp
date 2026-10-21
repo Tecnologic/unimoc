@@ -52,6 +52,9 @@ unimoc::settings::NvmSettings MotorSettings(const unimoc::settings::NvmSettings&
   settings.current_ki_d = VoltagePerCurrentTime{0.05F * kWc};
   settings.current_ki_q = VoltagePerCurrentTime{0.05F * kWc};
   settings.dtc_dead_time = Time{0.0F};  // the plant has no dead time
+  // The rotor is locked: for the observer an inertia the current cannot move
+  // (its torque model would otherwise accelerate the estimate).
+  settings.motor_j = Inertia{1.0F};
   return settings;
 }
 

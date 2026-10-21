@@ -47,6 +47,19 @@ config UNIMOC_SETTINGS_ZMS
 	  zephyr_settings_storage.cpp). Needs the 'storage_partition' of the
 	  board devicetree; native_sim uses its flash simulator.
 
+config UNIMOC_CONTROL_THREAD_PRIORITY
+	int "Priority of the control thread"
+	default 2
+	help
+	  The control thread runs the outer loop (speed and position control,
+	  setpoint limiting) at 2 kHz, woken by the observer interrupt. It
+	  must preempt the Cyphal thread: it reads the setpoints the Cyphal
+	  thread hands over through a mailbox.
+
+config UNIMOC_CONTROL_THREAD_STACK_SIZE
+	int "Stack size of the control thread"
+	default 2048
+
 config UNIMOC_CYPHAL
 	bool "Cyphal/CAN node of the drive"
 	depends on UNIMOC_PLATFORM_BCC || UNIMOC_PLATFORM_SIM

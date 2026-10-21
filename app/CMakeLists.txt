@@ -26,9 +26,11 @@ add_library(unimoc_core STATIC)
 target_sources(unimoc_core PRIVATE
   ${UNIMOC_ROOT}/src/current_control/current_control_isr.cpp
   ${UNIMOC_ROOT}/src/current_control/slow_update.cpp
+  ${UNIMOC_ROOT}/src/current_control/outer_loop.cpp
   ${UNIMOC_ROOT}/src/startup/hw_startup.cpp
   ${UNIMOC_ROOT}/src/drive/drive_node.cpp
-  ${UNIMOC_ROOT}/src/drive/settings_register_provider.cpp)
+  ${UNIMOC_ROOT}/src/drive/settings_register_provider.cpp
+  ${UNIMOC_ROOT}/src/drive/startup_registers.cpp)
 target_include_directories(unimoc_core PUBLIC
   ${UNIMOC_ROOT}/src/current_control
   ${UNIMOC_ROOT}/src/drive
@@ -44,6 +46,7 @@ target_sources(app PRIVATE
   ${UNIMOC_ROOT}/src/main.cpp
   ${UNIMOC_ROOT}/hardware/zephyr_common/system_interface.cpp
   ${UNIMOC_ROOT}/hardware/zephyr_common/zephyr_settings_storage.cpp
+  ${UNIMOC_ROOT}/hardware/zephyr_common/control_thread.cpp
   ${UNIMOC_ROOT}/hardware/zephyr_common/cyphal_runtime.cpp
   ${UNIMOC_ROOT}/hardware/zephyr_common/zephyr_can_media.cpp
   ${UNIMOC_PLATFORM_DIR}/hardware_interface.cpp)

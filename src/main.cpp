@@ -13,10 +13,12 @@
  *    This file is part of UNIMOC and is licensed under GPL-3.0-or-later.
  *    See the repository LICENSE file for details.
  */
+#include "control_thread.hpp"
 #include "current_control_runtime.hpp"
 #include "cyphal_platform.hpp"
 #include "hardware_interface.hpp"
 #include "hot_path_interface.hpp"
+#include "outer_loop.hpp"
 #include "settings_save_gate.hpp"
 #include "settings_store.hpp"
 #include "slow_update.hpp"
@@ -26,14 +28,21 @@ void unimoc::hardware::ControlCycleHandler() noexcept {
   unimoc::current_control::CurrentControlIsr::Instance().OnControlCycle();
 }
 
+// The observer interrupt wakes the control thread every
+// OuterLoop::kCyclesPerStep control cycles (2 kHz at a 16 kHz control cycle).
 void unimoc::hardware::ObserverHandler() noexcept {
   unimoc::current_control::SlowUpdate::Instance().RunOnce();
+  if (unimoc::current_control::OuterLoop::Instance().OnObserverCycle()) {
+    unimoc::hardware::NotifyControlThread();
+  }
 }
 
+void unimoc::hardware::ControlThreadHandler() noexcept { unimoc::current_control::OuterLoop::Instance().Step(); }
+
 // Sets up the drive and returns. Afterwards the control runs in the platform
-// interrupts and everything else in Zephyr threads (the Cyphal node in its
-// own thread); the main thread is not needed any more (Zephyr ends it when
-// main() returns).
+// interrupts and everything else in Zephyr threads (the outer loop in the
+// control thread, the Cyphal node in its own thread); the main thread is not
+// needed any more (Zephyr ends it when main() returns).
 int main() {
   // Static: outlives main() for the threads that read or commit settings later.
   // Settings are saved to flash only while the power stage is disabled, and
@@ -71,6 +80,9 @@ int main() {
       return 1;  // Exit if initialization fails
     }
   }
+
+  // Outer loop (speed, position, setpoints) of motor 0, below the observer.
+  unimoc::hardware::StartControlThread();
 
   // Cyphal/CAN: setpoints, registers, telemetry and the log (motor 0).
   unimoc::hardware::StartCyphal(settings_store);

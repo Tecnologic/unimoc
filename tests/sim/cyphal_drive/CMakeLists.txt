@@ -16,8 +16,12 @@ target_sources(app PRIVATE
   src/slcan_test.cpp
   ${UNIMOC_ROOT}/src/current_control/current_control_isr.cpp
   ${UNIMOC_ROOT}/src/current_control/slow_update.cpp
+  ${UNIMOC_ROOT}/src/current_control/outer_loop.cpp
   ${UNIMOC_ROOT}/src/drive/drive_node.cpp
   ${UNIMOC_ROOT}/src/drive/settings_register_provider.cpp
+  ${UNIMOC_ROOT}/src/drive/startup_registers.cpp
+  ${UNIMOC_ROOT}/src/startup/hw_startup.cpp
+  ${UNIMOC_ROOT}/hardware/zephyr_common/system_interface.cpp
   ${UNIMOC_ROOT}/hardware/zephyr_common/zephyr_settings_storage.cpp
   ${UNIMOC_ROOT}/hardware/zephyr_sim/hardware_interface.cpp
   ${UNIMOC_ROOT}/hardware/zephyr_sim/slcan_media.cpp)
@@ -25,6 +29,7 @@ target_include_directories(app PRIVATE
   ${UNIMOC_ROOT}/src
   ${UNIMOC_ROOT}/src/current_control
   ${UNIMOC_ROOT}/src/drive
+  ${UNIMOC_ROOT}/src/startup
   ${UNIMOC_ROOT}/hardware/zephyr_sim
   ${UNIMOC_ROOT}/hardware/zephyr_common
   ${UNIMOC_ROOT}/tests/common)

@@ -207,6 +207,34 @@ struct NvmSettings {
   /// Register: `unimoc.observer.pmsm_flux.C_q`
   unit::InverseTime pmsm_flux_obs_c_q{1.0_per_s};
 
+  /// Speed weighting of the flux angle measurement k [rad² · (rad/s)²].
+  /// The flux observer has no angle information at standstill (no back-EMF);
+  /// its measurement noise is R_flux = mech_obs_r + k / ω² (electrical ω).
+  /// 0 keeps R_flux = mech_obs_r at every speed.
+  /// Register: `unimoc.observer.pmsm_flux.R_speed`
+  float pmsm_flux_obs_r_speed{0.0F};
+
+  // =========================================================================
+  // Hall sensors (fused into the mechanical observer)
+  // =========================================================================
+
+  /// 1 fuses the Hall sensors (edges and sectors) into the observer, 0 ignores them.
+  /// Register: `unimoc.observer.hall.enable`
+  uint8_t hall_enable{0U};
+
+  /// Electrical angle at which Hall A rises (start of the sector of code 5).
+  /// Determined once with an open-loop run (docs/hotpath_plan.md, section 5).
+  /// Register: `unimoc.observer.hall.offset`
+  unit::Angle hall_offset{0.0_rad};
+
+  /// Measurement noise of a Hall edge [rad²] (alignment and capture jitter).
+  /// Register: `unimoc.observer.hall.R_edge`
+  float hall_r_edge{3e-3F};
+
+  /// Measurement noise of the Hall sector bound [rad²].
+  /// Register: `unimoc.observer.hall.R_sector`
+  float hall_r_sector{3e-2F};
+
   // =========================================================================
   // ASM flux observer gains
   // =========================================================================
@@ -376,6 +404,22 @@ struct NvmSettings {
   unit::Inductance excitation_obs_l_m{47.0_mH};
 
   // =========================================================================
+  // Speed controller (outer loop, mechanical speed)
+  // =========================================================================
+
+  /// Proportional gain [N m per rad/s of mechanical speed].
+  /// Register: `unimoc.control.speed.kp`
+  unit::TorquePerAngularVelocity speed_kp{0.01F};
+
+  /// Integral gain 1/T_i [1/s] (T = kp · (e + ki · ∫e dt)).
+  /// Register: `unimoc.control.speed.ki`
+  unit::InverseTime speed_ki{10.0_per_s};
+
+  /// Largest rate of change of the speed reference [rad/s²]; 0: no ramp.
+  /// Register: `unimoc.control.speed.accel_limit`
+  unit::AngularAcceleration speed_accel_limit{1000.0_rad_per_s2};
+
+  // =========================================================================
   // Position controller
   // =========================================================================
 
@@ -481,6 +525,18 @@ struct NvmSettings {
   /// Torque setpoint subscription (uavcan.si.unit.torque.Scalar.1.0).
   /// Register: `uavcan.sub.torque_setpoint.id`
   uint16_t sub_torque_setpoint_id{cyphal::kSubTorqueSetpoint};
+
+  /// Speed setpoint subscription (uavcan.si.unit.angular_velocity.Scalar.1.0).
+  /// Register: `uavcan.sub.speed_setpoint.id`
+  uint16_t sub_speed_setpoint_id{cyphal::kSubSpeedSetpoint};
+
+  /// Position setpoint subscription (uavcan.si.unit.angle.Scalar.1.0).
+  /// Register: `uavcan.sub.position_setpoint.id`
+  uint16_t sub_position_setpoint_id{cyphal::kSubPositionSetpoint};
+
+  /// UDRAL servo setpoint subscription (reg.udral.physics.dynamics.rotation.Planar.0.1).
+  /// Register: `uavcan.sub.servo_setpoint.id`
+  uint16_t sub_servo_setpoint_id{cyphal::kSubServoSetpoint};
 
   /// Telemetry publication (unimoc.drive.Telemetry.0.1).
   /// Register: `uavcan.pub.telemetry.id`

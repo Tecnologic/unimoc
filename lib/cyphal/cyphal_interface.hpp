@@ -70,9 +70,9 @@
  * settings_registers.hpp).  Writing any of those registers over Cyphal
  * updates the parameter in RAM; a store command persists it.  The complete
  * drive configuration (motor parameters, controller gains, limits, identity,
- * ports) is accessible without physical access to the hardware.  Not every
- * name below is served yet: the `unimoc.startup.*` run/step/result
- * registers wait for the startup FSM integration.
+ * ports) is accessible without physical access to the hardware. The
+ * `unimoc.startup.*` run/step/result registers of the startup FSM are served
+ * by the drive (src/drive/startup_registers.hpp); they are not persistent.
  */
 
 namespace unimoc::cyphal {
@@ -179,6 +179,28 @@ inline constexpr const char* kPmsmFluxObsCD = "unimoc.observer.pmsm_flux.C_d";
 /// PMSM flux observer q-axis anti-drift feedback gain C_q [1/s].
 /// Type: real32[1] (read/write, persistent)
 inline constexpr const char* kPmsmFluxObsCQ = "unimoc.observer.pmsm_flux.C_q";
+
+/// Speed weighting k of the flux angle measurement, R_flux = R + k / omega^2 [rad^2 (rad/s)^2].
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kPmsmFluxObsRSpeed = "unimoc.observer.pmsm_flux.R_speed";
+
+// --- Hall sensors ---
+
+/// 1 fuses the Hall sensors into the observer, 0 ignores them.
+/// Type: natural8[1] (read/write, persistent)
+inline constexpr const char* kHallEnable = "unimoc.observer.hall.enable";
+
+/// Electrical angle at which Hall A rises [rad].
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kHallOffset = "unimoc.observer.hall.offset";
+
+/// Measurement noise of a Hall edge [rad^2].
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kHallREdge = "unimoc.observer.hall.R_edge";
+
+/// Measurement noise of the Hall sector bound [rad^2].
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kHallRSector = "unimoc.observer.hall.R_sector";
 
 // --- ASM flux observer gains ---
 
@@ -291,6 +313,20 @@ inline constexpr const char* kExcitObsTau = "unimoc.observer.excitation.tau";
 /// Excitation observer L_m [H].
 /// Type: real32[1] (read/write, persistent)
 inline constexpr const char* kExcitObsLM = "unimoc.observer.excitation.L_m";
+
+// --- Speed controller ---
+
+/// Speed loop proportional gain [N m per rad/s of mechanical speed].
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kSpeedKp = "unimoc.control.speed.kp";
+
+/// Speed loop integral gain 1/T_i [1/s].
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kSpeedKi = "unimoc.control.speed.ki";
+
+/// Largest rate of change of the speed reference [rad/s^2]; 0: no ramp.
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kSpeedAccelLimit = "unimoc.control.speed.accel_limit";
 
 // --- Position controller ---
 
@@ -466,6 +502,27 @@ inline constexpr const char* kSubTorqueSetpointId = "uavcan.sub.torque_setpoint.
 /// Type name of the torque setpoint subscription. Type: string (read-only)
 inline constexpr const char* kSubTorqueSetpointType = "uavcan.sub.torque_setpoint.type";
 
+/// Mechanical speed setpoint (speed mode).
+/// Data type: uavcan.si.unit.angular_velocity.Scalar.1.0
+/// Type: natural16[1] (read/write, persistent)
+inline constexpr const char* kSubSpeedSetpointId = "uavcan.sub.speed_setpoint.id";
+/// Type name of the speed setpoint subscription. Type: string (read-only)
+inline constexpr const char* kSubSpeedSetpointType = "uavcan.sub.speed_setpoint.type";
+
+/// Mechanical position setpoint relative to home (position mode).
+/// Data type: uavcan.si.unit.angle.Scalar.1.0
+/// Type: natural16[1] (read/write, persistent)
+inline constexpr const char* kSubPositionSetpointId = "uavcan.sub.position_setpoint.id";
+/// Type name of the position setpoint subscription. Type: string (read-only)
+inline constexpr const char* kSubPositionSetpointType = "uavcan.sub.position_setpoint.type";
+
+/// UDRAL servo setpoint; the first finite kinematic field selects the mode.
+/// Data type: reg.udral.physics.dynamics.rotation.Planar.0.1
+/// Type: natural16[1] (read/write, persistent)
+inline constexpr const char* kSubServoSetpointId = "uavcan.sub.servo_setpoint.id";
+/// Type name of the servo setpoint subscription. Type: string (read-only)
+inline constexpr const char* kSubServoSetpointType = "uavcan.sub.servo_setpoint.type";
+
 /// Current-controller trace of the drive.
 /// Data type: unimoc.drive.Telemetry.0.1
 /// Type: natural16[1] (read/write, persistent)
@@ -513,12 +570,12 @@ inline constexpr uint16_t kSubTorqueSetpoint = 100U;
 
 /// Speed (mechanical angular velocity) setpoint [rad/s].
 /// Data type: uavcan.si.unit.angular_velocity.Scalar.1.0
-/// Register: `uavcan.sub.speed_sp.id`
+/// Register: `uavcan.sub.speed_setpoint.id`
 inline constexpr uint16_t kSubSpeedSetpoint = 101U;
 
 /// Position setpoint [rad], referenced to home.
 /// Data type: uavcan.si.unit.angle.Scalar.1.0
-/// Register: `uavcan.sub.position_sp.id`
+/// Register: `uavcan.sub.position_setpoint.id`
 inline constexpr uint16_t kSubPositionSetpoint = 102U;
 
 /// Legacy explicit control mode selection: 0=TORQUE, 1=SPEED, 2=POSITION.
@@ -541,6 +598,11 @@ inline constexpr uint16_t kSubReadiness = 106U;
 /// Data type: unimoc.drive.CurrentSetpoint.0.1
 /// Register: `uavcan.sub.current_setpoint.id`
 inline constexpr uint16_t kSubCurrentSetpoint = 107U;
+
+/// UDRAL servo setpoint (mechanical position, speed or torque).
+/// Data type: reg.udral.physics.dynamics.rotation.Planar.0.1
+/// Register: `uavcan.sub.servo_setpoint.id`
+inline constexpr uint16_t kSubServoSetpoint = 108U;
 
 /// Homing trigger: any value on this subject starts the homing sequence.
 /// Data type: uavcan.primitive.scalar.Bit.1.0
