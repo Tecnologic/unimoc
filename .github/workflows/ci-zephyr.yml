@@ -26,12 +26,14 @@ jobs:
 
       # After the Zephyr setup: its requirements pull an unpinned clang-format
       # from pip, which would otherwise come first on PATH.
-      - name: Install clang-format (pinned), clang-tidy, CodeChecker and Nunavut
+      - name: Install clang-format (pinned), clang-tidy, CodeChecker, Nunavut and pycyphal
         run: |
           sudo apt-get update
           sudo apt-get install -y clang-tidy
           pip install clang-format==22.1.1 codechecker
           pip install -r unimoc/scripts/requirements-cyphal.txt
+          # pycyphal integration tests of the simulation (unimoc.app.cyphal_integration)
+          pip install -r unimoc/scripts/requirements-cyphal-tools.txt
           clang-format --version
 
       - name: clang-format

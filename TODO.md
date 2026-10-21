@@ -65,6 +65,8 @@ items that need the board are collected below and wait for hardware access.
  - [x] Remove the stale references to the deleted legacy firmware `hardware/batterycasecontroller/` (`AGENTS.md`, `docs/zephyr_port_plan.md`, the file-docs skill, `scripts/check_format.sh`, `scripts/codechecker_skip.txt`, `docs/Doxyfile`).
  - [x] ~~Enable the USB CDC-ACM console~~ Superseded (2026-10-21): USB and the shell were dropped; the bench log is on RTT and on the bus. Link limited to the code partition (`CONFIG_USE_DT_CODE_PARTITION`).
  - [x] Cyphal over CAN-FD as the primary interface (2026-10-21): libcanard 4.0 + O1Heap + Nunavut DSDL pinned in `west.yml`; heartbeat, port list, GetInfo, register List/Access on the settings store (77 registers), ExecuteCommand (restart, store, factory reset, emergency stop), PnP v1, diagnostic records from the Zephyr log; drive application (readiness, current and torque setpoints with timeouts and limits, telemetry); shared between BCC (FDCAN3) and `native_sim` (SocketCAN plus slcan pseudo terminals, plant registers and plant trace). Tests `unimoc.lib.cyphal`, `unimoc.sim.cyphal_drive`; checked with yakut 0.14 against the simulation. Not run on the board.
+ - [x] pycyphal integration tests of the running simulation (`tests/integration/cyphal_sim`, twister pytest harness, scenario `unimoc.app.cyphal_integration`): node services, registers, arming, setpoints, telemetry, diagnostics, simulation registers, store and restart.
+ - [ ] Extend the pycyphal integration tests with every new bus feature (startup FSM registers, speed setpoints, multi-node runs on `vcan` once available in CI).
  - [x] Fix the ExecuteCommand status codes in `cyphal_interface.hpp` (BAD_COMMAND and BAD_STATE were swapped against the specification) and remove the heartbeat serializer that packed health and mode into one byte.
  - [x] `app/boards/native_sim.*` were never applied to the 64-bit build: renamed to `native_sim_native_64.*` (1 us tick, real time).
 
@@ -109,7 +111,7 @@ criteria.
  - [ ] Route torque, speed, position, and excitation setpoints into the normal controller input path (torque and d/q current done; speed, position and excitation open).
  - [ ] Publish telemetry and heartbeat with explicit virtual-time semantics (published in real time today; the telemetry carries the control-cycle count).
  - [ ] Add simulation-control commands for reset, fixed-cycle advance, run-until, snapshot, and clock status.
- - [ ] Add protocol and localhost end-to-end tests for single- and multi-node operation.
+ - [ ] Add protocol and localhost end-to-end tests for single- and multi-node operation (single node done: `unimoc.app.cyphal_integration`).
 
 ### P3 - Create the Python command-and-control GUI
 

@@ -215,6 +215,8 @@ readiness disengages the drive, a missing setpoint falls back to zero
 current.  The current vector is limited to `unimoc.motor.limits.i_max`.  An
 overcurrent trip or a power stage fault while engaged disengages the drive;
 it engages again only after a readiness other than `ENGAGED` (re-arm).
+`STANDBY` while disengaged acknowledges a latched trip or fault without
+releasing the outputs; the settings can only be stored without one.
 
 ### Commands (uavcan.node.ExecuteCommand)
 
@@ -708,9 +710,11 @@ The BCC has not run on hardware yet.
 
 ### Running the Tests
 
-All tests are ztest suites run by twister on `native_sim`; there is no hosted
-test build. `tests/lib/<library>/` covers the libraries, `tests/sim/` runs the
-application core against the simulated drive. From the west workspace root:
+All tests run under twister on `native_sim`; there is no hosted test build.
+`tests/lib/<library>/` (ztest) covers the libraries, `tests/sim/` (ztest) runs
+the application core against the simulated drive, and
+`tests/integration/cyphal_sim/` (pytest with pycyphal) drives the running
+simulation over Cyphal. From the west workspace root:
 
 ```bash
 # All scenarios on native_sim and bcc, with clang-tidy as static analysis (as in CI)
@@ -718,6 +722,9 @@ unimoc/scripts/twister_sca.sh
 
 # clang-format check of all C/C++ sources (--fix to apply)
 unimoc/scripts/check_format.sh
+
+# pycyphal integration tests of the simulation (needs scripts/requirements-cyphal-tools.txt)
+west twister -T unimoc/app -p native_sim/native/64 --scenario unimoc.app.cyphal_integration
 
 # One suite without static analysis, while iterating
 west twister -T unimoc/tests/lib/motor_control -p native_sim/native/64

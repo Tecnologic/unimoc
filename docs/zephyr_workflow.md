@@ -110,7 +110,14 @@ and `..._LOG_LEVEL` (log lines up to info as diagnostic records),
 `..._SLCAN` (native_sim). The simulation runs in real time
 (`CONFIG_NATIVE_SIM_SLOWDOWN_TO_REAL_TIME`, `app/boards/native_sim_native_64.conf`).
 Tests: `unimoc.lib.cyphal` (transport and node against a second libcanard
-node) and `unimoc.sim.cyphal_drive` (DriveNode with the plant).
+node), `unimoc.sim.cyphal_drive` (DriveNode with the plant) and
+`unimoc.app.cyphal_integration`: twister's pytest harness starts the real
+application, and pycyphal (`tests/integration/cyphal_sim/`) checks
+heartbeat, GetInfo, the port list, registers, arming, setpoints, telemetry,
+diagnostics, the simulation registers and a store across a restart over the
+first slcan pseudo terminal. The DSDL is compiled into
+`<tmp>/unimoc_pycyphal` on the first run; without pycyphal the tests are
+skipped.
 
 ## Power stage release
 

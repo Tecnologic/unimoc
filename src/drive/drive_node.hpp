@@ -71,7 +71,9 @@ class DriveInfoRegisters final : public cyphal::RegisterProvider {
  * `unimoc.control.command_timeout`; the current is limited to
  * `unimoc.motor.limits.i_max`. A power stage fault or an overcurrent trip
  * while engaged disengages the drive; it engages again only after a
- * readiness other than ENGAGED (an explicit re-arm).
+ * readiness other than ENGAGED (an explicit re-arm). STANDBY while
+ * disengaged acknowledges a latched trip or fault without releasing the
+ * outputs (a still missing external enable latches it again).
  *
  * Settings registers change the RAM settings. They are applied to the
  * controller (`current_control::StartRuntime()`) while the drive is

@@ -240,6 +240,11 @@ void DriveNode::OnReadiness(const cyphal::Transfer& transfer, const uint64_t now
     rearm_required_ = false;
     if (engaged_) {
       Disengage("readiness");
+    } else if (readiness.value == reg_udral_service_common_Readiness_0_1_STANDBY) {
+      // STANDBY acknowledges a latched trip or fault without releasing the
+      // outputs, so a flash save is possible again (the save gate needs kDisabled).
+      CurrentControlIsr::Instance().ClearOvercurrentTrip();
+      kPowerStage.ClearFault();
     }
   }
 }

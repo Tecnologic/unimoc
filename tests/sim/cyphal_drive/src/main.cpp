@@ -404,6 +404,19 @@ ZTEST(sim_cyphal_drive, test_missing_external_enable_refuses_engage) {
   rig.Hold(0.0F, 5.0F, 20U);
   zexpect_false(rig.drive.IsEngaged());
   zexpect_equal(kPowerStage.GetState(), PowerStageState::kBlocked);
+
+  // Back: the break stays latched until STANDBY acknowledges it, without engaging.
+  (void)rig.Access(reg::kMotorPolePairs, Real(5.0F));  // something to save
+  sim::SetExternalEnable(true);
+  zexpect_equal(kPowerStage.GetState(), PowerStageState::kFault);
+  rig.Readiness(reg_udral_service_common_Readiness_0_1_SLEEP);
+  rig.Run(2U);
+  zexpect_equal(rig.Command(cmd::kCommandStorePersistentStates), cmd::kStatusBadState);
+  rig.Readiness(reg_udral_service_common_Readiness_0_1_STANDBY);
+  rig.Run(2U);
+  zexpect_equal(kPowerStage.GetState(), PowerStageState::kDisabled);
+  zexpect_false(rig.drive.IsEngaged());
+  zexpect_equal(rig.Command(cmd::kCommandStorePersistentStates), cmd::kStatusSuccess);
 }
 
 ZTEST(sim_cyphal_drive, test_registers_change_live_settings_within_limits) {

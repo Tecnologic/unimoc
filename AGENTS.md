@@ -74,7 +74,11 @@ Read `README.md` for the supported motor types and public features, and
   application core against the `native_sim` platform and the motor plant
   (cycle cadence, overcurrent, closed loop, the Cyphal drive). `tests/common/`
   holds the shared float checks and the in-memory CAN bus of the Cyphal
-  tests.
+  tests. `tests/integration/cyphal_sim/` are pytest integration tests: twister
+  starts the real application on `native_sim` (scenario
+  `unimoc.app.cyphal_integration` in `app/testcase.yaml`, pytest harness) and
+  a pycyphal node drives it over an slcan pseudo terminal. They are skipped
+  without pycyphal (`scripts/requirements-cyphal-tools.txt`).
 - `scripts/` holds the validation scripts (`check_format.sh`,
   `twister_sca.sh`) that CI runs as well, the Python requirements of the
   Cyphal build (`requirements-cyphal.txt`, Nunavut) and tools
@@ -140,7 +144,10 @@ Earlier sessions lost time on these points; do them from the start:
 - **`check_format.sh` only checks files known to git** (`git ls-files`): run
   clang-format on new files before they are added.
 - **Tests are ztest under twister.** Never add GoogleTest, a hosted CMake
-  target or a test that only runs outside twister. New tests go into the
+  target or a test that only runs outside twister. The one exception to ztest
+  is the twister pytest harness for black-box tests of the running
+  simulation over Cyphal (pycyphal); prefer it where a behavior is visible on
+  the bus. New tests go into the
   matching `tests/lib/<library>/src/` or a new `tests/<area>/<name>/`
   scenario. Use `zexpect_*`/`zassert_*`, plus `UNIMOC_EXPECT_FLOAT_EQ` /
   `UNIMOC_EXPECT_NEAR` from `tests/common/unimoc_test.hpp` for floats.
