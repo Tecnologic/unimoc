@@ -1,5 +1,8 @@
 # TODO list for open topics
 
+The overall direction (cart with four wheel drives, steering, VDC, Cyphal/UDP
+over Single Pair Ethernet) is drafted in [docs/system_plan.md](docs/system_plan.md).
+
 ## Zephyr port and hot path
 
 See [docs/zephyr_port_plan.md](docs/zephyr_port_plan.md) for the decisions and
