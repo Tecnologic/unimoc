@@ -194,4 +194,4 @@ stage is no longer enabled (trip, external break, e-stop), and
   ripple; the sim checks logic and timing contract, not the time budget.
 - The duty DMA, the CCR preload, the counter start at ARR/2 and the
   peak/valley detection are only build-tested, not run on the board.
-- `cymon` needs CMake 4 and is not linked yet. Its C++ standard is unverified.
+- `cymon` (cymon-lib 0.2, C++20, CMake 3.20) is not linked yet; see `docs/cymon_integration_plan.md`.
