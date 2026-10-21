@@ -353,10 +353,11 @@ to raise those capabilities.
 
 ## Hardware Bring-Up Guide
 
-> **Status:** not runnable yet.  The procedure needs the Cyphal registers and the
-> USB console, and neither is integrated in the Zephyr build yet
-> (`docs/zephyr_port_plan.md`).  The steps below describe the target behavior.
-> Log lines go to the Zephyr log, shown on the USB CDC-ACM console once it is enabled.
+> **Status:** not runnable yet.  The procedure needs the Cyphal registers, which
+> are not integrated in the Zephyr build yet (`docs/zephyr_port_plan.md`).  The
+> steps below describe the target behavior.  Log lines go to the Zephyr log, on
+> the USB CDC-ACM console of the BCC (debug connector J42; built, enumeration not
+> yet checked on the board) and on SEGGER RTT.
 
 `HwStartup` is a step-by-step bring-up wizard for commissioning a new UNIMOC
 board.  It verifies the ADC signal chain, gate drivers, and DC-link voltage

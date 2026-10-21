@@ -52,13 +52,11 @@ Read `README.md` for the supported motor types and public features, and
   holds the pinout, timers, ADC trigger, dead time, and sample times.
 - `hardware/zephyr_bcc/` is the BCC platform (STM32G4 hot-path bindings).
   `hardware/zephyr_sim/` is the `native_sim` platform. `hardware/zephyr_common/`
-  is the shared Zephyr glue (system interface, RAM settings storage).
+  is the shared Zephyr glue (system interface, settings storage and lock).
   `hardware/hardware_interface.hpp` and `hardware/power_stage_interface.hpp`
   are the platform-independent boundaries.
 - `hardware/hot_path_interface.hpp` is the link-time bound hardware access of
   the zero-latency hot path.
-- `hardware/batterycasecontroller/` is the legacy firmware, pending removal once
-  the Zephyr BCC target is verified (`docs/zephyr_port_plan.md`). Do not extend it.
 - `tests/` contains all tests, as ztest suites run by twister:
   `tests/lib/<library>/` covers `lib/<library>`, `tests/sim/<name>/` runs the
   application core against the `native_sim` platform and the motor plant

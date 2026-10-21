@@ -333,7 +333,7 @@ const PowerStageInterface kPowerStage{PowerStageEnable,
                                       PowerStageClearFault,
                                       GetPowerStageState};
 
-const HardwareSettingsInterface kSettings{kSettingsProfile, kSettingsStorage};
+const HardwareSettingsInterface kSettings{kSettingsProfile, kSettingsStorage, ZephyrSettingsStorage::Lock()};
 
 const std::array<HardwareInterface, kMotorCount> kMotors = {HardwareInterface(Initialize,
                                                                               GetPhaseCurrents,

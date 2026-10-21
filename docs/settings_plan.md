@@ -64,12 +64,32 @@ Cyphal register service / shell / startup FSM                 (threads)
   storage as a production backend. `tests/common/ram_settings_storage.hpp`
   remains as the host test double.
 
+## Concurrency
+
+- **Save gate held for the whole save.** `SettingsSaveGate` brackets a save:
+  `TryBegin()` before the first write, `End()` after the last. The platform
+  gate (`PowerStageSaveGate()`, `src/settings_save_gate.hpp`) calls
+  `PowerStageInterface::HoldOffEnable()` and then requires
+  `PowerStageState::kDisabled`. `Enable()` and the hold-off share one atomic
+  flag, so `Enable()` fails (returns false, the outputs stay off) while flash
+  is written, and a save cannot start while an `Enable()` runs. A caller that
+  wants the stage enabled retries after the save, like after a missing
+  external enable. A save with nothing to write does not take the gate.
+- **One lock per store.** `SettingsStore` takes its `SettingsLock` around
+  every public operation (`Load`, `GetSnapshot` and all `SettingsOperations`),
+  so the Cyphal register service, the shell and the startup FSM may share one
+  store. `Update()` runs its operation under the lock; the operation must not
+  call back into the store (the lock is not recursive). The Zephyr platforms
+  provide one `k_mutex` (`ZephyrSettingsStorage::Lock()`, through
+  `kSettings.GetSettingsLock()`); the default lock does nothing for single
+  threaded host tests. All of this is thread context only, never the hot path.
+
 ## Tests
 
 | Scenario | Covers |
 |----------|--------|
-| `unimoc.lib.settings` (`settings_registers_test`, `settings_store_test`) | register table (71 unique names, round trip of every register, encoding, sizes), live update without flash access, write only changed registers, erase at factory value, gate, partial and failed saves, undecodable and out-of-range entries, unknown keys, empty node name |
-| `unimoc.sim.settings_persistence` (native_sim) | the real settings subsystem and ZMS on the flash simulator: save and reload through a second store, the gate with the real power stage (enabled and fault block), erase at factory value, empty node name, undecodable entry healed by a save, all 71 registers rewritten 40 times (garbage collection and capacity of the partition) |
+| `unimoc.lib.settings` (`settings_registers_test`, `settings_store_test`) | register table (71 unique names, round trip of every register, encoding, sizes), live update without flash access, write only changed registers, erase at factory value, gate (held once per save, not released when refused), lock around every operation, partial and failed saves, undecodable and out-of-range entries, unknown keys, empty node name |
+| `unimoc.sim.settings_persistence` (native_sim) | the real settings subsystem and ZMS on the flash simulator: save and reload through a second store, the gate with the real power stage (enabled and fault block, `Enable()` held off during a save), erase at factory value, empty node name, undecodable entry healed by a save, all 71 registers rewritten 40 times (garbage collection and capacity of the partition) |
 
 ## Not verified on hardware
 
@@ -78,21 +98,20 @@ Cyphal register service / shell / startup FSM                 (threads)
   (`0x1e000`, 8 pages of 2 KB) so that all registers plus a spare sector fit;
   this is an estimate to check on the board.
 - **Flash writes stall instruction fetch** on the single-bank STM32G4 while the
-  zero-latency control cycle runs from flash. The gate only guarantees the stage
-  is disabled when the save starts; nothing yet prevents `Enable()` while a
-  write is in progress. A write takes milliseconds, so enabling the stage must
-  be held off during a save (open item).
+  zero-latency control cycle runs from flash. The gate holds the stage disabled
+  for the whole save (`Enable()` fails meanwhile, see "Concurrency"); the stall
+  itself, and whether the hot path must run from RAM during a save, is still to
+  be measured on the board.
 - The settings subsystem, ZMS and flash driver cost on the 120 KB code
   partition (the BCC app builds; the size has not been compared).
 
 ## Open items
 
-1. Hold off `PowerStage::Enable()` while a save is running (a lock in the save
-   path, or a platform enable lock).
-2. Serialize the settings thread: `SettingsStore` is not thread safe, it needs
-   one owner thread or a lock once Cyphal and the shell call it.
-3. Cyphal register service and a shell command (`settings show|save|reset`)
+1. Cyphal register service and a shell command (`settings show|save|reset`)
    built on `ForEachRegister()`.
-4. Persistent registers for the hardware and software version are not stored
+2. Persistent registers for the hardware and software version are not stored
    (they are compile-time values); check that GetInfo reads them from the
    firmware, not from the settings.
+
+Done: holding off `PowerStage::Enable()` during a save and serializing the
+store (see "Concurrency").

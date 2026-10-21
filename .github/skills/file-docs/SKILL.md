@@ -13,7 +13,7 @@ This skill documents an existing C++ file with focused Doxygen comments. Analyze
 - For a source file, document the file purpose and significant file-scope functions or implementation details. Do not add `#pragma once` to a source file.
 - Document private or local variables and functions only when their purpose or invariants are not clear from the code.
 - Preserve existing comments and improve them only when they are incomplete or inaccurate.
-- Do not document vendored or external code: `lib/cymon/`, the legacy firmware in `hardware/batterycasecontroller/`, or Zephyr and west workspace sources.
+- Do not document vendored or external code: `lib/cymon/` or Zephyr and west workspace sources.
 - Do not document Zephyr glue (`app/`, `hardware/zephyr_*`) as portable API. Describe only what the file does on its target.
 
 ## File header

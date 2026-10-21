@@ -13,20 +13,16 @@ items that need the board are collected below and wait for hardware access.
 
 ### P0 - Without hardware (twister on `native_sim`, BCC build)
 
- - [ ] Merge `main` into `develop` once the `feature/zephyr-port` PR is merged: keep the deletions for the modm and hosted-build files (61 modify/delete conflicts), resolve `.clang-tidy`, `.gitignore`, `.gitmodules`, `README.md` and `src/main.cpp` by hand, decide whether `lib/gitversion` is dropped or feeds GetInfo, and check `hardware/HardwareLimits.hpp` against the devicetree limits. Close `copilot/fix-pr-10-from-main-to-develop` unmerged.
- - [ ] Settings follow-ups 1 and 2 from [docs/settings_plan.md](docs/settings_plan.md): hold off `PowerStage::Enable()` while a flash save runs, and serialize access to `SettingsStore` (one owner thread or a lock) before the shell or Cyphal write settings.
  - [ ] Implement the hot-path milestones M4 to M7 from `docs/hotpath_plan.md` (observer API, Hall driver and sim Hall signals, Hall fusion, control thread), tested with ztest and the sim plant.
  - [ ] Run a small Cyphal/UDP feasibility spike between `native_sim` and `pycyphal` (see the SIL plan below); it settles the DSDL generation for both transports.
- - [ ] Integrate Cyphal (libcanard, DSDL, register service, PnP, heartbeat, GetInfo) and the shell command `settings show|save|reset` (settings open items 3 and 4), tested on `native_sim`. CAN-FD on `native_sim` needs `vcan` in the WSL2 kernel (unverified); CAN-FD on the BCC waits for the transceiver decision.
+ - [ ] Integrate Cyphal (libcanard, DSDL, register service, PnP, heartbeat, GetInfo) and the shell command `settings show|save|reset` (settings open items 1 and 2), tested on `native_sim`. CAN-FD on `native_sim` needs `vcan` in the WSL2 kernel (unverified); CAN-FD on the BCC waits for the transceiver decision.
  - [ ] Write the M0 instrumentation (DWT cycle counters around the sample ISR, control cycle and observer, min/mean/max, overrun counters, output through log and shell); build-tested only until the board is available.
- - [ ] Enable the USB CDC-ACM console and Zephyr logging in the BCC configuration (build only; enumeration is checked on the board).
- - [ ] Remove the stale references to the deleted legacy firmware `hardware/batterycasecontroller/` (deleted in `6ca28d1`): `AGENTS.md`, `docs/zephyr_port_plan.md`, the file-docs skill, `scripts/check_format.sh`, `scripts/codechecker_skip.txt` and `docs/Doxyfile`.
  - [ ] Confirm the CAN-FD transceiver change for the BCC (the board has an SN65HVD230, classic CAN). A board decision, no board access needed.
 
 ### P1 - Blocked on hardware access
 
  - [ ] M0 on the board: timing numbers for the sample ISR, control cycle and observer.
- - [ ] M8 first step with the outputs off: DMA burst, preload, start at ARR/2, parity detection and ADC alignment on the scope; check the USB console.
+ - [ ] M8 first step with the outputs off: DMA burst, preload, start at ARR/2, parity detection and ADC alignment on the scope; check the USB console (enumeration, CRS lock of the HSI48) and pick a UNIMOC USB VID/PID instead of the Zephyr test IDs.
  - [ ] Verify ZMS, the flash stall and the size of the settings partition on the BCC board (settings plan, "Not verified on hardware").
  - [ ] Configure the duty DMA from the devicetree (`dmas` of `foc0`, Zephyr DMA API at init) instead of the fixed DMA1 channel 1 / DMAMUX request 53, and enable its clock through `clock_control` instead of writing `RCC->AHB1ENR`. The zero-latency path keeps reading the channel counter directly. Do this after the M8 first step, so the fixed configuration is a verified reference.
  - [ ] M8 remainder: Hall table, closed current loop with the 50 A limit.
@@ -43,6 +39,10 @@ items that need the board are collected below and wait for hardware access.
  - [x] Bring `src/`, `hardware/zephyr_*` and the tests under clang-tidy (Zephyr SCA through CodeChecker, `scripts/twister_sca.sh`).
  - [x] Bring the `lib/unimoc` headers under clang-tidy (`HeaderFilterRegex`; API renamed to PascalCase methods). `lib/cymon` is still outside: it is not built in the Zephyr workspace yet.
  - [x] Add an `SPDX-License-Identifier` line to the UNIMOC file header (C++ files, CMake and YAML files; file-docs skill updated).
+ - [x] Merge `main` into `develop` (`542c501`): the modm and hosted-build files stay deleted, `lib/gitversion` is dropped (the GetInfo version source is part of the Cyphal item), and `hardware/HardwareLimits.hpp` is replaced by the BCC settings profile. Its legacy BCC values (100 A phase, 80 A motor, 50 A battery drive, 20 A charge) were checked against the profile in `hardware/zephyr_bcc/hardware_interface.cpp`: the profile keeps the lower 60 A phase trip and 50 A motor limit, the battery limits are equal. Closing `copilot/fix-pr-10-from-main-to-develop` is left to the repository owner.
+ - [x] Settings follow-ups: `PowerStageInterface::Enable()` is held off while a flash save runs, and `SettingsStore` takes a platform lock (Zephyr `k_mutex`) around every operation ([docs/settings_plan.md](docs/settings_plan.md), "Concurrency").
+ - [x] Remove the stale references to the deleted legacy firmware `hardware/batterycasecontroller/` (`AGENTS.md`, `docs/zephyr_port_plan.md`, the file-docs skill, `scripts/check_format.sh`, `scripts/codechecker_skip.txt`, `docs/Doxyfile`).
+ - [x] Enable the USB CDC-ACM console and Zephyr logging in the BCC application (`app/boards/bcc.conf`, `bcc.overlay`; HSI48 with CRS on the USB SOF; log also on RTT). Build only; link limited to the 120 KB code partition (`CONFIG_USE_DT_CODE_PARTITION`).
 
 ## Prioritized software-in-the-loop plan
 

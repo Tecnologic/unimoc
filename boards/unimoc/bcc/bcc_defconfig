@@ -4,7 +4,8 @@ CONFIG_GPIO=y
 CONFIG_ARM_MPU=y
 CONFIG_HW_STACK_PROTECTION=y
 
-# Console and log over SEGGER RTT until USB CDC-ACM is brought up.
+# Console and log over SEGGER RTT. The application moves the console to USB
+# CDC ACM (app/boards/bcc.conf); tests keep RTT.
 CONFIG_CONSOLE=y
 CONFIG_UART_CONSOLE=n
 CONFIG_USE_SEGGER_RTT=y
@@ -14,3 +15,7 @@ CONFIG_FPU=y
 CONFIG_ZERO_LATENCY_IRQS=y
 CONFIG_CLOCK_CONTROL=y
 CONFIG_PINCTRL=y
+
+# Link into the 120 KB code partition only: an image that grows into the
+# settings storage partition fails to link instead of overwriting it.
+CONFIG_USE_DT_CODE_PARTITION=y

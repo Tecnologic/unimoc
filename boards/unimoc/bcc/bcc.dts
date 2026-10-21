@@ -176,11 +176,21 @@
 	status = "disabled";
 };
 
-/* USB full speed on PA11/PA12 (debug connector J42). Enabled in the USB step. */
-&usb {
+/*
+ * USB full speed on PA11/PA12 (debug connector J42). The 48 MHz clock is the
+ * HSI48, trimmed by the clock recovery system on the USB start of frame (the
+ * 170 MHz PLL gives no 48 MHz on PLLQ; PLLQ stays free for FDCAN). The
+ * application adds the CDC ACM console (app/boards/bcc.overlay).
+ */
+&clk_hsi48 {
+	/* CRS on the USB SOF: hardware/zephyr_bcc/usb_clock_recovery.cpp. */
+	status = "okay";
+};
+
+zephyr_udc0: &usb {
 	pinctrl-0 = <&usb_dm_pa11 &usb_dp_pa12>;
 	pinctrl-names = "default";
-	status = "disabled";
+	status = "okay";
 };
 
 &flash0 {

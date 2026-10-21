@@ -228,10 +228,12 @@ class HardwareSettingsInterface {
    * @brief Constructs the settings hardware boundary.
    * @param profile Immutable factory settings and hardware capabilities.
    * @param storage Platform callbacks for the writable settings image.
+   * @param lock Serializes the threads that share the settings store.
    */
   HardwareSettingsInterface(const settings::SettingsProfile& profile,
-                            settings::SettingsStorage storage) noexcept
-      : profile_{&profile}, storage_{storage} {}
+                            settings::SettingsStorage storage,
+                            settings::SettingsLock lock) noexcept
+      : profile_{&profile}, storage_{storage}, lock_{lock} {}
 
   /**
    * @brief Returns the immutable target profile.
@@ -243,9 +245,15 @@ class HardwareSettingsInterface {
    */
   [[nodiscard]] const settings::SettingsStorage& GetSettingsStorage() const noexcept { return storage_; }
 
+  /**
+   * @brief Returns the platform lock of the settings store.
+   */
+  [[nodiscard]] const settings::SettingsLock& GetSettingsLock() const noexcept { return lock_; }
+
  private:
   const settings::SettingsProfile* profile_;
   settings::SettingsStorage storage_;
+  settings::SettingsLock lock_;
 };
 
 // Platform boundary objects, defined once per platform (hardware/zephyr_*).
