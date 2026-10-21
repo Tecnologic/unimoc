@@ -18,12 +18,12 @@
  *    This file is part of UNIMOC and is licensed under GPL-3.0-or-later.
  *    See the repository LICENSE file for details.
  */
+#include <soc.h>
 #include <zephyr/device.h>
 #include <zephyr/devicetree.h>
 #include <zephyr/drivers/clock_control.h>
 #include <zephyr/drivers/clock_control/stm32_clock_control.h>
 #include <zephyr/init.h>
-#include <soc.h>
 
 #if DT_NODE_HAS_STATUS_OKAY(DT_NODELABEL(usb))
 
