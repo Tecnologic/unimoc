@@ -10,7 +10,7 @@ the board. The phase order below is the plan.
 
 - Zephyr is the primary OS. Logging, shell, USB, Cyphal, settings and startup
   run in Zephyr threads: logging and shell over USB, Cyphal over CAN-FD
-  (battery case controller), later Cyphal/UDP on an STM32H7.
+  (battery case controller and the cart, `docs/system_plan.md`).
 - Only the FOC hot path runs in zero-latency IRQs: the sample ISR and the
   control cycle it runs every fourth sample. The observer runs in a
   software-pended normal-priority interrupt. Nothing else runs at zero latency.
@@ -99,13 +99,15 @@ the board. The phase order below is the plan.
 - native_sim: SocketCAN snippet (`socketcan-native-sim`) with `vcan0`; CAN FD
   needs a larger MTU on the vcan interface.
 
-### Phase 6 - Cyphal/UDP on STM32H7 (later)
-- libudpard over Zephyr sockets. Its current documentation describes a v3.0
-  alpha redesign, so pin a version deliberately.
+### Phase 6 - Cyphal/UDP (simulation fallback only)
+- The cart uses Cyphal/CAN-FD and an STM32G4 logic board; an STM32H7 with
+  Single Pair Ethernet is a later option (`docs/system_plan.md`, section 6.5).
+- libudpard 2.x over Zephyr sockets, only if `vcan` is not available for the
+  multi-node simulation. Its upstream is a v3.0 alpha redesign, so pin a
+  version deliberately.
 - native_sim: TAP driver (`eth_native_tap`) with Zephyr's IP stack. The
   offloaded sockets (NSOS) of 4.4 pass no multicast socket options, which
-  Cyphal/UDP needs (`docs/system_plan.md`, section 6.4).
-- Sets up the Python or Rust GUI from `TODO.md`.
+  Cyphal/UDP needs.
 
 ### Phase 7 - CI and documentation
 - Done: twister (native_sim run, STM32G4 build) with clang-tidy as Zephyr
@@ -115,8 +117,9 @@ the board. The phase order below is the plan.
 ## Risks and Open Points
 
 - native_sim is Linux only. Whether the default WSL2 kernel provides `vcan` and
-  USB/IP modules is unverified. Default path: UART PTY and UDP loopback; CAN and
-  USB as optional extras.
+  USB/IP modules is unverified. Default path: UART PTY for the console and
+  `vcan` for Cyphal/CAN-FD; Cyphal/UDP over TAP if `vcan` is missing; USB as
+  an optional extra.
 - C++20 with `std::atomic` and `<span>` under Zephyr's C++ library settings
   needs a short spike.
 - ZLI constraints on the callbacks behind `HardwareInterface`.

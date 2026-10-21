@@ -1,16 +1,18 @@
 # TODO list for open topics
 
 The overall direction (cart with four wheel drives, central vehicle dynamics
-controller, Cyphal/UDP over Single Pair Ethernet) is drafted in
-[docs/system_plan.md](docs/system_plan.md).
+controller, Cyphal/CAN-FD, STM32G4 logic board for the 4850 drive) is drafted
+in [docs/system_plan.md](docs/system_plan.md).
 
 ### Cart system (see `docs/system_plan.md`)
 
- - [ ] Spike C2: Cyphal/UDP on 10BASE-T1S between an STM32H7 evaluation board with a LAN867x on RMII and a LAN8651 node (PLCA, multicast, latency and bus load at 500 Hz); Zephyr 4.4 driver limits in section 6.4.
- - [ ] Switch the `native_sim` network for Cyphal/UDP to the TAP driver (NSOS passes no multicast socket options in 4.4) and check TAP on WSL2.
+ - [ ] CAN FD bus test (phase C2): BCC and G4 evaluation boards on a cart-length harness, 1/4 and 1/2 Mbit/s, bus load and latency at 250 and 500 Hz; choose the bit rate and the cycle rate.
+ - [ ] Check `vcan` (CAN FD MTU) on WSL2 for the multi-node simulation; fallback Cyphal/UDP over the `native_sim` TAP driver (NSOS passes no multicast socket options in 4.4).
  - [ ] Regenerative braking in the drive: DC-link overvoltage limit and trip, regen limit from the battery state, reported to the VDC; tested in the sim (section 7.1).
- - [ ] Decide the VDC MCU (STM32H7 or STM32G4 with Zephyr). The VDC firmware lives in this repository (`apps/vdc/`, `lib/vehicle/`, decided).
- - [ ] Requirements for the H7 + SPE redesign of the hardware_4850 logic board (section 5.2).
+ - [ ] Requirements and part choice for the STM32G4 redesign of the hardware_4850 logic board (STM32G473RET6 or G474RET6, pin and ADC check, section 5.2).
+ - [ ] Generalize `hardware/zephyr_bcc` to the G4 family so the 4850 logic board shares the hot path (board differences in the devicetree).
+ - [ ] Split `app/` into `apps/drive/` and `apps/vdc/` (later `apps/pedal/`) and add `lib/vehicle/`; update `AGENTS.md`, `README.md` and `docs/zephyr_workflow.md`. The VDC firmware lives in this repository (decided); the VDC MCU starts on a G4.
+ - [ ] Define the DSDL namespace (wheel command, drive status, pedal state) with every message in one CAN FD frame.
  - [ ] Decide whether a brake chopper is needed for braking with a full or disconnected battery.
 
 ## Zephyr port and hot path
@@ -27,7 +29,7 @@ items that need the board are collected below and wait for hardware access.
 ### P0 - Without hardware (twister on `native_sim`, BCC build)
 
  - [ ] Implement the hot-path milestones M4 to M7 from `docs/hotpath_plan.md` (observer API, Hall driver and sim Hall signals, Hall fusion, control thread), tested with ztest and the sim plant.
- - [ ] Run a small Cyphal/UDP feasibility spike between `native_sim` (TAP network) and `pycyphal` (see the SIL plan below); it settles the DSDL generation for both transports.
+ - [ ] Run a small Cyphal feasibility spike between `native_sim` and `pycyphal`, on `vcan` (CAN FD) with UDP over TAP as the fallback (see the SIL plan below); it settles the DSDL generation for both transports.
  - [ ] Integrate Cyphal (libcanard, DSDL, register service, PnP, heartbeat, GetInfo) and the shell command `settings show|save|reset` (settings open items 1 and 2), tested on `native_sim`. CAN-FD on `native_sim` needs `vcan` in the WSL2 kernel (unverified); CAN-FD on the BCC waits for the transceiver decision.
  - [ ] Write the M0 instrumentation (DWT cycle counters around the sample ISR, control cycle and observer, min/mean/max, overrun counters, output through log and shell); build-tested only until the board is available.
  - [ ] Check whether the hot path (sample ISR, control cycle, buffers) belongs in CCM SRAM on the G4 (`docs/hotpath_plan.md`, "Risks and Open Points"); decide with the M0 timing numbers.
