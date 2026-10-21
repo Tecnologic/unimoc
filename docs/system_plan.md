@@ -7,6 +7,8 @@
 > - The new 4850 logic board uses an STM32G4, the same MCU family as the BCC.
 > - The VDC firmware lives in this repository.
 > - A mechanical emergency brake, otherwise pure regenerative braking.
+> - A BMS controller with brake chopper is another bus node and another
+>   application in this repository.
 > - The steering servo is out of scope for now; the first rides use a
 >   steering angle sensor only.
 
@@ -22,7 +24,7 @@ connect to the VDC directly (IMU, GNSS, steering angle sensor, display).
 
 | Repository | Role in this plan |
 |---|---|
-| [Tecnologic/unimoc](https://github.com/Tecnologic/unimoc) (this repository, branch `develop`) | Firmware on Zephyr for all bus nodes: wheel drives, VDC and pedal unit. FOC hot path, observers, settings, vehicle dynamics, `native_sim` simulation, tests. |
+| [Tecnologic/unimoc](https://github.com/Tecnologic/unimoc) (this repository, branch `develop`) | Firmware on Zephyr for all bus nodes: wheel drives, VDC, pedal unit and BMS controller. FOC hot path, observers, settings, vehicle dynamics, `native_sim` simulation, tests. |
 | [Tecnologic/hardware_4850](https://github.com/Tecnologic/hardware_4850) | 48 V / 50 A drive in an RND 455-00370 enclosure. [`power/`](https://github.com/Tecnologic/hardware_4850/tree/master/power): power stage, kept unchanged. [`logic/`](https://github.com/Tecnologic/hardware_4850/tree/master/logic): logic board, redesigned with an STM32G4 (section 5.2). |
 | [Tecnologic/unimoc_old_software, branch `electric_quad`](https://github.com/Tecnologic/unimoc_old_software/tree/electric_quad) | Legacy firmware (ChibiOS, STM32F730) of the 1.6 kW children's quad on the 4850 hardware. Source for proven settings and features to port (section 9); not built any more. |
 | `lib/cymon` (submodule) | Tracing and monitoring; transported over Cyphal later (`docs/zephyr_port_plan.md`, Phase 5). |
@@ -52,10 +54,10 @@ record.
          +----------------------+----------------------+
                                 |
      ======================= CAN FD (Cyphal/CAN) ========================
-        |            |            |            |             |
-   Drive FL      Drive FR     Drive RL     Drive RR      Pedal unit
-   UNIMOC        UNIMOC       UNIMOC       UNIMOC        (drive + brake pedal,
-   G4 + 4850     G4 + 4850    G4 + 4850    G4 + 4850     2 channels each, G4)
+        |            |            |            |             |              |
+   Drive FL      Drive FR     Drive RL     Drive RR      Pedal unit     BMS controller
+   UNIMOC        UNIMOC       UNIMOC       UNIMOC        (drive + brake (cells, contactor,
+   G4 + 4850     G4 + 4850    G4 + 4850    G4 + 4850     pedal, G4)     brake chopper, G4)
 
    (later: steering assist as another UNIMOC node)
 
@@ -69,6 +71,7 @@ record.
 | VDC | STM32G4 (or H7 if the display or logging need it), Zephyr | Driver inputs, vehicle state estimation (IMU, GNSS, wheel speeds, steering angle), torque distribution, torque vectoring, drift assist, display, logging |
 | Wheel drives (2 or 4) | 4850 power stage + new G4 logic | Torque control per wheel (drive and regenerative braking), wheel speed, limp-home mode (section 7) |
 | Pedal unit | Small STM32G4 board | Publishes drive and brake pedal positions (two sensor channels per pedal); sends no commands |
+| BMS controller | STM32G4 board in the battery (section 5.5) | Cell monitoring, contactor and precharge, state of charge, charge and discharge current limits, brake chopper on the DC link |
 | Steering angle sensor | Standard sensor on the VDC (for example the AS5048 of the legacy firmware) | Steering angle for the vehicle dynamics; no bus node |
 | IMU, GNSS, display | Standard modules on the VDC | No bus node |
 | Steering assist | Later: UNIMOC | Out of scope until a steering concept exists |
@@ -80,6 +83,7 @@ record.
 |---|---|---|
 | Control structure | One central VDC. If it fails, the drives fall back to the pedal unit (section 7). | The vehicle dynamics need all sensors in one place; a VDC failure must still let the driver brake. |
 | Brakes | Mechanical emergency brake; the service brake is regenerative only, through the drives. | Consequences in section 7.1. |
+| BMS and brake chopper | **One node, one more application in this repository** (`apps/bms/`): the BMS controller also drives the brake chopper. The chopper reacts to the DC-link voltage locally, without the bus. | Braking energy the battery cannot take (full battery, cold battery, open contactor) goes into the resistor; the BMS knows when that is the case. |
 | Steering | Mechanical steering. First rides: steering angle sensor on the VDC only. A steering assist (UNIMOC) follows later with its own plan. | No complete steering concept yet. |
 | Protocol | **Cyphal v1.0**, libraries pinned in `west.yml`: libcanard 4.x, Nunavut for DSDL, pycyphal for tools and tests. | All bus nodes are own nodes; publish/subscribe like DDS without a broker; settings already use register names (`unimoc.motor.pole_pairs`). Cyphal v1.1 (cy, libcanard 5) is alpha and wire-compatible with Cyphal/CAN v1.0; revisit after its release. |
 | Cart transport | **Cyphal/CAN-FD**, one bus for all nodes, bit rates in section 6.3. | Mature in Zephyr (STM32 FDCAN driver) and in Cyphal (libcanard), robust next to the drives, priority arbitration, cheap transceivers, enough bandwidth (section 6.3). Section 6.5 compares it with SPE. |
@@ -151,7 +155,7 @@ it; the firmware is portable between both.
 **Impact on this repository:**
 
 - `app/` becomes `apps/drive/` and `apps/vdc/` (two Zephyr applications,
-  decided), later `apps/pedal/`. The applications share `lib/units`,
+  decided), later `apps/pedal/` and `apps/bms/`. The applications share `lib/units`,
   `lib/settings`, `lib/cyphal`, the DSDL namespace, `hardware/zephyr_common`
   and CI.
 - New portable library `lib/vehicle/` (torque distribution, yaw-rate
@@ -170,6 +174,35 @@ it; the firmware is portable between both.
   channels per pedal (plausibility check as in automotive pedal modules).
 - Firmware in this repository (`apps/pedal/`), or a role of the VDC board
   placed at the pedals.
+
+### 5.5 BMS controller with brake chopper
+
+- **Board:** STM32G4 with a CAN FD transceiver, a cell monitoring front end
+  (part to choose), current measurement in the battery path, contactor and
+  precharge drivers, and a brake chopper switch (MOSFET or half bridge) with
+  a resistor on the DC link. Whether the existing BCC board can take this
+  role is open (section 12).
+- **Firmware:** `apps/bms/` in this repository, with a portable
+  `lib/battery/` (state of charge, current limits from cell voltage and
+  temperature, chopper control) and ztest suites in `tests/lib/battery/`.
+- **Brake chopper control:**
+  - The chopper switches on the DC-link voltage measured on the BMS board,
+    not on a bus message, so it also works without the VDC and the bus.
+  - First stage in hardware: a G4 comparator (COMP) with a DAC threshold
+    drives the chopper timer directly (hysteresis or PWM without the CPU).
+    The firmware sets the thresholds and monitors the resistor temperature
+    and energy. Whether this fits the G4 comparator and timer routing is to
+    be checked in the schematic.
+  - The chopper is the backstop: the drives limit the regenerative torque to
+    the charge limit the BMS publishes, so the chopper only takes what the
+    battery cannot (section 7.1).
+  - Software in the chopper path follows the same rules as the hot path if
+    it runs in an interrupt: no kernel calls, no logging, no locks.
+- **Resistor:** sized from the cart mass, the top speed and the longest
+  braking (open, section 12); an overtemperature limit protects it.
+- **Contactor:** the BMS announces an opening in advance where it can
+  (overcurrent and cell faults may need an immediate opening); the drives
+  then ramp the regenerative torque down and the chopper holds the DC link.
 
 ## 6. Network
 
@@ -192,6 +225,7 @@ fits in one CAN FD frame.
 | Wheel command | VDC → drives | 250 to 500 Hz | Torque per wheel, drive or brake (one message for all wheels, applied on reception), mode |
 | Drive status | each drive → VDC | same | Wheel speed, torque estimate, DC link, temperatures, regen limit, fault flags |
 | Pedal state | pedal unit → VDC and drives | same | Drive and brake pedal, both channels, plausibility flag |
+| Battery status | BMS → VDC and drives | 50 to 100 Hz | Pack voltage and current, state of charge, charge and discharge current limits, contactor state, chopper state and temperature |
 | Heartbeat | all | 1 Hz (standard) | Health, mode |
 | Registers, GetInfo, file update | VDC/PC ↔ all | on demand, low priority | Settings, version, firmware update |
 | Diagnostics | all | event, low priority | `uavcan.diagnostic.Record` instead of the USB log |
@@ -205,7 +239,8 @@ priority and cannot delay the control loop.
 One extended CAN FD frame with a 16-byte payload takes about 100 µs at
 1 Mbit/s arbitration and 4 Mbit/s data (about 150 µs at 2 Mbit/s data),
 including stuff bits and the inter-frame space. Six frames per cycle (one
-command, four drive status, pedal; the later steering adds one):
+command, four drive status, pedal; the later steering adds one). The battery
+status at 50 to 100 Hz adds less than 1 % and is not in the table:
 
 | Cycle rate | 1 / 4 Mbit/s | 1 / 2 Mbit/s | Classic CAN 1 Mbit/s (for comparison) |
 |---|---|---|---|
@@ -288,6 +323,9 @@ The pedal unit only publishes measurements. Each drive decides on its own:
 | One drive lost | VDC removes the opposite wheel of the axle too (or redistributes the torque without a yaw moment), limits the speed, shows the fault. |
 | Drive in bus-off | The drive treats it like a VDC and pedal timeout: torque to zero, ramped; it tries to rejoin the bus. |
 | Steering angle sensor lost | VDC switches off torque vectoring and drift assist, equal torque distribution. |
+| BMS lost (timeout) | Drives fall back to a conservative regenerative limit stored in their settings; VDC limits the speed and shows the fault. The chopper keeps working locally. |
+| BMS opens the contactor | Drives ramp the regenerative torque to zero; the chopper holds the DC link; the VDC shows the fault and the driver uses the mechanical brake. |
+| Chopper overtemperature | BMS lowers the published charge limit; drives brake less, the mechanical brake covers the rest. |
 | E-stop | Hard-wired to the external enable and break input of every power stage; independent of the bus. The mechanical brake stops the cart. |
 
 The fallback logic runs in a Zephyr thread of the drive, never in the hot
@@ -298,15 +336,16 @@ path (`AGENTS.md`, zero-latency rules).
 - **Bus or VDC failure:** the brake pedal must keep working through the
   limp-home path (pedal unit → drives directly). That path becomes a safety
   function, not a comfort feature.
-- **Full battery or opened BMS:** the battery cannot take the braking
-  current (the BCC profile allows only 20 A charge). The drives must limit
-  the regenerative torque to what the DC link can take, and report the
-  limit to the VDC; the mechanical brake covers the rest. Check whether a
-  brake chopper with a resistor is needed.
+- **Full battery or opened contactor:** the battery cannot take the braking
+  current (the BCC profile allows only 20 A charge). The drives limit the
+  regenerative torque to the charge limit the BMS publishes; the brake
+  chopper of the BMS takes what is left (section 5.5); the mechanical brake
+  covers the rest.
 - **DC-link overvoltage:** with the battery disconnected during braking the
   DC link rises fast; the BSC040N08 are 80 V parts on a 48 V system. The
-  drive needs an overvoltage limit in the current controller and a hard
-  trip, verified on the bench.
+  chopper limits the voltage, and each drive still needs its own
+  overvoltage limit in the current controller and a hard trip, verified on
+  the bench with the chopper disconnected.
 - **Low speed and standstill:** regeneration fades near zero speed and
   cannot hold the cart; holding torque at standstill costs battery energy.
   Parking needs the mechanical brake (or a parking brake).
@@ -321,6 +360,7 @@ path (`AGENTS.md`, zero-latency rules).
 | Drive application | `app/` (later `apps/drive/`) | Torque mode with regenerative braking, wheel speed, DC-link limits, limp-home mode, Cyphal node |
 | VDC application | `apps/vdc/` with `lib/vehicle/` | Torque distribution, vehicle state estimation, display, logging |
 | Pedal application | `apps/pedal/` | Pedal sensors, plausibility, publishing |
+| BMS application | `apps/bms/` with `lib/battery/` | Cell monitoring, contactor and precharge, state of charge, current limits, brake chopper |
 | Platforms | `hardware/zephyr_bcc` (generalized to the G4 family), `hardware/zephyr_sim` | Hot path per MCU, the rest shared through `hardware/zephyr_common` |
 | Cyphal layer | `lib/cyphal` | `Transport` with a CAN-FD implementation (libcanard), register service on `SettingsStore`, heartbeat, GetInfo, file update; a UDP implementation (libudpard) only for the simulation fallback |
 | Simulation | `native_sim` | Single-process deterministic tests (`tests/sim/`), plus multi-process runs: one `native_sim` per node on `vcan` (section 6.4) |
@@ -354,6 +394,7 @@ Each phase keeps `check_format.sh` and `twister_sca.sh` green.
 | C2 | CAN FD bus test: the BCC and G4 evaluation boards on a cart-length harness, 1/4 and 1/2 Mbit/s, bus load and latency at 250 and 500 Hz | BCC, evaluation boards, USB CAN FD adapter | Measured load and latency; bit rate and cycle rate chosen |
 | D | 4850 G4 logic board: schematic, layout, G4 platform generalized from the BCC, regenerative braking with DC-link limits | new logic board, quad motor | Same tests as C on the 4850; braking into a full battery and with the battery disconnected on the bench |
 | E | VDC (G4) and pedal unit hardware, steering angle sensor; `apps/` split | VDC, pedal unit | Pedal and angle published on the bus, VDC commands a drive on the bench |
+| E2 | BMS controller with brake chopper: board, `apps/bms/`, `lib/battery/`, chopper thresholds, contactor sequence | BMS board, battery, resistor | Regenerative braking into a full battery and with an open contactor on the bench, DC link held below the limit |
 | F | VDC firmware, multi-node sim with the vehicle model, fault reactions of section 7 in the sim | none, then VDC | All fault cases of section 7 pass in the sim |
 | G | Cart integration: two wheels first, then four; torque vectoring and drift assist | cart | Driving tests with the fault cases on a closed area |
 | H | Tools and GUI over Cyphal/CAN-FD (`docs/software_in_loop_plan.md`, P3) | PC, USB CAN FD adapter | Parameter set and telemetry plots from the GUI |
@@ -387,10 +428,11 @@ Not a safety concept; a list of what one must cover.
    bus test C2.
 4. **`vcan` on WSL2:** available, or the UDP-over-TAP fallback for the
    simulation.
-5. **Brake chopper:** needed for braking with a full or disconnected battery?
+5. **BMS board:** the existing BCC or a new STM32G4 board; cell monitoring
+   front end; cell count and chemistry.
 6. **Display:** connection to the VDC and content.
-7. **Battery:** BMS and its interface (VDC input or bus node); charge current
-   limit during regenerative braking.
+7. **Brake resistor:** power and energy rating from the cart mass, top speed
+   and longest braking; chopper switch and its cooling.
 8. **Steering assist:** concept, torque sensor, interface (later).
 
 ## 13. Risks
@@ -403,8 +445,11 @@ Not a safety concept; a list of what one must cover.
   cart-length harness; fallback 2 Mbit/s data and 250 Hz.
 - **Simulation network:** `vcan` on WSL2 unverified; fallback UDP over TAP.
 - **Pure regenerative braking:** the service brake depends on the drives,
-  the battery state and the bus; covered by the limp-home path and the
-  mechanical emergency brake (section 7.1).
+  the battery state and the bus; covered by the limp-home path, the brake
+  chopper and the mechanical emergency brake (section 7.1).
+- **Chopper in hardware:** the comparator-to-timer path of the G4 has to be
+  confirmed in the schematic; otherwise the chopper needs a fast interrupt on
+  the BMS controller.
 - **G4 pin and ADC budget in LQFP64:** checked before the schematic of
   phase D; a larger package changes the logic board layout.
 - **Vehicle model effort:** the VDC cannot be tested in the sim without it

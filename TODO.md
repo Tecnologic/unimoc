@@ -11,9 +11,9 @@ in [docs/system_plan.md](docs/system_plan.md).
  - [ ] Regenerative braking in the drive: DC-link overvoltage limit and trip, regen limit from the battery state, reported to the VDC; tested in the sim (section 7.1).
  - [ ] Requirements and part choice for the STM32G4 redesign of the hardware_4850 logic board (STM32G473RET6 or G474RET6, pin and ADC check, section 5.2).
  - [ ] Generalize `hardware/zephyr_bcc` to the G4 family so the 4850 logic board shares the hot path (board differences in the devicetree).
- - [ ] Split `app/` into `apps/drive/` and `apps/vdc/` (later `apps/pedal/`) and add `lib/vehicle/`; update `AGENTS.md`, `README.md` and `docs/zephyr_workflow.md`. The VDC firmware lives in this repository (decided); the VDC MCU starts on a G4.
- - [ ] Define the DSDL namespace (wheel command, drive status, pedal state) with every message in one CAN FD frame.
- - [ ] Decide whether a brake chopper is needed for braking with a full or disconnected battery.
+ - [ ] Split `app/` into `apps/drive/` and `apps/vdc/` (later `apps/pedal/` and `apps/bms/`) and add `lib/vehicle/`; update `AGENTS.md`, `README.md` and `docs/zephyr_workflow.md`. The VDC firmware lives in this repository (decided); the VDC MCU starts on a G4.
+ - [ ] Define the DSDL namespace (wheel command, drive status, pedal state, battery status) with every message in one CAN FD frame.
+ - [ ] BMS controller with brake chopper as `apps/bms/` with `lib/battery/` (section 5.5): board (BCC or new G4 board), cell monitoring front end, chopper in hardware (G4 comparator to timer), resistor sizing, battery status message.
 
 ## Zephyr port and hot path
 
