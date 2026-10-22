@@ -20,8 +20,12 @@ import uavcan.node
 import uavcan.node.port
 import uavcan.primitive.array
 import uavcan.register
+import uavcan.si.unit.angle
+import uavcan.si.unit.angular_acceleration
 import uavcan.si.unit.angular_velocity
 import uavcan.si.unit.torque
+import reg.udral.physics.dynamics.rotation
+import reg.udral.physics.kinematics.rotation
 import reg.udral.service.common
 import cymon
 import unimoc.drive
@@ -34,6 +38,8 @@ PORT_READINESS = 106
 PORT_CURRENT_SETPOINT = 107
 PORT_TORQUE_SETPOINT = 100
 PORT_SPEED_SETPOINT = 101
+PORT_POSITION_SETPOINT = 102
+PORT_SERVO_SETPOINT = 108
 PORT_TELEMETRY = 212
 PORT_PLANT = 213
 
@@ -102,6 +108,8 @@ class SimClient:
         self.current = self.node.make_publisher(unimoc.drive.CurrentSetpoint_0_1, PORT_CURRENT_SETPOINT)
         self.torque = self.node.make_publisher(uavcan.si.unit.torque.Scalar_1_0, PORT_TORQUE_SETPOINT)
         self.speed = self.node.make_publisher(uavcan.si.unit.angular_velocity.Scalar_1_0, PORT_SPEED_SETPOINT)
+        self.position = self.node.make_publisher(uavcan.si.unit.angle.Scalar_1_0, PORT_POSITION_SETPOINT)
+        self.servo = self.node.make_publisher(reg.udral.physics.dynamics.rotation.Planar_0_1, PORT_SERVO_SETPOINT)
 
     async def _on_record(self, record: uavcan.diagnostic.Record_1_1, _meta) -> None:
         self.records.append(record.text.tobytes().decode())
@@ -278,6 +286,27 @@ class SimClient:
     def speed_setpoint(self, radian_per_second: float):
         async def publish():
             await self.speed.publish(uavcan.si.unit.angular_velocity.Scalar_1_0(radian_per_second))
+
+        return publish
+
+    def position_setpoint(self, radian: float):
+        async def publish():
+            await self.position.publish(uavcan.si.unit.angle.Scalar_1_0(radian))
+
+        return publish
+
+    def servo_setpoint(self, radian: float, radian_per_second: float, newton_meter: float):
+        """UDRAL servo setpoint; NaN marks a field as not commanded."""
+        rotation = reg.udral.physics.dynamics.rotation
+        kinematics = reg.udral.physics.kinematics.rotation.Planar_0_1(
+            angular_position=uavcan.si.unit.angle.Scalar_1_0(radian),
+            angular_velocity=uavcan.si.unit.angular_velocity.Scalar_1_0(radian_per_second),
+            angular_acceleration=uavcan.si.unit.angular_acceleration.Scalar_1_0(float("nan")),
+        )
+        message = rotation.Planar_0_1(kinematics=kinematics, torque=uavcan.si.unit.torque.Scalar_1_0(newton_meter))
+
+        async def publish():
+            await self.servo.publish(message)
 
         return publish
 

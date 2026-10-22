@@ -158,8 +158,29 @@ def test_speed_setpoint_runs_the_speed_loop(sim: SimClient):
     assert sim.latest(sim.telemetry, settle=0.0).engaged
     assert sim.latest(sim.plant, settle=0.0).mechanical_speed == pytest.approx(30.0, abs=2.0)
 
+    # UDRAL servo: the velocity field selects the speed loop.
+    sim.hold(1.5, ENGAGED, sim.servo_setpoint(math.nan, -20.0, math.nan))
+    assert sim.latest(sim.plant, settle=0.0).mechanical_speed == pytest.approx(-20.0, abs=2.0)
+
+    # Position loop: a 3 rad move between two held positions.
+    sim.hold(1.5, ENGAGED, sim.position_setpoint(0.0))
+    start = sim.latest(sim.plant, settle=0.0).mechanical_angle
+    sim.hold(1.5, ENGAGED, sim.position_setpoint(3.0))
+    moved = sim.latest(sim.plant, settle=0.0).mechanical_angle - start
+    assert moved == pytest.approx(3.0, abs=0.1)
+
     sim.hold(0.3, SLEEP)
     assert sim.write("unimoc.sim.shaft_mode", natural8(1)) == 1  # locked again (imposed 0 rad/s)
+
+
+def test_timing_registers_without_the_probes(sim: SimClient):
+    # The application builds without CONFIG_UNIMOC_HOT_PATH_TIMING: the registers exist, nothing is counted.
+    assert sim.read("unimoc.timing.clock_hz") == 1_000_000_000
+    response = sim.access("unimoc.timing.control_cycle")
+    assert list(response.value.natural32.value) == [0, 0, 0, 0]
+    assert not response.mutable
+    assert len(sim.access("unimoc.timing.overruns").value.natural32.value) == 2
+    assert sim.write("unimoc.timing.reset", natural8(1)) == 0
 
 
 def test_trace_variables_ports_and_registers(sim: SimClient):
