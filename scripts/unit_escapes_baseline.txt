@@ -3,6 +3,7 @@
 4 hardware/zephyr_bcc/analog_scaling.hpp
 1 hardware/zephyr_bcc/foc_stm32g4.cpp
 2 hardware/zephyr_bcc/hardware_interface.cpp
+1 hardware/zephyr_common/cyphal_runtime.cpp
 12 hardware/zephyr_sim/cyphal_platform.cpp
 16 hardware/zephyr_sim/hardware_interface.cpp
 4 lib/motor_control/src/angle_wrap.hpp
@@ -32,13 +33,12 @@
 1 lib/sim/src/mechanical_model.hpp
 1 lib/sim/src/motor_simulation.hpp
 4 lib/sim/src/pmsm_model.hpp
-12 src/current_control/current_control_isr.cpp
-1 src/current_control/current_control_isr.hpp
-11 src/current_control/outer_loop.cpp
-10 src/current_control/slow_update.cpp
+4 src/current_control/current_control_isr.cpp
+10 src/current_control/outer_loop.cpp
+3 src/current_control/slow_update.cpp
 18 src/drive/drive_node.cpp
 1 src/drive/settings_register_provider.cpp
-12 src/startup/hw_startup.cpp
+13 src/startup/hw_startup.cpp
 12 src/trace/trace_signals.cpp
 17 tests/lib/motor_control/src/control_observer_units_test.cpp
 20 tests/lib/motor_control/src/core_control_test.cpp
@@ -67,7 +67,7 @@
 43 tests/lib/units/src/units_test.cpp
 59 tests/sim/closed_loop/src/main.cpp
 26 tests/sim/cyphal_drive/src/main.cpp
-21 tests/sim/hall_fusion/src/main.cpp
+20 tests/sim/hall_fusion/src/main.cpp
 10 tests/sim/irq_cadence/src/main.cpp
 10 tests/sim/overcurrent/src/main.cpp
 3 tests/sim/settings_persistence/src/main.cpp

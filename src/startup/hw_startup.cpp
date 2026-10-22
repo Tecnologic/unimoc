@@ -24,6 +24,15 @@
 
 namespace unimoc::startup {
 
+namespace {
+
+using unit::operator""_ratio;
+
+/// Both switches of a leg for the same time: no voltage across the motor.
+constexpr unit::Ratio kNeutralDuty = 0.5_ratio;
+
+}  // namespace
+
 void LogInfo(const char* const message) noexcept {
   hardware::kRuntime.Log(hardware::LogLevel::kInfo, message);
 }
@@ -79,7 +88,7 @@ void HwStartup::RequestRun() noexcept {
     hardware::kPowerStage.ClearFault();
   }
   cc_->ClearOvercurrentTrip();
-  cc_->ForceDuty(0.5F, 0.5F, 0.5F);  // neutral before the outputs are released
+  cc_->ForceDuty(kNeutralDuty, kNeutralDuty, kNeutralDuty);  // neutral before the outputs are released
 
   LogInfo(
       "[STARTUP] ================================================\n"
@@ -158,7 +167,7 @@ void HwStartup::RunOnce() noexcept {
 
     case FsmState::kPwmDisable:
       // Force 50 % neutral duty on all phases; wait for user step.
-      cc_->ForceDuty(0.5F, 0.5F, 0.5F);
+      cc_->ForceDuty(kNeutralDuty, kNeutralDuty, kNeutralDuty);
       if (!step_done_) {
         LogInfo(
             "[STARTUP] Step PWM_DISABLE: 50 % duty applied on all phases.\n"
@@ -180,15 +189,15 @@ void HwStartup::RunOnce() noexcept {
       break;
 
     case FsmState::kDutyForceLow:
-      RunDutyForce(0.5F - duty_step_fraction);
+      RunDutyForce(kNeutralDuty - duty_step_fraction);
       break;
 
     case FsmState::kDutyForceMid:
-      RunDutyForce(0.5F);
+      RunDutyForce(kNeutralDuty);
       break;
 
     case FsmState::kDutyForceHigh:
-      RunDutyForce(0.5F + duty_step_fraction);
+      RunDutyForce(kNeutralDuty + duty_step_fraction);
       break;
 
     case FsmState::kDcLinkVoltageCheck:
@@ -292,8 +301,8 @@ bool HwStartup::ValidateCurrentState() noexcept {
 void HwStartup::EnterFault(const char* reason) noexcept {
   state_ = FsmState::kFault;
   results.current_state = FsmState::kFault;
-  cc_->ForceDuty(0.5F, 0.5F, 0.5F);  // safe neutral
-  hardware::kPowerStage.Disable();   // outputs off, whatever the duties do
+  cc_->ForceDuty(kNeutralDuty, kNeutralDuty, kNeutralDuty);  // safe neutral
+  hardware::kPowerStage.Disable();                           // outputs off, whatever the duties do
   LogFormatted(hardware::LogLevel::kError, "[STARTUP] *** FAULT: %s ***\n", reason);
 }
 
@@ -334,7 +343,7 @@ bool HwStartup::CollectSample(uint32_t n_samples) noexcept {
 
 void HwStartup::RunAdcOffsetCal() noexcept {
   // Ensure neutral duty while collecting
-  cc_->ForceDuty(0.5F, 0.5F, 0.5F);
+  cc_->ForceDuty(kNeutralDuty, kNeutralDuty, kNeutralDuty);
 
   if (!step_done_) {
     if (CollectSample(kNCal)) {
@@ -377,7 +386,7 @@ void HwStartup::RunAdcOffsetCal() noexcept {
 // =============================================================================
 
 void HwStartup::RunAdcNoiseFloor() noexcept {
-  cc_->ForceDuty(0.5F, 0.5F, 0.5F);
+  cc_->ForceDuty(kNeutralDuty, kNeutralDuty, kNeutralDuty);
 
   if (!step_done_) {
     if (CollectSample(kNCal)) {
@@ -423,7 +432,7 @@ void HwStartup::RunAdcNoiseFloor() noexcept {
 // run_duty_force  —  used by DUTY_FORCE_LOW / MID / HIGH
 // =============================================================================
 
-void HwStartup::RunDutyForce(float duty) noexcept {
+void HwStartup::RunDutyForce(const unit::Ratio duty) noexcept {
   cc_->ForceDuty(duty, duty, duty);
 
   if (!step_done_) {
@@ -439,7 +448,7 @@ void HwStartup::RunDutyForce(float duty) noexcept {
                  "[STARTUP] %s: duty=%f applied for %u samples. PASS-MANUAL (verify with scope).\n"
                  "[STARTUP] Press NEXT to continue.\n",
                  StateName(state_),
-                 static_cast<double>(duty),
+                 static_cast<double>(duty.Value()),  // the log takes plain numbers
                  static_cast<unsigned int>(kHoldSamples));
 
     step_done_ = true;
@@ -455,7 +464,7 @@ void HwStartup::RunDutyForce(float duty) noexcept {
 // =============================================================================
 
 void HwStartup::RunDcLinkVoltageCheck() noexcept {
-  cc_->ForceDuty(0.5F, 0.5F, 0.5F);
+  cc_->ForceDuty(kNeutralDuty, kNeutralDuty, kNeutralDuty);
 
   if (step_done_) {
     if (next_step_requested_ && ValidateCurrentState()) {
@@ -526,8 +535,8 @@ void HwStartup::RunGateDriverEnableCheck() noexcept {
   // current MCU-agnostic model we simply observe the ADC response delta
   // between neutral (50 %) and a slightly off-neutral duty.
 
-  static constexpr float kGateTestDutyHigh = 0.55F;
-  static constexpr float kGateTestDutyLow = 0.45F;
+  static constexpr unit::Ratio kGateTestDutyHigh = 0.55_ratio;
+  static constexpr unit::Ratio kGateTestDutyLow = 0.45_ratio;
   static constexpr uint32_t kNGate = 512U;
 
   // Keep the step idle once results have been collected.
@@ -540,7 +549,7 @@ void HwStartup::RunGateDriverEnableCheck() noexcept {
 
   if (gate_phase_disabled_) {
     // Collecting disabled (neutral) baseline
-    cc_->ForceDuty(0.5F, 0.5F, 0.5F);
+    cc_->ForceDuty(kNeutralDuty, kNeutralDuty, kNeutralDuty);
     if (CollectSample(kNGate)) {
       gate_mean_disabled_ = static_cast<float>(accum_a_) / static_cast<float>(kNGate);
       // Reset accumulators for enabled phase
@@ -592,7 +601,7 @@ void HwStartup::RunGateDriverEnableCheck() noexcept {
 // =============================================================================
 
 void HwStartup::RunConnectMotorWait() noexcept {
-  cc_->ForceDuty(0.5F, 0.5F, 0.5F);
+  cc_->ForceDuty(kNeutralDuty, kNeutralDuty, kNeutralDuty);
 
   if (!step_done_) {
     oc_limit_ = settings_operations_.GetHardwareCapabilities().max_phase_current.Value() * oc_fraction;
@@ -634,9 +643,9 @@ void HwStartup::RunConnectMotorWait() noexcept {
 
 void HwStartup::RunPhaseAdcAlignment() noexcept {
   // Force a known asymmetric duty so phase A carries more current than B/C.
-  static constexpr float kDa = 0.8F;
-  static constexpr float kDb = 0.2F;
-  static constexpr float kDc = 0.2F;
+  static constexpr unit::Ratio kDa = 0.8_ratio;
+  static constexpr unit::Ratio kDb = 0.2_ratio;
+  static constexpr unit::Ratio kDc = 0.2_ratio;
   cc_->ForceDuty(kDa, kDb, kDc);
 
   if (step_done_) {
@@ -733,9 +742,9 @@ void HwStartup::RunPhaseAdcAlignment() noexcept {
 
 void HwStartup::RunCurrentSenseCalibration() noexcept {
   // Force pure alpha-axis current injection (small voltage differential)
-  const float kDa = 0.5F + v_cal_fraction;
-  const float kDb = 0.5F - v_cal_fraction * 0.5F;
-  const float kDc = 0.5F - v_cal_fraction * 0.5F;
+  const unit::Ratio kDa = kNeutralDuty + v_cal_fraction;
+  const unit::Ratio kDb = kNeutralDuty - v_cal_fraction * 0.5F;
+  const unit::Ratio kDc = kNeutralDuty - v_cal_fraction * 0.5F;
   cc_->ForceDuty(kDa, kDb, kDc);
 
   if (!step_done_ && !CollectSample(kNCal)) {

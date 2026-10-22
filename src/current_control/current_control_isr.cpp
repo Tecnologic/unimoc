@@ -45,8 +45,8 @@ void CurrentControlIsr::Init(const settings::NvmSettings& settings,
 
   // Centre-aligned PWM: ARR = timer_clock / (2 × f_pwm) − 1
   state.arr = timer_clock_hz / (2U * kPwmHz) - 1U;
-  state.dt_fast = 1.0F / (2.0F * static_cast<float>(kPwmHz));
-  state.dt_slow = static_cast<float>(kNumSubSteps) * state.dt_fast;
+  state.dt_fast = DtFastFromPwmFrequency(settings.pwm_frequency);
+  state.dt_slow = DtSlowFromPwmFrequency(settings.pwm_frequency);
   state.adc_trigger_offset = static_cast<uint32_t>(std::roundf(1e-6F * static_cast<float>(timer_clock_hz)));
 
   hfi.Init(settings);
@@ -105,9 +105,8 @@ void CurrentControlIsr::Init(const settings::NvmSettings& settings,
 // hardware only through hot_path:: (bound at link time, no function
 // pointers) and calls no libm function (built with -fno-math-errno).
 //
-static bool Exceeds(const system::ThreePhase<unit::Current>& currents, const float limit) noexcept {
-  return std::abs(currents.a.Value()) > limit || std::abs(currents.b.Value()) > limit ||
-         std::abs(currents.c.Value()) > limit;
+static bool Exceeds(const system::ThreePhase<unit::Current>& currents, const unit::Current limit) noexcept {
+  return unit::Abs(currents.a) > limit || unit::Abs(currents.b) > limit || unit::Abs(currents.c) > limit;
 }
 
 void CurrentControlIsr::OnControlCycle() noexcept {
@@ -192,11 +191,8 @@ void CurrentControlIsr::OnControlCycle() noexcept {
   // -------------------------------------------------------------------------
   // 4. Current PI with decoupling feedforward, once per cycle.
   // -------------------------------------------------------------------------
-  const system::Rotor<unit::Voltage> kVoltageDq = cc.Update(state.i_ref,
-                                                            i_dq_mean,
-                                                            mech_obs.omega,
-                                                            unit::Time{state.dt_slow},
-                                                            unit::Voltage{kDcLinkVoltage});
+  const system::Rotor<unit::Voltage> kVoltageDq =
+      cc.Update(state.i_ref, i_dq_mean, mech_obs.omega, state.dt_slow, unit::Voltage{kDcLinkVoltage});
   buffer.u_dq = kVoltageDq;
   state.u_dq_last = kVoltageDq;
 
@@ -230,9 +226,9 @@ void CurrentControlIsr::OnControlCycle() noexcept {
 // force_duty
 // =============================================================================
 
-void CurrentControlIsr::ForceDuty(float da, float db, float dc) noexcept {
-  const auto kClampDuty = [this](float duty) noexcept {
-    return unit::Ratio{std::clamp(duty, svm.duty_min.Value(), svm.duty_max.Value())};
+void CurrentControlIsr::ForceDuty(const unit::Ratio da, const unit::Ratio db, const unit::Ratio dc) noexcept {
+  const auto kClampDuty = [this](const unit::Ratio duty) noexcept {
+    return duty.Clamp(svm.duty_min, svm.duty_max);
   };
   forced_duties_.Write(system::ThreePhase<unit::Ratio>{kClampDuty(da), kClampDuty(db), kClampDuty(dc)});
   force_duty_active_.store(true, std::memory_order_release);
@@ -261,7 +257,7 @@ void CurrentControlIsr::SetAdcTriggerOffset(uint32_t offset) noexcept {
 }
 
 void CurrentControlIsr::SetOvercurrentLimit(const unit::Current limit) noexcept {
-  state.overcurrent_limit = limit.Value();
+  state.overcurrent_limit = limit;
   if (hardware_ != nullptr) {
     hardware_->SetOvercurrentLimit(limit);
   }

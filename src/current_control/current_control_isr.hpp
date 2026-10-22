@@ -51,18 +51,21 @@ static_assert(kNumSubSteps == hardware::kHalfPeriodsPerCycle,
  * is 1 / (2 × f_pwm).
  *
  * @param freq  PWM frequency selection.
- * @return      dt_fast [s].
+ * @return      dt_fast.
  */
-[[nodiscard]] constexpr float DtFastFromPwmFrequency(unit::Frequency freq) noexcept {
-  return 1.0F / (2.0F * freq.Value());
+[[nodiscard]] constexpr unit::Time DtFastFromPwmFrequency(unit::Frequency freq) noexcept {
+  return 1.0F / (2.0F * freq);
 }
 
 /**
- * @brief Control-cycle period [s] = kNumSubSteps × dt_fast.
+ * @brief Control-cycle period = kNumSubSteps × dt_fast.
  */
-[[nodiscard]] constexpr float DtSlowFromPwmFrequency(unit::Frequency freq) noexcept {
-  return static_cast<float>(kNumSubSteps) * DtFastFromPwmFrequency(freq);
+[[nodiscard]] constexpr unit::Time DtSlowFromPwmFrequency(unit::Frequency freq) noexcept {
+  return DtFastFromPwmFrequency(freq) * static_cast<float>(kNumSubSteps);
 }
+
+/// PWM frequency the timing of the state assumes until Init() sets it.
+inline constexpr unit::Frequency kInitialPwmFrequency{32000.0F};
 
 /**
  * @brief Shared state block for the control cycle and the observer.
@@ -118,11 +121,11 @@ struct CurrentControlState {
   /// Set to true by the control cycle once per cycle; consumed by the startup FSM.
   volatile bool samples_ready{false};
 
-  /// Duration of one PWM half period (one current sample) [s] — set by Init().
-  float dt_fast{1.0F / (2.0F * 32000.0F)};
+  /// Duration of one PWM half period (one current sample) — set by Init().
+  unit::Time dt_fast{DtFastFromPwmFrequency(kInitialPwmFrequency)};
 
-  /// Duration of one control cycle [s] — set by Init().
-  float dt_slow{static_cast<float>(kNumSubSteps) / (2.0F * 32000.0F)};
+  /// Duration of one control cycle — set by Init().
+  unit::Time dt_slow{DtSlowFromPwmFrequency(kInitialPwmFrequency)};
 
   /// Delay from the control boundary to the middle of duty entry 0, in PWM
   /// half periods (D4). Entry 0 is written directly into the CCR preload and
@@ -150,7 +153,7 @@ struct CurrentControlState {
   /// Hard phase-current limit [A]. The hardware checks every sample against
   /// it and trips the power stage; the control cycle checks all samples of the
   /// cycle again. Infinity disables the check.
-  float overcurrent_limit{std::numeric_limits<float>::infinity()};
+  unit::Current overcurrent_limit{std::numeric_limits<float>::infinity()};
 
   /// Set by the control cycle when the limit was exceeded; the control loop
   /// stays frozen at neutral duties until ClearOvercurrentTrip().
@@ -294,7 +297,7 @@ class CurrentControlIsr {
    * @param db  Phase-B duty cycle [0, 1].
    * @param dc  Phase-C duty cycle [0, 1].
    */
-  void ForceDuty(float da, float db, float dc) noexcept;
+  void ForceDuty(unit::Ratio da, unit::Ratio db, unit::Ratio dc) noexcept;
 
   /**
    * @brief Release force-duty mode and return to normal closed-loop PI control.

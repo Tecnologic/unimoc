@@ -77,7 +77,7 @@ trace::TraceNode* g_trace = nullptr;
 
 /// Period of the control cycle, which samples the traces [us].
 [[nodiscard]] float TraceTickPeriodUs() noexcept {
-  return current_control::CurrentControlIsr::Instance().state.dt_slow * 1.0e6F;
+  return current_control::CurrentControlIsr::Instance().state.dt_slow.Value() * 1.0e6F;
 }
 
 void SettingsApplied(const settings::NvmSettings& settings) noexcept {

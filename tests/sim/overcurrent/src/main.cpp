@@ -30,6 +30,7 @@ using unimoc::current_control::CurrentControlIsr;
 using unimoc::current_control::SlowUpdate;
 using unimoc::hardware::kPowerStage;
 using unimoc::hardware::PowerStageState;
+using namespace unimoc::unit;
 namespace sim = unimoc::hardware::sim;
 
 constexpr float kLimitA = 50.0F;
@@ -113,7 +114,7 @@ ZTEST_F(sim_overcurrent, test_sample_check_trips_at_once_and_freezes_loop) {
 ZTEST_F(sim_overcurrent, test_forced_duties_replace_the_loop_until_released) {
   CurrentControlIsr& isr = CurrentControlIsr::Instance();
   const float kDutyMax = isr.svm.duty_max.Value();
-  isr.ForceDuty(0.25F, 0.5F, 2.0F);  // phase C clamped to the SVM limit
+  isr.ForceDuty(0.25_ratio, 0.5_ratio, 2.0_ratio);  // phase C clamped to the SVM limit
   RunCycles(1);
   for (const auto& duties : isr.state.duty_plan.duties) {
     zassert_within(duties.a.Value(), 0.25F, 1e-6F);

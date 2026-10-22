@@ -75,11 +75,11 @@ class HwStartup {
   /// Duty fraction applied in forced-duty steps (offset from 0.5).
   ///   LOW  → 0.5 − duty_step_fraction
   ///   HIGH → 0.5 + duty_step_fraction
-  float duty_step_fraction{0.45F};  ///< gives 5 % / 95 % by default
+  unit::Ratio duty_step_fraction{0.45F};  ///< gives 5 % / 95 % by default
 
   /// Voltage injection fraction for CURRENT_SENSE_CALIBRATION
   /// (fraction of ARR; tiny to avoid destroying low-Rs windings).
-  float v_cal_fraction{0.002F};
+  unit::Ratio v_cal_fraction{0.002F};
 
   /// Number of ADC samples to average for offset/noise/gain calibrations.
   static constexpr uint32_t kNCal = 1024U;
@@ -167,7 +167,7 @@ class HwStartup {
 
   void RunAdcOffsetCal() noexcept;
   void RunAdcNoiseFloor() noexcept;
-  void RunDutyForce(float duty) noexcept;
+  void RunDutyForce(unit::Ratio duty) noexcept;
   void RunDcLinkVoltageCheck() noexcept;
   void RunGateDriverEnableCheck() noexcept;
   void RunConnectMotorWait() noexcept;
