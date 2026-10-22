@@ -81,7 +81,7 @@ struct Mtpa {
     const T kID = kXi - std::copysign(std::sqrt(kXi * kXi + kIS2 * kIS2), static_cast<T>(1));
 
     // Limit to current magnitude (i_d must not exceed i_s in absolute value)
-    return unit::Current{kID}.Clamp(-i_s.Value(), static_cast<T>(0));
+    return unit::Current{kID}.Clamp(-i_s, unit::Current{});
   }
 };
 

@@ -92,7 +92,9 @@ class InverterModel {
    * @param duty Requested duty.
    * @return The duty clamped to [0, 1].
    */
-  static constexpr unit::Ratio Clamp(unit::Ratio duty) noexcept { return duty.Clamp(0.0F, 1.0F); }
+  static constexpr unit::Ratio Clamp(unit::Ratio duty) noexcept {
+    return duty.Clamp(unit::Ratio{0.0F}, unit::Ratio{1.0F});
+  }
 
   /// Held phase duties.
   system::ThreePhase<unit::Ratio> duties_{unit::Ratio{0.5F}, unit::Ratio{0.5F}, unit::Ratio{0.5F}};

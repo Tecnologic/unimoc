@@ -89,7 +89,7 @@ struct FieldWeakening {
     i_d_fw = unit::Current{i_d_fw.Value() + ki.Value() * kError * dt.Value()};
 
     // Clamp: i_d_fw must remain in [i_d_min, 0]
-    i_d_fw = unit::Current{i_d_fw.Value()}.Clamp(i_d_min.Value(), 0.0F);
+    i_d_fw = i_d_fw.Clamp(i_d_min, unit::Current{});
 
     return i_d_fw;
   }

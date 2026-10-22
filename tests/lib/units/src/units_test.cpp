@@ -17,6 +17,7 @@
 #include "units.hpp"
 #include <zephyr/ztest.h>
 #include <concepts>
+#include <limits>
 #include "unimoc_test.hpp"
 
 using namespace unimoc::unit;
@@ -62,6 +63,36 @@ ZTEST(units, test_torque_and_inertia_give_angular_acceleration) {
 ZTEST(units, test_viscous_damping_times_speed_is_torque) {
   UNIMOC_EXPECT_FLOAT_EQ((1.0e-3_Nm_s_per_rad * 50.0_rad_per_s).Value(), 0.05F);
   UNIMOC_EXPECT_FLOAT_EQ((50.0_rad_per_s * 2_Nm_s_per_rad).Value(), 100.0F);
+}
+
+// Typed math: the result keeps the unit, so no Value() escape is needed.
+static_assert(std::same_as<decltype(Abs(Current{})), Current>);
+static_assert(std::same_as<decltype(Min(Voltage{}, Voltage{})), Voltage>);
+static_assert(std::same_as<decltype(Hypot(Current{}, Current{})), Current>);
+static_assert(Abs(Current{-2.0F}) == Current{2.0F});
+static_assert(Max(Voltage{-1.0F}, Voltage{3.0F}) == Voltage{3.0F});
+static_assert(Min(Voltage{-1.0F}, Voltage{3.0F}) == Voltage{-1.0F});
+// Clamp takes bounds of the same unit only.
+template <typename U>
+concept ClampsWithScalars = requires(U value) { value.Clamp(0.0F, 1.0F); };
+static_assert(!ClampsWithScalars<Current>);
+
+ZTEST(units, test_abs_min_max_keep_the_unit) {
+  UNIMOC_EXPECT_FLOAT_EQ(Abs(Current{-3.5F}).Value(), 3.5F);
+  UNIMOC_EXPECT_FLOAT_EQ(Abs(Current{3.5F}).Value(), 3.5F);
+  UNIMOC_EXPECT_FLOAT_EQ(Min(Current{1.0F}, Current{-2.0F}).Value(), -2.0F);
+  UNIMOC_EXPECT_FLOAT_EQ(Max(Current{1.0F}, Current{-2.0F}).Value(), 1.0F);
+}
+
+ZTEST(units, test_is_finite_rejects_nan_and_infinity) {
+  zexpect_true(IsFinite(Voltage{48.0F}));
+  zexpect_false(IsFinite(Voltage{std::numeric_limits<float>::quiet_NaN()}));
+  zexpect_false(IsFinite(Voltage{std::numeric_limits<float>::infinity()}));
+}
+
+ZTEST(units, test_hypot_is_the_vector_magnitude) {
+  UNIMOC_EXPECT_FLOAT_EQ(Hypot(Current{3.0F}, Current{-4.0F}).Value(), 5.0F);
+  UNIMOC_EXPECT_FLOAT_EQ(Hypot(Current{}, Current{}).Value(), 0.0F);
 }
 
 ZTEST_SUITE(units, nullptr, nullptr, nullptr, nullptr, nullptr);

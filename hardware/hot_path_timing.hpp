@@ -117,7 +117,8 @@ inline constexpr std::size_t kSectionCount = 3U;
   return probes[static_cast<std::size_t>(section)];
 }
 
-/// Duty plans the hardware did not apply in time since start (BCC: the DMA burst ran ahead); 0 without such a check.
+/// Duty plans the hardware did not apply in time since start (BCC: the DMA
+/// burst ran ahead); 0 on a platform without such a check.
 [[nodiscard]] uint32_t DutyOverruns() noexcept;
 
 }  // namespace unimoc::hardware::timing

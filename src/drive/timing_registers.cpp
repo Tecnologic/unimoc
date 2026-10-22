@@ -76,9 +76,9 @@ cyphal::RegisterFlags TimingRegisters::Read(const std::size_t index,
       SetStats(value, hardware::timing::Section::kObserver);
       break;
     case TimingRegister::kOverruns: {
-      const std::array<uint32_t, 2> kNumbers{
-          hardware::timing::DutyOverruns(),
-          current_control::CurrentControlIsr::Instance().state.observer_overruns};
+      const std::array<uint32_t, 2> kNumbers{hardware::timing::DutyOverruns(),
+                                             current_control::CurrentControlIsr::Instance()
+                                                 .state.observer_overruns};
       SetNatural32Array(value, kNumbers);
       break;
     }

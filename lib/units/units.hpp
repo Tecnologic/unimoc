@@ -16,6 +16,7 @@
 #pragma once
 
 #include <algorithm>
+#include <cmath>
 #include <numbers>  // For std::numbers::pi_v, C++20
 #include <ratio>
 #include <type_traits>  // For std::is_same_v, std::common_type_t
@@ -152,16 +153,6 @@ class Unit {
     // OtherPeriod::num)
     return Unit<Rep, OtherPeriod, Tag>(val_ * static_cast<Rep>(period::num) / period::den * OtherPeriod::den /
                                        OtherPeriod::num);
-  }
-
-  /**
-   * @brief Clamps the unit's value between a minimum and maximum value.
-   * @param min_val The minimum allowable value.
-   * @param max_val The maximum allowable value.
-   * @return A new Unit object with the clamped value.
-   */
-  [[nodiscard]] constexpr Unit Clamp(const Rep& min_val, const Rep& max_val) const {
-    return Unit(std::min(std::max(val_, min_val), max_val));
   }
 
   /**
@@ -980,6 +971,62 @@ constexpr bool operator>(const Unit<Rep, Period, Tag>& lhs, const Unit<Rep, Peri
 template <typename Rep, typename Period, typename Tag>
 constexpr bool operator>=(const Unit<Rep, Period, Tag>& lhs, const Unit<Rep, Period, Tag>& rhs) {
   return lhs.Value() >= rhs.Value();
+}
+
+// =========================================================================
+// Math on units: no escape through Value() for the common operations
+// =========================================================================
+
+/**
+ * @brief Absolute value of a unit.
+ * @return The magnitude with the same tag and period.
+ */
+template <typename Rep, typename Period, typename Tag>
+[[nodiscard]] constexpr Unit<Rep, Period, Tag> Abs(const Unit<Rep, Period, Tag>& value) noexcept {
+  return (value.Value() < Rep{0}) ? -value : value;
+}
+
+/**
+ * @brief Smaller of two values of the same unit.
+ * @return `lhs` when the values are equal.
+ */
+template <typename Rep, typename Period, typename Tag>
+[[nodiscard]] constexpr Unit<Rep, Period, Tag> Min(const Unit<Rep, Period, Tag>& lhs,
+                                                   const Unit<Rep, Period, Tag>& rhs) noexcept {
+  return (rhs < lhs) ? rhs : lhs;
+}
+
+/**
+ * @brief Larger of two values of the same unit.
+ * @return `lhs` when the values are equal.
+ */
+template <typename Rep, typename Period, typename Tag>
+[[nodiscard]] constexpr Unit<Rep, Period, Tag> Max(const Unit<Rep, Period, Tag>& lhs,
+                                                   const Unit<Rep, Period, Tag>& rhs) noexcept {
+  return (lhs < rhs) ? rhs : lhs;
+}
+
+/**
+ * @brief True when the value is neither infinite nor NaN.
+ */
+template <typename Rep, typename Period, typename Tag>
+[[nodiscard]] constexpr bool IsFinite(const Unit<Rep, Period, Tag>& value) noexcept {
+  return std::isfinite(value.Value());
+}
+
+/**
+ * @brief Magnitude of the vector (first, second) of two values of one unit.
+ *
+ * sqrt(first^2 + second^2) in the unit of the components, e.g. the length of a current
+ * vector. A plain square root (`vsqrt.f32` on the Cortex-M4 with
+ * -fno-math-errno), so usable in the hot path; no overflow protection beyond
+ * float range.
+ */
+template <typename Rep, typename Period, typename Tag>
+[[nodiscard]] Unit<Rep, Period, Tag> Hypot(const Unit<Rep, Period, Tag>& first,
+                                           const Unit<Rep, Period, Tag>& second) noexcept {
+  return Unit<Rep, Period, Tag>(
+      std::sqrt((first.Value() * first.Value()) + (second.Value() * second.Value())));
 }
 
 /**
