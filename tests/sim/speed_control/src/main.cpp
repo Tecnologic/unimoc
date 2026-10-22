@@ -17,6 +17,7 @@
 #include <zephyr/ztest.h>
 #include <cmath>
 #include <numbers>
+#include "angle_wrap.hpp"
 #include "current_control_isr.hpp"
 #include "current_control_runtime.hpp"
 #include "hardware_interface.hpp"
@@ -77,6 +78,22 @@ unimoc::settings::NvmSettings MotorSettings(const unimoc::settings::NvmSettings&
 float MechanicalSpeed() { return sim::Plant().Output().mechanical_speed.Value(); }
 float MechanicalAngle() { return sim::Plant().Output().mechanical_angle.AbsoluteAngle().Value(); }
 
+/// Half a Hall sector in mechanical angle: the uncertainty of the angle at standstill.
+constexpr float kHalfSector = kPi / 6.0F / static_cast<float>(kPolePairs);
+
+/// True shaft angle of the drive's home (position zero). The drive counts the
+/// position from the estimate at its start, which the Hall sector places only
+/// within half a sector of the shaft; the edges correct the angle estimate
+/// later, but not the home. Valid at standstill.
+float TrueHome() {
+  const auto& plant = sim::Plant().Output();
+  const float kEstimateError = unimoc::observer::WrapAngle(plant.electrical_angle.AngleInRevolution() -
+                                                           CurrentControlIsr::Instance().mech_obs.theta)
+                                   .Value();
+  return MechanicalAngle() - OuterLoop::Instance().Status().position.Value() -
+         (kEstimateError / static_cast<float>(kPolePairs));
+}
+
 void RunMs(const unsigned milliseconds) { sim::AdvanceCycles(milliseconds * kCyclesPerMs); }
 
 OuterSetpoint Speed(const float speed) {
@@ -129,8 +146,7 @@ void Start(const unimoc::settings::NvmSettings& settings) {
   sim::Plant().SetShaftMode(unimoc::sim::ShaftMode::kFree);
   sim::Plant().SetInput(unimoc::sim::SimulationInput{});
   sim::Reset();
-  zassert_true(
-      unimoc::current_control::StartRuntime(settings, unimoc::hardware::kMotors[0], Current{60.0F}));
+  zassert_true(unimoc::current_control::StartRuntime(settings, unimoc::hardware::kMotors[0], Current{60.0F}));
   sim::SetFreeRunning(false);
   kPowerStage.ClearFault();
   zassert_true(kPowerStage.Enable());
@@ -208,11 +224,17 @@ ZTEST_F(sim_speed_control, test_position_step_settles_in_position) {
   const float kStart = MechanicalAngle();
   OuterLoop::Instance().SetSetpoint(Position(2.0F));
   RunMs(1000U);
-  zexpect_within(MechanicalAngle() - kStart,
+  const float kHome = TrueHome();
+  zexpect_within(kHome,
+                 kStart,
+                 kHalfSector + 0.005F,
+                 "home %f rad from the start",
+                 static_cast<double>(kHome - kStart));
+  zexpect_within(MechanicalAngle() - kHome,
                  2.0F,
                  0.03F,
                  "moved %f rad",
-                 static_cast<double>(MechanicalAngle() - kStart));
+                 static_cast<double>(MechanicalAngle() - kHome));
   const auto kStatus = OuterLoop::Instance().Status();
   zexpect_equal(kStatus.mode, ControlMode::kPosition);
   zexpect_within(kStatus.position.Value(), 2.0F, 0.03F);
@@ -220,11 +242,11 @@ ZTEST_F(sim_speed_control, test_position_step_settles_in_position) {
 
   OuterLoop::Instance().SetSetpoint(Position(-1.0F));
   RunMs(1000U);
-  zexpect_within(MechanicalAngle() - kStart,
+  zexpect_within(MechanicalAngle() - kHome,
                  -1.0F,
                  0.03F,
                  "moved %f rad, estimate %f rad",
-                 static_cast<double>(MechanicalAngle() - kStart),
+                 static_cast<double>(MechanicalAngle() - kHome),
                  static_cast<double>(OuterLoop::Instance().Status().position.Value()));
 }
 
@@ -235,7 +257,8 @@ ZTEST_F(sim_speed_control, test_position_speed_stays_below_the_limit) {
   for (unsigned ms = 0U; ms < 300U; ++ms) {
     RunMs(1U);
     fastest = std::max(fastest, std::abs(MechanicalSpeed()));
-    fastest_demand = std::max(fastest_demand, std::abs(OuterLoop::Instance().Status().speed_reference.Value()));
+    fastest_demand =
+        std::max(fastest_demand, std::abs(OuterLoop::Instance().Status().speed_reference.Value()));
   }
   // The position loop demands at most the 40 rad/s limit; the shaft follows
   // with the overshoot of the speed loop.

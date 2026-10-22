@@ -91,7 +91,7 @@ class HallDecoder {
    *         or a disturbed signal).
    */
   [[nodiscard]] constexpr std::optional<unit::Angle> EdgeAngle(const uint8_t previous,
-                                                              const uint8_t code) const noexcept {
+                                                               const uint8_t code) const noexcept {
     const std::optional<uint8_t> kFrom = Sector(previous);
     const std::optional<uint8_t> kTo = Sector(code);
     if (!kFrom || !kTo) {

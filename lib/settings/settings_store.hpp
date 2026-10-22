@@ -83,9 +83,9 @@ namespace settings_store_internal {
          std::isfinite(settings.excitation_obs_tau.Value()) &&
          std::isfinite(settings.excitation_obs_l_m.Value()) && std::isfinite(settings.speed_kp.Value()) &&
          std::isfinite(settings.speed_ki.Value()) && std::isfinite(settings.speed_accel_limit.Value()) &&
-         std::isfinite(settings.pos_kp_pos.Value()) &&
-         std::isfinite(settings.pos_kp_speed.Value()) && std::isfinite(settings.pos_ki_speed.Value()) &&
-         std::isfinite(settings.pos_speed_limit.Value()) && std::isfinite(settings.pos_accel_limit.Value()) &&
+         std::isfinite(settings.pos_kp_pos.Value()) && std::isfinite(settings.pos_kp_speed.Value()) &&
+         std::isfinite(settings.pos_ki_speed.Value()) && std::isfinite(settings.pos_speed_limit.Value()) &&
+         std::isfinite(settings.pos_accel_limit.Value()) &&
          std::isfinite(settings.pos_position_tolerance.Value()) &&
          std::isfinite(settings.pos_speed_tolerance.Value()) &&
          std::isfinite(settings.pos_homing_speed.Value()) && std::isfinite(settings.adc_offset_a.Value()) &&
@@ -163,8 +163,8 @@ inline constexpr unit::Time kMaxCommandTimeout{10.0F};
 
   // Noise variances are positive; gains, weights and limits are not negative.
   if (settings.mech_obs_r <= 0.0F || settings.pmsm_flux_obs_r_speed < 0.0F || settings.hall_r_edge <= 0.0F ||
-      settings.hall_r_sector <= 0.0F || settings.speed_kp.Value() < 0.0F || settings.speed_ki.Value() < 0.0F ||
-      settings.speed_accel_limit.Value() < 0.0F) {
+      settings.hall_r_sector <= 0.0F || settings.speed_kp.Value() < 0.0F ||
+      settings.speed_ki.Value() < 0.0F || settings.speed_accel_limit.Value() < 0.0F) {
     return SettingsStatus::kOutOfRange;
   }
 
@@ -187,9 +187,9 @@ inline constexpr unit::Time kMaxCommandTimeout{10.0F};
   if (!kIsSubjectId(settings.sub_readiness_id) || !kIsSubjectId(settings.sub_current_setpoint_id) ||
       !kIsSubjectId(settings.sub_torque_setpoint_id) || !kIsSubjectId(settings.sub_speed_setpoint_id) ||
       !kIsSubjectId(settings.sub_position_setpoint_id) || !kIsSubjectId(settings.sub_servo_setpoint_id) ||
-      !kIsSubjectId(settings.pub_telemetry_id) ||
-      settings.telemetry_rate.Value() < 0.0F || settings.telemetry_rate > kMaxTelemetryRate ||
-      settings.command_timeout.Value() <= 0.0F || settings.command_timeout > kMaxCommandTimeout) {
+      !kIsSubjectId(settings.pub_telemetry_id) || settings.telemetry_rate.Value() < 0.0F ||
+      settings.telemetry_rate > kMaxTelemetryRate || settings.command_timeout.Value() <= 0.0F ||
+      settings.command_timeout > kMaxCommandTimeout) {
     return SettingsStatus::kOutOfRange;
   }
 

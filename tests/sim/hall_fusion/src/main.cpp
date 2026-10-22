@@ -70,8 +70,8 @@ unimoc::settings::NvmSettings MotorSettings(const unimoc::settings::NvmSettings&
 float AngleError() {
   const auto& plant = sim::Plant().Output();
   const auto& isr = CurrentControlIsr::Instance();
-  const Angle kTrue = plant.electrical_angle.AngleInRevolution() -
-                      plant.electrical_speed * Time{3.0F * isr.state.dt_fast};
+  const Angle kTrue =
+      plant.electrical_angle.AngleInRevolution() - plant.electrical_speed * Time{3.0F * isr.state.dt_fast};
   return WrapAngle(isr.mech_obs.theta - kTrue).Value();
 }
 
@@ -80,11 +80,10 @@ void RunMs(const unsigned milliseconds) { sim::AdvanceCycles(milliseconds * kCyc
 /// Places the shaft at an electrical angle and restarts the controller (estimate at zero).
 void StartAt(const unimoc::settings::NvmSettings& settings, const float electrical_angle) {
   sim::Reset();
-  sim::Plant().SetMechanicalState(
-      unimoc::system::RotorAngle::FromAngle(Angle{electrical_angle / static_cast<float>(kPolePairs)}),
-      AngularVelocity{});
-  zassert_true(
-      unimoc::current_control::StartRuntime(settings, unimoc::hardware::kMotors[0], Current{60.0F}));
+  sim::Plant().SetMechanicalState(unimoc::system::RotorAngle::FromAngle(
+                                      Angle{electrical_angle / static_cast<float>(kPolePairs)}),
+                                  AngularVelocity{});
+  zassert_true(unimoc::current_control::StartRuntime(settings, unimoc::hardware::kMotors[0], Current{60.0F}));
   sim::SetFreeRunning(false);
 }
 
@@ -156,7 +155,11 @@ ZTEST_F(sim_hall_fusion, test_constant_speed_is_tracked_from_the_edges) {
                  0.03F * kElectricalSpeed,
                  "omega %f",
                  static_cast<double>(CurrentControlIsr::Instance().mech_obs.omega.Value()));
-  zexpect_within(AngleError(), 0.0F, 5.0F * kDegree, "error %f deg", static_cast<double>(AngleError() / kDegree));
+  zexpect_within(AngleError(),
+                 0.0F,
+                 5.0F * kDegree,
+                 "error %f deg",
+                 static_cast<double>(AngleError() / kDegree));
   zexpect_true(SlowUpdate::Instance().hall.Edges() > 50U);
   zexpect_equal(SlowUpdate::Instance().hall.InvalidTransitions(), 0U);
 }
@@ -178,7 +181,9 @@ ZTEST_F(sim_hall_fusion, test_speed_ramp_is_tracked) {
       float& error = (ms < 400U) ? slow_error : fast_error;
       error = std::max(error, std::abs(AngleError()));
     }
-    zexpect_true(slow_error < 45.0F * kDegree, "low-speed error %f deg", static_cast<double>(slow_error / kDegree));
+    zexpect_true(slow_error < 45.0F * kDegree,
+                 "low-speed error %f deg",
+                 static_cast<double>(slow_error / kDegree));
     zexpect_true(fast_error < 10.0F * kDegree, "error %f deg", static_cast<double>(fast_error / kDegree));
     sim::Plant().SetShaftMode(unimoc::sim::ShaftMode::kImposedSpeed, AngularVelocity{});
     RunMs(200U);
@@ -198,7 +203,11 @@ ZTEST_F(sim_hall_fusion, test_hall_failure_falls_back_to_the_flux_observer) {
   sim::SetHallCodeOverride(0U);  // all three sensors low: unpowered or disconnected
   RunMs(500U);
   zexpect_true(SlowUpdate::Instance().hall.InvalidCodes() >= 1U);
-  zexpect_within(AngleError(), 0.0F, 10.0F * kDegree, "error %f deg", static_cast<double>(AngleError() / kDegree));
+  zexpect_within(AngleError(),
+                 0.0F,
+                 10.0F * kDegree,
+                 "error %f deg",
+                 static_cast<double>(AngleError() / kDegree));
   zexpect_within(CurrentControlIsr::Instance().mech_obs.omega.Value(),
                  kMechanicalSpeed * static_cast<float>(kPolePairs),
                  0.05F * kMechanicalSpeed * static_cast<float>(kPolePairs));

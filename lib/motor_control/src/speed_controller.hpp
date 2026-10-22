@@ -39,25 +39,25 @@ namespace unimoc::control {
  */
 struct SpeedController {
   /// Proportional gain [N m per rad/s of mechanical speed].
-  unit::TorquePerAngularVelocity kp{};
+  unit::TorquePerAngularVelocity kp;
 
   /// Integral gain 1/T_i [1/s]; 0 makes the controller proportional only.
-  unit::InverseTime ki{};
+  unit::InverseTime ki;
 
   /// Largest rate of change of the reference [rad/s²]; 0 or less: no ramp.
-  unit::AngularAcceleration accel_limit{};
+  unit::AngularAcceleration accel_limit;
 
   /// Output limit, symmetric [N m].
-  unit::Torque torque_limit{};
+  unit::Torque torque_limit;
 
   /// Ramped speed reference [rad/s].
-  unit::AngularVelocity reference{};
+  unit::AngularVelocity reference;
 
   /// Integral part of the output [N m].
-  unit::Torque integral{};
+  unit::Torque integral;
 
   /// Output of the last Update() [N m].
-  unit::Torque output{};
+  unit::Torque output;
 
   /**
    * @brief Loads the gains and the ramp from the settings and resets the state.

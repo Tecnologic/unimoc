@@ -221,9 +221,9 @@ struct MechanicalObserver {
     const T kPolePairs = static_cast<T>(pole_pairs);
 
     // Shaft torque: T_e = (3/2) · p · [ψ_PM · i_q + (L_d − L_q) · i_d · i_q]
-    m_el = unit::Torque{static_cast<T>(1.5) * kPolePairs *
-                        (psi.Value() * i_dq.q.Value() +
-                         (L_d.Value() - L_q.Value()) * i_dq.d.Value() * i_dq.q.Value())};
+    m_el = unit::Torque{
+        static_cast<T>(1.5) * kPolePairs *
+        (psi.Value() * i_dq.q.Value() + (L_d.Value() - L_q.Value()) * i_dq.d.Value() * i_dq.q.Value())};
 
     // Integrate the electrical angular velocity
     omega += unit::AngularVelocity{kTsj * (kPolePairs * m_el.Value() - m_l.Value())};
@@ -275,20 +275,20 @@ struct MechanicalObserver {
    * @brief Kalman update with an angle measurement (H = [0, 1, 0]).
    *
    * @param innovation  ε = θ_measured − θ̂; wrapped to (−π, π] here.
-   * @param r           Measurement noise variance of this measurement [rad²]; positive.
+   * @param noise       Measurement noise variance of this measurement [rad²]; positive.
    */
-  constexpr void UpdateAngle(const unit::Angle innovation, const T r) noexcept {
-    Correct(1U, WrapAngle(innovation).Value(), r);
+  constexpr void UpdateAngle(const unit::Angle innovation, const T noise) noexcept {
+    Correct(1U, WrapAngle(innovation).Value(), noise);
   }
 
   /**
    * @brief Kalman update with a speed measurement (H = [1, 0, 0]).
    *
    * @param innovation  ε = ω_measured − ω̂ [rad/s, electrical].
-   * @param r           Measurement noise variance of this measurement [(rad/s)²]; positive.
+   * @param noise       Measurement noise variance of this measurement [(rad/s)²]; positive.
    */
-  constexpr void UpdateSpeed(const unit::AngularVelocity innovation, const T r) noexcept {
-    Correct(0U, innovation.Value(), r);
+  constexpr void UpdateSpeed(const unit::AngularVelocity innovation, const T noise) noexcept {
+    Correct(0U, innovation.Value(), noise);
   }
 
   /**
@@ -364,10 +364,10 @@ struct MechanicalObserver {
   /**
    * @brief Scalar Kalman update of the measured state @p state (0 = ω, 1 = θ).
    *
-   *   S = P[s][s] + r,   k = P[:, s] / S,   P = P − k · P[s, :],   x += k · ε
+   *   S = P[s][s] + noise,   k = P[:, s] / S,   P = P − k · P[s, :],   x += k · ε
    */
-  constexpr void Correct(const std::size_t state, const T innovation, const T r) noexcept {
-    const T kVariance = p[state][state] + r;
+  constexpr void Correct(const std::size_t state, const T innovation, const T noise) noexcept {
+    const T kVariance = p[state][state] + noise;
     if (!(kVariance > static_cast<T>(0)) || !std::isfinite(innovation)) {
       return;  // no usable measurement
     }

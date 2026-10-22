@@ -342,15 +342,20 @@ void DriveNode::OnPositionSetpoint(const cyphal::Transfer& transfer, const uint6
 void DriveNode::OnServoSetpoint(const cyphal::Transfer& transfer, const uint64_t now_us) noexcept {
   reg_udral_physics_dynamics_rotation_Planar_0_1 servo{};
   std::size_t size = transfer.payload.size();
-  if (reg_udral_physics_dynamics_rotation_Planar_0_1_deserialize_(&servo, InputBytes(transfer.payload), &size) <
-      0) {
+  if (reg_udral_physics_dynamics_rotation_Planar_0_1_deserialize_(&servo,
+                                                                  InputBytes(transfer.payload),
+                                                                  &size) < 0) {
     return;
   }
   const float kPosition = servo.kinematics.angular_position.radian;
   const float kSpeed = servo.kinematics.angular_velocity.radian_per_second;
   const float kTorque = servo._torque.newton_meter;
-  const std::optional<cyphal::ControlMode> kMode = cyphal::SelectControlModeFromUdralServoRotation(
-      kPosition, kSpeed, servo.kinematics.angular_acceleration.radian_per_second_per_second, kTorque);
+  const std::optional<cyphal::ControlMode> kMode =
+      cyphal::SelectControlModeFromUdralServoRotation(kPosition,
+                                                      kSpeed,
+                                                      servo.kinematics.angular_acceleration
+                                                          .radian_per_second_per_second,
+                                                      kTorque);
   if (!kMode.has_value()) {
     return;  // nothing the drive can control: the setpoint is ignored
   }

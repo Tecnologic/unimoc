@@ -31,7 +31,9 @@
 #include <cstring>
 #include <limits>
 #include <new>
+#include <numbers>
 #include <string_view>
+#include "angle_wrap.hpp"
 #include "can_test_bus.hpp"
 #include "current_control_isr.hpp"
 #include "current_control_runtime.hpp"
@@ -361,7 +363,9 @@ uavcan_register_Value_1_0 Natural8(const uint8_t value) {
   return result;
 }
 
-int64_t Integer(const uavcan_register_Value_1_0& value) { return unimoc::cyphal::GetInteger(value).value_or(-1); }
+int64_t Integer(const uavcan_register_Value_1_0& value) {
+  return unimoc::cyphal::GetInteger(value).value_or(-1);
+}
 
 /// A motor with a permanent magnet, Hall sensors and a speed loop, written over
 /// the bus; the plant takes the same motor on a free shaft.
@@ -379,6 +383,22 @@ void ConfigureSpeedControl(Rig& rig) {
 
 float PlantSpeed() { return sim::Plant().Output().mechanical_speed.Value(); }
 float PlantAngle() { return sim::Plant().Output().mechanical_angle.AbsoluteAngle().Value(); }
+
+/// Pole pairs of ConfigureSpeedControl().
+constexpr float kSpeedControlPolePairs = 7.0F;
+
+/// True shaft angle of the drive's home (position zero). The drive counts the
+/// position from the estimate at its start, which the Hall sector places only
+/// within half a sector (30 degrees electrical) of the shaft; the edges
+/// correct the angle estimate later, but not the home. Valid at standstill.
+float TrueHome() {
+  const float kEstimateError =
+      unimoc::observer::WrapAngle(sim::Plant().Output().electrical_angle.AngleInRevolution() -
+                                  CurrentControlIsr::Instance().mech_obs.theta)
+          .Value();
+  return PlantAngle() - OuterLoop::Instance().Status().position.Value() -
+         (kEstimateError / kSpeedControlPolePairs);
+}
 
 }  // namespace
 
@@ -597,7 +617,18 @@ ZTEST(sim_cyphal_drive, test_position_setpoint_moves_the_shaft) {
   ConfigureSpeedControl(rig);
   const float kStart = PlantAngle();
   rig.HoldWith([&] { rig.Position(3.0F); }, 1500U);
-  zexpect_within(PlantAngle() - kStart, 3.0F, 0.05F, "moved %f rad", static_cast<double>(PlantAngle() - kStart));
+  const float kHome = TrueHome();
+  constexpr float kHalfSector = std::numbers::pi_v<float> / 6.0F / kSpeedControlPolePairs;
+  zexpect_within(kHome,
+                 kStart,
+                 kHalfSector + 0.005F,
+                 "home %f rad from the start",
+                 static_cast<double>(kHome - kStart));
+  zexpect_within(PlantAngle() - kHome,
+                 3.0F,
+                 0.05F,
+                 "moved %f rad",
+                 static_cast<double>(PlantAngle() - kHome));
   const auto kStatus = OuterLoop::Instance().Status();
   zexpect_true(kStatus.in_position,
                "estimate %f rad, %f rad/s",
@@ -657,8 +688,8 @@ ZTEST(sim_cyphal_drive, test_startup_registers_run_step_and_abort) {
   zexpect_equal(Integer(rig.Access(reg::kStartupStep, Natural8(1U))), 1);
   rig.Run(2U);
   zexpect_equal(Integer(rig.Access(reg::kStartupStep, Empty())), 2);  // ADC_OFFSET_CAL
-  for (unsigned i = 0U; i < 5U; ++i) {  // ADC_OFFSET_CAL .. DUTY_FORCE_HIGH
-    rig.Run(1100U);                      // 1024 or 1000 samples per step
+  for (unsigned i = 0U; i < 5U; ++i) {                                // ADC_OFFSET_CAL .. DUTY_FORCE_HIGH
+    rig.Run(1100U);                                                   // 1024 or 1000 samples per step
     (void)rig.Access(reg::kStartupStep, Natural8(1U));
   }
   rig.Run(2U);

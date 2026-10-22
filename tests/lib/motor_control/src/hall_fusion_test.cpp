@@ -33,7 +33,7 @@ namespace {
 
 constexpr float kPi = std::numbers::pi_v<float>;
 constexpr float kDegree = kPi / 180.0F;
-constexpr float kSecondsPerTick = 1e-9F;  // nanosecond timestamps, as on native_sim
+constexpr float kSecondsPerTick = 1e-9F;   // nanosecond timestamps, as on native_sim
 constexpr uint32_t kCycleTicks = 62'500U;  // 16 kHz
 constexpr Time kDt{62.5e-6F};
 const system::Rotor<Current> kNoCurrent{Current{}, Current{}};

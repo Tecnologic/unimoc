@@ -37,7 +37,9 @@ void unimoc::hardware::ObserverHandler() noexcept {
   }
 }
 
-void unimoc::hardware::ControlThreadHandler() noexcept { unimoc::current_control::OuterLoop::Instance().Step(); }
+void unimoc::hardware::ControlThreadHandler() noexcept {
+  unimoc::current_control::OuterLoop::Instance().Step();
+}
 
 // Sets up the drive and returns. Afterwards the control runs in the platform
 // interrupts and everything else in Zephyr threads (the outer loop in the

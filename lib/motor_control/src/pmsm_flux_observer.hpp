@@ -180,11 +180,12 @@ struct PmsmFluxObserver {
    * @return The angle error ε = θ − θ̂ [rad], or nothing when the set flux
    *         is not positive (no permanent magnet configured).
    */
-  [[nodiscard]] constexpr std::optional<unit::Angle> Calculate(const system::Rotor<unit::Voltage>& u_dq,
-                                                               const system::Rotor<unit::Current>& i_dq,
-                                                               const system::Rotor<unit::MagneticFlux>& set_flux,
-                                                               const unit::Time dt,
-                                                               const MechanicalObserver<T>& mech_obs) noexcept {
+  [[nodiscard]] constexpr std::optional<unit::Angle> Calculate(
+      const system::Rotor<unit::Voltage>& u_dq,
+      const system::Rotor<unit::Current>& i_dq,
+      const system::Rotor<unit::MagneticFlux>& set_flux,
+      const unit::Time dt,
+      const MechanicalObserver<T>& mech_obs) noexcept {
     // Snapshot sin/cos from the mechanical observer
     const T kSn = mech_obs.sin_theta.Value();
     const T kCs = mech_obs.cos_theta.Value();

@@ -225,7 +225,9 @@ class HardwareInterface {
    * @param event Receives the code and its timestamp (kTimestampFrequency ticks).
    * @return False when no change is pending.
    */
-  [[nodiscard]] bool PopHallEvent(observer::HallEvent& event) const noexcept { return pop_hall_event_(event); }
+  [[nodiscard]] bool PopHallEvent(observer::HallEvent& event) const noexcept {
+    return pop_hall_event_(event);
+  }
 
  private:
   InitializeCallback initialize_;

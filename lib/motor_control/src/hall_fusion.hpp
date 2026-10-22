@@ -61,10 +61,18 @@ namespace unimoc::observer {
  *    the sector. A repeated zero-speed measurement would make the filter
  *    overconfident and slow to follow the next start.
  *
- * The first valid code (at the start or after a Hall failure) moves an
- * estimate that lies outside its sector to the sector center: the best
- * start for an unknown angle (±30°), from where the sector bound and the
- * edges take over.
+ * The first valid code after Reset() moves the estimate to the sector
+ * center: the best start for an unknown angle (±30°), from where the sector
+ * bound and the edges take over. An estimate at a sector boundary would
+ * otherwise stay there until the first edge, up to 60° off. After a Hall
+ * failure the estimate (now from the flux observer) is kept while it lies
+ * in the sector of the returning code and moved to the center otherwise.
+ *
+ * Inside the sector the sector measurement is no measurement at all: an
+ * update with zero innovation in every cycle would shrink the angle
+ * covariance far below the real ±30° uncertainty, and the next edge would
+ * then correct the speed and the load torque instead of the angle. The
+ * sector update therefore only acts while the estimate lies outside.
  *
  * Invalid codes (0, 7) give no measurement and are counted; a change between
  * sectors that are not adjacent (a missed edge) gives no edge and is counted.
@@ -90,6 +98,7 @@ class HallFusion {
   /// Forgets the code and clears the counters.
   constexpr void Reset() noexcept {
     valid_ = false;
+    started_ = false;
     code_ = 0U;
     last_change_ = 0U;
     edges_ = 0U;
@@ -142,13 +151,14 @@ class HallFusion {
       return;  // no valid code: no Hall information
     }
     const unit::Angle kSectorInnovation = decoder_.SectorInnovation(*kSector, mech_obs.theta);
-    if (!valid_ && kSectorInnovation != unit::Angle{}) {
+    if (!started_ || (!valid_ && kSectorInnovation != unit::Angle{})) {
       const unit::Angle kCenter = decoder_.SectorStart(*kSector) + HallDecoder::kSectorWidth * 0.5F;
       mech_obs.Reset(WrapAngle(kCenter), mech_obs.omega);
-    } else {
+    } else if (kSectorInnovation != unit::Angle{}) {
       mech_obs.UpdateAngle(kSectorInnovation, r_sector_);
     }
     valid_ = true;
+    started_ = true;
 
     // Keep the age of the last change in range of the wrapping timestamps.
     if (static_cast<int32_t>(reference - last_change_) > kMaxAgeTicks) {
@@ -191,11 +201,12 @@ class HallFusion {
   /// 2 rad/s electrical a sector takes longer.
   static constexpr float kStandstillTime = 0.5F;
 
-  HallDecoder decoder_{};
+  HallDecoder decoder_;
   T r_edge_{static_cast<T>(3e-3)};
   T r_sector_{static_cast<T>(3e-2)};
   bool enabled_{false};
-  bool valid_{false};  ///< The last cycle had a valid code.
+  bool valid_{false};    ///< The last cycle had a valid code.
+  bool started_{false};  ///< A valid code was fused since Reset().
   uint8_t code_{0U};
   uint32_t last_change_{0U};
   uint32_t edges_{0U};

@@ -169,7 +169,13 @@ control cycle would be too coarse: at 333 Hz electrical, 62.5 µs is about 7.5°
 - *Sector:* without an edge only "the angle lies in the 60° sector" is known. The innovation term
   is 0 as long as θ̂ lies in the sector, otherwise the distance to the nearest sector boundary. This
   prevents the sector center from pulling the observer and keeps it in the right sector at standstill
-  without drift.
+  without drift. Inside the sector the update is skipped, not fused with zero innovation: a
+  zero-innovation update in every cycle would shrink the angle covariance far below the real ±30°,
+  and the next edge would then correct speed and load torque instead of the angle (overshoot and
+  oscillation on a ramp). The first valid code after a restart sets θ̂ to the sector center (at most
+  30° off); after a Hall failure the estimate is kept while it lies in the returning sector. The
+  position home is the estimate at the start, so with Hall only it lies within half a sector of the
+  shaft.
 
 **Fusion with the flux observer.** The flux observer always runs. At low speed it provides no signal
 (back-EMF about 0), so its R is scaled with speed (R_flux = R0 + k/ω²); it is not switched off. Hall

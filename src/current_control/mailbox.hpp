@@ -43,7 +43,7 @@ class Mailbox {
  public:
   /// Publishes a value (writer).
   void Write(const T& value) noexcept {
-    const uint8_t kNext = static_cast<uint8_t>(1U - active_.load(std::memory_order_relaxed));
+    const auto kNext = static_cast<uint8_t>(1U - active_.load(std::memory_order_relaxed));
     slots_[kNext] = value;
     active_.store(kNext, std::memory_order_release);
   }

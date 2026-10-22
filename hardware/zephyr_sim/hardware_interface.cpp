@@ -34,10 +34,10 @@
 
 #include "hardware_interface.hpp"
 #include <zephyr/kernel.h>
-#include <optional>
 #include <array>
 #include <cmath>
 #include <limits>
+#include <optional>
 #include "hot_path_interface.hpp"
 #include "motor_simulation.hpp"
 #include "power_stage_interface.hpp"
@@ -138,7 +138,7 @@ system::ThreePhase<Current> g_override_currents{};
 uint32_t g_cycle_count = 0U;
 
 observer::HallEventQueue<16U> g_hall_events;
-uint8_t g_last_hall_code = 0U;               // last queued code
+uint8_t g_last_hall_code = 0U;             // last queued code
 std::optional<uint8_t> g_hall_override{};  // fault injection: the code the sensors report
 uint64_t g_half_period_ns = 0U;
 

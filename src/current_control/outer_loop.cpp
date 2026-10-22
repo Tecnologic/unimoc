@@ -184,18 +184,18 @@ system::Rotor<Current> OuterLoop::TorqueToCurrent(const Torque torque) const noe
 }
 
 system::Rotor<Current> OuterLoop::LimitCurrent(const system::Rotor<Current> current) const noexcept {
-  const float kD = current.d.Value();
-  const float kQ = current.q.Value();
-  if (!std::isfinite(kD) || !std::isfinite(kQ)) {
+  const float kCurrentD = current.d.Value();
+  const float kCurrentQ = current.q.Value();
+  if (!std::isfinite(kCurrentD) || !std::isfinite(kCurrentQ)) {
     return {Current{}, Current{}};
   }
-  const float kMagnitude = std::sqrt((kD * kD) + (kQ * kQ));
+  const float kMagnitude = std::sqrt((kCurrentD * kCurrentD) + (kCurrentQ * kCurrentQ));
   const float kLimit = active_.current_limit.Value();
   if (kMagnitude <= kLimit || kMagnitude <= 0.0F) {
     return current;
   }
   const float kScale = kLimit / kMagnitude;
-  return {Current{kD * kScale}, Current{kQ * kScale}};
+  return {Current{kCurrentD * kScale}, Current{kCurrentQ * kScale}};
 }
 
 }  // namespace unimoc::current_control

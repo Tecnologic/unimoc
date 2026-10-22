@@ -46,9 +46,9 @@ struct OuterSetpoint {
   /// kTorque: d/q current reference [A].
   system::Rotor<unit::Current> current{unit::Current{}, unit::Current{}};
   /// kSpeed: mechanical speed setpoint [rad/s].
-  unit::AngularVelocity speed{};
+  unit::AngularVelocity speed;
   /// kPosition: mechanical position setpoint [rad].
-  unit::Angle position{};
+  unit::Angle position;
 };
 
 /// State of the outer loop after its last step, for telemetry and tests.
@@ -60,13 +60,13 @@ struct OuterStatus {
   /// Mode of the last step.
   cyphal::ControlMode mode{cyphal::ControlMode::kTorque};
   /// Estimated mechanical speed [rad/s].
-  unit::AngularVelocity speed{};
+  unit::AngularVelocity speed;
   /// Estimated mechanical position relative to home [rad].
-  unit::Angle position{};
+  unit::Angle position;
   /// Speed reference of the speed controller (ramped) [rad/s].
-  unit::AngularVelocity speed_reference{};
+  unit::AngularVelocity speed_reference;
   /// Torque reference of the speed controller [N m].
-  unit::Torque torque_reference{};
+  unit::Torque torque_reference;
   /// Current reference handed to the control cycle [A].
   system::Rotor<unit::Current> current_reference{unit::Current{}, unit::Current{}};
   /// Position mode: the shaft is within the position and speed tolerance.
@@ -141,26 +141,26 @@ class OuterLoop {
   struct Parameters {
     uint32_t generation{0U};  ///< Changes with every Init().
     uint8_t pole_pairs{1U};
-    unit::Time dt{};                ///< Period of one step.
-    unit::Current current_limit{};  ///< Magnitude limit of the current reference.
-    float torque_constant{0.0F};    ///< PMSM 3/2 p psi_pm [N m/A]; 0: no torque available.
-    unit::AngularVelocity speed_min{};  ///< Mechanical, from the electrical limits.
-    unit::AngularVelocity speed_max{};
-    unit::TorquePerAngularVelocity speed_kp{};
-    unit::InverseTime speed_ki{};
-    unit::AngularAcceleration speed_accel_limit{};
-    unit::AngularVelocityPerAngle position_kp{};
-    unit::AngularVelocity position_speed_limit{};
-    unit::AngularAcceleration position_accel_limit{};
-    unit::Angle position_tolerance{};
-    unit::AngularVelocity position_speed_tolerance{};
+    unit::Time dt;                    ///< Period of one step.
+    unit::Current current_limit;      ///< Magnitude limit of the current reference.
+    float torque_constant{0.0F};      ///< PMSM 3/2 p psi_pm [N m/A]; 0: no torque available.
+    unit::AngularVelocity speed_min;  ///< Mechanical, from the electrical limits.
+    unit::AngularVelocity speed_max;
+    unit::TorquePerAngularVelocity speed_kp;
+    unit::InverseTime speed_ki;
+    unit::AngularAcceleration speed_accel_limit;
+    unit::AngularVelocityPerAngle position_kp;
+    unit::AngularVelocity position_speed_limit;
+    unit::AngularAcceleration position_accel_limit;
+    unit::Angle position_tolerance;
+    unit::AngularVelocity position_speed_tolerance;
   };
 
   /// Angle and speed estimate handed from the observer.
   struct ObserverState {
     uint32_t cycles{0U};
-    unit::Angle electrical_angle{};
-    unit::AngularVelocity electrical_speed{};
+    unit::Angle electrical_angle;
+    unit::AngularVelocity electrical_speed;
   };
 
   OuterLoop() = default;
@@ -168,7 +168,8 @@ class OuterLoop {
   void LoadParameters(const Parameters& parameters) noexcept;
   void Restart(unit::AngularVelocity speed) noexcept;
   [[nodiscard]] system::Rotor<unit::Current> TorqueToCurrent(unit::Torque torque) const noexcept;
-  [[nodiscard]] system::Rotor<unit::Current> LimitCurrent(system::Rotor<unit::Current> current) const noexcept;
+  [[nodiscard]] system::Rotor<unit::Current> LimitCurrent(
+      system::Rotor<unit::Current> current) const noexcept;
 
   CurrentControlIsr* isr_{nullptr};
   Mailbox<OuterSetpoint> setpoint_{};
@@ -183,8 +184,8 @@ class OuterLoop {
   control::SpeedController speed_{};
   control::PositionController<float> position_{};
   observer::PositionTracker tracker_{};
-  system::RotorAngle electrical_position_{};
-  unit::Angle last_angle_{};
+  system::RotorAngle electrical_position_;
+  unit::Angle last_angle_;
   bool tracking_{false};
   cyphal::ControlMode mode_{cyphal::ControlMode::kTorque};
   bool was_active_{false};

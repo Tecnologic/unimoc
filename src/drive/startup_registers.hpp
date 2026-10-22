@@ -27,8 +27,8 @@ namespace unimoc::drive {
  *
  * | Register | Type | Access |
  * |---|---|---|
- * | `unimoc.startup.run` | natural8[1] | read: 1 while the FSM runs; write 1: start (refused while engaged), 0: abort |
- * | `unimoc.startup.step` | natural8[1] | read: the FsmState; write 1: advance to the next step |
+ * | `unimoc.startup.run` | natural8[1] | read: 1 while the FSM runs; write 1: start (refused while engaged),
+ * 0: abort | | `unimoc.startup.step` | natural8[1] | read: the FsmState; write 1: advance to the next step |
  * | `unimoc.startup.ext_current_A` | real32[1] | clamp-meter reading for CURRENT_SENSE_CALIBRATION |
  * | `unimoc.startup.ext_vdc_V` | real32[1] | multimeter reading for DC_LINK_VOLTAGE_CHECK |
  * | `unimoc.startup.results` | natural8[14] | read only: 1 per passed step, indexed by FsmState |
