@@ -542,6 +542,34 @@ struct NvmSettings {
   /// Register: `uavcan.pub.telemetry.id`
   uint16_t pub_telemetry_id{cyphal::kPubTelemetry};
 
+  /// Trace variable list service (cymon.GetVariableList.0.1).
+  /// Register: `uavcan.srv.cymon_variables.id`
+  uint16_t srv_cymon_variables_id{cyphal::kSrvCymonVariables};
+
+  /// Trace buffer info service (cymon.GetBufferInfo.0.1).
+  /// Register: `uavcan.srv.cymon_buffer_info.id`
+  uint16_t srv_cymon_buffer_info_id{cyphal::kSrvCymonBufferInfo};
+
+  /// Trace capture setup service (cymon.SetupCapture.0.1).
+  /// Register: `uavcan.srv.cymon_setup.id`
+  uint16_t srv_cymon_setup_id{cyphal::kSrvCymonSetup};
+
+  /// Trace trigger arm service (cymon.ArmTrigger.0.1).
+  /// Register: `uavcan.srv.cymon_arm.id`
+  uint16_t srv_cymon_arm_id{cyphal::kSrvCymonArm};
+
+  /// Trace read-out service (cymon.ReadSamples.0.1).
+  /// Register: `uavcan.srv.cymon_read.id`
+  uint16_t srv_cymon_read_id{cyphal::kSrvCymonRead};
+
+  /// Trigger event publication of the traces (cymon.TriggerEvent.0.1); disabled by default.
+  /// Register: `uavcan.pub.cymon_trigger.id`
+  uint16_t pub_cymon_trigger_id{cyphal::kUnsetPortId};
+
+  /// Trigger event subscription of the traces (cymon.TriggerEvent.0.1); disabled by default.
+  /// Register: `uavcan.sub.cymon_trigger.id`
+  uint16_t sub_cymon_trigger_id{cyphal::kUnsetPortId};
+
   /// Telemetry publication rate; 0 stops it.
   /// Register: `unimoc.telemetry.rate`
   unit::Frequency telemetry_rate{20.0_Hz};

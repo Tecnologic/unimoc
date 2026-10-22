@@ -19,6 +19,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <string_view>
 #include "cyphal/cyphal_interface.hpp"
@@ -133,6 +134,28 @@ class NodeIdListener {
   virtual void OnNodeIdAllocated(uint8_t node_id) noexcept = 0;
 };
 
+/// Serves the requests of one application service (a port-ID from a register).
+class ServiceHandler {
+ public:
+  ServiceHandler() = default;
+  virtual ~ServiceHandler() = default;
+  ServiceHandler(const ServiceHandler&) = delete;
+  ServiceHandler& operator=(const ServiceHandler&) = delete;
+  ServiceHandler(ServiceHandler&&) = delete;
+  ServiceHandler& operator=(ServiceHandler&&) = delete;
+
+  /**
+   * @brief Handles one request; the node sends the response right after.
+   * @param request The request; its port-ID tells the services of one handler
+   *                apart, its payload is valid during the call only.
+   * @param response Buffer for the serialized response.
+   * @return Size of the response in @p response, or std::nullopt to send none
+   *         (the request could not be deserialized).
+   */
+  [[nodiscard]] virtual std::optional<std::size_t> OnRequest(const Transfer& request,
+                                                             std::span<std::byte> response) noexcept = 0;
+};
+
 /// Port and transfer-ID counter of one published subject.
 struct Publisher {
   uint16_t port_id{kUnsetPortId};         ///< Subject-ID; kUnsetPortId disables the publisher.
@@ -150,6 +173,7 @@ struct Publisher {
  * - uavcan.node.GetInfo with NodeInfo
  * - uavcan.register.List / Access over the added RegisterProviders
  * - uavcan.node.ExecuteCommand, forwarded to the CommandHandler
+ * - application services on register-assigned port-IDs (AddServer())
  * - uavcan.pnp.NodeIDAllocationData.1.0 (Cyphal/CAN) while the node has no ID
  * - uavcan.diagnostic.Record through Log()
  *
@@ -164,6 +188,8 @@ class CyphalNode {
   static constexpr std::size_t kMaxListeners = 8U;
   /// Largest number of application publishers reported in the port list.
   static constexpr std::size_t kMaxPublishers = 8U;
+  /// Largest number of application services.
+  static constexpr std::size_t kMaxServers = 8U;
   /// Heartbeat period [us].
   static constexpr uint64_t kHeartbeatPeriodUs = 1'000'000U;
   /// Port list period [us] (the standard allows up to 10 s).
@@ -216,6 +242,18 @@ class CyphalNode {
    * @return False when no slot is left or the transport refused it.
    */
   [[nodiscard]] bool Subscribe(uint16_t subject_id, std::size_t extent, MessageListener& listener) noexcept;
+
+  /**
+   * @brief Serves an application service: subscribes its requests and lists it in the port list.
+   * @param service_id Service-ID 0..511; kUnsetPortId is ignored (returns true).
+   * @param request_extent DSDL extent of the request type [bytes].
+   * @param handler Answers the requests; must outlive the node.
+   * @return False when the service-ID is invalid or taken, no slot is left or
+   *         the transport refused the subscription.
+   */
+  [[nodiscard]] bool AddServer(uint16_t service_id,
+                               std::size_t request_extent,
+                               ServiceHandler& handler) noexcept;
 
   /**
    * @brief Registers a publisher for the port list. Publish() works without it.
@@ -280,12 +318,18 @@ class CyphalNode {
     MessageListener* listener{nullptr};
   };
 
+  struct Server {
+    uint16_t service_id{kUnsetPortId};
+    ServiceHandler* handler{nullptr};
+  };
+
   void Dispatch(const Transfer& transfer, uint64_t now_us) noexcept;
   void HandleGetInfo(const Transfer& request) noexcept;
   void HandleRegisterList(const Transfer& request) noexcept;
   void HandleRegisterAccess(const Transfer& request) noexcept;
   void HandleExecuteCommand(const Transfer& request) noexcept;
   void HandleAllocation(const Transfer& message) noexcept;
+  void HandleApplicationRequest(const Transfer& request) noexcept;
   void Respond(const Transfer& request, std::size_t size) noexcept;
   void PublishHeartbeat(uint64_t now_us) noexcept;
   void PublishPortList() noexcept;
@@ -300,6 +344,8 @@ class CyphalNode {
   std::size_t provider_count_{0U};
   std::array<Listener, kMaxListeners> listeners_{};
   std::size_t listener_count_{0U};
+  std::array<Server, kMaxServers> servers_{};
+  std::size_t server_count_{0U};
   std::array<uint16_t, kMaxPublishers> published_subjects_{};
   std::size_t published_count_{0U};
 

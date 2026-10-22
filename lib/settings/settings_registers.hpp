@@ -131,6 +131,13 @@ void ForEachRegister(const Visitor& visit, Settings&... settings) {
   visit(reg::kSubPositionSetpointId, settings.sub_position_setpoint_id...);
   visit(reg::kSubServoSetpointId, settings.sub_servo_setpoint_id...);
   visit(reg::kPubTelemetryId, settings.pub_telemetry_id...);
+  visit(reg::kSrvCymonVariablesId, settings.srv_cymon_variables_id...);
+  visit(reg::kSrvCymonBufferInfoId, settings.srv_cymon_buffer_info_id...);
+  visit(reg::kSrvCymonSetupId, settings.srv_cymon_setup_id...);
+  visit(reg::kSrvCymonArmId, settings.srv_cymon_arm_id...);
+  visit(reg::kSrvCymonReadId, settings.srv_cymon_read_id...);
+  visit(reg::kPubCymonTriggerId, settings.pub_cymon_trigger_id...);
+  visit(reg::kSubCymonTriggerId, settings.sub_cymon_trigger_id...);
   visit(reg::kTelemetryRate, settings.telemetry_rate...);
   visit(reg::kCommandTimeout, settings.command_timeout...);
 }

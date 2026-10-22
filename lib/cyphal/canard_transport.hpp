@@ -54,7 +54,9 @@ class CanardTransport final : public Transport {
   /// Largest number of CAN interfaces of one node.
   static constexpr std::size_t kMaxInterfaces = 2U;
   /// Largest number of subscribed ports (messages, requests and responses).
-  static constexpr std::size_t kMaxSubscriptions = 16U;
+  /// The drive uses up to 18: 4 standard services, plug-and-play, 6 setpoint
+  /// and readiness subjects, 5 trace services and the trace trigger.
+  static constexpr std::size_t kMaxSubscriptions = 24U;
   /// Frames held per TX queue before Send() refuses a transfer.
   static constexpr std::size_t kTxQueueCapacity = 64U;
   /// Default time a frame may wait in the TX queue [us].

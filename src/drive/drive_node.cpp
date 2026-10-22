@@ -48,7 +48,7 @@ struct InfoRegister {
   std::string_view type;  ///< Empty: the unique-ID register.
 };
 
-constexpr std::array<InfoRegister, 8> kInfoRegisters{{
+constexpr std::array<InfoRegister, 15> kInfoRegisters{{
     {cyphal::reg::kSubReadinessType, "reg.udral.service.common.Readiness.0.1"},
     {cyphal::reg::kSubCurrentSetpointType, "unimoc.drive.CurrentSetpoint.0.1"},
     {cyphal::reg::kSubTorqueSetpointType, "uavcan.si.unit.torque.Scalar.1.0"},
@@ -56,6 +56,13 @@ constexpr std::array<InfoRegister, 8> kInfoRegisters{{
     {cyphal::reg::kSubPositionSetpointType, "uavcan.si.unit.angle.Scalar.1.0"},
     {cyphal::reg::kSubServoSetpointType, "reg.udral.physics.dynamics.rotation.Planar.0.1"},
     {cyphal::reg::kPubTelemetryType, "unimoc.drive.Telemetry.0.1"},
+    {cyphal::reg::kSrvCymonVariablesType, "cymon.GetVariableList.0.1"},
+    {cyphal::reg::kSrvCymonBufferInfoType, "cymon.GetBufferInfo.0.1"},
+    {cyphal::reg::kSrvCymonSetupType, "cymon.SetupCapture.0.1"},
+    {cyphal::reg::kSrvCymonArmType, "cymon.ArmTrigger.0.1"},
+    {cyphal::reg::kSrvCymonReadType, "cymon.ReadSamples.0.1"},
+    {cyphal::reg::kPubCymonTriggerType, "cymon.TriggerEvent.0.1"},
+    {cyphal::reg::kSubCymonTriggerType, "cymon.TriggerEvent.0.1"},
     {cyphal::reg::kNodeUniqueId, ""},
 }};
 

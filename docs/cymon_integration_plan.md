@@ -1,6 +1,7 @@
 # cymon integration plan
 
-Status: **prepared, not implemented**. `lib/cymon` points at cymon-lib 0.2.
+Status: **implemented** (steps 1 to 10 below), not yet run on the board
+(M0 cost of `Tick()`). `lib/cymon` points at cymon-lib 0.2 on `main`.
 That version is ready for this integration: C++20, interrupt-safe `Tick()`,
 UNIMOC naming and clang-tidy rules, and DSDL `cymon.*.0.1` that compiles
 with Nunavut. The host side is the cymon admin tool
@@ -96,6 +97,34 @@ integration with ztest and pytest, as below.
     (glossary: trace, capture, trigger), `docs/zephyr_port_plan.md`
     (Phase 5), TODO.
 
+## As implemented
+
+- `CyphalNode::AddServer()` takes a `ServiceHandler` whose
+  `OnRequest(const Transfer&, std::span<std::byte>)` returns
+  `std::optional<std::size_t>`: `std::nullopt` sends no response (a request
+  that does not deserialize). A taken, standard or invalid (> 511)
+  service-ID is refused.
+- One `trace::TraceNode` serves all five services and tells them apart by
+  the port-ID. The persistent `.id` registers are settings
+  (`NvmSettings::srv_cymon_*_id`, `pub_/sub_cymon_trigger_id`); the `.type`
+  companions are in `DriveInfoRegisters`.
+- `Tick()` runs in `ControlCycleHandler()` (`src/main.cpp`) right after
+  `CurrentControlIsr::OnControlCycle()`, through `trace::OnControlCycle()`,
+  on every cycle (also while tripped or in force-duty mode). The mirror
+  `trace::TraceSignals` is filled from the controller state;
+  `CurrentControlState::i_dq_last` holds the measured d/q current for it.
+- The device is constructed in `.bss` (a `std::optional`) by the Cyphal
+  thread before the services start: as a constant-initialized object its
+  non-zero defaults would put about 8.9 KB into `.data` and flash. The
+  control cycle samples it once it is published through an atomic pointer.
+  On the BCC it disassembles to the copy loop plus `memset`/`memmove`, no
+  other calls.
+- The tick period is `dt_slow` of the controller, set at start and again
+  after the drive applied new settings (another PWM frequency).
+- Sim plant truth: `hardware/zephyr_sim` fills `sim::PlantTrace` at the end
+  of every cycle; `CyphalPlatformTraceSignals()` registers it as `sim.*`
+  (IDs from 12). The BCC registers nothing extra.
+
 ## Tool side
 
 ```sh
@@ -115,5 +144,5 @@ bytes each. At 1 Mbit/s that takes roughly 0.4 s of bus time.
   observer interrupt).
 - Whether the trace signals should include the observer outputs, which are
   computed after the control cycle (one cycle late in the capture).
-- After cymon-lib's branch is merged, move `lib/cymon` from the feature
-  branch commit to cymon-lib `main`.
+- Done: `lib/cymon` moved from the feature branch commit to cymon-lib `main`
+  (the merged 0.2, which only differs in its CI workflow).

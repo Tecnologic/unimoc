@@ -13,6 +13,8 @@ set(UNIMOC_O1HEAP_DIR "${UNIMOC_WEST_TOPDIR}/modules/lib/o1heap"
 set(UNIMOC_PUBLIC_DSDL_DIR "${UNIMOC_WEST_TOPDIR}/modules/lib/public_regulated_data_types"
     CACHE PATH "OpenCyphal public regulated data types (west.yml)")
 get_filename_component(UNIMOC_VENDOR_DSDL_DIR "${CMAKE_CURRENT_LIST_DIR}/../../dsdl/unimoc" ABSOLUTE)
+# Root namespace cymon of the trace services (lib/cymon, submodule).
+get_filename_component(UNIMOC_CYMON_DSDL_DIR "${CMAKE_CURRENT_LIST_DIR}/../cymon/dsdl/cymon" ABSOLUTE)
 
 foreach(unimoc_dependency libcanard/canard.h o1heap/o1heap.h)
   string(REGEX MATCH "^[a-z0-9]+" unimoc_dependency_name "${unimoc_dependency}")
@@ -25,11 +27,13 @@ endforeach()
 
 # --- DSDL serialization (Nunavut, C) ----------------------------------------
 # Generated at configure time into the build directory. The generation runs
-# again when a vendor type changes (CMAKE_CONFIGURE_DEPENDS) or the output is
+# again when a vendor or cymon type changes (CMAKE_CONFIGURE_DEPENDS) or the output is
 # missing; nunavut is a Python requirement of the workspace
 # (scripts/requirements-cyphal.txt).
 set(UNIMOC_DSDL_OUT "${CMAKE_CURRENT_BINARY_DIR}/dsdl")
-file(GLOB_RECURSE unimoc_vendor_dsdl CONFIGURE_DEPENDS "${UNIMOC_VENDOR_DSDL_DIR}/*.dsdl")
+file(GLOB_RECURSE unimoc_vendor_dsdl CONFIGURE_DEPENDS
+     "${UNIMOC_VENDOR_DSDL_DIR}/*.dsdl"
+     "${UNIMOC_CYMON_DSDL_DIR}/*.dsdl")
 # A changed vendor type reruns the configuration and with it the generation.
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${unimoc_vendor_dsdl})
 set(unimoc_dsdl_stamp "${UNIMOC_DSDL_OUT}/.stamp")
@@ -54,7 +58,8 @@ if(unimoc_dsdl_regenerate)
   set(unimoc_dsdl_roots
       "${UNIMOC_PUBLIC_DSDL_DIR}/uavcan"
       "${UNIMOC_PUBLIC_DSDL_DIR}/reg"
-      "${UNIMOC_VENDOR_DSDL_DIR}")
+      "${UNIMOC_VENDOR_DSDL_DIR}"
+      "${UNIMOC_CYMON_DSDL_DIR}")
   set(unimoc_dsdl_lookup)
   foreach(unimoc_dsdl_root IN LISTS unimoc_dsdl_roots)
     execute_process(COMMAND ${unimoc_nnvg} ${unimoc_dsdl_lookup} ${unimoc_dsdl_root}

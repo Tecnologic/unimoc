@@ -49,6 +49,8 @@ std::span<cyphal::CanMedia* const> CyphalPlatformInterfaces() noexcept { return 
 
 void CyphalPlatformStart(cyphal::CyphalNode& /*node*/, const settings::NvmSettings& /*settings*/) noexcept {}
 
+void CyphalPlatformTraceSignals(cymon::Device& /*device*/) noexcept {}
+
 void CyphalPlatformSpin(cyphal::CyphalNode& /*node*/, uint64_t /*now_us*/) noexcept {}
 
 void CyphalPlatformSettingsApplied(const settings::NvmSettings& /*settings*/) noexcept {}

@@ -22,10 +22,14 @@
 #include "settings_save_gate.hpp"
 #include "settings_store.hpp"
 #include "slow_update.hpp"
+#include "trace_signals.hpp"
 
 // Called directly by the platform (hot_path_interface.hpp), no registration.
+// The traces sample the state of the cycle right after it (docs/cymon_integration_plan.md).
 void unimoc::hardware::ControlCycleHandler() noexcept {
-  unimoc::current_control::CurrentControlIsr::Instance().OnControlCycle();
+  auto& current_control = unimoc::current_control::CurrentControlIsr::Instance();
+  current_control.OnControlCycle();
+  unimoc::trace::OnControlCycle(current_control);
 }
 
 // The observer interrupt wakes the control thread every

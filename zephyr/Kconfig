@@ -47,6 +47,32 @@ config UNIMOC_SETTINGS_ZMS
 	  zephyr_settings_storage.cpp). Needs the 'storage_partition' of the
 	  board devicetree; native_sim uses its flash simulator.
 
+config UNIMOC_TRACE_BUFFER_BYTES
+	int "cymon capture buffer [bytes]"
+	default 8192
+	range 64 262140
+	help
+	  Size of the RAM ring buffer of the cymon traces (lib/cymon,
+	  CYMON_MAX_BUFFER_BYTES). It is split across the channels of one
+	  capture; the trace device is a static object of about this size
+	  plus 24 bytes per variable.
+
+config UNIMOC_TRACE_VARS
+	int "cymon trace variables"
+	default 32
+	range 1 255
+	help
+	  Number of float signals the firmware can offer for traces
+	  (CYMON_MAX_VARS).
+
+config UNIMOC_TRACE_CHANNELS
+	int "cymon channels of one capture"
+	default 8
+	range 1 16
+	help
+	  Number of signals one capture records at the same time
+	  (CYMON_MAX_CHANNELS); at most UNIMOC_TRACE_VARS.
+
 config UNIMOC_CONTROL_THREAD_PRIORITY
 	int "Priority of the control thread"
 	default 2

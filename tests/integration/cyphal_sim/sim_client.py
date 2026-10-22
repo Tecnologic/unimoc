@@ -22,6 +22,7 @@ import uavcan.primitive.array
 import uavcan.register
 import uavcan.si.unit.torque
 import reg.udral.service.common
+import cymon
 import unimoc.drive
 import unimoc.sim
 
@@ -33,6 +34,13 @@ PORT_CURRENT_SETPOINT = 107
 PORT_TORQUE_SETPOINT = 100
 PORT_TELEMETRY = 212
 PORT_PLANT = 213
+
+# Trace services (cymon), defaults of the uavcan.srv.cymon_*.id registers.
+PORT_CYMON_VARIABLES = 120
+PORT_CYMON_BUFFER_INFO = 121
+PORT_CYMON_SETUP = 122
+PORT_CYMON_ARM = 123
+PORT_CYMON_READ = 124
 
 ENGAGED = reg.udral.service.common.Readiness_0_1.ENGAGED
 SLEEP = reg.udral.service.common.Readiness_0_1.SLEEP
@@ -100,9 +108,10 @@ class SimClient:
 
     # --- Services --------------------------------------------------------------
 
-    def call(self, service, request, timeout: float = 3.0):
+    def call(self, service, request, timeout: float = 3.0, port: int | None = None):
         async def go():
-            client = self.node.make_client(service, DRIVE)
+            # A port-ID for the types without a fixed one (cymon).
+            client = self.node.make_client(service, DRIVE) if port is None else self.node.make_client(service, DRIVE, port)
             client.response_timeout = timeout
             try:
                 result = await client(request)
@@ -141,6 +150,62 @@ class SimClient:
     def command(self, code: int) -> int:
         request = uavcan.node.ExecuteCommand_1_3.Request(command=code)
         return self.call(uavcan.node.ExecuteCommand_1_3, request).status
+
+    # --- Traces (cymon) -----------------------------------------------------------
+
+    def trace_variables(self) -> list[tuple[str, str]]:
+        """Name and unit of every trace variable; the index is the variable ID."""
+        variables = []
+        for index in range(256):
+            response = self.call(cymon.GetVariableList_0_1, cymon.GetVariableList_0_1.Request(index),
+                                 port=PORT_CYMON_VARIABLES)
+            name = response.name.tobytes().decode()
+            if not name:
+                break
+            variables.append((name, response.unit.tobytes().decode()))
+        return variables
+
+    def trace_buffer_info(self) -> cymon.GetBufferInfo_0_1.Response:
+        return self.call(cymon.GetBufferInfo_0_1, cymon.GetBufferInfo_0_1.Request(), port=PORT_CYMON_BUFFER_INFO)
+
+    def trace_setup(self, channels: list[int], sample_period_us: float, num_samples: int,
+                    pretrigger_samples: int) -> cymon.SetupCapture_0_1.Response:
+        request = cymon.SetupCapture_0_1.Request(channel_ids=channels, sample_period_us=sample_period_us,
+                                                 num_samples=num_samples, pretrigger_samples=pretrigger_samples)
+        return self.call(cymon.SetupCapture_0_1, request, port=PORT_CYMON_SETUP)
+
+    def trace_arm(self, mode: int, source: int = 0, level: float = 0.0) -> int:
+        request = cymon.ArmTrigger_0_1.Request(arm=True, source_variable_id=source,
+                                               mode=cymon.TriggerMode_0_1(mode), level=level)
+        return self.call(cymon.ArmTrigger_0_1, request, port=PORT_CYMON_ARM).result.value
+
+    def trace_read(self, frame_offset: int = 0, max_frames: int = 0) -> cymon.ReadSamples_0_1.Response:
+        request = cymon.ReadSamples_0_1.Request(frame_offset=frame_offset, max_frames=max_frames)
+        return self.call(cymon.ReadSamples_0_1, request, port=PORT_CYMON_READ)
+
+    def trace_wait_complete(self, timeout: float = 5.0) -> cymon.ReadSamples_0_1.Response:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            status = self.trace_read()
+            if status.state.value == cymon.CaptureState_0_1.COMPLETE:
+                return status
+            self.wait(0.05)
+        raise AssertionError("the capture did not complete")
+
+    def trace_frames(self) -> list[list[float]]:
+        """Reads a complete capture page by page; one list of channel values per frame."""
+        status = self.trace_read()
+        channels = status.num_channels
+        per_page = max(1, 64 // channels)
+        samples: list[float] = []
+        offset = 0
+        while True:
+            page = self.trace_read(offset, per_page)
+            samples.extend(float(value) for value in page.samples)
+            offset += len(page.samples) // channels
+            if page.end_of_data or not len(page.samples):
+                break
+        return [samples[index:index + channels] for index in range(0, len(samples), channels)]
 
     # --- Subjects ----------------------------------------------------------------
 

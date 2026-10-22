@@ -124,6 +124,25 @@ bool CyphalNode::Subscribe(const uint16_t subject_id,
   return true;
 }
 
+bool CyphalNode::AddServer(const uint16_t service_id,
+                           const std::size_t request_extent,
+                           ServiceHandler& handler) noexcept {
+  if (service_id == kUnsetPortId) {
+    return true;
+  }
+  const bool kTaken =
+      std::find(kServedServices.begin(), kServedServices.end(), service_id) != kServedServices.end() ||
+      std::any_of(servers_.begin(),
+                  servers_.begin() + static_cast<std::ptrdiff_t>(server_count_),
+                  [service_id](const Server& server) { return server.service_id == service_id; });
+  if (service_id > kMaxServiceId || kTaken || server_count_ >= kMaxServers ||
+      !transport_->Subscribe(TransferKind::kServiceRequest, service_id, request_extent)) {
+    return false;
+  }
+  servers_[server_count_++] = Server{service_id, &handler};
+  return true;
+}
+
 bool CyphalNode::AddPublisher(const Publisher& publisher) noexcept {
   if (publisher.port_id == kUnsetPortId) {
     return true;
@@ -220,6 +239,7 @@ void CyphalNode::Dispatch(const Transfer& transfer, const uint64_t now_us) noexc
         HandleExecuteCommand(transfer);
         break;
       default:
+        HandleApplicationRequest(transfer);
         break;
     }
     return;
@@ -366,6 +386,18 @@ void CyphalNode::HandleExecuteCommand(const Transfer& request) noexcept {
   }
 }
 
+void CyphalNode::HandleApplicationRequest(const Transfer& request) noexcept {
+  for (std::size_t i = 0U; i < server_count_; ++i) {
+    if (servers_[i].service_id == request.port_id) {
+      const std::optional<std::size_t> kSize = servers_[i].handler->OnRequest(request, tx_buffer_);
+      if (kSize.has_value() && *kSize <= tx_buffer_.size()) {
+        Respond(request, *kSize);
+      }
+      return;
+    }
+  }
+}
+
 uint64_t CyphalNode::UniqueIdHash() const noexcept {
   // FNV-1a 64 over the unique-ID, truncated to 48 bits.
   uint64_t hash = 0xCBF29CE484222325ULL;
@@ -444,7 +476,12 @@ void CyphalNode::PublishPortList() noexcept {
   WriteSubjectList(writer, std::span<const uint16_t>{publishers.data(), publisher_count});
   WriteSubjectList(writer, std::span<const uint16_t>{subscribers.data(), listener_count_});
   WriteServiceList(writer, {});
-  WriteServiceList(writer, kServedServices);
+  std::array<uint16_t, kServedServices.size() + kMaxServers> servers{};
+  std::copy(kServedServices.begin(), kServedServices.end(), servers.begin());
+  for (std::size_t i = 0U; i < server_count_; ++i) {
+    servers[kServedServices.size() + i] = servers_[i].service_id;
+  }
+  WriteServiceList(writer, std::span<const uint16_t>{servers.data(), kServedServices.size() + server_count_});
   if (writer.Fits()) {
     (void)PublishInternal(port_list_, writer.Size());
   }

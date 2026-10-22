@@ -26,6 +26,7 @@
 #include <zephyr/sys/reboot.h>
 #include <algorithm>
 #include <array>
+#include "current_control_isr.hpp"
 #include "cyphal/canard_transport.hpp"
 #include "cyphal/node.hpp"
 #include "cyphal/sw_version.hpp"
@@ -34,6 +35,8 @@
 #include "drive_node.hpp"
 #include "hardware_interface.hpp"
 #include "hardware_interface_config.hpp"
+#include "trace_node.hpp"
+#include "trace_signals.hpp"
 #include "zephyr_can_media.hpp"
 
 LOG_MODULE_REGISTER(unimoc_cyphal, CONFIG_UNIMOC_LOG_LEVEL);
@@ -70,7 +73,17 @@ void Restart() noexcept {
   sys_reboot(SYS_REBOOT_COLD);
 }
 
+trace::TraceNode* g_trace = nullptr;
+
+/// Period of the control cycle, which samples the traces [us].
+[[nodiscard]] float TraceTickPeriodUs() noexcept {
+  return current_control::CurrentControlIsr::Instance().state.dt_slow * 1.0e6F;
+}
+
 void SettingsApplied(const settings::NvmSettings& settings) noexcept {
+  if (g_trace != nullptr) {
+    g_trace->SetTickPeriod(TraceTickPeriodUs());
+  }
   CyphalPlatformSettingsApplied(settings);
 }
 
@@ -148,6 +161,18 @@ void CyphalThread(void* /*unused*/, void* /*unused*/, void* /*unused*/) {
                                 drive::DriveHooks{Restart, SettingsApplied},
                                 std::span<const uint8_t>{g_unique_id}};
   CyphalPlatformStart(node, kSnapshot.Get());
+
+  // Traces: the control signals first (IDs 0..11), then the platform's.
+  static trace::TraceNode trace_node{node, trace::TraceDevice()};
+  if (!trace::RegisterControlSignals()) {
+    LOG_WRN("trace registry full");
+  }
+  CyphalPlatformTraceSignals(trace::TraceDevice());
+  if (!trace_node.Start(kSnapshot.Get(), TraceTickPeriodUs())) {
+    LOG_WRN("not all trace ports could be added");
+  }
+  g_trace = &trace_node;
+
   if (!drive.Start(NowUs())) {
     LOG_WRN("not all Cyphal ports could be subscribed");
   }
@@ -160,6 +185,7 @@ void CyphalThread(void* /*unused*/, void* /*unused*/, void* /*unused*/) {
     (void)k_sem_take(&g_cyphal_wake, K_MSEC(1));
     const uint64_t kNow = NowUs();
     drive.Spin(kNow);
+    trace_node.Spin();
     CyphalPlatformSpin(node, kNow);
     uint8_t level = 0U;
     while (UnimocCyphalLogGet(&level, text.data(), text.size())) {

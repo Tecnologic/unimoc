@@ -30,10 +30,13 @@ target_sources(unimoc_core PRIVATE
   ${UNIMOC_ROOT}/src/startup/hw_startup.cpp
   ${UNIMOC_ROOT}/src/drive/drive_node.cpp
   ${UNIMOC_ROOT}/src/drive/settings_register_provider.cpp
-  ${UNIMOC_ROOT}/src/drive/startup_registers.cpp)
+  ${UNIMOC_ROOT}/src/drive/startup_registers.cpp
+  ${UNIMOC_ROOT}/src/trace/trace_node.cpp
+  ${UNIMOC_ROOT}/src/trace/trace_signals.cpp)
 target_include_directories(unimoc_core PUBLIC
   ${UNIMOC_ROOT}/src/current_control
   ${UNIMOC_ROOT}/src/drive
+  ${UNIMOC_ROOT}/src/trace
   ${UNIMOC_ROOT}/src/startup
   ${UNIMOC_PLATFORM_DIR})
 target_link_libraries(unimoc_core PRIVATE
@@ -58,6 +61,7 @@ foreach(unimoc_platform_source IN LISTS UNIMOC_PLATFORM_EXTRA_SOURCES)
 endforeach()
 target_include_directories(app PRIVATE
   ${UNIMOC_ROOT}/src/current_control
+  ${UNIMOC_ROOT}/src/trace
   ${UNIMOC_ROOT}/hardware/zephyr_common
   ${UNIMOC_PLATFORM_DIR})
 target_link_libraries(app PRIVATE unimoc_core unimoc_lib ${UNIMOC_PLATFORM_LIBRARIES})

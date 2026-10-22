@@ -76,6 +76,10 @@ class DriveInfoRegisters final : public cyphal::RegisterProvider {
  *   first finite of position, velocity, (acceleration), torque selects the mode |
  * | `uavcan.pub.telemetry.id` | unimoc.drive.Telemetry.0.1 | controller trace at `unimoc.telemetry.rate` |
  *
+ * The ports of the traces (`uavcan.srv.cymon_*`, `uavcan.*.cymon_trigger`)
+ * are served by trace::TraceNode; this class only reports their `.type`
+ * registers.
+ *
  * The last setpoint selects the control mode. The drive hands it to the
  * outer loop (current_control::OuterLoop, control thread), which runs the
  * speed and position control and passes the current reference to the
