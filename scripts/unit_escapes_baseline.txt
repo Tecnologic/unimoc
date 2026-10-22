@@ -69,7 +69,7 @@
 16 tests/lib/sim/src/pmsm_model_test.cpp
 46 tests/lib/units/src/units_test.cpp
 59 tests/sim/closed_loop/src/main.cpp
-40 tests/sim/cyphal_drive/src/main.cpp
+42 tests/sim/cyphal_drive/src/main.cpp
 20 tests/sim/hall_fusion/src/main.cpp
 10 tests/sim/irq_cadence/src/main.cpp
 11 tests/sim/overcurrent/src/main.cpp

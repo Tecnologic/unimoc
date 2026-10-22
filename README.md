@@ -200,7 +200,11 @@ under the same name; `yakut rl <node>` lists them.  Units and floats are
 validated against the hardware capabilities and changes the RAM settings
 only; a rejected write answers with the unchanged value.  The drive applies
 new settings to the controller while it is disengaged (at the latest when it
-engages).  `ExecuteCommand STORE_PERSISTENT_STATES` (65530) saves them to
+engages).  While engaged, the gains of the current, speed and position loops
+(`unimoc.control.current.*`, `unimoc.control.speed.*`, the position gains,
+limits and tolerances), the telemetry rate and the command timeout take
+effect at once without a restart (live tuning); any other change waits for
+the disengage and also holds back live tuning until then.  `ExecuteCommand STORE_PERSISTENT_STATES` (65530) saves them to
 flash, refused (`BAD_STATE`) while the power stage is enabled.
 
 ### Ports of the drive

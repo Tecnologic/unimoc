@@ -59,6 +59,7 @@ void CurrentControlIsr::Init(const settings::NvmSettings& settings,
   cc.ki_d = settings.current_ki_d;
   cc.kp_q = settings.current_kp_q;
   cc.ki_q = settings.current_ki_q;
+  gains_pending_.store(false, std::memory_order_relaxed);  // the settings are newer than any live gains
   cc.L_d = settings.l_d;
   cc.L_q = settings.l_q;
   cc.psi = settings.flux_pm;
@@ -129,6 +130,14 @@ void CurrentControlIsr::OnControlCycle() noexcept {
   state.raw_phase_currents = kSamples.phase_currents[kNumSubSteps - 1U];
   state.raw_vdc = unit::Voltage{kDcLinkVoltage};
   state.i_ref = state.i_ref_mailbox.Read();
+  if (gains_pending_.load(std::memory_order_acquire)) {
+    gains_pending_.store(false, std::memory_order_relaxed);
+    const CurrentGains kGains = gains_.Read();
+    cc.kp_d = kGains.kp_d;
+    cc.ki_d = kGains.ki_d;
+    cc.kp_q = kGains.kp_q;
+    cc.ki_q = kGains.ki_q;
+  }
 
   // -------------------------------------------------------------------------
   // 1b. Hard overcurrent limit. The hardware has checked every sample and

@@ -168,6 +168,8 @@ class DriveNode final : public cyphal::MessageListener,
   void LoadParameters(const settings::NvmSettings& settings) noexcept;
   /// Restarts the controller with the live settings; refused while the outputs are released.
   [[nodiscard]] bool ApplySettings() noexcept;
+  /// While engaged: hands changed gains to the running loops; other changes wait for the disengage.
+  void TuneLive() noexcept;
   void PublishTelemetry() noexcept;
   void UpdateStatus() noexcept;
 
@@ -194,6 +196,8 @@ class DriveNode final : public cyphal::MessageListener,
   unit::Current current_limit_;
   unit::MagneticFlux torque_constant_;  ///< PMSM 3/2 p psi_pm [N m/A = Wb]
   uint32_t applied_writes_{0U};
+  uint32_t checked_writes_{0U};             ///< Register writes looked at for live tuning.
+  settings::NvmSettings applied_settings_;  ///< What the controller runs with.
   bool settings_pending_{false};
 
   cyphal::Publisher telemetry_{};

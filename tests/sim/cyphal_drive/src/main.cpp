@@ -116,8 +116,12 @@ void EraseAllRegisters() {
 
 int g_restarts = 0;
 void CountRestart() noexcept { ++g_restarts; }
+int g_settings_applied = 0;  // controller restarts with new settings
+void CountSettingsApplied(const unimoc::settings::NvmSettings& /*unused*/) noexcept { ++g_settings_applied; }
 
 /// The drive (store, node, DriveNode) and a client on one CAN FD bus.
+// Members in the order of their construction dependencies, not by size.
+// NOLINTNEXTLINE(clang-analyzer-optin.performance.Padding): see above.
 struct Rig {
   Rig()
       : store{MakeStore()},
@@ -131,7 +135,7 @@ struct Rig {
         drive{node,
               store,
               unimoc::hardware::kMotors[0],
-              unimoc::drive::DriveHooks{CountRestart, nullptr},
+              unimoc::drive::DriveHooks{CountRestart, CountSettingsApplied},
               unique_id} {
     zassert_equal(store.Load(), SettingsStatus::kFactoryDefaults);
     const auto kSnapshot = store.GetSnapshot();
@@ -332,6 +336,7 @@ void Before(void* /*unused*/) {
   // Locked rotor: the current loop works on a standing plant.
   sim::Plant().SetShaftMode(unimoc::sim::ShaftMode::kImposedSpeed, AngularVelocity{});
   g_restarts = 0;
+  g_settings_applied = 0;
   // NOLINTNEXTLINE(cppcoreguidelines-owning-memory): placement new into static storage, destroyed in After().
   g_rig = new (g_storage.data()) Rig{};
 }
@@ -713,6 +718,31 @@ ZTEST(sim_cyphal_drive, test_regenerative_braking_is_limited_by_the_charge_curre
   zexpect_false(rig.drive.IsEngaged());
   zexpect_true(CurrentControlIsr::Instance().state.overvoltage_tripped);
   zexpect_equal(kPowerStage.GetState(), PowerStageState::kFault);
+}
+
+ZTEST(sim_cyphal_drive, test_gains_are_tuned_live_while_engaged) {
+  Rig& rig = *g_rig;
+  rig.Hold(0.0F, 2.0F, 50U);
+  zassert_true(rig.drive.IsEngaged());
+  const int kApplied = g_settings_applied;
+
+  // Gains reach the running loops at once, without a restart.
+  (void)rig.Access(reg::kCurrentKpQ, Real(0.7F));
+  (void)rig.Access(reg::kSpeedKp, Real(0.03F));
+  rig.Hold(0.0F, 2.0F, 5U);
+  zexpect_true(rig.drive.IsEngaged());
+  zexpect_within(CurrentControlIsr::Instance().cc.kp_q.Value(), 0.7F, 1e-6F);
+  zexpect_equal(g_settings_applied, kApplied, "restarted for a gain");
+
+  // A motor parameter needs a restart: it waits for the disengage, the gain stays.
+  (void)rig.Access(reg::kMotorPolePairs, Natural8(5U));
+  rig.Hold(0.0F, 2.0F, 5U);
+  zexpect_true(rig.drive.IsEngaged());
+  zexpect_equal(g_settings_applied, kApplied);
+  rig.Readiness(reg_udral_service_common_Readiness_0_1_SLEEP);
+  rig.Run(2U);
+  zexpect_equal(g_settings_applied, kApplied + 1);
+  zexpect_within(CurrentControlIsr::Instance().cc.kp_q.Value(), 0.7F, 1e-6F);
 }
 
 ZTEST(sim_cyphal_drive, test_speed_setpoint_is_limited_to_the_motor_speed) {

@@ -130,8 +130,11 @@ software versions from the firmware (`hardware_interface_config.hpp`,
 ## Open items
 
 1. Register writes that change the controller are applied by restarting the
-   runtime while the drive is disengaged; live tuning while engaged (gains
-   without a restart) is open.
+   runtime while the drive is disengaged. Done 2026-10-22: live tuning while
+   engaged for the gains (`DriveNode::TuneLive()`: current PI gains through
+   `CurrentControlIsr::SetCurrentGains()`, speed and position gains through
+   `OuterLoop::SetGains()`, telemetry rate, command timeout); every other
+   register still waits for the disengage.
 
 Done: holding off `PowerStage::Enable()` during a save and serializing the
 store (see "Concurrency").

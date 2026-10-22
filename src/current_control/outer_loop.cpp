@@ -41,15 +41,25 @@ void OuterLoop::Init(const settings::NvmSettings& settings, CurrentControlIsr& i
                                             .trip = settings.dc_link_trip};
   parameters.speed_min = settings.motor_omega_min / kPolePairs;
   parameters.speed_max = settings.motor_omega_max / kPolePairs;
-  parameters.speed_kp = settings.speed_kp;
-  parameters.speed_ki = settings.speed_ki;
-  parameters.speed_accel_limit = settings.speed_accel_limit;
-  parameters.position_kp = settings.pos_kp_pos;
-  parameters.position_speed_limit = settings.pos_speed_limit;
-  parameters.position_accel_limit = settings.pos_accel_limit;
-  parameters.position_tolerance = settings.pos_position_tolerance;
-  parameters.position_speed_tolerance = settings.pos_speed_tolerance;
+  parameters.gains = GainsFrom(settings);
   parameters_.Write(parameters);
+  SetGains(parameters.gains);  // live gains handed over before are older than these
+}
+
+OuterLoop::Gains OuterLoop::GainsFrom(const settings::NvmSettings& settings) noexcept {
+  return Gains{.speed_kp = settings.speed_kp,
+               .speed_ki = settings.speed_ki,
+               .speed_accel_limit = settings.speed_accel_limit,
+               .position_kp = settings.pos_kp_pos,
+               .position_speed_limit = settings.pos_speed_limit,
+               .position_accel_limit = settings.pos_accel_limit,
+               .position_tolerance = settings.pos_position_tolerance,
+               .position_speed_tolerance = settings.pos_speed_tolerance};
+}
+
+void OuterLoop::SetGains(const Gains& gains) noexcept {
+  gains_.Write(gains);
+  gains_generation_.store(gains_generation_.load(std::memory_order_relaxed) + 1U, std::memory_order_release);
 }
 
 // =============================================================================
@@ -80,6 +90,11 @@ void OuterLoop::Step() noexcept {
   const Parameters kParameters = parameters_.Read();
   if (kParameters.generation != active_.generation) {
     LoadParameters(kParameters);
+  }
+  const uint32_t kGainsGeneration = gains_generation_.load(std::memory_order_acquire);
+  if (kGainsGeneration != applied_gains_generation_) {
+    applied_gains_generation_ = kGainsGeneration;
+    ApplyGains(gains_.Read());
   }
   const ObserverState kObserver = observer_.Read();
   const OuterSetpoint kSetpoint = setpoint_.Read();
@@ -166,19 +181,24 @@ void OuterLoop::Step() noexcept {
 
 void OuterLoop::LoadParameters(const Parameters& parameters) noexcept {
   active_ = parameters;
-  speed_.kp = parameters.speed_kp;
-  speed_.ki = parameters.speed_ki;
-  speed_.accel_limit = parameters.speed_accel_limit;
+  ApplyGains(parameters.gains);
   speed_.torque_limit = parameters.torque_constant * parameters.current_limit;
-  position_.kp_pos = parameters.position_kp;
-  position_.speed_limit = parameters.position_speed_limit;
-  position_.accel_limit = parameters.position_accel_limit;
-  position_.position_tolerance = parameters.position_tolerance;
-  position_.speed_tolerance = parameters.position_speed_tolerance;
   // The controller restarted with these settings: the observer angle starts
   // again at zero, so the position is counted anew from here.
   tracking_ = false;
   was_active_ = false;
+}
+
+void OuterLoop::ApplyGains(const Gains& gains) noexcept {
+  active_.gains = gains;
+  speed_.kp = gains.speed_kp;
+  speed_.ki = gains.speed_ki;
+  speed_.accel_limit = gains.speed_accel_limit;
+  position_.kp_pos = gains.position_kp;
+  position_.speed_limit = gains.position_speed_limit;
+  position_.accel_limit = gains.position_accel_limit;
+  position_.position_tolerance = gains.position_tolerance;
+  position_.speed_tolerance = gains.position_speed_tolerance;
 }
 
 void OuterLoop::Restart(const AngularVelocity speed) noexcept {

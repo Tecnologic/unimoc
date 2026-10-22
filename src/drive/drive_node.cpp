@@ -26,11 +26,15 @@
 #include <array>
 #include <cmath>
 #include <optional>
+#include <string_view>
+#include <utility>
 #include "angle_wrap.hpp"
 #include "current_control_isr.hpp"
 #include "current_control_runtime.hpp"
 #include "cyphal/control_mode.hpp"
 #include "power_stage_interface.hpp"
+#include "settings_registers.hpp"
+#include "settings_store.hpp"
 #include "sin_cos.hpp"
 
 namespace unimoc::drive {
@@ -65,6 +69,44 @@ constexpr std::array<InfoRegister, 15> kInfoRegisters{{
     {cyphal::reg::kSubCymonTriggerType, "cymon.TriggerEvent.0.1"},
     {cyphal::reg::kNodeUniqueId, ""},
 }};
+
+/**
+ * @brief Copies the registers that may change while engaged (live tuning).
+ *
+ * The gains of the current, speed and position loops, the telemetry rate
+ * and the command timeout: the running loops take them without a restart.
+ */
+void CopyTunable(const settings::NvmSettings& source, settings::NvmSettings& target) noexcept {
+  target.current_kp_d = source.current_kp_d;
+  target.current_ki_d = source.current_ki_d;
+  target.current_kp_q = source.current_kp_q;
+  target.current_ki_q = source.current_ki_q;
+  target.speed_kp = source.speed_kp;
+  target.speed_ki = source.speed_ki;
+  target.speed_accel_limit = source.speed_accel_limit;
+  target.pos_kp_pos = source.pos_kp_pos;
+  target.pos_speed_limit = source.pos_speed_limit;
+  target.pos_accel_limit = source.pos_accel_limit;
+  target.pos_position_tolerance = source.pos_position_tolerance;
+  target.pos_speed_tolerance = source.pos_speed_tolerance;
+  target.telemetry_rate = source.telemetry_rate;
+  target.command_timeout = source.command_timeout;
+}
+
+/// True when @p live differs from @p applied in tunable registers only.
+[[nodiscard]] bool OnlyTunableChanged(const settings::NvmSettings& applied,
+                                      const settings::NvmSettings& live) noexcept {
+  settings::NvmSettings untuned = live;
+  CopyTunable(applied, untuned);
+  bool same = true;
+  settings::ForEachRegister(
+      [&same](std::string_view /*name*/, const auto& first, const auto& second) {
+        same = same && settings::settings_store_internal::SameEncoding(first, second);
+      },
+      applied,
+      std::as_const(untuned));
+  return same;
+}
 
 [[nodiscard]] const uint8_t* InputBytes(std::span<const std::byte> payload) noexcept {
   return reinterpret_cast<const uint8_t*>(payload.data());
@@ -131,6 +173,8 @@ bool DriveNode::Start(const uint64_t now_us) noexcept {
   telemetry_ = cyphal::Publisher{live.pub_telemetry_id, cyphal::Priority::kHigh, 0U};
   // The runtime was started by main() with these settings.
   applied_writes_ = settings_registers_.WriteCount();
+  checked_writes_ = applied_writes_;
+  applied_settings_ = live;
   LoadParameters(live);
 
   bool subscribed = node_->AddRegisterProvider(settings_registers_);
@@ -198,6 +242,9 @@ void DriveNode::Spin(const uint64_t now_us) noexcept {
   setpoint.active = engaged_;
   OuterLoop::Instance().SetSetpoint(setpoint);
 
+  if (engaged_ && settings_registers_.WriteCount() != checked_writes_) {
+    TuneLive();
+  }
   if (!engaged_ && settings_registers_.WriteCount() != applied_writes_) {
     settings_pending_ = true;
   }
@@ -254,9 +301,11 @@ bool DriveNode::ApplySettings() noexcept {
     return false;
   }
   applied_writes_ = settings_registers_.WriteCount();
+  checked_writes_ = applied_writes_;
   settings_pending_ = false;
   const settings::SettingsSnapshot kSnapshot = store_->GetSnapshot();
   const settings::NvmSettings& live = kSnapshot.Get();
+  applied_settings_ = live;
   LoadParameters(live);
 
   if (!current_control::StartRuntime(live, *motor_, store_->GetProfile().capabilities.max_phase_current)) {
@@ -267,6 +316,24 @@ bool DriveNode::ApplySettings() noexcept {
     hooks_.settings_applied(live);
   }
   return true;
+}
+
+void DriveNode::TuneLive() noexcept {
+  checked_writes_ = settings_registers_.WriteCount();
+  const settings::SettingsSnapshot kSnapshot = store_->GetSnapshot();
+  const settings::NvmSettings& live = kSnapshot.Get();
+  if (!OnlyTunableChanged(applied_settings_, live)) {
+    settings_pending_ = true;  // a restart with all of them after the disengage
+    return;
+  }
+  CurrentControlIsr::Instance().SetCurrentGains(current_control::CurrentGains{.kp_d = live.current_kp_d,
+                                                                              .ki_d = live.current_ki_d,
+                                                                              .kp_q = live.current_kp_q,
+                                                                              .ki_q = live.current_ki_q});
+  OuterLoop::Instance().SetGains(OuterLoop::GainsFrom(live));
+  LoadParameters(live);
+  applied_settings_ = live;
+  applied_writes_ = checked_writes_;
 }
 
 void DriveNode::OnMessage(const cyphal::Transfer& transfer, const uint64_t now_us) noexcept {

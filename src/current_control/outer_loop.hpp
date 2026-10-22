@@ -15,6 +15,7 @@
  */
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 #include "current_control_isr.hpp"
 #include "cyphal/control_mode.hpp"
@@ -139,6 +140,29 @@ class OuterLoop {
   /// State after the last step; any thread below the control thread.
   [[nodiscard]] OuterStatus Status() const noexcept { return status_.Read(); }
 
+  /// Gains of the speed and position loops; they may change while the loop runs.
+  struct Gains {
+    unit::TorquePerAngularVelocity speed_kp;
+    unit::InverseTime speed_ki;
+    unit::AngularAcceleration speed_accel_limit;
+    unit::AngularVelocityPerAngle position_kp;
+    unit::AngularVelocity position_speed_limit;
+    unit::AngularAcceleration position_accel_limit;
+    unit::Angle position_tolerance;
+    unit::AngularVelocity position_speed_tolerance;
+  };
+
+  /// The gains of the settings.
+  [[nodiscard]] static Gains GainsFrom(const settings::NvmSettings& settings) noexcept;
+
+  /**
+   * @brief Changes the gains while the loop runs (live tuning).
+   *
+   * The control thread takes them at its next step without restarting the
+   * controllers or the position count (unlike Init()). One writer: the drive.
+   */
+  void SetGains(const Gains& gains) noexcept;
+
  private:
   /// Parameters of the loop, derived from the settings.
   struct Parameters {
@@ -150,14 +174,7 @@ class OuterLoop {
     control::DcLinkLimit dc_link;        ///< Battery current limits, regenerative derating.
     unit::AngularVelocity speed_min;     ///< Mechanical, from the electrical limits.
     unit::AngularVelocity speed_max;
-    unit::TorquePerAngularVelocity speed_kp;
-    unit::InverseTime speed_ki;
-    unit::AngularAcceleration speed_accel_limit;
-    unit::AngularVelocityPerAngle position_kp;
-    unit::AngularVelocity position_speed_limit;
-    unit::AngularAcceleration position_accel_limit;
-    unit::Angle position_tolerance;
-    unit::AngularVelocity position_speed_tolerance;
+    Gains gains;
   };
 
   /// Angle and speed estimate handed from the observer.
@@ -170,6 +187,7 @@ class OuterLoop {
   OuterLoop() = default;
 
   void LoadParameters(const Parameters& parameters) noexcept;
+  void ApplyGains(const Gains& gains) noexcept;
   void Restart(unit::AngularVelocity speed) noexcept;
   [[nodiscard]] system::Rotor<unit::Current> TorqueToCurrent(unit::Torque torque) const noexcept;
   [[nodiscard]] system::Rotor<unit::Current> LimitCurrent(
@@ -178,6 +196,8 @@ class OuterLoop {
   CurrentControlIsr* isr_{nullptr};
   Mailbox<OuterSetpoint> setpoint_{};
   Mailbox<Parameters> parameters_{};
+  Mailbox<Gains> gains_{};
+  std::atomic<uint32_t> gains_generation_{0U};  ///< Counts SetGains(); the control thread compares.
   SeqLock<ObserverState> observer_{};
   SeqLock<OuterStatus> status_{};
   uint32_t observer_cycles_{0U};
@@ -185,6 +205,7 @@ class OuterLoop {
 
   // Control thread only.
   Parameters active_{};
+  uint32_t applied_gains_generation_{0U};
   control::SpeedController speed_{};
   control::PositionController<float> position_{};
   observer::PositionTracker tracker_{};

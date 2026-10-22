@@ -67,6 +67,14 @@ static_assert(kNumSubSteps == hardware::kHalfPeriodsPerCycle,
 /// PWM frequency the timing of the state assumes until Init() sets it.
 inline constexpr unit::Frequency kInitialPwmFrequency{32000.0F};
 
+/// Gains of the current PI that may change while the loop runs (live tuning).
+struct CurrentGains {
+  unit::VoltagePerCurrent kp_d;
+  unit::VoltagePerCurrentTime ki_d;
+  unit::VoltagePerCurrent kp_q;
+  unit::VoltagePerCurrentTime ki_q;
+};
+
 /**
  * @brief Shared state block for the control cycle and the observer.
  *
@@ -284,6 +292,18 @@ class CurrentControlIsr {
    */
   void SetCurrentRef(const system::Rotor<unit::Current>& ref) noexcept { state.i_ref_mailbox.Write(ref); }
 
+  /**
+   * @brief Changes the gains of the current PI while the loop runs (live tuning).
+   *
+   * The control cycle takes them at its next start, all four at once; the
+   * integrators keep their state (in volts), so the change is bumpless. One
+   * writer thread only. Init() loads the gains of the settings instead.
+   */
+  void SetCurrentGains(const CurrentGains& gains) noexcept {
+    gains_.Write(gains);
+    gains_pending_.store(true, std::memory_order_release);
+  }
+
   // =========================================================================
   // Startup / bring-up interface
   // =========================================================================
@@ -416,6 +436,10 @@ class CurrentControlIsr {
   /// Clamped to [svm.duty_min, svm.duty_max] by ForceDuty(), which publishes
   /// them before it sets the flag.
   Mailbox<system::ThreePhase<unit::Ratio>> forced_duties_{};
+
+  /// Gains handed over by SetCurrentGains(); taken by the control cycle while gains_pending_.
+  Mailbox<CurrentGains> gains_{};
+  std::atomic<bool> gains_pending_{false};
 
   /// When true, OnControlCycle() writes forced_duties_ as the duty plan and
   /// bypasses the PI control loop. Set by ForceDuty() after the duties
