@@ -22,6 +22,7 @@ from sim_client import (
     STANDBY,
     SimClient,
     natural8,
+    natural16,
     real,
 )
 import cymon
@@ -65,6 +66,11 @@ def test_registers_list_read_write_and_validation(sim: SimClient):
     assert sim.write("unimoc.motor.pole_pairs", natural8(7)) == 7
     assert sim.write("unimoc.does_not_exist", real(1.0)) is None  # unknown register: empty value
     assert sim.write("uavcan.pub.telemetry.type", real(1.0)) == "unimoc.drive.Telemetry.0.1"
+    # Two ports on one subject-ID are rejected; a free one is taken.
+    assert sim.write("uavcan.sub.torque_setpoint.id", natural16(106)) == 100  # readiness
+    assert sim.write("uavcan.pub.cymon_trigger.id", natural16(212)) == 65535  # telemetry
+    assert sim.write("uavcan.pub.cymon_trigger.id", natural16(300)) == 300
+    assert sim.write("uavcan.pub.cymon_trigger.id", natural16(65535)) == 65535
 
 
 def test_unknown_commands_are_rejected(sim: SimClient):
@@ -195,6 +201,26 @@ def test_trace_triggers_on_a_current_step(sim: SimClient):
     assert frames[40][0] == pytest.approx(4.0)
     settled = [frame[1] for frame in frames[-100:]]
     assert sum(settled) / len(settled) == pytest.approx(4.0, abs=0.5)
+
+
+def test_startup_aid_runs_steps_and_aborts(sim: SimClient):
+    sim.hold(0.2, SLEEP)
+    assert sim.read("unimoc.startup.step") == 0  # IDLE
+    assert sim.write("unimoc.startup.run", natural8(1)) == 1
+    assert sim.read("unimoc.startup.step") == 1  # PWM_DISABLE
+    assert sim.latest(sim.telemetry).power_stage == 1  # the FSM releases the outputs
+
+    # A step write takes effect at the next FSM run, after the response.
+    assert sim.write("unimoc.startup.step", natural8(1)) == 1
+    sim.wait(0.1)
+    assert sim.read("unimoc.startup.step") == 2  # ADC_OFFSET_CAL
+    assert sim.write("unimoc.startup.ext_vdc_V", real(48.0)) == pytest.approx(48.0)
+    results = sim.access("unimoc.startup.results").value.natural8.value
+    assert len(results) == 14 and results[1] == 1  # PWM_DISABLE passed
+
+    assert sim.write("unimoc.startup.run", natural8(0)) == 0  # abort
+    assert sim.read("unimoc.startup.step") == 13  # FAULT
+    assert sim.latest(sim.telemetry).power_stage == 0  # DISABLED
 
 
 def test_store_and_restart_keep_the_settings(sim: SimClient, dut):

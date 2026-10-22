@@ -42,7 +42,7 @@ struct TraceSignals {
   float i_q_ref{0.0F};           ///< q current reference of the cycle [A].
   float u_d{0.0F};               ///< d voltage demand [V].
   float u_q{0.0F};               ///< q voltage demand [V].
-  float electrical_angle{0.0F};  ///< Estimated electrical angle, (-pi, pi] [rad]; one cycle late.
+  float electrical_angle{0.0F};  ///< Estimated electrical angle, [0, 2 pi) [rad]; one cycle late.
   float electrical_speed{0.0F};  ///< Estimated electrical speed [rad/s]; one cycle late.
   float dc_link_voltage{0.0F};   ///< DC-link voltage [V].
   float i_a{0.0F};               ///< Phase current a, newest sample of the cycle [A].

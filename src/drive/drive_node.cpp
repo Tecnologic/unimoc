@@ -25,8 +25,8 @@
 #include <unimoc/drive/Telemetry_0_1.h>
 #include <array>
 #include <cmath>
-#include <numbers>
 #include <optional>
+#include "angle_wrap.hpp"
 #include "current_control_isr.hpp"
 #include "current_control_runtime.hpp"
 #include "cyphal/control_mode.hpp"
@@ -531,9 +531,6 @@ void DriveNode::PublishTelemetry() noexcept {
   const unit::Angle kAngle = isr.mech_obs.theta;
   const system::SinCos<unit::Ratio> kSinCos(kAngle);
   const auto kCurrent = state.raw_phase_currents.ToStator().ToRotor(kSinCos);
-  constexpr float kTwoPi = 2.0F * std::numbers::pi_v<float>;
-  float angle = std::fmod(kAngle.Value(), kTwoPi);
-  angle = (angle < 0.0F) ? angle + kTwoPi : angle;
 
   unimoc_drive_Telemetry_0_1 telemetry{};
   telemetry.control_cycles = state.control_cycles;
@@ -543,7 +540,7 @@ void DriveNode::PublishTelemetry() noexcept {
   telemetry.i_q_ref = state.i_ref.q.Value();
   telemetry.u_d = state.u_dq_last.d.Value();
   telemetry.u_q = state.u_dq_last.q.Value();
-  telemetry.electrical_angle = angle;
+  telemetry.electrical_angle = observer::WrapAnglePositive(kAngle).Value();
   telemetry.electrical_speed = isr.mech_obs.omega.Value();
   telemetry.dc_link_voltage = state.raw_vdc.Value();
   telemetry.power_stage = static_cast<uint8_t>(kPowerStage.GetState());

@@ -17,7 +17,7 @@ jobs:
   twister:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # west workspace layout: <workspace>/unimoc (this repository, the
           # manifest) next to <workspace>/zephyr and <workspace>/modules.
@@ -80,19 +80,19 @@ jobs:
           tar -C build/sim/zephyr -czf "firmware/sim/unimoc-native_sim-$version.tar.gz" \
               --transform "s/zephyr.exe/unimoc-native_sim/" zephyr.exe
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: unimoc-bcc
           path: firmware/bcc/
           if-no-files-found: error
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: unimoc-native_sim
           path: firmware/sim/
           if-no-files-found: error
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: twister-out
@@ -112,7 +112,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: unimoc-*
           path: firmware

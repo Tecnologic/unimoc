@@ -43,6 +43,16 @@ ZTEST(hall_decoder, test_wrap_angle_maps_to_one_revolution) {
   UNIMOC_EXPECT_FLOAT_EQ(WrapAngle(Angle{0.25F}).Value(), 0.25F);
 }
 
+ZTEST(hall_decoder, test_wrap_angle_positive_maps_to_zero_to_two_pi) {
+  UNIMOC_EXPECT_NEAR(WrapAnglePositive(Angle{-0.5F * kPi}).Value(), 1.5F * kPi, 1e-5F);
+  UNIMOC_EXPECT_NEAR(WrapAnglePositive(Angle{5.0F * kPi}).Value(), kPi, 1e-5F);
+  UNIMOC_EXPECT_FLOAT_EQ(WrapAnglePositive(Angle{2.0F * kPi}).Value(), 0.0F);
+  UNIMOC_EXPECT_FLOAT_EQ(WrapAnglePositive(Angle{0.25F}).Value(), 0.25F);
+  // Rounds to 2 pi when added; the result stays below 2 pi.
+  zexpect_true(WrapAnglePositive(Angle{-1e-9F}).Value() < 2.0F * kPi);
+  zexpect_true(WrapAnglePositive(Angle{-1e-9F}).Value() >= 0.0F);
+}
+
 ZTEST(hall_decoder, test_codes_map_to_sectors_and_invalid_codes_are_rejected) {
   for (uint8_t sector = 0U; sector < HallDecoder::kSectors; ++sector) {
     const auto kSector = HallDecoder::Sector(kForwardCodes[sector]);

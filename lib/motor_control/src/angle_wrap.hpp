@@ -50,4 +50,30 @@ namespace unimoc::observer {
   return unit::Angle{value};
 }
 
+/**
+ * @brief Wraps an angle to [0, 2 pi), the angle range reported on the bus.
+ *
+ * Same input contract as WrapAngle(): at most a few revolutions away from
+ * the range, a non-finite angle is returned unchanged. No libm call, so the
+ * zero-latency context may use it.
+ *
+ * @param angle Angle to wrap.
+ * @return The equivalent angle in [0, 2 pi).
+ */
+[[nodiscard]] constexpr unit::Angle WrapAnglePositive(const unit::Angle angle) noexcept {
+  constexpr float kTwoPi = 2.0F * std::numbers::pi_v<float>;
+  float value = angle.Value();
+  if (!std::isfinite(value)) {
+    return angle;
+  }
+  while (value >= kTwoPi) {
+    value -= kTwoPi;
+  }
+  while (value < 0.0F) {
+    value += kTwoPi;
+  }
+  // A tiny negative angle plus 2 pi rounds to 2 pi itself.
+  return unit::Angle{(value < kTwoPi) ? value : 0.0F};
+}
+
 }  // namespace unimoc::observer

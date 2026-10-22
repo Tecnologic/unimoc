@@ -6,10 +6,9 @@ on:
 jobs:
   doxygen:
     runs-on: ubuntu-latest
+    # Only the HTML is uploaded as an artifact; Pages is not deployed.
     permissions:
       contents: read
-      pages: write
-      id-token: write
     steps:
       - uses: actions/checkout@v7
         with:
@@ -18,7 +17,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y doxygen graphviz
       - run: mkdir -p build && doxygen docs/Doxyfile
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: doxygen-html
           path: build/doxygen/html

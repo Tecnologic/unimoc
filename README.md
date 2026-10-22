@@ -157,8 +157,8 @@ interfaces and the simulation registers are platform specific.
 > The BCC builds with the node on FDCAN3 but has not run on the board; its
 > SN65HVD230 is a classic CAN transceiver, so CAN FD frames run at 1 Mbit/s
 > without bit rate switch (`boards/unimoc/bcc/bcc.dts`).  Not implemented
-> yet: firmware update over Cyphal, the speed and position setpoints and the
-> startup FSM registers (`unimoc.startup.*`).  The cymon traces run on both
+> yet: firmware update over Cyphal and the speed and position setpoints.
+> The startup FSM runs over the `unimoc.startup.*` registers.  The cymon traces run on both
 > platforms; their cost in the control cycle is not yet measured on the board.
 
 ### Stack
@@ -255,7 +255,7 @@ function pointer); the services run in the Cyphal thread
 
 | IDs | Variables |
 |---|---|
-| 0..11 | `i_d`, `i_q`, `i_d_ref`, `i_q_ref` [A], `u_d`, `u_q` [V], `electrical_angle` [rad], `electrical_speed` [rad/s] (observer, one cycle late), `dc_link_voltage` [V], `i_a`, `i_b`, `i_c` [A] (newest sample) |
+| 0..11 | `i_d`, `i_q`, `i_d_ref`, `i_q_ref` [A], `u_d`, `u_q` [V], `electrical_angle` [rad, 0 to 2 pi], `electrical_speed` [rad/s] (observer, one cycle late), `dc_link_voltage` [V], `i_a`, `i_b`, `i_c` [A] (newest sample) |
 | 12.. (sim only) | Plant truth: `sim.i_a`..`sim.i_c`, `sim.i_d`, `sim.i_q`, `sim.electrical_angle`, `sim.electrical_speed`, `sim.mechanical_speed`, `sim.torque` |
 
 The sample period is a whole multiple of the control cycle; a capture of
@@ -380,9 +380,9 @@ to raise those capabilities.
 
 ## Hardware Bring-Up Guide
 
-> **Status:** not runnable yet.  The Cyphal node runs, but the startup FSM is
-> not connected to it: the `unimoc.startup.*` registers below do not exist yet
-> (`TODO.md`).  The steps describe the target behavior.  Log lines go to the
+> **Status:** runs on `native_sim` (ztest `unimoc.sim.cyphal_drive` and the
+> pycyphal integration test); not yet run on the board.  The FSM is driven by
+> the `unimoc.startup.*` registers and stepped in the Cyphal thread.  Log lines go to the
 > Zephyr log on SEGGER RTT and as `uavcan.diagnostic.Record` on the bus.
 
 `HwStartup` is a step-by-step bring-up wizard for commissioning a new UNIMOC
