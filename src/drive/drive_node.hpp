@@ -26,6 +26,7 @@
 #include "settings_register_provider.hpp"
 #include "settings_store.hpp"
 #include "startup_registers.hpp"
+#include "timing_registers.hpp"
 
 namespace unimoc::drive {
 
@@ -178,6 +179,7 @@ class DriveNode final : public cyphal::MessageListener,
   DriveInfoRegisters info_registers_;
   startup::HwStartup startup_;
   StartupRegisters startup_registers_;
+  TimingRegisters timing_registers_{};
   bool startup_active_{false};
 
   // Settings captured at start or at the last apply.

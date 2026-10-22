@@ -31,6 +31,7 @@
 #include "foc_stm32g4_dt.hpp"
 #include "hardware_interface_config.hpp"
 #include "hot_path_interface.hpp"
+#include "hot_path_timing.hpp"
 
 // Zephyr's pinctrl macro defines the pin table as a C array.
 // NOLINTBEGIN(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays,cppcoreguidelines-pro-bounds-array-to-pointer-decay)
@@ -74,6 +75,9 @@ constexpr uint32_t kCcr1WordOffset = offsetof(TIM_TypeDef, CCR1) / sizeof(uint32
 // control cycle. TIM8 never pends it itself: UIE stays 0 (only UDE is set).
 constexpr unsigned kObserverIrq = kTimerUpdateIrq;
 constexpr unsigned kObserverIrqPriority = 0U;  // highest normal (non zero-latency) priority
+
+// M0 execution times of the interrupts (hot_path_timing.hpp).
+constexpr bool kTiming = IS_ENABLED(CONFIG_UNIMOC_HOT_PATH_TIMING);
 
 // Break input (net PWM_BREAK): the external enable. High = released, low or open = break.
 const struct gpio_dt_spec kEnableInput = GPIO_DT_SPEC_GET_BY_IDX(DT_PATH(zephyr_user), break_gpios, 0);
@@ -212,6 +216,8 @@ bool OutsideWindow(const uint32_t raw, const uint32_t window) noexcept {
 }
 
 ISR_DIRECT_DECLARE(SampleIsr) {
+  // M0: from the first instruction, without the exception entry (12 cycles).
+  const uint32_t kEntry = kTiming ? DWT->CYCCNT : 0U;
   kAdcFast->ISR = ADC_ISR_JEOS;  // the sequence is complete, JDR1/JDR2 are valid
   const uint32_t kIa = kAdcFast->JDR1;
   const uint32_t kIb = kAdcB->JDR1;
@@ -232,15 +238,32 @@ ISR_DIRECT_DECLARE(SampleIsr) {
   g_sample_index = 0U;
   g_cycle.vdc = kAdcVdc->JDR1;
   g_cycle.timestamp = DWT->CYCCNT;  // the control boundary, in the clock of the Hall events
-  ControlCycleHandler();
+  if constexpr (kTiming) {
+    const uint32_t kStart = DWT->CYCCNT;
+    ControlCycleHandler();
+    timing::ProbeOf(timing::Section::kControlCycle).Record(DWT->CYCCNT - kStart);
+  } else {
+    ControlCycleHandler();
+  }
   g_cycle.overcurrent = false;
   NVIC_SetPendingIRQ(static_cast<IRQn_Type>(kObserverIrq));
+  if constexpr (kTiming) {
+    timing::ProbeOf(timing::Section::kSampleIsr).Record(DWT->CYCCNT - kEntry);
+  }
   return 0;
 }
 
 // ----- Observer interrupt (normal priority) ---------------------------------
 
-void ObserverIsr(const void* /*unused*/) { ObserverHandler(); }
+void ObserverIsr(const void* /*unused*/) {
+  if constexpr (kTiming) {
+    const uint32_t kStart = DWT->CYCCNT;
+    ObserverHandler();
+    timing::ProbeOf(timing::Section::kObserver).Record(DWT->CYCCNT - kStart);
+  } else {
+    ObserverHandler();
+  }
+}
 
 void ApplyTriggerLead(const uint32_t ticks) noexcept {
   // At least one tick, at most a quarter period, so both triggers stay in

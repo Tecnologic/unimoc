@@ -459,6 +459,36 @@ inline constexpr const char* kStartupAdcOffsetA = "unimoc.startup.adc_offset_a";
 /// Type: real32[1] (read-only after ADC_OFFSET_CAL step)
 inline constexpr const char* kStartupAdcOffsetB = "unimoc.startup.adc_offset_b";
 
+// =========================================================================
+// Execution times of the interrupts (M0, CONFIG_UNIMOC_HOT_PATH_TIMING)
+// =========================================================================
+
+/// Whole sample interrupt of a control boundary, including the control cycle:
+/// min, mean, max [timestamp-clock cycles] and the number of records.
+/// Type: natural32[4] (read-only)
+inline constexpr const char* kTimingSampleIsr = "unimoc.timing.sample_isr";
+
+/// The control cycle alone: min, mean, max [cycles], records.
+/// Type: natural32[4] (read-only)
+inline constexpr const char* kTimingControlCycle = "unimoc.timing.control_cycle";
+
+/// The observer alone: min, mean, max [cycles], records.
+/// Type: natural32[4] (read-only)
+inline constexpr const char* kTimingObserver = "unimoc.timing.observer";
+
+/// Duty plans applied late and control cycles that started while the
+/// observer still ran, since start.
+/// Type: natural32[2] (read-only)
+inline constexpr const char* kTimingOverruns = "unimoc.timing.overruns";
+
+/// Frequency of the timestamp clock the times count in [Hz].
+/// Type: natural32[1] (read-only)
+inline constexpr const char* kTimingClockHz = "unimoc.timing.clock_hz";
+
+/// Write 1: start new statistics (the overrun counters keep counting).
+/// Type: natural8[1] (read 0, write 1)
+inline constexpr const char* kTimingReset = "unimoc.timing.reset";
+
 // --- Phase current balance correction ---
 
 /// Phase-A ADC gain correction factor [dimensionless, ≈ 1.0].

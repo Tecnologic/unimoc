@@ -39,6 +39,7 @@
 #include <limits>
 #include <optional>
 #include "hot_path_interface.hpp"
+#include "hot_path_timing.hpp"
 #include "motor_simulation.hpp"
 #include "power_stage_interface.hpp"
 #include "sim_control.hpp"
@@ -128,6 +129,7 @@ PowerStageState GetPowerStageState() noexcept {
 
 using Duties = system::ThreePhase<Ratio>;
 constexpr Duties kNeutral{0.5_ratio, 0.5_ratio, 0.5_ratio};
+constexpr bool kTiming = IS_ENABLED(CONFIG_UNIMOC_HOT_PATH_TIMING);
 
 ::unimoc::sim::MotorSimulation g_plant;
 sim::PlantTrace g_plant_trace;
@@ -209,8 +211,20 @@ void RunCycle() noexcept {
   if (!g_initialized) {
     return;
   }
-  ControlCycleHandler();
-  ObserverHandler();
+  if constexpr (kTiming) {
+    // Simulated time stands still inside a cycle: the times are 0, the counts are real.
+    const uint32_t kStart = k_cycle_get_32();
+    ControlCycleHandler();
+    const uint32_t kControlEnd = k_cycle_get_32();
+    ObserverHandler();
+    const uint32_t kObserverEnd = k_cycle_get_32();
+    timing::ProbeOf(timing::Section::kControlCycle).Record(kControlEnd - kStart);
+    timing::ProbeOf(timing::Section::kSampleIsr).Record(kControlEnd - kStart);
+    timing::ProbeOf(timing::Section::kObserver).Record(kObserverEnd - kControlEnd);
+  } else {
+    ControlCycleHandler();
+    ObserverHandler();
+  }
 
   const uint64_t kStartNs = static_cast<uint64_t>(g_cycle_count) * g_cycle_ns;
   ControlCycleSamples next{};
@@ -326,6 +340,9 @@ uint32_t GetTimerClockFrequency() noexcept { return 170'000'000U; }
 bool PopHallEvent(observer::HallEvent& event) noexcept { return g_hall_events.Pop(event); }
 
 }  // namespace
+
+// The simulation applies every plan in time.
+uint32_t timing::DutyOverruns() noexcept { return 0U; }
 
 namespace hot_path {
 

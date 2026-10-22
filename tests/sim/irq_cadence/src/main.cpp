@@ -17,6 +17,7 @@
 #include <zephyr/ztest.h>
 #include "hardware_interface.hpp"
 #include "hot_path_interface.hpp"
+#include "hot_path_timing.hpp"
 #include "power_stage_interface.hpp"
 #include "sim_control.hpp"
 
@@ -128,6 +129,28 @@ ZTEST(sim_irq_cadence, test_stop_halts_the_cycle_source_until_the_next_initializ
   sim::StepCycle();
   zassert_equal(sim::CycleCount(), 1U);
   zassert_equal(g_control_count, kStopped + 1U);
+}
+
+ZTEST(sim_irq_cadence, test_timing_probe_keeps_min_mean_max_and_resets_at_the_next_record) {
+  unimoc::hardware::timing::Probe probe{};
+  zassert_equal(probe.Read().count, 0U);
+  zassert_equal(probe.Read().MeanCycles(), 0U);
+  probe.Record(30U);
+  probe.Record(10U);
+  probe.Record(20U);
+  auto stats = probe.Read();
+  zassert_equal(stats.min_cycles, 10U);
+  zassert_equal(stats.max_cycles, 30U);
+  zassert_equal(stats.MeanCycles(), 20U);
+  zassert_equal(stats.count, 3U);
+
+  probe.Reset();
+  zassert_equal(probe.Read().count, 3U, "the writer carries out the reset");
+  probe.Record(5U);
+  stats = probe.Read();
+  zassert_equal(stats.count, 1U);
+  zassert_equal(stats.min_cycles, 5U);
+  zassert_equal(stats.max_cycles, 5U);
 }
 
 ZTEST(sim_power_stage, test_enable_needs_external_enable) {

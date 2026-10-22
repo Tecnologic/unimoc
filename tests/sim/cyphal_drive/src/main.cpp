@@ -738,4 +738,39 @@ ZTEST(sim_cyphal_drive, test_emergency_stop_aborts_a_startup_run) {
   zexpect_equal(kPowerStage.GetState(), PowerStageState::kDisabled);
 }
 
+ZTEST(sim_cyphal_drive, test_timing_registers_count_the_interrupts_and_reset) {
+  Rig& rig = *g_rig;
+  rig.Run(2U);
+  const auto kStats = [&rig](const char* name) {
+    auto value = rig.Access(name, Empty());
+    zassert_true(uavcan_register_Value_1_0_is_natural32_(&value));
+    zassert_equal(value.natural32.value.count, 4U);
+    return value.natural32.value;
+  };
+  const auto kBefore = kStats(reg::kTimingControlCycle);
+  zexpect_true(kBefore.elements[3] > 0U, "records");
+  zexpect_true(kBefore.elements[0] <= kBefore.elements[1] && kBefore.elements[1] <= kBefore.elements[2]);
+  zexpect_true(kStats(reg::kTimingObserver).elements[3] > 0U);
+  zexpect_true(kStats(reg::kTimingSampleIsr).elements[3] > 0U);
+  zexpect_equal(Integer(rig.Access(reg::kTimingClockHz, Empty())), 1'000'000'000);
+
+  auto overruns = rig.Access(reg::kTimingOverruns, Empty());
+  zassert_true(uavcan_register_Value_1_0_is_natural32_(&overruns));
+  zexpect_equal(overruns.natural32.value.count, 2U);
+  zexpect_equal(overruns.natural32.value.elements[0], 0U);  // the simulation applies every plan
+
+  // Read only; the reset starts new statistics at the next record.
+  zexpect_equal(Integer(rig.Access(reg::kTimingControlCycle, Natural8(1U))), 0);
+  zexpect_equal(Integer(rig.Access(reg::kTimingReset, Natural8(2U))), 0);  // only 1
+  const uint32_t kBeforeReset = kStats(reg::kTimingControlCycle).elements[3];
+  zexpect_equal(Integer(rig.Access(reg::kTimingReset, Natural8(1U))), 0);
+  rig.Run(1U);
+  const uint32_t kAfter = kStats(reg::kTimingControlCycle).elements[3];
+  // Each access advances the simulation by a few cycles.
+  zexpect_true(kAfter >= kCyclesPerMs && kAfter < kBeforeReset,
+               "records %u, before the reset %u",
+               kAfter,
+               kBeforeReset);
+}
+
 ZTEST_SUITE(sim_cyphal_drive, nullptr, nullptr, Before, After, nullptr);

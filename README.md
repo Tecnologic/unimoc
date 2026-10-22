@@ -261,6 +261,29 @@ function pointer); the services run in the Cyphal thread
 The sample period is a whole multiple of the control cycle; a capture of
 8 channels by 256 frames takes about 0.4 s of bus time at 1 Mbit/s.
 
+### Interrupt timing (M0)
+
+With `CONFIG_UNIMOC_HOT_PATH_TIMING=y` the platform measures the sample
+interrupt of each control boundary (including the control cycle), the control
+cycle alone and the observer in cycles of the DWT counter (170 MHz on the
+BCC; `hardware/hot_path_timing.hpp`).  Read-only registers:
+
+| Register | Type | Content |
+|---|---|---|
+| `unimoc.timing.sample_isr`, `.control_cycle`, `.observer` | natural32[4] | min, mean, max [cycles], number of records |
+| `unimoc.timing.overruns` | natural32[2] | duty plans applied late, control cycles that started while the observer still ran |
+| `unimoc.timing.clock_hz` | natural32[1] | the timestamp clock |
+| `unimoc.timing.reset` | natural8[1] | write 1: new statistics |
+
+```sh
+west build -b bcc unimoc/app -d unimoc/app/build/bcc -- -DCONFIG_UNIMOC_HOT_PATH_TIMING=y
+yakut call 10 uavcan.register.access '{name: {name: unimoc.timing.control_cycle}}'
+```
+
+The times start at the first instruction of the handler (the 12 cycles of
+the exception entry are not included).  On `native_sim` the counts are real,
+the times are 0: simulated time stands still inside a cycle.
+
 ```sh
 cymon serve -i socketcan:vcan0 --dsdl unimoc/dsdl/unimoc --open      # simulation
 cymon serve -i canable:/dev/ttyACM0 --dsdl unimoc/dsdl/unimoc --open # BCC, CANable 2.0

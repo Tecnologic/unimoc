@@ -136,6 +136,7 @@ bool DriveNode::Start(const uint64_t now_us) noexcept {
   bool subscribed = node_->AddRegisterProvider(settings_registers_);
   subscribed = node_->AddRegisterProvider(info_registers_) && subscribed;
   subscribed = node_->AddRegisterProvider(startup_registers_) && subscribed;
+  subscribed = node_->AddRegisterProvider(timing_registers_) && subscribed;
   subscribed =
       node_->Subscribe(readiness_port_, reg_udral_service_common_Readiness_0_1_EXTENT_BYTES_, *this) &&
       subscribed;

@@ -28,6 +28,7 @@
 #include "foc_stm32g4.hpp"
 #include "foc_stm32g4_dt.hpp"
 #include "hot_path_interface.hpp"
+#include "hot_path_timing.hpp"
 #include "zephyr_settings_storage.hpp"
 
 namespace unimoc::hardware {
@@ -254,6 +255,8 @@ uint32_t GetTimerClockFrequency() noexcept {
 }
 
 }  // namespace
+
+uint32_t timing::DutyOverruns() noexcept { return foc_stm32g4::DutyOverruns(); }
 
 namespace hot_path {
 
