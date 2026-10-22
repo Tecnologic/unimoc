@@ -290,6 +290,16 @@ def test_paused_simulation_advances_by_whole_cycles(sim: SimClient):
     sim.write("unimoc.sim.advance", natural16(20000))  # more than 1 s at once: refused
     assert sim.read("unimoc.sim.cycle_count") == start + 1600
 
+    # Reset: virtual time 0, plant at standstill, still paused; then exactly 16 cycles.
+    assert sim.write("unimoc.sim.imposed_speed", real(10.0)) == pytest.approx(10.0)
+    sim.write("unimoc.sim.advance", natural16(160))
+    sim.write("unimoc.sim.reset", natural8(1))
+    assert sim.read("unimoc.sim.cycle_count") == 0
+    assert sim.read("unimoc.sim.paused")
+    sim.write("unimoc.sim.advance", natural16(16))
+    assert sim.read("unimoc.sim.cycle_count") == 16
+    assert sim.write("unimoc.sim.imposed_speed", real(0.0)) == 0
+
     # A settings restart of the controller keeps the pause (the count restarts with it).
     assert sim.write("unimoc.control.speed.kp", real(0.01)) == pytest.approx(0.01)
     sim.hold(0.2, STANDBY)

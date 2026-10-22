@@ -358,7 +358,10 @@ across a settings restart of the controller; then a write of
 `unimoc.sim.advance` (natural32, at most 16000 = 1 s) runs that many control
 cycles before the response.  `unimoc.sim.cycle_count` and
 `unimoc.sim.cycle_period_ns` (62500 at 32 kHz PWM) give the virtual time; the
-count restarts with the controller.  The drive's readiness and setpoint
+count restarts with the controller.  A write of 1 to `unimoc.sim.reset`
+(refused while the power stage is enabled) puts the plant back to
+standstill, the virtual time to 0 and restarts the controller with the
+applied settings; register inputs and a pause stay.  The drive's readiness and setpoint
 timeouts still run in real time, so keep publishing the readiness while
 paused.
 

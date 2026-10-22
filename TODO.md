@@ -36,7 +36,7 @@ items that need the board are collected below and wait for hardware access.
  - [x] cymon traces over Cyphal ([docs/cymon_integration_plan.md](docs/cymon_integration_plan.md)): cymon-lib 0.2 linked, `cymon.*` services and trigger event, `Tick()` in the control cycle, plant truth on `native_sim`; the host tool is cymon (<https://github.com/Tecnologic/cymon>).
  - [ ] Measure the cost of the trace `Tick()` in the control cycle on the BCC (M0, target < 1 us); move it to the observer interrupt if it is too slow.
  - [ ] Firmware update over Cyphal: `ExecuteCommand BEGIN_SOFTWARE_UPDATE`, `uavcan.file.Read` into flash bank 2, bootloader swap; USB DFU as recovery.
- - [ ] Simulation-control commands over Cyphal for deterministic runs (SIL P2): pause and fixed-cycle advance done (`unimoc.sim.paused`, `.advance`, `.cycle_count`, `.cycle_period_ns`, pycyphal test); open: reset, run-until, the drive's timeouts in virtual time.
+ - [ ] Simulation-control commands over Cyphal for deterministic runs (SIL P2): pause, fixed-cycle advance and reset done (`unimoc.sim.paused`, `.advance`, `.reset`, `.cycle_count`, `.cycle_period_ns`, pycyphal test); open: run-until, the drive's timeouts in virtual time.
  - [ ] Live tuning while engaged: register writes reach the controller only by a runtime restart while disengaged (`docs/settings_plan.md`, open item 1).
  - [x] Write the M0 instrumentation: `CONFIG_UNIMOC_HOT_PATH_TIMING` (off by default), `hardware::timing::Probe` (lock-free, writer the interrupt, reset at the next record), DWT cycles around the sample ISR of the boundary, the control cycle and the observer; min/mean/max, duty and observer overruns in the `unimoc.timing.*` registers. ztests on `native_sim` (counts only), BCC build scenario `unimoc.app.build.timing`; the numbers wait for the board (M0 on the board). No log output: the registers are read with yakut.
  - [ ] Check whether the hot path (sample ISR, control cycle, buffers) belongs in CCM SRAM on the G4 (`docs/hotpath_plan.md`, "Risks and Open Points"); decide with the M0 timing numbers.
@@ -142,7 +142,7 @@ criteria.
  - [x] Map standard Cyphal register operations to the settings operation boundary.
  - [ ] Route torque, speed, position, and excitation setpoints into the normal controller input path (torque, d/q current, speed, position and the UDRAL servo done; excitation open).
  - [ ] Publish telemetry and heartbeat with explicit virtual-time semantics (published in real time today; the telemetry carries the control-cycle count).
- - [ ] Add simulation-control commands for reset, fixed-cycle advance, run-until, snapshot, and clock status (pause, fixed-cycle advance and clock status done as `unimoc.sim.*` registers).
+ - [ ] Add simulation-control commands for reset, fixed-cycle advance, run-until, snapshot, and clock status (pause, fixed-cycle advance, reset and clock status done as `unimoc.sim.*` registers).
  - [ ] Add protocol and localhost end-to-end tests for single- and multi-node operation (single node done: `unimoc.app.cyphal_integration`).
 
 ### P3 - Create the Python command-and-control GUI

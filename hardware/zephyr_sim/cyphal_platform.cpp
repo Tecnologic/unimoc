@@ -32,7 +32,9 @@
 #include <numbers>
 #include <string_view>
 #include <tuple>
+#include "current_control_runtime.hpp"
 #include "cyphal/register_value.hpp"
+#include "power_stage_interface.hpp"
 #include "sim_cmdline.h"
 #include "sim_control.hpp"
 #include "slcan_media.hpp"
@@ -58,6 +60,7 @@ struct PlantInputs {
 };
 
 PlantInputs g_inputs;
+settings::NvmSettings g_applied_settings{};  ///< The settings the controller last started with.
 cyphal::Publisher g_plant_publisher{cyphal::kPubSimPlant, cyphal::Priority::kHigh, 0U};
 uint64_t g_plant_period_us = 0U;
 uint64_t g_next_plant_us = 0U;
@@ -86,12 +89,13 @@ enum class SimRegister : uint8_t {
   kAdvance,
   kCycleCount,
   kCyclePeriodNs,
+  kReset,
 };
 
 /// Most control cycles one write of `unimoc.sim.advance` runs (1 s of virtual time at 16 kHz).
 constexpr int64_t kMaxAdvanceCycles = 16000;
 
-constexpr std::array<std::string_view, 12> kNames{
+constexpr std::array<std::string_view, 13> kNames{
     "unimoc.sim.shaft_mode",
     "unimoc.sim.imposed_speed",
     "unimoc.sim.load_torque",
@@ -104,7 +108,27 @@ constexpr std::array<std::string_view, 12> kNames{
     "unimoc.sim.advance",
     "unimoc.sim.cycle_count",
     "unimoc.sim.cycle_period_ns",
+    "unimoc.sim.reset",
 };
+
+/**
+ * @brief Back to the state after the start: plant at standstill, virtual time 0, controller restarted.
+ *
+ * The plant keeps its configuration and the register inputs (shaft mode,
+ * load, DC link). Refused while the power stage is enabled (engaged or a
+ * startup run). A paused simulation stays paused.
+ */
+bool ResetSimulation() noexcept {
+  if (kPowerStage.GetState() == PowerStageState::kEnabled) {
+    return false;
+  }
+  kMotors[0].Stop();  // no cycle while the platform and the controller restart
+  sim::Reset();
+  ApplyInputs();
+  return current_control::StartRuntime(g_applied_settings,
+                                       kMotors[0],
+                                       kSettings.GetSettingsProfile().capabilities.max_phase_current);
+}
 
 /// Registers of the simulated plant; not persistent, the plant starts from the defaults.
 class SimRegisters final : public cyphal::RegisterProvider {
@@ -153,6 +177,9 @@ class SimRegisters final : public cyphal::RegisterProvider {
       case SimRegister::kCyclePeriodNs:
         cyphal::SetNatural32(value, static_cast<uint32_t>(sim::CyclePeriodNs()));
         return {false, false};
+      case SimRegister::kReset:
+        cyphal::SetNatural8(value, 0U);  // write 1: reset
+        break;
     }
     return {true, false};
   }
@@ -217,6 +244,11 @@ class SimRegisters final : public cyphal::RegisterProvider {
         sim::AdvanceCycles(static_cast<uint32_t>(*kCycles));
         return RegisterWriteResult::kAccepted;
       }
+      case SimRegister::kReset:
+        if (kValue != 1.0F || !ResetSimulation()) {
+          return RegisterWriteResult::kOutOfRange;
+        }
+        return RegisterWriteResult::kAccepted;
     }
     ApplyInputs();
     return RegisterWriteResult::kAccepted;
@@ -267,6 +299,7 @@ std::span<cyphal::CanMedia* const> CyphalPlatformInterfaces() noexcept { return 
 void CyphalPlatformStart(cyphal::CyphalNode& node, const settings::NvmSettings& settings) noexcept {
   (void)node.AddRegisterProvider(g_registers);
   (void)node.AddPublisher(g_plant_publisher);
+  g_applied_settings = settings;
   SetPlantRate(settings);
   ApplyInputs();
 }
@@ -323,6 +356,7 @@ void CyphalPlatformSpin(cyphal::CyphalNode& node, const uint64_t now_us) noexcep
 }
 
 void CyphalPlatformSettingsApplied(const settings::NvmSettings& settings) noexcept {
+  g_applied_settings = settings;
   SetPlantRate(settings);
   if (!g_inputs.follow_settings) {
     return;
