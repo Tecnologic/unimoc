@@ -22,6 +22,10 @@
  *        the new plan, entry 3 carries over. Each half period ends with a
  *        current sample and the per-sample overcurrent check.
  *
+ *    Timestamps are nanoseconds of virtual time. A change of the simulated
+ *    Hall code is queued with the time of the edge, as the EXTI capture of
+ *    the BCC does (HardwareInterface::PopHallEvent()).
+ *
  *    SPDX-License-Identifier: GPL-3.0-or-later
  *
  *    This file is part of UNIMOC and is licensed under GPL-3.0-or-later.
@@ -33,6 +37,7 @@
 #include <array>
 #include <cmath>
 #include <limits>
+#include <optional>
 #include "hot_path_interface.hpp"
 #include "motor_simulation.hpp"
 #include "power_stage_interface.hpp"
@@ -56,6 +61,10 @@ const settings::SettingsProfile kSettingsProfile = [] {
   // Same duty range as the BCC (sampling window and minimum pulse, see there).
   profile.factory_settings.svm_duty_min = 0.03_ratio;
   profile.factory_settings.svm_duty_max = 0.97_ratio;
+  // The simulated Hall sensors are ideal and aligned (offset 0): fuse them,
+  // and weight the flux observer down at low speed.
+  profile.factory_settings.hall_enable = 1U;
+  profile.factory_settings.pmsm_flux_obs_r_speed = 1.0F;
   profile.factory_settings.motor_i_max = 50.0_A;  // current controller limit
   profile.factory_settings.battery_drive_current_max = 50.0_A;
   profile.factory_settings.battery_charge_current_max = 20.0_A;
@@ -128,6 +137,11 @@ bool g_current_override = false;
 system::ThreePhase<Current> g_override_currents{};
 uint32_t g_cycle_count = 0U;
 
+observer::HallEventQueue<16U> g_hall_events;
+uint8_t g_last_hall_code = 0U;             // last queued code
+std::optional<uint8_t> g_hall_override{};  // fault injection: the code the sensors report
+uint64_t g_half_period_ns = 0U;
+
 struct k_timer g_cycle_timer;
 bool g_free_running = false;
 uint64_t g_cycle_ns = 0U;    // exact cycle period
@@ -136,6 +150,30 @@ uint64_t g_elapsed_us = 0U;  // the same, rounded down to the 1 us kernel tick
 
 system::ThreePhase<Current> MeasuredCurrents() noexcept {
   return g_current_override ? g_override_currents : g_plant.Output().phase_currents;
+}
+
+uint8_t MeasuredHallCode() noexcept { return g_hall_override.value_or(g_plant.Output().hall.code); }
+
+/// Queues the Hall code when it changed; @p time_ns is the end of the half period just simulated.
+void CaptureHall(const uint64_t time_ns) noexcept {
+  const uint8_t kCode = MeasuredHallCode();
+  if (kCode == g_last_hall_code) {
+    return;
+  }
+  uint64_t edge_ns = time_ns;
+  const auto& hall = g_plant.Output().hall;
+  if (!g_hall_override.has_value() && hall.edge) {
+    edge_ns -= static_cast<uint64_t>(hall.edge_age.Value() * 1.0e9F);
+  }
+  g_last_hall_code = kCode;
+  (void)g_hall_events.Push(observer::HallEvent{kCode, static_cast<uint32_t>(edge_ns)});
+}
+
+/// Starts the Hall capture again: the queue holds only the present code.
+void RestartHallCapture() noexcept {
+  g_hall_events.Clear();
+  g_last_hall_code = 0U;
+  CaptureHall(static_cast<uint64_t>(g_cycle_count) * g_cycle_ns);
 }
 
 bool Exceeds(const system::ThreePhase<Current>& currents) noexcept {
@@ -153,6 +191,7 @@ void RunCycle() noexcept {
   ControlCycleHandler();
   ObserverHandler();
 
+  const uint64_t kStartNs = static_cast<uint64_t>(g_cycle_count) * g_cycle_ns;
   ControlCycleSamples next{};
   for (uint8_t k = 0U; k < kHalfPeriodsPerCycle; ++k) {
     const Duties& duty = (k == 0U) ? g_carry : g_plan.duties[k - 1U];
@@ -160,6 +199,7 @@ void RunCycle() noexcept {
     g_plant.SetBridgeEnabled(g_power_stage.enabled);
     g_plant.SetPhaseDuties(duty);
     (void)g_plant.Step(g_half_period);
+    CaptureHall(kStartNs + (k + 1U) * g_half_period_ns);
 
     // Sample at the end of the half period, then the per-sample check.
     next.phase_currents[k] = MeasuredCurrents();
@@ -169,6 +209,7 @@ void RunCycle() noexcept {
     }
   }
   next.dc_link = g_plant.Output().dc_link_voltage;
+  next.timestamp = static_cast<uint32_t>(kStartNs + kHalfPeriodsPerCycle * g_half_period_ns);
   g_carry = g_plan.duties[kHalfPeriodsPerCycle - 1U];
   g_samples = next;
   ++g_cycle_count;
@@ -232,7 +273,9 @@ bool Initialize(Frequency pwm_frequency, uint32_t /*unused*/) noexcept {
   g_initialized = true;
   g_half_period = Time{1.0F / (2.0F * pwm_frequency.Value())};
   g_cycle_ns = (kHalfPeriodsPerCycle * 1'000'000'000ULL) / (2U * kPwmHz);
+  g_half_period_ns = 1'000'000'000ULL / (2U * kPwmHz);
   ResetCycleState();
+  RestartHallCapture();
 
   StartTimer();
   return true;
@@ -249,6 +292,9 @@ void SetOvercurrentLimit(const Current limit) noexcept { g_overcurrent_limit = l
 void SetAdcTriggerOffset(uint32_t /*unused*/) noexcept {}
 
 uint32_t GetTimerClockFrequency() noexcept { return 170'000'000U; }
+
+// The observer is the only consumer; it runs in the cycle timer like the producer.
+bool PopHallEvent(observer::HallEvent& event) noexcept { return g_hall_events.Pop(event); }
 
 }  // namespace
 
@@ -280,6 +326,18 @@ void SetPhaseCurrentOverride(const float a, const float b, const float c) noexce
 
 void ClearPhaseCurrentOverride() noexcept { g_current_override = false; }
 
+void SetHallCodeOverride(const uint8_t code) noexcept {
+  const unsigned int kIrqKey = irq_lock();
+  g_hall_override = code;
+  irq_unlock(kIrqKey);
+}
+
+void ClearHallCodeOverride() noexcept {
+  const unsigned int kIrqKey = irq_lock();
+  g_hall_override.reset();
+  irq_unlock(kIrqKey);
+}
+
 ::unimoc::sim::MotorSimulation& Plant() noexcept { return g_plant; }
 
 void SetFreeRunning(const bool running) noexcept {
@@ -308,6 +366,7 @@ void Reset() noexcept {
   g_power_stage.enabled = false;
   g_power_stage.fault = !g_power_stage.external_enable;
   ResetCycleState();
+  RestartHallCapture();
   irq_unlock(kIrqKey);
 }
 
@@ -344,6 +403,7 @@ const std::array<HardwareInterface, kMotorCount> kMotors = {HardwareInterface(In
                                                                               GetTemperatureMeasurements,
                                                                               SetOvercurrentLimit,
                                                                               SetAdcTriggerOffset,
-                                                                              GetTimerClockFrequency)};
+                                                                              GetTimerClockFrequency,
+                                                                              PopHallEvent)};
 
 }  // namespace unimoc::hardware

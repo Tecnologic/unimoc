@@ -178,6 +178,28 @@ ZTEST(position_controller, test_converges_to_setpoint) {
   UNIMOC_EXPECT_NEAR(pos, 2.0F, 0.1F);
 }
 
+// --- The position loop alone: P gain, acceleration and speed limit, in-position flag
+ZTEST(position_controller, test_speed_demand_is_the_limited_position_loop) {
+  auto c = MakeDefault();
+  c.pos_ref_rad = Angle{0.2F};
+  // 0.2 rad error * 10 = 2 rad/s, but the acceleration limit allows 500 * 1 ms = 0.5 rad/s.
+  UNIMOC_EXPECT_NEAR(c.SpeedDemand(Angle{}, AngularVelocity{}, 1_ms).Value(), 0.5F, 1e-5F);
+  UNIMOC_EXPECT_NEAR(c.SpeedDemand(Angle{}, AngularVelocity{}, 1_ms).Value(), 1.0F, 1e-5F);
+  for (int i = 0; i < 10; ++i) {
+    (void)c.SpeedDemand(Angle{}, AngularVelocity{}, 1_ms);
+  }
+  UNIMOC_EXPECT_NEAR(c.SpeedDemand(Angle{}, AngularVelocity{}, 1_ms).Value(), 2.0F, 1e-5F);
+  zexpect_false(c.in_position);
+
+  // Far away: the speed limit, independent of the measured speed (no speed loop here).
+  c.pos_ref_rad = Angle{0.4F};
+  for (int i = 0; i < 200; ++i) {
+    (void)c.SpeedDemand(Angle{0.35F}, AngularVelocity{40.0F}, 1_ms);
+  }
+  UNIMOC_EXPECT_NEAR(c.SpeedDemand(Angle{0.395F}, AngularVelocity{0.1F}, 1_ms).Value(), 0.05F, 1e-4F);
+  zexpect_true(c.in_position);
+}
+
 }  // namespace unimoc::control::test
 
 ZTEST_SUITE(position_controller, nullptr, nullptr, nullptr, nullptr, nullptr);

@@ -86,6 +86,11 @@ void CurrentControlIsr::Init(const settings::NvmSettings& settings,
   state.control_cycles = 0U;
   state.duty_plan = hardware::DutyPlan{};
   state.phase_duties = system::ThreePhase<unit::Ratio>{0.5_ratio, 0.5_ratio, 0.5_ratio};
+  // A restart leaves a bring-up mode: the control loop runs again, from zero
+  // current until the outer loop hands over a reference.
+  force_duty_active = false;
+  state.i_ref = system::Rotor<unit::Current>{0.0F, 0.0F};
+  state.i_ref_mailbox.Write(state.i_ref);
 }
 
 // =============================================================================
@@ -120,6 +125,7 @@ void CurrentControlIsr::OnControlCycle() noexcept {
   // -------------------------------------------------------------------------
   state.raw_phase_currents = kSamples.phase_currents[kNumSubSteps - 1U];
   state.raw_vdc = unit::Voltage{kDcLinkVoltage};
+  state.i_ref = state.i_ref_mailbox.Read();
 
   // -------------------------------------------------------------------------
   // 1b. Hard overcurrent limit. The hardware has checked every sample and
@@ -161,6 +167,7 @@ void CurrentControlIsr::OnControlCycle() noexcept {
   }
   const uint8_t kActiveBuffer = state.double_buf.active.load(std::memory_order_acquire);
   SubStepBuffer& buffer = state.double_buf.buf[kActiveBuffer];
+  buffer.timestamp = kSamples.timestamp;
 
   // -------------------------------------------------------------------------
   // 3. Clarke per sample, Park with the angle of the sample, mean d/q current.

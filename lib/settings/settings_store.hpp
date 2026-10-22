@@ -63,7 +63,9 @@ namespace settings_store_internal {
          std::isfinite(settings.asm_l_r.Value()) && std::isfinite(settings.asm_l_m.Value()) &&
          std::isfinite(settings.motor_j.Value()) && std::isfinite(settings.mech_obs_q) &&
          std::isfinite(settings.mech_obs_r) && std::isfinite(settings.pmsm_flux_obs_c_d.Value()) &&
-         std::isfinite(settings.pmsm_flux_obs_c_q.Value()) && std::isfinite(settings.asm_obs_g_i.Value()) &&
+         std::isfinite(settings.pmsm_flux_obs_c_q.Value()) && std::isfinite(settings.pmsm_flux_obs_r_speed) &&
+         std::isfinite(settings.hall_offset.Value()) && std::isfinite(settings.hall_r_edge) &&
+         std::isfinite(settings.hall_r_sector) && std::isfinite(settings.asm_obs_g_i.Value()) &&
          std::isfinite(settings.asm_obs_g_flux.Value()) && std::isfinite(settings.asm_flux_kp.Value()) &&
          std::isfinite(settings.asm_flux_ki.Value()) && std::isfinite(settings.asm_flux_i_d_min.Value()) &&
          std::isfinite(settings.asm_flux_i_d_max.Value()) && std::isfinite(settings.fw_v_max.Value()) &&
@@ -79,9 +81,11 @@ namespace settings_store_internal {
          std::isfinite(settings.excitation_i_f_min.Value()) &&
          std::isfinite(settings.excitation_i_f_max.Value()) &&
          std::isfinite(settings.excitation_obs_tau.Value()) &&
-         std::isfinite(settings.excitation_obs_l_m.Value()) && std::isfinite(settings.pos_kp_pos.Value()) &&
-         std::isfinite(settings.pos_kp_speed.Value()) && std::isfinite(settings.pos_ki_speed.Value()) &&
-         std::isfinite(settings.pos_speed_limit.Value()) && std::isfinite(settings.pos_accel_limit.Value()) &&
+         std::isfinite(settings.excitation_obs_l_m.Value()) && std::isfinite(settings.speed_kp.Value()) &&
+         std::isfinite(settings.speed_ki.Value()) && std::isfinite(settings.speed_accel_limit.Value()) &&
+         std::isfinite(settings.pos_kp_pos.Value()) && std::isfinite(settings.pos_kp_speed.Value()) &&
+         std::isfinite(settings.pos_ki_speed.Value()) && std::isfinite(settings.pos_speed_limit.Value()) &&
+         std::isfinite(settings.pos_accel_limit.Value()) &&
          std::isfinite(settings.pos_position_tolerance.Value()) &&
          std::isfinite(settings.pos_speed_tolerance.Value()) &&
          std::isfinite(settings.pos_homing_speed.Value()) && std::isfinite(settings.adc_offset_a.Value()) &&
@@ -103,7 +107,8 @@ namespace settings_store_internal {
   const bool kValidPwmFrequency = kPwmFrequencyHz == 16000.0F || kPwmFrequencyHz == 20000.0F ||
                                   kPwmFrequencyHz == 24000.0F || kPwmFrequencyHz == 28000.0F ||
                                   kPwmFrequencyHz == 32000.0F;
-  return kValidMotorType && kValidControlMode && kValidPwmFrequency && settings.excitation_mode <= 1U;
+  return kValidMotorType && kValidControlMode && kValidPwmFrequency && settings.excitation_mode <= 1U &&
+         settings.hall_enable <= 1U;
 }
 
 [[nodiscard]] inline bool IsValidProfile(const SettingsProfile& profile) noexcept {
@@ -156,6 +161,13 @@ inline constexpr unit::Time kMaxCommandTimeout{10.0F};
     return SettingsStatus::kOutOfRange;
   }
 
+  // Noise variances are positive; gains, weights and limits are not negative.
+  if (settings.mech_obs_r <= 0.0F || settings.pmsm_flux_obs_r_speed < 0.0F || settings.hall_r_edge <= 0.0F ||
+      settings.hall_r_sector <= 0.0F || settings.speed_kp.Value() < 0.0F ||
+      settings.speed_ki.Value() < 0.0F || settings.speed_accel_limit.Value() < 0.0F) {
+    return SettingsStatus::kOutOfRange;
+  }
+
   const auto kIsRatio = [](const unit::Ratio value) {
     return value.Value() >= 0.0F && value.Value() <= 1.0F;
   };
@@ -173,9 +185,11 @@ inline constexpr unit::Time kMaxCommandTimeout{10.0F};
     return port_id <= kMaxSubjectId || port_id == cyphal::kUnsetPortId;
   };
   if (!kIsSubjectId(settings.sub_readiness_id) || !kIsSubjectId(settings.sub_current_setpoint_id) ||
-      !kIsSubjectId(settings.sub_torque_setpoint_id) || !kIsSubjectId(settings.pub_telemetry_id) ||
-      settings.telemetry_rate.Value() < 0.0F || settings.telemetry_rate > kMaxTelemetryRate ||
-      settings.command_timeout.Value() <= 0.0F || settings.command_timeout > kMaxCommandTimeout) {
+      !kIsSubjectId(settings.sub_torque_setpoint_id) || !kIsSubjectId(settings.sub_speed_setpoint_id) ||
+      !kIsSubjectId(settings.sub_position_setpoint_id) || !kIsSubjectId(settings.sub_servo_setpoint_id) ||
+      !kIsSubjectId(settings.pub_telemetry_id) || settings.telemetry_rate.Value() < 0.0F ||
+      settings.telemetry_rate > kMaxTelemetryRate || settings.command_timeout.Value() <= 0.0F ||
+      settings.command_timeout > kMaxCommandTimeout) {
     return SettingsStatus::kOutOfRange;
   }
 

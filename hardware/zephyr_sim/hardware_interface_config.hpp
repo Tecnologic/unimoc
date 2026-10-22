@@ -46,4 +46,8 @@ inline constexpr bool kMotorTemperatureAvailable = false;
 // kHalfPeriodsPerCycle samples.
 inline constexpr uint8_t kHalfPeriodsPerCycle = 4U;
 
+// Timestamps of the control boundary and the Hall edges: nanoseconds of
+// virtual (simulated) time, wrapping every 4.3 s.
+inline constexpr uint32_t kTimestampFrequency = 1'000'000'000U;
+
 }  // namespace unimoc::hardware

@@ -15,7 +15,11 @@
  */
 #pragma once
 
+#include <cstddef>
+#include <cstdint>
 #include "current_control_isr.hpp"
+#include "hall_fusion.hpp"
+#include "hardware_interface.hpp"
 #include "nvm_settings.hpp"
 #include "pmsm_flux_observer.hpp"
 #include "rotor_system.hpp"
@@ -34,18 +38,27 @@ namespace unimoc::current_control {
  *
  * Overview
  * --------
- * `SlowUpdate` owns the `PmsmFluxObserver` and drives the `MechanicalObserver`
- * prediction step. After every control cycle (signalled through
+ * `SlowUpdate` owns the `PmsmFluxObserver` and the Hall fusion and drives
+ * the `MechanicalObserver` (docs/hotpath_plan.md, D2 and section 5). After
+ * every control cycle (signalled through
  * `CurrentControlIsr::state.observer_pending`) it:
  *
  *  1. Takes the mean d/q current and the voltage demand of the cycle from the
  *     buffer the control cycle used.
- *  2. Calls the PMSM flux observer and the mechanical Kalman predict step,
- *     and feeds the four samples to the HFI observer when HFI is active.
- *  3. Computes the angles of the next cycle (Park angle of each sample and
+ *  2. Predicts the covariance of the mechanical Kalman filter for the cycle.
+ *  3. Updates it with the angle measurements of the cycle, each with its own
+ *     noise: the PMSM flux observer (weighted down at low speed, where it
+ *     has no back-EMF) and, when enabled, the Hall edges captured by the
+ *     platform and the Hall sector.
+ *  4. Predicts the state to the next cycle and feeds the four samples to the
+ *     HFI observer when HFI is active.
+ *  5. Computes the angles of the next cycle (Park angle of each sample and
  *     inverse-Park angle of each duty entry, projected forward by
  *     `omega × dt_fast`) into the **inactive** buffer.
- *  4. Atomically flips the double buffer so the next control cycle uses them.
+ *  6. Atomically flips the double buffer so the next control cycle uses them.
+ *
+ * The estimate before the state prediction refers to the first sample of the
+ * cycle that just finished; the Hall edges are projected to that time.
  *
  * Execution model
  * ---------------
@@ -60,7 +73,7 @@ namespace unimoc::current_control {
  * @code
  *   auto& isr   = unimoc::current_control::CurrentControlIsr::Instance();
  *   auto& slow  = unimoc::current_control::SlowUpdate::Instance();
- *   slow.Init(settings, isr);
+ *   slow.Init(settings, isr, motor);
  *
  *   // Observer interrupt, after each control cycle:
  *   slow.RunOnce();
@@ -90,8 +103,11 @@ class SlowUpdate {
    * @param settings  NVM settings (motor params, observer gains).
    * @param isr       Reference to the ISR instance whose shared state and
    *                  `MechanicalObserver` this task will update.
+   * @param hardware  Hardware access of the motor (the captured Hall events).
    */
-  void Init(const settings::NvmSettings& settings, CurrentControlIsr& isr) noexcept;
+  void Init(const settings::NvmSettings& settings,
+            CurrentControlIsr& isr,
+            const hardware::HardwareInterface& hardware) noexcept;
 
   // =========================================================================
   // Setpoint interface (called from outer control loop)
@@ -128,15 +144,40 @@ class SlowUpdate {
   // Observer instance (public so outer loop can read psi_pm_d etc.)
   // =========================================================================
 
+  // NOLINTBEGIN(cppcoreguidelines-non-private-member-variables-in-classes): read
+  // by the outer loop, the telemetry and the tests; written only here.
+
   /// PMSM voltage-model flux observer owned by the slow-update task.
-  // NOLINTNEXTLINE(cppcoreguidelines-non-private-member-variables-in-classes): read by the outer loop.
   observer::PmsmFluxObserver<float> flux_obs{};
+
+  /// Hall sensor fusion (edges, sector, counters).
+  observer::HallFusion<float> hall{};
+
+  // NOLINTEND(cppcoreguidelines-non-private-member-variables-in-classes)
 
  private:
   SlowUpdate() = default;
 
+  /// Hall events taken per cycle at most; more wait for the next cycle.
+  static constexpr std::size_t kMaxHallEvents = 8U;
+
+  /// Measurement noise of the flux angle at an electrical speed.
+  [[nodiscard]] float FluxNoise(unit::AngularVelocity omega) const noexcept;
+
+  /// Fuses the Hall events of the platform; drains them when Hall is off.
+  void FuseHall(const SubStepBuffer& cycle) noexcept;
+
   /// Pointer to the ISR instance set by Init().
   CurrentControlIsr* isr_{nullptr};
+
+  /// Hardware of the motor set by Init().
+  const hardware::HardwareInterface* hardware_{nullptr};
+
+  /// Speed weighting k of the flux measurement noise (R + k / omega^2).
+  float flux_r_speed_{0.0F};
+
+  /// Timestamp ticks from the first to the last sample of a cycle.
+  uint32_t reference_offset_ticks_{0U};
 
   /// Flux setpoint used by flux_obs.Calculate() — written by outer loop.
   system::Rotor<unit::MagneticFlux> flux_setpoint_{0.0F, 0.0F};

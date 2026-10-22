@@ -230,7 +230,6 @@ struct PositionController {
                                          unit::AngularVelocity omega_meas,
                                          unit::Time delta_time,
                                          unit::Current homing_current_feedback = unit::Current{}) noexcept {
-    const T kPosMeas = pos_meas_rad.Value();
     const T kOmegaMeasValue = omega_meas.Value();
     // --- Homing override ---
     if (homing_state == HomingState::kSearching) {
@@ -258,6 +257,39 @@ struct PositionController {
       return omega_ref;
     }
 
+    const T kOmegaDemand = SpeedDemand(pos_meas_rad, omega_meas, delta_time).Value();
+
+    // --- Speed loop (PI) ---
+    const T kSpeedError = kOmegaDemand - kOmegaMeasValue;
+
+    speed_integrator =
+        unit::AngularVelocity{speed_integrator.Value() + ki_speed.Value() * kSpeedError * delta_time.Value()}
+            .Clamp(-speed_limit, speed_limit);
+
+    omega_ref =
+        unit::AngularVelocity{kp_speed.Value() * kSpeedError + speed_integrator.Value()}.Clamp(-speed_limit,
+                                                                                               speed_limit);
+    return omega_ref;
+  }
+
+  /**
+   * @brief Position loop only: the speed demand for the measured position.
+   *
+   * Plans the reference (rate limit for large steps), applies the P gain,
+   * the speed limit and the acceleration limit, and updates `in_position`.
+   * Update() runs it before its speed loop; an outer loop with its own speed
+   * controller (torque output) uses it directly. No homing handling.
+   *
+   * @param pos_meas_rad  Measured home-relative mechanical position [rad].
+   * @param omega_meas    Measured mechanical angular velocity [rad/s].
+   * @param delta_time    Control period [s].
+   * @return              Mechanical speed demand [rad/s].
+   */
+  constexpr unit::AngularVelocity SpeedDemand(unit::Angle pos_meas_rad,
+                                              unit::AngularVelocity omega_meas,
+                                              unit::Time delta_time) noexcept {
+    const T kPosMeas = pos_meas_rad.Value();
+
     // --- Position reference planning ---
     const T kMaxPosStep = speed_limit.Value() * delta_time.Value();
     const T kSetpointJumpMag = std::abs(pos_ref_rad.Value() - kPosMeas);
@@ -281,23 +313,12 @@ struct PositionController {
                        .Value();
     omega_demand_prev = unit::AngularVelocity{omega_demand};
 
-    // --- Speed loop (PI) ---
-    const T kSpeedError = omega_demand - kOmegaMeasValue;
-
-    speed_integrator =
-        unit::AngularVelocity{speed_integrator.Value() + ki_speed.Value() * kSpeedError * delta_time.Value()}
-            .Clamp(-speed_limit, speed_limit);
-
-    omega_ref =
-        unit::AngularVelocity{kp_speed.Value() * kSpeedError + speed_integrator.Value()}.Clamp(-speed_limit,
-                                                                                               speed_limit);
-
     // --- In-position flag ---
     // Compare against the raw setpoint, not the rate-limited intermediate.
     in_position = (std::abs(pos_ref_rad.Value() - kPosMeas) <= position_tolerance.Value()) &&
-                  (std::abs(kOmegaMeasValue) <= speed_tolerance.Value());
+                  (std::abs(omega_meas.Value()) <= speed_tolerance.Value());
 
-    return omega_ref;
+    return unit::AngularVelocity{omega_demand};
   }
 
   /**

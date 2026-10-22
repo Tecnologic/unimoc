@@ -70,6 +70,11 @@ void ForEachRegister(const Visitor& visit, Settings&... settings) {
   visit(reg::kMechObsR, settings.mech_obs_r...);
   visit(reg::kPmsmFluxObsCD, settings.pmsm_flux_obs_c_d...);
   visit(reg::kPmsmFluxObsCQ, settings.pmsm_flux_obs_c_q...);
+  visit(reg::kPmsmFluxObsRSpeed, settings.pmsm_flux_obs_r_speed...);
+  visit(reg::kHallEnable, settings.hall_enable...);
+  visit(reg::kHallOffset, settings.hall_offset...);
+  visit(reg::kHallREdge, settings.hall_r_edge...);
+  visit(reg::kHallRSector, settings.hall_r_sector...);
   visit(reg::kAsmObsGI, settings.asm_obs_g_i...);
   visit(reg::kAsmObsGFlux, settings.asm_obs_g_flux...);
   visit(reg::kAsmFluxKp, settings.asm_flux_kp...);
@@ -100,6 +105,9 @@ void ForEachRegister(const Visitor& visit, Settings&... settings) {
   visit(reg::kExcitIFMax, settings.excitation_i_f_max...);
   visit(reg::kExcitObsTau, settings.excitation_obs_tau...);
   visit(reg::kExcitObsLM, settings.excitation_obs_l_m...);
+  visit(reg::kSpeedKp, settings.speed_kp...);
+  visit(reg::kSpeedKi, settings.speed_ki...);
+  visit(reg::kSpeedAccelLimit, settings.speed_accel_limit...);
   visit(reg::kPosKp, settings.pos_kp_pos...);
   visit(reg::kPosKpSpeed, settings.pos_kp_speed...);
   visit(reg::kPosKiSpeed, settings.pos_ki_speed...);
@@ -119,6 +127,9 @@ void ForEachRegister(const Visitor& visit, Settings&... settings) {
   visit(reg::kSubReadinessId, settings.sub_readiness_id...);
   visit(reg::kSubCurrentSetpointId, settings.sub_current_setpoint_id...);
   visit(reg::kSubTorqueSetpointId, settings.sub_torque_setpoint_id...);
+  visit(reg::kSubSpeedSetpointId, settings.sub_speed_setpoint_id...);
+  visit(reg::kSubPositionSetpointId, settings.sub_position_setpoint_id...);
+  visit(reg::kSubServoSetpointId, settings.sub_servo_setpoint_id...);
   visit(reg::kPubTelemetryId, settings.pub_telemetry_id...);
   visit(reg::kTelemetryRate, settings.telemetry_rate...);
   visit(reg::kCommandTimeout, settings.command_timeout...);

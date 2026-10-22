@@ -7,7 +7,8 @@
  *
  *    @file main.cpp
  *    @brief The Cyphal application of the drive against the simulated plant:
- *           arming, setpoints, limits, timeouts, telemetry, registers and
+ *           arming, current, torque, speed, position and servo setpoints,
+ *           limits, timeouts, telemetry, registers, the startup aid and
  *           node commands, driven by a second libcanard node.
  *
  *    SPDX-License-Identifier: GPL-3.0-or-later
@@ -15,17 +16,24 @@
  *    This file is part of UNIMOC and is licensed under GPL-3.0-or-later.
  *    See the repository LICENSE file for details.
  */
+#include <reg/udral/physics/dynamics/rotation/Planar_0_1.h>
 #include <reg/udral/service/common/Readiness_0_1.h>
 #include <uavcan/_register/Access_1_0.h>
 #include <uavcan/node/ExecuteCommand_1_3.h>
+#include <uavcan/si/unit/angle/Scalar_1_0.h>
+#include <uavcan/si/unit/angular_velocity/Scalar_1_0.h>
 #include <uavcan/si/unit/torque/Scalar_1_0.h>
 #include <unimoc/drive/CurrentSetpoint_0_1.h>
 #include <unimoc/drive/Telemetry_0_1.h>
 #include <zephyr/ztest.h>
 #include <array>
+#include <cmath>
 #include <cstring>
+#include <limits>
 #include <new>
+#include <numbers>
 #include <string_view>
+#include "angle_wrap.hpp"
 #include "can_test_bus.hpp"
 #include "current_control_isr.hpp"
 #include "current_control_runtime.hpp"
@@ -34,6 +42,7 @@
 #include "drive_node.hpp"
 #include "hardware_interface.hpp"
 #include "hot_path_interface.hpp"
+#include "outer_loop.hpp"
 #include "power_stage_interface.hpp"
 #include "settings_registers.hpp"
 #include "settings_save_gate.hpp"
@@ -43,18 +52,23 @@
 #include "slow_update.hpp"
 #include "zephyr_settings_storage.hpp"
 
-// The platform calls these directly (hot_path_interface.hpp).
+// The platform calls these directly (hot_path_interface.hpp). The control
+// thread runs synchronously here, every OuterLoop::kCyclesPerStep cycles.
 void unimoc::hardware::ControlCycleHandler() noexcept {
   unimoc::current_control::CurrentControlIsr::Instance().OnControlCycle();
 }
 void unimoc::hardware::ObserverHandler() noexcept {
   unimoc::current_control::SlowUpdate::Instance().RunOnce();
+  if (unimoc::current_control::OuterLoop::Instance().OnObserverCycle()) {
+    unimoc::current_control::OuterLoop::Instance().Step();
+  }
 }
 
 namespace {
 
 using namespace unimoc::unit;
 using unimoc::current_control::CurrentControlIsr;
+using unimoc::current_control::OuterLoop;
 using unimoc::cyphal::CanardArena;
 using unimoc::cyphal::CanardTransport;
 using unimoc::cyphal::CanMedia;
@@ -168,11 +182,44 @@ struct Rig {
     Publish(unimoc::cyphal::kSubCurrentSetpoint, std::span<const std::byte>{tx.data(), size});
   }
 
+  void Speed(const float speed) {
+    uavcan_si_unit_angular_velocity_Scalar_1_0 setpoint{speed};
+    std::size_t size = tx.size();
+    zassert_equal(uavcan_si_unit_angular_velocity_Scalar_1_0_serialize_(&setpoint, Out(tx), &size), 0);
+    Publish(unimoc::cyphal::kSubSpeedSetpoint, std::span<const std::byte>{tx.data(), size});
+  }
+
+  void Position(const float position) {
+    uavcan_si_unit_angle_Scalar_1_0 setpoint{position};
+    std::size_t size = tx.size();
+    zassert_equal(uavcan_si_unit_angle_Scalar_1_0_serialize_(&setpoint, Out(tx), &size), 0);
+    Publish(unimoc::cyphal::kSubPositionSetpoint, std::span<const std::byte>{tx.data(), size});
+  }
+
+  /// UDRAL servo setpoint; NaN marks a field as not commanded.
+  void Servo(const float position, const float speed, const float torque) {
+    reg_udral_physics_dynamics_rotation_Planar_0_1 setpoint{};
+    setpoint.kinematics.angular_position.radian = position;
+    setpoint.kinematics.angular_velocity.radian_per_second = speed;
+    setpoint.kinematics.angular_acceleration.radian_per_second_per_second =
+        std::numeric_limits<float>::quiet_NaN();
+    setpoint._torque.newton_meter = torque;
+    std::size_t size = tx.size();
+    zassert_equal(reg_udral_physics_dynamics_rotation_Planar_0_1_serialize_(&setpoint, Out(tx), &size), 0);
+    Publish(unimoc::cyphal::kSubServoSetpoint, std::span<const std::byte>{tx.data(), size});
+  }
+
   /// Engaged, current setpoint refreshed every 10 ms for @p milliseconds.
   void Hold(const float i_d, const float i_q, const unsigned milliseconds) {
+    HoldWith([&] { Current(i_d, i_q); }, milliseconds);
+  }
+
+  /// Engaged, @p setpoint published every 10 ms for @p milliseconds.
+  template <typename Setpoint>
+  void HoldWith(const Setpoint& setpoint, const unsigned milliseconds) {
     for (unsigned elapsed = 0U; elapsed < milliseconds; elapsed += 10U) {
       Readiness(reg_udral_service_common_Readiness_0_1_ENGAGED);
-      Current(i_d, i_q);
+      setpoint();
       Run(10U);
     }
   }
@@ -270,6 +317,12 @@ Rig* g_rig = nullptr;
 
 void Before(void* /*unused*/) {
   kPowerStage.Disable();
+  // The factory motor (no permanent magnet) unless a test configures another.
+  zassert_equal(sim::Plant().Configure(unimoc::hardware::kSettings.GetSettingsProfile().factory_settings),
+                unimoc::sim::Status::kOk);
+  sim::Plant().SetInput(unimoc::sim::SimulationInput{});
+  sim::Plant().SetDcLinkVoltage(Voltage{48.0F});
+  sim::ClearHallCodeOverride();
   sim::SetFreeRunning(false);
   sim::SetExternalEnable(true);
   sim::ClearPhaseCurrentOverride();
@@ -302,6 +355,49 @@ uavcan_register_Value_1_0 Real(const float value) {
   uavcan_register_Value_1_0 result{};
   unimoc::cyphal::SetReal32(result, value);
   return result;
+}
+
+uavcan_register_Value_1_0 Natural8(const uint8_t value) {
+  uavcan_register_Value_1_0 result{};
+  unimoc::cyphal::SetNatural8(result, value);
+  return result;
+}
+
+int64_t Integer(const uavcan_register_Value_1_0& value) {
+  return unimoc::cyphal::GetInteger(value).value_or(-1);
+}
+
+/// A motor with a permanent magnet, Hall sensors and a speed loop, written over
+/// the bus; the plant takes the same motor on a free shaft.
+void ConfigureSpeedControl(Rig& rig) {
+  (void)rig.Access(reg::kMotorPolePairs, Natural8(7U));
+  (void)rig.Access(reg::kPmsmFluxPm, Real(5e-3F));
+  (void)rig.Access(reg::kHallEnable, Natural8(1U));
+  (void)rig.Access(reg::kPmsmFluxObsRSpeed, Real(1.0F));
+  (void)rig.Access(reg::kSpeedKp, Real(0.01F));
+  (void)rig.Access(reg::kSpeedKi, Real(40.0F));
+  rig.Run(2U);  // applied while disengaged
+  zassert_equal(sim::Plant().Configure(rig.store.GetSnapshot().Get()), unimoc::sim::Status::kOk);
+  sim::Plant().SetShaftMode(unimoc::sim::ShaftMode::kFree);
+}
+
+float PlantSpeed() { return sim::Plant().Output().mechanical_speed.Value(); }
+float PlantAngle() { return sim::Plant().Output().mechanical_angle.AbsoluteAngle().Value(); }
+
+/// Pole pairs of ConfigureSpeedControl().
+constexpr float kSpeedControlPolePairs = 7.0F;
+
+/// True shaft angle of the drive's home (position zero). The drive counts the
+/// position from the estimate at its start, which the Hall sector places only
+/// within half a sector (30 degrees electrical) of the shaft; the edges
+/// correct the angle estimate later, but not the home. Valid at standstill.
+float TrueHome() {
+  const float kEstimateError =
+      unimoc::observer::WrapAngle(sim::Plant().Output().electrical_angle.AngleInRevolution() -
+                                  CurrentControlIsr::Instance().mech_obs.theta)
+          .Value();
+  return PlantAngle() - OuterLoop::Instance().Status().position.Value() -
+         (kEstimateError / kSpeedControlPolePairs);
 }
 
 }  // namespace
@@ -490,6 +586,156 @@ ZTEST(sim_cyphal_drive, test_emergency_stop_restart_and_unknown_commands) {
   zexpect_equal(g_restarts, 0);  // after the response is out
   rig.Run(250U);
   zexpect_equal(g_restarts, 1);
+}
+
+ZTEST(sim_cyphal_drive, test_speed_setpoint_runs_the_speed_loop) {
+  Rig& rig = *g_rig;
+  ConfigureSpeedControl(rig);
+  rig.HoldWith([&] { rig.Speed(30.0F); }, 500U);
+  zassert_true(rig.drive.IsEngaged());
+  zexpect_within(PlantSpeed(), 30.0F, 1.0F, "speed %f", static_cast<double>(PlantSpeed()));
+  const auto kStatus = OuterLoop::Instance().Status();
+  zexpect_equal(kStatus.mode, unimoc::cyphal::ControlMode::kSpeed);
+  zexpect_within(kStatus.speed.Value(), 30.0F, 1.0F);
+
+  unimoc_drive_Telemetry_0_1 telemetry{};
+  zassert_true(rig.Telemetry(telemetry));
+  zexpect_within(telemetry.electrical_speed, 7.0F * 30.0F, 7.0F);
+
+  // Without new setpoints the drive coasts (zero current), still engaged.
+  for (unsigned elapsed = 0U; elapsed < 700U; elapsed += 100U) {
+    rig.Readiness(reg_udral_service_common_Readiness_0_1_ENGAGED);
+    rig.Run(100U);
+  }
+  zexpect_true(rig.drive.IsEngaged());
+  zexpect_equal(CurrentControlIsr::Instance().state.i_ref.q.Value(), 0.0F);
+  zexpect_equal(OuterLoop::Instance().Status().mode, unimoc::cyphal::ControlMode::kTorque);
+}
+
+ZTEST(sim_cyphal_drive, test_position_setpoint_moves_the_shaft) {
+  Rig& rig = *g_rig;
+  ConfigureSpeedControl(rig);
+  const float kStart = PlantAngle();
+  rig.HoldWith([&] { rig.Position(3.0F); }, 1500U);
+  const float kHome = TrueHome();
+  constexpr float kHalfSector = std::numbers::pi_v<float> / 6.0F / kSpeedControlPolePairs;
+  zexpect_within(kHome,
+                 kStart,
+                 kHalfSector + 0.005F,
+                 "home %f rad from the start",
+                 static_cast<double>(kHome - kStart));
+  zexpect_within(PlantAngle() - kHome,
+                 3.0F,
+                 0.05F,
+                 "moved %f rad",
+                 static_cast<double>(PlantAngle() - kHome));
+  const auto kStatus = OuterLoop::Instance().Status();
+  zexpect_true(kStatus.in_position,
+               "estimate %f rad, %f rad/s",
+               static_cast<double>(kStatus.position.Value()),
+               static_cast<double>(kStatus.speed.Value()));
+}
+
+ZTEST(sim_cyphal_drive, test_servo_setpoint_selects_the_mode) {
+  Rig& rig = *g_rig;
+  ConfigureSpeedControl(rig);
+  constexpr float kNan = std::numeric_limits<float>::quiet_NaN();
+  // Velocity first (the torque after it is a profile limit and ignored).
+  rig.HoldWith([&] { rig.Servo(kNan, -20.0F, 0.5F); }, 500U);
+  zexpect_equal(OuterLoop::Instance().Status().mode, unimoc::cyphal::ControlMode::kSpeed);
+  zexpect_within(PlantSpeed(), -20.0F, 1.0F, "speed %f", static_cast<double>(PlantSpeed()));
+
+  // Position wins over velocity.
+  rig.HoldWith([&] { rig.Servo(0.0F, 5.0F, kNan); }, 100U);
+  zexpect_equal(OuterLoop::Instance().Status().mode, unimoc::cyphal::ControlMode::kPosition);
+
+  // Torque only: torque mode through the torque constant (3/2 * 7 * 5 mWb).
+  rig.HoldWith([&] { rig.Servo(kNan, kNan, 0.0525F); }, 50U);
+  zexpect_equal(OuterLoop::Instance().Status().mode, unimoc::cyphal::ControlMode::kTorque);
+  zexpect_within(CurrentControlIsr::Instance().state.i_ref.q.Value(), 1.0F, 1e-3F);
+
+  // Nothing finite: ignored, the last setpoint stays.
+  rig.HoldWith([&] { rig.Servo(kNan, kNan, kNan); }, 50U);
+  zexpect_within(CurrentControlIsr::Instance().state.i_ref.q.Value(), 1.0F, 1e-3F);
+}
+
+ZTEST(sim_cyphal_drive, test_speed_setpoint_is_limited_to_the_motor_speed) {
+  Rig& rig = *g_rig;
+  ConfigureSpeedControl(rig);
+  (void)rig.Access(reg::kMotorOmegaMax, Real(7.0F * 20.0F));  // electrical: 20 rad/s mechanical
+  rig.Run(2U);
+  rig.HoldWith([&] { rig.Speed(50.0F); }, 600U);
+  zexpect_within(PlantSpeed(), 20.0F, 1.0F, "speed %f", static_cast<double>(PlantSpeed()));
+}
+
+ZTEST(sim_cyphal_drive, test_startup_registers_run_step_and_abort) {
+  Rig& rig = *g_rig;
+  zexpect_equal(Integer(rig.Access(reg::kStartupStep, Empty())), 0);  // IDLE
+  zexpect_equal(Integer(rig.Access(reg::kStartupRun, Natural8(1U))), 1);
+  zexpect_equal(Integer(rig.Access(reg::kStartupStep, Empty())), 1);  // PWM_DISABLE
+  zexpect_equal(kPowerStage.GetState(), PowerStageState::kEnabled);
+
+  // The FSM owns the outputs: no engage, no settings restart, no factory reset.
+  rig.Hold(0.0F, 5.0F, 30U);
+  zexpect_false(rig.drive.IsEngaged());
+  zexpect_equal(kPowerStage.GetState(), PowerStageState::kEnabled);
+  zexpect_equal(rig.Command(cmd::kCommandFactoryReset), cmd::kStatusBadState);
+  rig.Readiness(reg_udral_service_common_Readiness_0_1_SLEEP);  // clears the re-arm
+  rig.Run(2U);
+
+  // Step through phase 1 up to the DC-link check: one sample per millisecond.
+  // A step write takes effect at the next FSM run, after the response.
+  zexpect_equal(Integer(rig.Access(reg::kStartupStep, Natural8(1U))), 1);
+  rig.Run(2U);
+  zexpect_equal(Integer(rig.Access(reg::kStartupStep, Empty())), 2);  // ADC_OFFSET_CAL
+  for (unsigned i = 0U; i < 5U; ++i) {                                // ADC_OFFSET_CAL .. DUTY_FORCE_HIGH
+    rig.Run(1100U);                                                   // 1024 or 1000 samples per step
+    (void)rig.Access(reg::kStartupStep, Natural8(1U));
+  }
+  rig.Run(2U);
+  zexpect_equal(Integer(rig.Access(reg::kStartupStep, Empty())), 7);  // DC_LINK_VOLTAGE_CHECK
+
+  auto results = rig.Access(reg::kStartupResults, Empty());
+  zassert_true(uavcan_register_Value_1_0_is_natural8_(&results));
+  zexpect_equal(results.natural8.value.count, 14U);
+  zexpect_equal(results.natural8.value.elements[1], 1U);  // PWM_DISABLE passed
+  zexpect_equal(results.natural8.value.elements[2], 1U);  // ADC_OFFSET_CAL passed (no offset in the sim)
+
+  zexpect_within(unimoc::cyphal::GetNumber(rig.Access(reg::kStartupExtVdcV, Real(48.0F))).value_or(0.0F),
+                 48.0F,
+                 1e-6F);
+  zexpect_equal(Integer(rig.Access(reg::kStartupStep, Natural8(2U))), 7);  // only 1 advances
+
+  // Abort: FAULT, outputs off; a new run starts again from the beginning.
+  zexpect_equal(Integer(rig.Access(reg::kStartupRun, Natural8(0U))), 0);
+  zexpect_equal(Integer(rig.Access(reg::kStartupStep, Empty())), 13);  // FAULT
+  zexpect_equal(kPowerStage.GetState(), PowerStageState::kDisabled);
+  zexpect_equal(Integer(rig.Access(reg::kStartupRun, Natural8(1U))), 1);
+  zexpect_equal(Integer(rig.Access(reg::kStartupStep, Empty())), 1);
+  zexpect_equal(Integer(rig.Access(reg::kStartupRun, Natural8(0U))), 0);
+
+  // After the run the drive engages again.
+  rig.Readiness(reg_udral_service_common_Readiness_0_1_STANDBY);
+  rig.Run(2U);
+  rig.Hold(0.0F, 5.0F, 30U);
+  zexpect_true(rig.drive.IsEngaged());
+}
+
+ZTEST(sim_cyphal_drive, test_startup_run_is_refused_while_engaged) {
+  Rig& rig = *g_rig;
+  rig.Hold(0.0F, 2.0F, 20U);
+  zassert_true(rig.drive.IsEngaged());
+  zexpect_equal(Integer(rig.Access(reg::kStartupRun, Natural8(1U))), 0);
+  zexpect_equal(Integer(rig.Access(reg::kStartupStep, Empty())), 0);  // still IDLE
+  zexpect_true(rig.drive.IsEngaged());
+}
+
+ZTEST(sim_cyphal_drive, test_emergency_stop_aborts_a_startup_run) {
+  Rig& rig = *g_rig;
+  zexpect_equal(Integer(rig.Access(reg::kStartupRun, Natural8(1U))), 1);
+  zexpect_equal(rig.Command(cmd::kCommandEmergencyStop), cmd::kStatusSuccess);
+  zexpect_equal(Integer(rig.Access(reg::kStartupStep, Empty())), 13);  // FAULT
+  zexpect_equal(kPowerStage.GetState(), PowerStageState::kDisabled);
 }
 
 ZTEST_SUITE(sim_cyphal_drive, nullptr, nullptr, Before, After, nullptr);

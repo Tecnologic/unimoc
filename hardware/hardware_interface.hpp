@@ -18,6 +18,7 @@
 #include <array>
 #include <cstdint>
 #include <optional>
+#include "hall_capture.hpp"
 #include "hardware_interface_config.hpp"
 #include "settings_profile.hpp"
 #include "settings_storage.hpp"
@@ -41,6 +42,9 @@ struct ControlCycleSamples {
   /// A sample of this cycle exceeded the overcurrent limit. The hardware layer
   /// has already tripped the power stage when this is set.
   bool overcurrent{false};
+  /// Time of the last sample (the control boundary) in ticks of the
+  /// timestamp clock (kTimestampFrequency), the clock of the Hall events.
+  uint32_t timestamp{0U};
 };
 
 /**
@@ -121,6 +125,7 @@ class HardwareInterface {
   using SetOvercurrentLimitCallback = void (*)(unit::Current) noexcept;
   using SetAdcTriggerOffsetCallback = void (*)(uint32_t) noexcept;
   using GetTimerClockFrequencyCallback = uint32_t (*)() noexcept;
+  using PopHallEventCallback = bool (*)(observer::HallEvent&) noexcept;
 
   /**
    * @brief Constructs a motor hardware interface.
@@ -132,6 +137,7 @@ class HardwareInterface {
    * @param set_overcurrent_limit Sets the per-sample overcurrent limit.
    * @param set_adc_trigger_offset Updates the ADC trigger compare value.
    * @param get_timer_clock_frequency Returns the timer input clock in Hz.
+   * @param pop_hall_event Takes the oldest captured change of the Hall code.
    */
   HardwareInterface(InitializeCallback initialize,
                     GetPhaseCurrentsCallback get_phase_currents,
@@ -139,14 +145,16 @@ class HardwareInterface {
                     GetTemperatureMeasurementsCallback get_temperature_measurements,
                     SetOvercurrentLimitCallback set_overcurrent_limit,
                     SetAdcTriggerOffsetCallback set_adc_trigger_offset,
-                    GetTimerClockFrequencyCallback get_timer_clock_frequency)
+                    GetTimerClockFrequencyCallback get_timer_clock_frequency,
+                    PopHallEventCallback pop_hall_event)
       : initialize_(initialize),
         get_phase_currents_(get_phase_currents),
         get_phase_voltages_(get_phase_voltages),
         get_temperature_measurements_(get_temperature_measurements),
         set_overcurrent_limit_(set_overcurrent_limit),
         set_adc_trigger_offset_(set_adc_trigger_offset),
-        get_timer_clock_frequency_(get_timer_clock_frequency) {}
+        get_timer_clock_frequency_(get_timer_clock_frequency),
+        pop_hall_event_(pop_hall_event) {}
 
   /**
    * @brief Initializes the hardware and starts its interrupts.
@@ -206,6 +214,21 @@ class HardwareInterface {
    */
   [[nodiscard]] uint32_t GetTimerClockFrequency() const noexcept { return get_timer_clock_frequency_(); }
 
+  /**
+   * @brief Takes the oldest captured change of the Hall code.
+   *
+   * The platform captures every change of the Hall code with its timestamp
+   * (BCC: EXTI interrupt and the DWT cycle counter; native_sim: the edges of
+   * the simulated sensors in virtual time) and the code at Initialize().
+   * The observer takes them after each control cycle; it is the only reader.
+   *
+   * @param event Receives the code and its timestamp (kTimestampFrequency ticks).
+   * @return False when no change is pending.
+   */
+  [[nodiscard]] bool PopHallEvent(observer::HallEvent& event) const noexcept {
+    return pop_hall_event_(event);
+  }
+
  private:
   InitializeCallback initialize_;
   GetPhaseCurrentsCallback get_phase_currents_;
@@ -214,6 +237,7 @@ class HardwareInterface {
   SetOvercurrentLimitCallback set_overcurrent_limit_;
   SetAdcTriggerOffsetCallback set_adc_trigger_offset_;
   GetTimerClockFrequencyCallback get_timer_clock_frequency_;
+  PopHallEventCallback pop_hall_event_;
 };
 
 /**

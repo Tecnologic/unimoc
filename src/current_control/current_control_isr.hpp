@@ -22,6 +22,7 @@
 #include "dead_time_compensation.hpp"
 #include "hardware_interface.hpp"
 #include "hfi.hpp"
+#include "mailbox.hpp"
 #include "mechanical_observer.hpp"
 #include "nvm_settings.hpp"
 #include "rotor_system.hpp"
@@ -77,10 +78,9 @@ static_assert(kNumSubSteps == hardware::kHalfPeriodsPerCycle,
  *  - The control cycle preempts the observer and every thread.
  *  - `double_buf`  : atomic active index; SubStepBuffer access follows the
  *                    ownership protocol described in sub_step_buffer.hpp.
- *  - `i_ref`       : written by the outer control loop (lower priority);
- *                    read by the control cycle.  A two-word Rotor<float> on
- *                    Cortex-M is not atomically accessible; the outer loop
- *                    should use a critical section or double-buffered update.
+ *  - `i_ref_mailbox`: written by the outer loop (control thread, one
+ *                    writer) through SetCurrentRef(); the control cycle copies
+ *                    it into `i_ref` at the start of every cycle.
  *  - `observer_pending`: set by the control cycle after it filled the active
  *                    buffer, cleared by the observer after the flip.
  *  - `samples_ready`: set by the control cycle once per cycle, consumed by the
@@ -90,8 +90,12 @@ struct CurrentControlState {
   /// Double-buffered angle precomputation + current sample storage.
   DoubleBuffer double_buf{};
 
-  /// Current setpoint in the rotor frame [A].  Written by the outer loop.
+  /// Current reference in the rotor frame [A] the last control cycle worked on.
+  /// Written only by the control cycle (from `i_ref_mailbox`).
   system::Rotor<unit::Current> i_ref{0.0F, 0.0F};
+
+  /// Current reference handed over by SetCurrentRef(); the control cycle reads it.
+  Mailbox<system::Rotor<unit::Current>> i_ref_mailbox{};
 
   /// Last voltage demand computed by the control cycle, rotor frame [V].
   system::Rotor<unit::Voltage> u_dq_last{0.0F, 0.0F};
@@ -258,13 +262,13 @@ class CurrentControlIsr {
   /**
    * @brief Update the rotor-frame current reference.
    *
-   * @note The caller must ensure mutual exclusion (e.g. disable the ADC JEOC
-   *       IRQ while writing, or use a double-buffered update) because
-   *       Rotor<float> is not atomically writable on Cortex-M.
+   * Hands the reference to the control cycle through a mailbox; the next
+   * control cycle works on it. One writer: the outer loop (control thread),
+   * or a test or bring-up context while no outer loop runs.
    *
    * @param ref  New d/q current reference [A].
    */
-  void SetCurrentRef(const system::Rotor<unit::Current>& ref) noexcept { state.i_ref = ref; }
+  void SetCurrentRef(const system::Rotor<unit::Current>& ref) noexcept { state.i_ref_mailbox.Write(ref); }
 
   // =========================================================================
   // Startup / bring-up interface
