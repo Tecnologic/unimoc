@@ -23,6 +23,7 @@
 
 #include <cstdint>
 #include <span>
+#include "cymon/device.hpp"
 #include "cyphal/can_media.hpp"
 #include "cyphal/node.hpp"
 #include "nvm_settings.hpp"
@@ -54,6 +55,12 @@ void CyphalPlatformInit() noexcept;
  * @param settings Live settings at start (telemetry rate, motor parameters).
  */
 void CyphalPlatformStart(cyphal::CyphalNode& node, const settings::NvmSettings& settings) noexcept;
+
+/**
+ * @brief Registers the trace variables of the platform after those of the control (sim: plant truth).
+ * @param device The drive's trace device; the platform variables must outlive it.
+ */
+void CyphalPlatformTraceSignals(cymon::Device& device) noexcept;
 
 /// Runs the platform part of the node (publications) after each spin.
 void CyphalPlatformSpin(cyphal::CyphalNode& node, uint64_t now_us) noexcept;

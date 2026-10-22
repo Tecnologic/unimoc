@@ -107,14 +107,17 @@ settings while the power stage is disabled.
 Kconfig: `CONFIG_UNIMOC_CYPHAL` (app `prj.conf`), `..._CAN_FD`, `..._CAN_BRS`
 (off on the BCC), `..._ARENA_SIZE` (libcanard heap, 24 KB), `..._LOG_BACKEND`
 and `..._LOG_LEVEL` (log lines up to info as diagnostic records),
-`..._SLCAN` (native_sim). The simulation runs in real time
+`..._SLCAN` (native_sim); the traces have `CONFIG_UNIMOC_TRACE_BUFFER_BYTES`
+(8192), `..._VARS` (32) and `..._CHANNELS` (8). The simulation runs in real time
 (`CONFIG_NATIVE_SIM_SLOWDOWN_TO_REAL_TIME`, `app/boards/native_sim_native_64.conf`).
 Tests: `unimoc.lib.cyphal` (transport and node against a second libcanard
-node), `unimoc.sim.cyphal_drive` (DriveNode with the plant) and
+node), `unimoc.lib.cymon` (cymon-lib with the Kconfig limits, captures and
+the generated `cymon.*` serialization), `unimoc.sim.cyphal_drive` (DriveNode with the plant) and
 `unimoc.app.cyphal_integration`: twister's pytest harness starts the real
 application, and pycyphal (`tests/integration/cyphal_sim/`) checks
 heartbeat, GetInfo, the port list, registers, arming, setpoints, telemetry,
-diagnostics, the simulation registers and a store across a restart over the
+diagnostics, the simulation registers, trace captures (cymon) and a store
+across a restart over the
 first slcan pseudo terminal. The DSDL is compiled into
 `<tmp>/unimoc_pycyphal` on the first run; without pycyphal the tests are
 skipped.
@@ -194,4 +197,6 @@ stage is no longer enabled (trip, external break, e-stop), and
   ripple; the sim checks logic and timing contract, not the time budget.
 - The duty DMA, the CCR preload, the counter start at ARR/2 and the
   peak/valley detection are only build-tested, not run on the board.
-- `cymon` (cymon-lib 0.2, C++20, CMake 3.20) is not linked yet; see `docs/cymon_integration_plan.md`.
+- The cymon traces sample at the end of the control cycle (`cymon::Device::Tick()`,
+  zero latency); its cost on the board is not measured yet (M0,
+  `docs/cymon_integration_plan.md`).

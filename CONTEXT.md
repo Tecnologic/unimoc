@@ -102,6 +102,9 @@ external API requires different wording.
 | **command timeout** | `unimoc.control.command_timeout`: the drive disengages without readiness and falls back to zero current without setpoints for longer than this time. |
 | **CAN interface** | One CAN connection of a node behind `cyphal::CanMedia`: a CAN controller (FDCAN, SocketCAN) or the slcan pseudo terminals of the simulation. Several interfaces are redundant interfaces of one node. |
 | **DSDL** | The Cyphal data type definitions. Standard types come from the OpenCyphal public regulated data types, UNIMOC types from `dsdl/unimoc/`; Nunavut generates their C serialization. |
+| **trace** | A recording of drive signals over Cyphal with cymon (`src/trace/`, `lib/cymon`). Use **trace variable** for one registered float signal and **telemetry** for the periodic `unimoc.drive.Telemetry` subject, not "trace". |
+| **capture** | One cymon recording: up to `CONFIG_UNIMOC_TRACE_CHANNELS` trace variables, a sample period that is a multiple of the control cycle, a pre-trigger part and the samples after the trigger, read back with `cymon.ReadSamples`. |
+| **trigger** | The condition that ends the pre-trigger part of a capture: rising, falling, hysteresis or immediate on one trace variable, or a `cymon.TriggerEvent` of another node. |
 | **slcan** | The Lawicel ASCII serial-line CAN protocol; the simulation offers it on pseudo terminals for tools on hosts without `vcan`. |
 
 ## Naming Rules

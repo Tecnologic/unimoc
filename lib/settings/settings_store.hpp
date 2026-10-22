@@ -193,6 +193,17 @@ inline constexpr unit::Time kMaxCommandTimeout{10.0F};
     return SettingsStatus::kOutOfRange;
   }
 
+  // Service-IDs are 0..511; 65535 disables the service.
+  const auto kIsServiceId = [](const uint16_t port_id) {
+    return port_id <= cyphal::kMaxServiceId || port_id == cyphal::kUnsetPortId;
+  };
+  if (!kIsServiceId(settings.srv_cymon_variables_id) || !kIsServiceId(settings.srv_cymon_buffer_info_id) ||
+      !kIsServiceId(settings.srv_cymon_setup_id) || !kIsServiceId(settings.srv_cymon_arm_id) ||
+      !kIsServiceId(settings.srv_cymon_read_id) || !kIsSubjectId(settings.pub_cymon_trigger_id) ||
+      !kIsSubjectId(settings.sub_cymon_trigger_id)) {
+    return SettingsStatus::kOutOfRange;
+  }
+
   return SettingsStatus::kSuccess;
 }
 

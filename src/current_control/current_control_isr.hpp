@@ -97,6 +97,9 @@ struct CurrentControlState {
   /// Current reference handed over by SetCurrentRef(); the control cycle reads it.
   Mailbox<system::Rotor<unit::Current>> i_ref_mailbox{};
 
+  /// Mean measured current of the last controlled cycle, rotor frame [A].
+  system::Rotor<unit::Current> i_dq_last{0.0F, 0.0F};
+
   /// Last voltage demand computed by the control cycle, rotor frame [V].
   system::Rotor<unit::Voltage> u_dq_last{0.0F, 0.0F};
 

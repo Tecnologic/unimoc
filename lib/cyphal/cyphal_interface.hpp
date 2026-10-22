@@ -539,6 +539,54 @@ inline constexpr const char* kTelemetryRate = "unimoc.telemetry.rate";
 /// Type: real32[1] (read/write, persistent)
 inline constexpr const char* kCommandTimeout = "unimoc.control.command_timeout";
 
+// ---- Traces (cymon, docs/cymon_integration_plan.md) ----
+//
+// The cymon services have no fixed port-IDs. The host tool finds them through
+// uavcan.node.port.List and the `.type` registers.
+
+/// Variable list of the traces. Data type: cymon.GetVariableList.0.1
+/// Type: natural16[1] (read/write, persistent)
+inline constexpr const char* kSrvCymonVariablesId = "uavcan.srv.cymon_variables.id";
+/// Type name of the variable list service. Type: string (read-only)
+inline constexpr const char* kSrvCymonVariablesType = "uavcan.srv.cymon_variables.type";
+
+/// Capture limits. Data type: cymon.GetBufferInfo.0.1
+/// Type: natural16[1] (read/write, persistent)
+inline constexpr const char* kSrvCymonBufferInfoId = "uavcan.srv.cymon_buffer_info.id";
+/// Type name of the buffer info service. Type: string (read-only)
+inline constexpr const char* kSrvCymonBufferInfoType = "uavcan.srv.cymon_buffer_info.type";
+
+/// Capture setup. Data type: cymon.SetupCapture.0.1
+/// Type: natural16[1] (read/write, persistent)
+inline constexpr const char* kSrvCymonSetupId = "uavcan.srv.cymon_setup.id";
+/// Type name of the capture setup service. Type: string (read-only)
+inline constexpr const char* kSrvCymonSetupType = "uavcan.srv.cymon_setup.type";
+
+/// Arming of the capture trigger. Data type: cymon.ArmTrigger.0.1
+/// Type: natural16[1] (read/write, persistent)
+inline constexpr const char* kSrvCymonArmId = "uavcan.srv.cymon_arm.id";
+/// Type name of the arm service. Type: string (read-only)
+inline constexpr const char* kSrvCymonArmType = "uavcan.srv.cymon_arm.type";
+
+/// Capture status and read-out. Data type: cymon.ReadSamples.0.1
+/// Type: natural16[1] (read/write, persistent)
+inline constexpr const char* kSrvCymonReadId = "uavcan.srv.cymon_read.id";
+/// Type name of the read service. Type: string (read-only)
+inline constexpr const char* kSrvCymonReadType = "uavcan.srv.cymon_read.type";
+
+/// Trigger event of this node's captures. Data type: cymon.TriggerEvent.0.1
+/// Type: natural16[1] (read/write, persistent)
+inline constexpr const char* kPubCymonTriggerId = "uavcan.pub.cymon_trigger.id";
+/// Type name of the trigger publication. Type: string (read-only)
+inline constexpr const char* kPubCymonTriggerType = "uavcan.pub.cymon_trigger.type";
+
+/// Trigger events of other nodes that trigger this node's armed capture.
+/// Data type: cymon.TriggerEvent.0.1
+/// Type: natural16[1] (read/write, persistent)
+inline constexpr const char* kSubCymonTriggerId = "uavcan.sub.cymon_trigger.id";
+/// Type name of the trigger subscription. Type: string (read-only)
+inline constexpr const char* kSubCymonTriggerType = "uavcan.sub.cymon_trigger.type";
+
 /// Hardware unique-ID of the node (MCU UID). Type: unstructured (read-only)
 inline constexpr const char* kNodeUniqueId = "uavcan.node.unique_id";
 
@@ -559,6 +607,9 @@ inline constexpr const char* kNodeUniqueId = "uavcan.node.unique_id";
 
 /// Port ID value meaning "port not configured / disabled".
 inline constexpr uint16_t kUnsetPortId = 0xFFFFU;
+
+/// Largest Cyphal service-ID (0..255 unregulated, 256..511 regulated).
+inline constexpr uint16_t kMaxServiceId = 511U;
 
 /// @defgroup sub_ports Subscriber (input) subjects — setpoints received by UNIMOC
 /// @{
@@ -698,6 +749,22 @@ inline constexpr uint16_t kPubTelemetry = 212U;
 /// Data type: unimoc.sim.Plant.0.1
 /// Register: `uavcan.pub.sim_plant.id` (native_sim only, not persistent)
 inline constexpr uint16_t kPubSimPlant = 213U;
+
+/// @}
+
+/// @defgroup trace_ports Trace services (cymon), unregulated service-IDs
+/// @{
+
+/// Register: `uavcan.srv.cymon_variables.id` (cymon.GetVariableList.0.1)
+inline constexpr uint16_t kSrvCymonVariables = 120U;
+/// Register: `uavcan.srv.cymon_buffer_info.id` (cymon.GetBufferInfo.0.1)
+inline constexpr uint16_t kSrvCymonBufferInfo = 121U;
+/// Register: `uavcan.srv.cymon_setup.id` (cymon.SetupCapture.0.1)
+inline constexpr uint16_t kSrvCymonSetup = 122U;
+/// Register: `uavcan.srv.cymon_arm.id` (cymon.ArmTrigger.0.1)
+inline constexpr uint16_t kSrvCymonArm = 123U;
+/// Register: `uavcan.srv.cymon_read.id` (cymon.ReadSamples.0.1)
+inline constexpr uint16_t kSrvCymonRead = 124U;
 
 /// @}
 

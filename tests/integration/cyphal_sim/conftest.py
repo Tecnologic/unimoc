@@ -28,7 +28,8 @@ import pycyphal.dsdl  # noqa: E402
 
 _REPO = Path(__file__).resolve().parents[3]
 _PUBLIC_DSDL = _REPO.parent / "modules" / "lib" / "public_regulated_data_types"
-_NAMESPACES = [_PUBLIC_DSDL / "uavcan", _PUBLIC_DSDL / "reg", _REPO / "dsdl" / "unimoc"]
+_CYMON_DSDL = _REPO / "lib" / "cymon" / "dsdl" / "cymon"
+_NAMESPACES = [_PUBLIC_DSDL / "uavcan", _PUBLIC_DSDL / "reg", _REPO / "dsdl" / "unimoc", _CYMON_DSDL]
 _GENERATED = Path(tempfile.gettempdir()) / "unimoc_pycyphal"
 
 
@@ -40,13 +41,15 @@ def _compile_dsdl() -> None:
     generated package. The output directory goes first on sys.path.
     """
     stamp = _GENERATED / ".stamp"
-    newest = max(path.stat().st_mtime for path in (_REPO / "dsdl").rglob("*.dsdl"))
+    sources = [*(_REPO / "dsdl").rglob("*.dsdl"), *_CYMON_DSDL.rglob("*.dsdl")]
+    newest = max(path.stat().st_mtime for path in sources)
     if not stamp.exists() or stamp.stat().st_mtime < newest:
         for namespace in _NAMESPACES:
             pycyphal.dsdl.compile(namespace, [str(path) for path in _NAMESPACES], _GENERATED)
         stamp.touch()
     sys.path.insert(0, str(_GENERATED))
     sys.modules.pop("unimoc", None)
+    sys.modules.pop("cymon", None)
 
 
 _compile_dsdl()

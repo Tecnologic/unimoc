@@ -24,6 +24,8 @@ Read `README.md` for the supported motor types and public features, and
   entry 0 into the CCR preload and entries 1 to 3 by DMA). The observer
   (`SlowUpdate`) runs after each control cycle in a software-pended
   normal-priority interrupt, not at zero latency (`docs/hotpath_plan.md`).
+  The trace sampling (`trace::OnControlCycle()`, cymon `Tick()`) runs right
+  after the control cycle (`docs/cymon_integration_plan.md`).
   Do not add other work to a zero-latency context.
 
 ## Project Layout
@@ -44,7 +46,9 @@ Read `README.md` for the supported motor types and public features, and
   FD frame). Changing a type there changes the bus protocol.
 - `src/` contains the application core: `current_control/` (hot-path ISR and
   slow update), `startup/` (startup FSM), `drive/` (the Cyphal application:
-  settings registers, arming, setpoints, telemetry, commands) and `main.cpp`.
+  settings registers, arming, setpoints, telemetry, commands), `trace/` (the
+  cymon traces: float mirror sampled in the control cycle, the `cymon.*`
+  services) and `main.cpp`.
   It stays free of Zephyr headers.
 - `zephyr/` makes the repository a Zephyr module: `module.yml` (board and
   devicetree roots, test roots), `Kconfig` (`CONFIG_UNIMOC`, the platform
@@ -84,9 +88,10 @@ Read `README.md` for the supported motor types and public features, and
   Cyphal build (`requirements-cyphal.txt`, Nunavut) and tools
   (`requirements-cyphal-tools.txt`, yakut), and `sim_yakut_env.sh`.
 - `docs/` contains the plans and the workflow notes. `TODO.md` lists open topics.
-- `lib/cymon/` is a submodule.
-  Do not modify `lib/cymon/` unless the task explicitly concerns that
-  dependency.
+- `lib/cymon/` is a submodule (cymon-lib, target `cymon`, linked into
+  `unimoc_lib`; limits from `CONFIG_UNIMOC_TRACE_*`). Its DSDL namespace
+  `cymon` is generated with the others. Do not modify `lib/cymon/` unless
+  the task explicitly concerns that dependency.
 
 ## Build And Test
 

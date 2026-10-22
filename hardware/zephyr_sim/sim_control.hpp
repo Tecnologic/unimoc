@@ -102,4 +102,20 @@ void AdvanceCycles(uint32_t count) noexcept;
 /// Control cycles run since Initialize().
 [[nodiscard]] uint32_t CycleCount() noexcept;
 
+/// Plant truth as plain floats for the traces (SI units); updated at the end of every cycle.
+struct PlantTrace {
+  float i_a{0.0F};               ///< Phase current a [A].
+  float i_b{0.0F};               ///< Phase current b [A].
+  float i_c{0.0F};               ///< Phase current c [A].
+  float i_d{0.0F};               ///< d current in the true rotor frame [A].
+  float i_q{0.0F};               ///< q current in the true rotor frame [A].
+  float electrical_angle{0.0F};  ///< True electrical angle, [-pi, pi) [rad].
+  float electrical_speed{0.0F};  ///< True electrical speed [rad/s].
+  float mechanical_speed{0.0F};  ///< Shaft speed [rad/s].
+  float torque{0.0F};            ///< Electromagnetic torque [N m].
+};
+
+/// The plant truth the control cycle of the next cycle sees; read by the trace device only.
+[[nodiscard]] const PlantTrace& PlantTraceSignals() noexcept;
+
 }  // namespace unimoc::hardware::sim

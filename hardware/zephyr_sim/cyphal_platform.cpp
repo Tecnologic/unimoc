@@ -31,6 +31,7 @@
 #include <cmath>
 #include <numbers>
 #include <string_view>
+#include <tuple>
 #include "cyphal/register_value.hpp"
 #include "sim_cmdline.h"
 #include "sim_control.hpp"
@@ -231,6 +232,26 @@ void CyphalPlatformStart(cyphal::CyphalNode& node, const settings::NvmSettings& 
   (void)node.AddPublisher(g_plant_publisher);
   SetPlantRate(settings);
   ApplyInputs();
+}
+
+void CyphalPlatformTraceSignals(cymon::Device& device) noexcept {
+  const sim::PlantTrace& plant = sim::PlantTraceSignals();
+  const std::array<std::tuple<const char*, const char*, const float*>, 9> kSignals{{
+      {"sim.i_a", "A", &plant.i_a},
+      {"sim.i_b", "A", &plant.i_b},
+      {"sim.i_c", "A", &plant.i_c},
+      {"sim.i_d", "A", &plant.i_d},
+      {"sim.i_q", "A", &plant.i_q},
+      {"sim.electrical_angle", "rad", &plant.electrical_angle},
+      {"sim.electrical_speed", "rad/s", &plant.electrical_speed},
+      {"sim.mechanical_speed", "rad/s", &plant.mechanical_speed},
+      {"sim.torque", "N m", &plant.torque},
+  }};
+  for (const auto& [name, unit, source] : kSignals) {
+    if (!device.RegisterVariable(name, unit, source)) {
+      LOG_WRN("trace variable %s not registered", name);
+    }
+  }
 }
 
 void CyphalPlatformSpin(cyphal::CyphalNode& node, const uint64_t now_us) noexcept {

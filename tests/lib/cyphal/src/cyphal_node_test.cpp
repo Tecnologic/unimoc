@@ -23,10 +23,12 @@
 #include <uavcan/node/port/List_1_0.h>
 #include <uavcan/pnp/NodeIDAllocationData_1_0.h>
 #include <zephyr/ztest.h>
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstring>
 #include <new>
+#include <optional>
 #include <string_view>
 #include "can_test_bus.hpp"
 #include "cyphal/canard_transport.hpp"
@@ -107,6 +109,23 @@ class TestMessages final : public MessageListener {
   std::size_t count{0U};
   uint8_t last_source{0U};
   std::size_t last_size{0U};
+};
+
+/// Answers with the request reversed; an empty request gets no response.
+class TestService final : public ServiceHandler {
+ public:
+  [[nodiscard]] std::optional<std::size_t> OnRequest(const Transfer& request,
+                                                     std::span<std::byte> response) noexcept override {
+    ++count;
+    last_port = request.port_id;
+    if (request.payload.empty() || request.payload.size() > response.size()) {
+      return std::nullopt;
+    }
+    std::reverse_copy(request.payload.begin(), request.payload.end(), response.begin());
+    return request.payload.size();
+  }
+  std::size_t count{0U};
+  uint16_t last_port{kUnsetPortId};
 };
 
 /// A node under test and a client on the same bus, one or two interfaces each.
@@ -371,6 +390,37 @@ ZTEST(cyphal_stack, test_execute_command_reaches_the_handler) {
   zexpect_equal(kExecute(cmd::kCommandPowerOff), cmd::kStatusBadCommand);
 }
 
+ZTEST(cyphal_stack, test_application_servers_answer_their_requests) {
+  Rig& rig = MakeRig(kCanFdMtu);
+  TestService service;
+  zassert_true(rig.node.AddServer(kUnsetPortId, 8U, service));  // disabled: ignored
+  zassert_true(rig.node.AddServer(120U, 8U, service));
+  zassert_true(rig.node.AddServer(124U, 8U, service));
+  zassert_false(rig.node.AddServer(124U, 8U, service));            // taken
+  zassert_false(rig.node.AddServer(port::kGetInfo, 8U, service));  // a standard service
+  zassert_false(rig.node.AddServer(512U, 8U, service));            // no service-ID
+  zassert_true(rig.client.Subscribe(TransferKind::kServiceResponse, 120U, 8U));
+  zassert_true(rig.client.Subscribe(TransferKind::kServiceResponse, 124U, 8U));
+  zassert_true(rig.node.Start(kServerId, rig.now));
+
+  const std::array<std::byte, 3> kRequest{std::byte{1}, std::byte{2}, std::byte{3}};
+  for (const uint16_t kService : {uint16_t{120U}, uint16_t{124U}}) {
+    zassert_true(rig.Request(kService, kRequest));
+    Transfer transfer{};
+    zassert_true(rig.Await(kService, transfer));
+    zexpect_equal(service.last_port, kService);
+    zassert_equal(transfer.payload.size(), 3U);
+    zexpect_equal(transfer.payload[0], std::byte{3});
+    zexpect_equal(transfer.payload[2], std::byte{1});
+  }
+
+  // No response when the handler declines.
+  zassert_true(rig.Request(120U, std::span<const std::byte>{}));
+  Transfer transfer{};
+  zexpect_false(rig.Await(120U, transfer));
+  zexpect_equal(service.count, 3U);
+}
+
 ZTEST(cyphal_stack, test_plug_and_play_allocation) {
   Rig& rig = MakeRig(kCanClassicMtu);
   TestNodeIdListener listener;
@@ -428,7 +478,9 @@ ZTEST(cyphal_stack, test_plug_and_play_allocation) {
 ZTEST(cyphal_stack, test_port_list_names_ports_and_services) {
   Rig& rig = MakeRig(kCanFdMtu);
   TestMessages messages;
+  TestService service;
   zassert_true(rig.node.Subscribe(300U, 8U, messages));
+  zassert_true(rig.node.AddServer(130U, 8U, service));
   zassert_true(rig.node.AddPublisher(Publisher{301U, Priority::kNominal, 0U}));
   zassert_true(rig.client.Subscribe(TransferKind::kMessage, port::kPortList, 8466U));
   zassert_true(rig.node.Start(kServerId, rig.now));
@@ -459,6 +511,7 @@ ZTEST(cyphal_stack, test_port_list_names_ports_and_services) {
   zexpect_true(kServes(port::kRegisterAccess));
   zexpect_true(kServes(port::kRegisterList));
   zexpect_true(kServes(port::kExecuteCommand));
+  zexpect_true(kServes(130U));
   zexpect_false(kServes(port::kGetInfo + 1U));
 }
 

@@ -91,6 +91,8 @@ void CurrentControlIsr::Init(const settings::NvmSettings& settings,
   force_duty_active = false;
   state.i_ref = system::Rotor<unit::Current>{0.0F, 0.0F};
   state.i_ref_mailbox.Write(state.i_ref);
+  state.i_dq_last = system::Rotor<unit::Current>{0.0F, 0.0F};
+  state.u_dq_last = system::Rotor<unit::Voltage>{0.0F, 0.0F};
 }
 
 // =============================================================================
@@ -184,6 +186,7 @@ void CurrentControlIsr::OnControlCycle() noexcept {
   i_dq_mean.d *= kInverseCount;
   i_dq_mean.q *= kInverseCount;
   buffer.i_dq_mean = i_dq_mean;
+  state.i_dq_last = i_dq_mean;
 
   // -------------------------------------------------------------------------
   // 4. Current PI with decoupling feedforward, once per cycle.

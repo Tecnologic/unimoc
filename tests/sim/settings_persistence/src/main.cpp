@@ -212,7 +212,7 @@ ZTEST(sim_settings_persistence, test_all_registers_fit_and_survive_rewrites) {
         },
         kSettings);
   }
-  zexpect_equal(StoredEntries(), 88U);
+  zexpect_equal(StoredEntries(), 95U);
 }
 
 ZTEST_SUITE(sim_settings_persistence, nullptr, nullptr, Before, nullptr, nullptr);

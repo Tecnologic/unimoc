@@ -32,6 +32,19 @@ macro(unimoc_zephyr_libraries)
                      ${CMAKE_CURRENT_BINARY_DIR}/lib/${unimoc_lib_name})
   endforeach()
 
+  # cymon-lib (submodule): variable registry and captures of the traces. As a
+  # subproject it builds only the target cymon, with the flags of this build;
+  # the limits come from Kconfig (CONFIG_UNIMOC_TRACE_*).
+  set(CYMON_MAX_BUFFER_BYTES ${CONFIG_UNIMOC_TRACE_BUFFER_BYTES} CACHE STRING "" FORCE)
+  set(CYMON_MAX_VARS ${CONFIG_UNIMOC_TRACE_VARS} CACHE STRING "" FORCE)
+  set(CYMON_MAX_CHANNELS ${CONFIG_UNIMOC_TRACE_CHANNELS} CACHE STRING "" FORCE)
+  set(CYMON_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+  if(NOT EXISTS ${UNIMOC_ROOT}/lib/cymon/CMakeLists.txt)
+    message(FATAL_ERROR "lib/cymon is empty: run 'git submodule update --init lib/cymon'.")
+  endif()
+  add_subdirectory(${UNIMOC_ROOT}/lib/cymon ${CMAKE_CURRENT_BINARY_DIR}/lib/cymon)
+  target_link_libraries(cymon PRIVATE zephyr_interface project_options unimoc_strict_warnings)
+
   # Motor plant simulation (header only). Not part of unimoc_lib: only the
   # native_sim platform and its tests link it.
   add_subdirectory(${UNIMOC_ROOT}/lib/sim ${CMAKE_CURRENT_BINARY_DIR}/lib/sim)
@@ -43,5 +56,6 @@ macro(unimoc_zephyr_libraries)
     unimoc_cyphal
     unimoc_units
     unimoc_settings
-    unimoc_motor_control)
+    unimoc_motor_control
+    cymon)
 endmacro()

@@ -124,6 +124,7 @@ using Duties = system::ThreePhase<Ratio>;
 constexpr Duties kNeutral{0.5_ratio, 0.5_ratio, 0.5_ratio};
 
 ::unimoc::sim::MotorSimulation g_plant;
+sim::PlantTrace g_plant_trace;
 
 bool g_initialized = false;
 Time g_half_period{};
@@ -182,6 +183,20 @@ bool Exceeds(const system::ThreePhase<Current>& currents) noexcept {
          std::abs(currents.c.Value()) > kLimit;
 }
 
+/// Copies the plant truth for the traces; the next control cycle samples it with its own state.
+void UpdatePlantTrace() noexcept {
+  const auto& output = g_plant.Output();
+  g_plant_trace.i_a = output.phase_currents.a.Value();
+  g_plant_trace.i_b = output.phase_currents.b.Value();
+  g_plant_trace.i_c = output.phase_currents.c.Value();
+  g_plant_trace.i_d = output.rotor_current.d.Value();
+  g_plant_trace.i_q = output.rotor_current.q.Value();
+  g_plant_trace.electrical_angle = output.electrical_angle.AngleInRevolution().Value();
+  g_plant_trace.electrical_speed = output.electrical_speed.Value();
+  g_plant_trace.mechanical_speed = output.mechanical_speed.Value();
+  g_plant_trace.torque = output.electromagnetic_torque.Value();
+}
+
 // Runs in the (simulated) timer interrupt, like the BCC interrupts: no kernel
 // calls and no logging in the handlers.
 void RunCycle() noexcept {
@@ -212,6 +227,7 @@ void RunCycle() noexcept {
   next.timestamp = static_cast<uint32_t>(kStartNs + kHalfPeriodsPerCycle * g_half_period_ns);
   g_carry = g_plan.duties[kHalfPeriodsPerCycle - 1U];
   g_samples = next;
+  UpdatePlantTrace();
   ++g_cycle_count;
 }
 
@@ -339,6 +355,8 @@ void ClearHallCodeOverride() noexcept {
 }
 
 ::unimoc::sim::MotorSimulation& Plant() noexcept { return g_plant; }
+
+const PlantTrace& PlantTraceSignals() noexcept { return g_plant_trace; }
 
 void SetFreeRunning(const bool running) noexcept {
   if (running == g_free_running) {

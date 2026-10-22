@@ -54,7 +54,7 @@ simulation.
 | **Control** | MTPA, field-weakening, ASM flux PI, EESM excitation PI (current or flux mode) |
 | **Position** | Absolute multi-turn tracker (±4096+ rev), cascaded P+PI position controller, homing state machine |
 | **Modulation** | Space Vector PWM (SVPWM), dead-time compensation |
-| **Network** | Cyphal (UAVCAN v1) over CAN FD — every setting a register, arming, setpoints, telemetry and the log on the bus, also for the simulation (see [Cyphal](#cyphal-uavcan-v1-interface)) |
+| **Network** | Cyphal (UAVCAN v1) over CAN FD — every setting a register, arming, setpoints, telemetry, traces (cymon) and the log on the bus, also for the simulation (see [Cyphal](#cyphal-uavcan-v1-interface)) |
 | **Persistence** | Live RAM settings for tuning; one flash entry per changed register (Zephyr settings on ZMS); saving only while the power stage is disabled |
 | **Platform** | HAL-free algorithms; tested on Linux x86-64 with GTest; Zephyr firmware for the BCC (STM32G473) and `native_sim` |
 | **Runtime** | Zephyr threads for logging, Cyphal, and settings; zero-latency IRQs only for the FOC hot path |
@@ -156,17 +156,19 @@ interfaces and the simulation registers are platform specific.
 > The BCC builds with the node on FDCAN3 but has not run on the board; its
 > SN65HVD230 is a classic CAN transceiver, so CAN FD frames run at 1 Mbit/s
 > without bit rate switch (`boards/unimoc/bcc/bcc.dts`).  Not implemented
-> yet: firmware update over Cyphal, the speed and position setpoints, the
-> startup FSM registers (`unimoc.startup.*`) and the cymon traces.
+> yet: firmware update over Cyphal, the speed and position setpoints and the
+> startup FSM registers (`unimoc.startup.*`).  The cymon traces run on both
+> platforms; their cost in the control cycle is not yet measured on the board.
 
 ### Stack
 
 | Layer | Where | Content |
 |---|---|---|
-| DSDL | `dsdl/unimoc/` + OpenCyphal public types | Vendor types `unimoc.drive.CurrentSetpoint.0.1`, `unimoc.drive.Telemetry.0.1`, `unimoc.sim.Plant.0.1`; Nunavut generates the C serialization at configure time |
+| DSDL | `dsdl/unimoc/`, `lib/cymon/dsdl/cymon/` + OpenCyphal public types | Vendor types `unimoc.drive.CurrentSetpoint.0.1`, `unimoc.drive.Telemetry.0.1`, `unimoc.sim.Plant.0.1`, the trace types `cymon.*.0.1`; Nunavut generates the C serialization at configure time |
 | Transport | `lib/cyphal/canard_transport.*` | libcanard 4.0 with an O1Heap arena, one TX queue per CAN interface (redundant interfaces, mixed MTU) |
-| Node | `lib/cyphal/node.*` | Heartbeat, `uavcan.node.port.List`, GetInfo, `uavcan.register.List/Access`, ExecuteCommand, plug-and-play (`uavcan.pnp.NodeIDAllocationData.1.0`), `uavcan.diagnostic.Record` |
+| Node | `lib/cyphal/node.*` | Heartbeat, `uavcan.node.port.List`, GetInfo, `uavcan.register.List/Access`, ExecuteCommand, plug-and-play (`uavcan.pnp.NodeIDAllocationData.1.0`), `uavcan.diagnostic.Record`, application services on register-assigned IDs (`AddServer()`) |
 | Drive application | `src/drive/` | Settings registers, arming, setpoints, telemetry, commands |
+| Traces | `src/trace/`, `lib/cymon/` (cymon-lib 0.2) | cymon services, float mirror of the control state sampled in the control cycle |
 | Zephyr glue | `hardware/zephyr_common/` | Cyphal thread, CAN interface on the chosen `zephyr,canbus`, log backend to `uavcan.diagnostic.Record` |
 | Platform | `hardware/zephyr_bcc/`, `hardware/zephyr_sim/` | BCC: transceiver pin. Sim: slcan pseudo terminals, plant registers and plant trace |
 
@@ -189,7 +191,7 @@ takes effect after a restart.
 ### Settings via registers
 
 Every persistent setting (`ForEachRegister()` in
-`lib/settings/settings_registers.hpp`, 77 registers) is a Cyphal register
+`lib/settings/settings_registers.hpp`, 95 registers) is a Cyphal register
 under the same name; `yakut rl <node>` lists them.  Units and floats are
 `real32[1]`, counts and enums `natural8[1]`, `uavcan.node.id` and the port-IDs
 `natural16[1]`, the name a string; writes accept any numeric type.  A write is
@@ -208,6 +210,13 @@ flash, refused (`BAD_STATE`) while the power stage is enabled.
 | `uavcan.sub.torque_setpoint.id` | 100 | `uavcan.si.unit.torque.Scalar.1.0` | Torque [N m], converted to i_q with 3/2 p ψ_PM |
 | `uavcan.pub.telemetry.id` | 212 | `unimoc.drive.Telemetry.0.1` | Current controller trace at `unimoc.telemetry.rate` (20 Hz) |
 | `uavcan.pub.sim_plant.id` (sim only) | 213 | `unimoc.sim.Plant.0.1` | Plant truth: phase currents, shaft angle and speed, torque, Hall code |
+| `uavcan.srv.cymon_variables.id` | 120 | `cymon.GetVariableList.0.1` | Trace variables: index -> name and unit |
+| `uavcan.srv.cymon_buffer_info.id` | 121 | `cymon.GetBufferInfo.0.1` | Capture limits and the tick period (62.5 us) |
+| `uavcan.srv.cymon_setup.id` | 122 | `cymon.SetupCapture.0.1` | Channels, sample period, samples, pre-trigger depth |
+| `uavcan.srv.cymon_arm.id` | 123 | `cymon.ArmTrigger.0.1` | Arm (rising, falling, hysteresis, immediate) or disarm |
+| `uavcan.srv.cymon_read.id` | 124 | `cymon.ReadSamples.0.1` | Capture state; once complete, the frames page by page |
+| `uavcan.pub.cymon_trigger.id` | 65535 | `cymon.TriggerEvent.0.1` | Published when a capture triggers (disabled by default) |
+| `uavcan.sub.cymon_trigger.id` | 65535 | `cymon.TriggerEvent.0.1` | Triggers the armed capture on another node's event (disabled by default) |
 
 Each port has a read-only `.type` register.  Readiness and setpoints must be
 refreshed within `unimoc.control.command_timeout` (0.5 s): a missing
@@ -226,6 +235,31 @@ releasing the outputs; the settings can only be stored without one.
 | 65532 FACTORY_RESET | Factory settings in RAM and flash; refused while engaged |
 | 65531 EMERGENCY_STOP | Disengages; engaging is refused until a restart |
 | 65530 STORE_PERSISTENT_STATES | Saves the RAM settings to flash; refused while engaged |
+
+### Traces (cymon)
+
+The drive records up to 8 signals of the control cycle into a RAM ring
+buffer (8 KB, `CONFIG_UNIMOC_TRACE_*`) and a tool reads the capture back over
+the bus: the cymon protocol of [cymon-lib](lib/cymon) (`lib/cymon`, 0.2),
+driven by the **Scope** page of the host tool
+[cymon](https://github.com/Tecnologic/cymon).  The control cycle copies its
+state into a float mirror (`src/trace/trace_signals.hpp`) and samples it with
+`cymon::Device::Tick()` at 16 kHz (zero latency: no lock, no kernel call, no
+function pointer); the services run in the Cyphal thread
+(`src/trace/trace_node.*`).
+
+| IDs | Variables |
+|---|---|
+| 0..11 | `i_d`, `i_q`, `i_d_ref`, `i_q_ref` [A], `u_d`, `u_q` [V], `electrical_angle` [rad], `electrical_speed` [rad/s] (observer, one cycle late), `dc_link_voltage` [V], `i_a`, `i_b`, `i_c` [A] (newest sample) |
+| 12.. (sim only) | Plant truth: `sim.i_a`..`sim.i_c`, `sim.i_d`, `sim.i_q`, `sim.electrical_angle`, `sim.electrical_speed`, `sim.mechanical_speed`, `sim.torque` |
+
+The sample period is a whole multiple of the control cycle; a capture of
+8 channels by 256 frames takes about 0.4 s of bus time at 1 Mbit/s.
+
+```sh
+cymon serve -i socketcan:vcan0 --dsdl unimoc/dsdl/unimoc --open      # simulation
+cymon serve -i canable:/dev/ttyACM0 --dsdl unimoc/dsdl/unimoc --open # BCC, CANable 2.0
+```
 
 ### Logging
 

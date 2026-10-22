@@ -2,7 +2,8 @@
 #
 # The native_sim drive as a Cyphal node, tested from pycyphal over the slcan
 # pseudo terminal: node services, registers, arming, setpoints, telemetry,
-# the simulation registers, diagnostics and persistence across a restart.
+# the simulation registers, diagnostics, traces (cymon) and persistence across
+# a restart.
 # The tests share one simulation process and run in file order.
 
 from __future__ import annotations
@@ -15,12 +16,15 @@ from conftest import wait_for_pty
 from sim_client import (
     DRIVE,
     ENGAGED,
+    PORT_CYMON_READ,
+    PORT_CYMON_VARIABLES,
     SLEEP,
     STANDBY,
     SimClient,
     natural8,
     real,
 )
+import cymon
 
 
 def test_heartbeat_and_get_info(sim: SimClient):
@@ -133,6 +137,64 @@ def test_imposed_speed_drives_the_plant(sim: SimClient):
     assert advance > 10.0  # about 25 rad in 0.5 s
     assert sim.write("unimoc.sim.imposed_speed", real(0.0)) == 0
     assert math.isfinite(advance)
+
+
+def test_trace_variables_ports_and_registers(sim: SimClient):
+    variables = sim.trace_variables()
+    names = [name for name, _unit in variables]
+    assert names[:12] == ["i_d", "i_q", "i_d_ref", "i_q_ref", "u_d", "u_q", "electrical_angle",
+                          "electrical_speed", "dc_link_voltage", "i_a", "i_b", "i_c"]
+    assert variables[1] == ("i_q", "A")
+    assert ("sim.electrical_speed", "rad/s") in variables  # plant truth of the simulation
+
+    info = sim.trace_buffer_info()
+    assert info.buffer_bytes == 8192
+    assert info.max_channels == 8
+    assert info.max_read_samples == 64
+    assert info.tick_period_us == pytest.approx(62.5)  # the control cycle at 32 kHz PWM
+
+    assert sim.read("uavcan.srv.cymon_read.id") == PORT_CYMON_READ
+    assert sim.read("uavcan.srv.cymon_read.type") == "cymon.ReadSamples.0.1"
+    assert sim.read("uavcan.pub.cymon_trigger.id") == 65535  # disabled by default
+    response = sim.access("uavcan.srv.cymon_setup.id")
+    assert response.mutable and response.persistent
+    port_list = sim.receive(sim.port_list, timeout=12.0)[0]
+    assert all(port_list.servers.mask[port] for port in range(PORT_CYMON_VARIABLES, PORT_CYMON_READ + 1))
+
+
+def test_trace_capture_of_i_q_with_an_immediate_trigger(sim: SimClient):
+    i_q = [name for name, _unit in sim.trace_variables()].index("i_q")
+    setup = sim.trace_setup([i_q], sample_period_us=250.0, num_samples=200, pretrigger_samples=20)
+    assert setup.result.value == 0
+    assert setup.actual_sample_period_us == pytest.approx(250.0)  # 4 control cycles
+    assert sim.trace_arm(cymon.TriggerMode_0_1.IMMEDIATE) == 0
+    status = sim.trace_wait_complete()
+    assert status.num_channels == 1
+    assert status.num_samples == 200
+    assert status.pretrigger_samples == 20
+    assert status.sample_period_us == pytest.approx(250.0)
+    frames = sim.trace_frames()
+    assert len(frames) == 200
+    assert all(abs(frame[0]) < 0.5 for frame in frames)  # disengaged: no current
+
+
+def test_trace_triggers_on_a_current_step(sim: SimClient):
+    variables = [name for name, _unit in sim.trace_variables()]
+    i_q_ref, i_q = variables.index("i_q_ref"), variables.index("i_q")
+    setup = sim.trace_setup([i_q_ref, i_q], sample_period_us=125.0, num_samples=400, pretrigger_samples=40)
+    assert setup.result.value == 0
+    assert sim.trace_arm(cymon.TriggerMode_0_1.RISING, source=i_q_ref, level=2.0) == 0
+    assert sim.trace_read().state.value == cymon.CaptureState_0_1.ARMED
+    # Locked rotor (imposed speed 0 from the earlier tests), 4 A step.
+    sim.hold(0.5, ENGAGED, sim.current_setpoint(0.0, 4.0))
+    sim.hold(0.2, SLEEP)
+    sim.trace_wait_complete()
+    frames = sim.trace_frames()
+    assert len(frames) == 400
+    assert all(frame[0] < 2.0 for frame in frames[:40])  # before the trigger sample
+    assert frames[40][0] == pytest.approx(4.0)
+    settled = [frame[1] for frame in frames[-100:]]
+    assert sum(settled) / len(settled) == pytest.approx(4.0, abs=0.5)
 
 
 def test_store_and_restart_keep_the_settings(sim: SimClient, dut):

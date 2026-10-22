@@ -52,8 +52,9 @@ log is on RTT and on the bus. The phase order below is the plan.
    interface existed. Resolved in Phase 5 (the old heartbeat serializer
    packed health and mode into one byte and was removed).
 6. `lib/cymon` (own library, no canard dependency) is a submodule. Since
-   cymon-lib 0.2 it is C++20 and builds with the UNIMOC warning set; the
-   integration steps are in `docs/cymon_integration_plan.md`.
+   cymon-lib 0.2 it is C++20 and builds with the UNIMOC warning set. It is
+   linked into `unimoc_lib` and served over Cyphal
+   (`docs/cymon_integration_plan.md`, implemented).
 7. Small items: `option(HARDWARE_DIRECTORY ...)` misuse, platform-dependent
    `uint_fast8_t VERSION` in the battery case config, stale skill path in
    `AGENTS.md`, empty `src/logging/CMakeLists.txt`.
@@ -67,7 +68,7 @@ log is on RTT and on the bus. The phase order below is the plan.
 - Tests are ztest suites under twister on native_sim (the hosted GoogleTest
   build was removed).
 - Scope warnings to project code; mark Zephyr includes as system.
-- Initialise `lib/cymon` (target `cymon`, alias `cymon::cymon`; `docs/cymon_integration_plan.md`).
+- Initialise `lib/cymon` (target `cymon`, alias `cymon::cymon`; linked into `unimoc_lib`, `docs/cymon_integration_plan.md`).
 
 ### Phase 2 - native_sim
 - Zephyr hardware layer implementing `HardwareInterface`, bound to the PMSM
@@ -83,8 +84,8 @@ log is on RTT and on the bus. The phase order below is the plan.
 ### Phase 3 - High-level services
 - `HardwareSystemInterface::Log` maps to Zephyr logging.
 - ~~Shell commands~~: dropped (2026-10-21); settings, status and commands
-  are Cyphal registers and ExecuteCommand. Startup FSM and cymon follow over
-  Cyphal.
+  are Cyphal registers and ExecuteCommand. The startup FSM and the cymon
+  traces are served over Cyphal too.
 - `SettingsStorage` key/value callbacks map to the Zephyr settings subsystem on ZMS (`docs/settings_plan.md`, implemented).
 - Threads: Cyphal, logging, settings, later the 2 kHz control thread.
   No `main()` wait loop. The observer stays in its pended interrupt.
@@ -107,13 +108,19 @@ log is on RTT and on the bus. The phase order below is the plan.
   the BCC (FDCAN3) and native_sim (SocketCAN `vcan0`). Redundant interfaces
   with their own MTU.
 - Done: heartbeat, port list, GetInfo, register List/Access on
-  `SettingsStore` (all 77 persistent registers), ExecuteCommand (restart,
+  `SettingsStore` (all 95 persistent registers), ExecuteCommand (restart,
   store, factory reset, emergency stop), PnP v1, `uavcan.diagnostic.Record`
   with a Zephyr log backend; drive application in `src/drive/` (readiness,
   current and torque setpoints, telemetry).
 - Done: native_sim without `vcan`: slcan on four pseudo terminals
   (`hardware/zephyr_sim/slcan_media.cpp`), checked with yakut 0.14.
-- Open: cymon traces over Cyphal (`docs/cymon_integration_plan.md`); firmware update (file service into bank
+- Done: cymon traces (`docs/cymon_integration_plan.md`): `CyphalNode::AddServer()`
+  for services on register-assigned IDs, the five `cymon.*` services
+  (`src/trace/trace_node.*`) and the trigger event, `Tick()` at the end of the
+  control cycle; tested with ztest (`unimoc.lib.cymon`, `unimoc.lib.cyphal`)
+  and pycyphal (`unimoc.app.cyphal_integration`). The `Tick()` cost on the
+  board (M0) is not measured.
+- Open: firmware update (file service into bank
   2); speed and position setpoints (need the control thread, M7); the startup
   FSM registers; the board run (transceiver, bit timing).
 
