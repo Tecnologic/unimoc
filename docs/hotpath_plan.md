@@ -229,10 +229,10 @@ Each milestone builds for BCC and native_sim and keeps the twister green.
 | M1 | Done in code: RCR = 0, CCR preload, DMA burst, control cycle in the 4th sample interrupt, pended observer, sim at the 16 kHz cycle. | Twister: `sim_irq_cadence`, `sim_closed_loop` |
 | M2 | Done in code: one reciprocal of V_dc per cycle for the four SVM entries (`Svm::CalculateWithInverseDcLinkVoltage`), circle limiter without libm (`vsqrt.f32` through `-fno-math-errno`). Precomputing `v_limit_sq` and `ki·dt` in the observer was dropped: the PI runs once per cycle, so it saves only a few multiplications. | `svm_test`, call-graph check below |
 | M3 | Done in code: hot-path hardware access through `hardware/hot_path_interface.hpp` (link-time bound, no function pointers); the platform calls `ControlCycleHandler()`/`ObserverHandler()` of the application directly; `-fno-math-errno` for the Zephyr build. Inlining across the translation units (LTO or header-only access) is open until M0 shows it matters. | Call-graph check below, cycles against the M0 baseline |
-| M4 | Observer API per D2, error wrap, separate R. | ztest with synthetic profiles |
-| M5 | Hall driver (EXTI, timestamp, plausibility) and Hall signals of the sim plant in the sim layer. | ztest with generated edges |
-| M6 | Fusion in the observer: sector and edge measurement, speed gating. | Sim tests: standstill without drift, ramps, Hall failure |
-| M7 | Control thread with speed controller, setpoint limiting and mailbox. | Sim test: step in ω, current limit takes effect |
+| M4 | Done in code: `MechanicalObserver` with `PredictCovariance()`, `UpdateAngle()`/`UpdateSpeed()` each with its own R, error wrap in `angle_wrap.hpp`; the flux observer as an angle measurement with R_flux = R0 + k/ω². | `mechanical_observer_test` (synthetic profiles) |
+| M5 | Done in code: `HallDecoder` and `HallEventQueue` (`hall_capture.hpp`), BCC EXTI capture with timestamps (not run on the board), sim Hall events with the edge time from the plant. | `hall_decoder_test`, `hall_sensor_test` (generated edges) |
+| M6 | Done in code: `HallFusion` with edge and sector measurement, speed bound from the sector time, standstill hold, sector center at the start. | `hall_fusion_test`, `sim_hall_fusion` (standstill without drift, ramps, Hall failure) |
+| M7 | Done in code: control thread (`control_thread.hpp`), `OuterLoop` with `SpeedController`, `PositionController`, setpoint limiting and `Mailbox`; speed and position setpoints over Cyphal. | `sim_speed_control` (step in ω, current limit), `sim_cyphal_drive` |
 | M8 | Board: DMA and preload on the scope, ADC alignment, Hall table, closed current loop with the 50 A limit. | Measurements, oscilloscope |
 
 ### Call-graph check of the zero-latency path (M2/M3)

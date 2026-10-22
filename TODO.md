@@ -28,7 +28,6 @@ items that need the board are collected below and wait for hardware access.
 
 ### P0 - Without hardware (twister on `native_sim`, BCC build)
 
- - [ ] Implement the hot-path milestones M4 to M7 from `docs/hotpath_plan.md` (observer API, Hall driver and sim Hall signals, Hall fusion, control thread), tested with ztest and the sim plant.
  - [ ] Connect the startup FSM (`HwStartup`) to Cyphal: the `unimoc.startup.*` registers of `cyphal_interface.hpp` (run, step, external measurements, results) in a register provider, the FSM stepped from the Cyphal thread; test on `native_sim`.
  - [ ] Speed and position setpoints over Cyphal (`uavcan.sub.speed_setpoint`, UDRAL servo); needs the control thread of M7.
  - [ ] cymon traces over Cyphal: steps in [docs/cymon_integration_plan.md](docs/cymon_integration_plan.md). `lib/cymon` is at cymon-lib 0.2 (C++20, interrupt-safe `Tick()`, DSDL `cymon.*.0.1`, CMake 3.20); the host tool is cymon (<https://github.com/Tecnologic/cymon>).
@@ -57,6 +56,7 @@ items that need the board are collected below and wait for hardware access.
  - [x] Persist settings per register with the Zephyr settings subsystem on ZMS, live RAM tuning and a gated `SaveToFlash()` ([docs/settings_plan.md](docs/settings_plan.md)).
  - [x] Delete the legacy firmware in `hardware/batterycasecontroller/` together with `cmake/Modm.cmake`, `cmake/ToolChain.cmake`, `requirements.txt` and `ci-firmware.yml`.
  - [x] Hot-path milestones M1 to M3 in code (not run on the board).
+ - [x] Hot-path milestones M4 to M7 in code (observer API, Hall driver and sim Hall signals, Hall fusion, control thread with speed and position control), tested with ztest and the sim plant; the Hall capture of the BCC is not run on the board.
  - [x] Bring `src/`, `hardware/zephyr_*` and the tests under clang-tidy (Zephyr SCA through CodeChecker, `scripts/twister_sca.sh`).
  - [x] Bring the `lib/unimoc` headers under clang-tidy (`HeaderFilterRegex`; API renamed to PascalCase methods). `lib/cymon` is still outside: it is not built in the Zephyr workspace yet.
  - [x] Add an `SPDX-License-Identifier` line to the UNIMOC file header (C++ files, CMake and YAML files; file-docs skill updated).
