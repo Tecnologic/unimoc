@@ -155,12 +155,17 @@ template <std::size_t kCount>
  * (a node does not receive its own transfers).
  */
 [[nodiscard]] inline bool HasPortIdCollision(const NvmSettings& settings) noexcept {
-  const std::array<uint16_t, 7U> kSubjects{settings.sub_readiness_id,       settings.sub_current_setpoint_id,
-                                           settings.sub_torque_setpoint_id, settings.sub_speed_setpoint_id,
-                                           settings.sub_position_setpoint_id, settings.sub_servo_setpoint_id,
+  const std::array<uint16_t, 7U> kSubjects{settings.sub_readiness_id,
+                                           settings.sub_current_setpoint_id,
+                                           settings.sub_torque_setpoint_id,
+                                           settings.sub_speed_setpoint_id,
+                                           settings.sub_position_setpoint_id,
+                                           settings.sub_servo_setpoint_id,
                                            settings.pub_telemetry_id};
-  const std::array<uint16_t, 5U> kServices{settings.srv_cymon_variables_id, settings.srv_cymon_buffer_info_id,
-                                           settings.srv_cymon_setup_id, settings.srv_cymon_arm_id,
+  const std::array<uint16_t, 5U> kServices{settings.srv_cymon_variables_id,
+                                           settings.srv_cymon_buffer_info_id,
+                                           settings.srv_cymon_setup_id,
+                                           settings.srv_cymon_arm_id,
                                            settings.srv_cymon_read_id};
   const auto kOnSubject = [&kSubjects](const uint16_t port_id) {
     return port_id != cyphal::kUnsetPortId &&
