@@ -733,15 +733,19 @@ ZTEST(sim_cyphal_drive, test_gains_are_tuned_live_while_engaged) {
   zexpect_true(rig.drive.IsEngaged());
   zexpect_within(CurrentControlIsr::Instance().cc.kp_q.Value(), 0.7F, 1e-6F);
   zexpect_equal(g_settings_applied, kApplied, "restarted for a gain");
+  zexpect_equal(Integer(rig.Access(reg::kSettingsPending, Empty())), 0);
 
   // A motor parameter needs a restart: it waits for the disengage, the gain stays.
   (void)rig.Access(reg::kMotorPolePairs, Natural8(5U));
   rig.Hold(0.0F, 2.0F, 5U);
   zexpect_true(rig.drive.IsEngaged());
   zexpect_equal(g_settings_applied, kApplied);
+  zexpect_equal(Integer(rig.Access(reg::kSettingsPending, Empty())), 1);
+  zexpect_equal(Integer(rig.Access(reg::kSettingsPending, Natural8(0U))), 1, "read only");
   rig.Readiness(reg_udral_service_common_Readiness_0_1_SLEEP);
   rig.Run(2U);
   zexpect_equal(g_settings_applied, kApplied + 1);
+  zexpect_equal(Integer(rig.Access(reg::kSettingsPending, Empty())), 0);
   zexpect_within(CurrentControlIsr::Instance().cc.kp_q.Value(), 0.7F, 1e-6F);
 }
 

@@ -93,19 +93,40 @@ void CopyTunable(const settings::NvmSettings& source, settings::NvmSettings& tar
   target.command_timeout = source.command_timeout;
 }
 
-/// True when @p live differs from @p applied in tunable registers only.
-[[nodiscard]] bool OnlyTunableChanged(const settings::NvmSettings& applied,
-                                      const settings::NvmSettings& live) noexcept {
+/// The first register in which @p live differs from @p applied outside the tunable ones; empty: none.
+[[nodiscard]] std::string_view FirstUntunableChange(const settings::NvmSettings& applied,
+                                                    const settings::NvmSettings& live) noexcept {
   settings::NvmSettings untuned = live;
   CopyTunable(applied, untuned);
-  bool same = true;
+  std::string_view changed{};
   settings::ForEachRegister(
-      [&same](std::string_view /*name*/, const auto& first, const auto& second) {
-        same = same && settings::settings_store_internal::SameEncoding(first, second);
+      [&changed](const std::string_view name, const auto& first, const auto& second) {
+        if (changed.empty() && !settings::settings_store_internal::SameEncoding(first, second)) {
+          changed = name;
+        }
       },
       applied,
       std::as_const(untuned));
-  return same;
+  return changed;
+}
+
+/// @p prefix followed by @p detail in @p buffer, cut to its size.
+template <std::size_t kSize>
+[[nodiscard]] std::string_view Joined(const std::string_view prefix,
+                                      const std::string_view detail,
+                                      std::array<char, kSize>& buffer) noexcept {
+  std::size_t length = 0U;
+  for (const char kChar : prefix) {
+    if (length < kSize) {
+      buffer[length++] = kChar;
+    }
+  }
+  for (const char kChar : detail) {
+    if (length < kSize) {
+      buffer[length++] = kChar;
+    }
+  }
+  return std::string_view{buffer.data(), length};
 }
 
 [[nodiscard]] const uint8_t* InputBytes(std::span<const std::byte> payload) noexcept {
@@ -120,15 +141,21 @@ void CopyTunable(const settings::NvmSettings& source, settings::NvmSettings& tar
 
 // ----- DriveInfoRegisters ----------------------------------------------------
 
-std::size_t DriveInfoRegisters::Count() const noexcept { return kInfoRegisters.size(); }
+// The info registers, then `unimoc.settings.pending`.
+std::size_t DriveInfoRegisters::Count() const noexcept { return kInfoRegisters.size() + 1U; }
 
 std::string_view DriveInfoRegisters::Name(const std::size_t index) const noexcept {
+  if (index == kInfoRegisters.size()) {
+    return cyphal::reg::kSettingsPending;
+  }
   return index < kInfoRegisters.size() ? kInfoRegisters[index].name : std::string_view{};
 }
 
 cyphal::RegisterFlags DriveInfoRegisters::Read(const std::size_t index,
                                                cyphal::RegisterValue& value) const noexcept {
-  if (index >= kInfoRegisters.size()) {
+  if (index == kInfoRegisters.size()) {
+    cyphal::SetBit(value, *settings_pending_);
+  } else if (index >= kInfoRegisters.size()) {
     cyphal::SetEmpty(value);
   } else if (kInfoRegisters[index].type.empty()) {
     cyphal::SetUnstructured(value, unique_id_);
@@ -156,7 +183,7 @@ DriveNode::DriveNode(cyphal::CyphalNode& node,
       motor_{&motor},
       hooks_{hooks},
       settings_registers_{store},
-      info_registers_{unique_id},
+      info_registers_{unique_id, settings_waiting_},
       startup_{CurrentControlIsr::Instance(), store.GetOperations()},
       startup_registers_{startup_, engaged_} {}
 
@@ -264,6 +291,7 @@ void DriveNode::Spin(const uint64_t now_us) noexcept {
     restart_requested_ = false;
     hooks_.restart();
   }
+  settings_waiting_ = settings_pending_ || settings_registers_.WriteCount() != applied_writes_;
   UpdateStatus();
 }
 
@@ -315,6 +343,10 @@ bool DriveNode::ApplySettings() noexcept {
   if (hooks_.settings_applied != nullptr) {
     hooks_.settings_applied(live);
   }
+  if (waiting_announced_) {
+    waiting_announced_ = false;
+    (void)node_->Log(cyphal::Severity::kInfo, "waiting settings applied");
+  }
   return true;
 }
 
@@ -322,8 +354,13 @@ void DriveNode::TuneLive() noexcept {
   checked_writes_ = settings_registers_.WriteCount();
   const settings::SettingsSnapshot kSnapshot = store_->GetSnapshot();
   const settings::NvmSettings& live = kSnapshot.Get();
-  if (!OnlyTunableChanged(applied_settings_, live)) {
+  const std::string_view kUntunable = FirstUntunableChange(applied_settings_, live);
+  if (!kUntunable.empty()) {
     settings_pending_ = true;  // a restart with all of them after the disengage
+    std::array<char, 112> text{};
+    (void)node_->Log(cyphal::Severity::kWarning,
+                     Joined("settings wait for the disengage: ", kUntunable, text));
+    waiting_announced_ = true;
     return;
   }
   CurrentControlIsr::Instance().SetCurrentGains(current_control::CurrentGains{.kp_d = live.current_kp_d,
@@ -533,15 +570,7 @@ void DriveNode::Disengage(const std::string_view reason) noexcept {
   if (engaged_) {
     engaged_ = false;
     std::array<char, 64> text{};
-    const std::string_view kPrefix{"disengaged: "};
-    std::size_t length = 0U;
-    for (const char kChar : kPrefix) {
-      text[length++] = kChar;
-    }
-    for (std::size_t i = 0U; i < reason.size() && length < text.size(); ++i) {
-      text[length++] = reason[i];
-    }
-    (void)node_->Log(cyphal::Severity::kNotice, std::string_view{text.data(), length});
+    (void)node_->Log(cyphal::Severity::kNotice, Joined("disengaged: ", reason, text));
   }
 }
 

@@ -4,11 +4,36 @@ The overall direction (cart with four wheel drives, central vehicle dynamics
 controller, Cyphal/CAN-FD, STM32G4 logic board for the 4850 drive) is drafted
 in [docs/system_plan.md](docs/system_plan.md).
 
+### Decisions (2026-10-22, PR #26)
+
+1. DC-link voltages: regenerative braking derates from 55 V, the drive trips
+   at 58 V, the hardware capability is 60 V (BCC and sim). Accepted; check
+   the switch and capacitor ratings against the schematic during bring-up.
+2. The overvoltage trip switches all transistors off; above the
+   line-to-line back-EMF peak the motor still charges the DC link through
+   the body diodes. Known and accepted risk; a brake chopper is added in a
+   later hardware design.
+3. The cymon trigger may publish and subscribe one shared subject: the
+   design for triggering several targets at once.
+4. The unit types move to dimension exponents (SI base dimensions plus the
+   radian); see the P0 item under "Unit types".
+5. The battery charge limit comes from the register
+   `unimoc.battery.limits.charge_current` for now; a BMS may overrule it
+   over the bus later.
+6. The swing of the regenerative limit after a braking step with an imposed
+   shaft speed (sim, about 300 ms) is accepted until the hardware tests.
+7. The M0 timing probes stay off by default (`CONFIG_UNIMOC_HOT_PATH_TIMING`
+   only in the bring-up build).
+8. Live tuning stays conservative: a pending change that needs a restart
+   holds back live tuning until the disengage. The drive reports it with a
+   `uavcan.diagnostic.Record` ("settings wait for the disengage: <register>",
+   then "waiting settings applied") and the register `unimoc.settings.pending`.
+
 ### Cart system (see `docs/system_plan.md`)
 
  - [ ] CAN FD bus test (phase C2): BCC and G4 evaluation boards on a cart-length harness, 1/4 and 1/2 Mbit/s, bus load and latency at 250 and 500 Hz; choose the bit rate and the cycle rate.
  - [ ] Check `vcan` (CAN FD MTU) on WSL2 for the multi-node simulation. A single simulated node already works without it over the slcan pseudo terminals (classic CAN); several nodes on one bus need `vcan` (or Cyphal/UDP over the `native_sim` TAP driver; NSOS passes no multicast socket options in 4.4).
- - [ ] Regenerative braking in the drive: DC-link overvoltage limit and trip, regen limit from the battery state, reported to the VDC; tested in the sim (section 7.1). Done 2026-10-22: battery drive and charge current limits in the outer loop (`control::DcLinkLimit`, all modes), regenerative derating from `unimoc.battery.limits.regen_derate_voltage` to `trip_voltage`, hard trip in the control cycle (`overvoltage_tripped`, `ClearTrips()`), ztests in `unimoc.lib.motor_control`, `sim_overcurrent` and `sim_cyphal_drive`; the speed controller takes the same power window as output bounds (`DcLinkLimit::AllowedTorque()`, `SpeedController::torque_min`/`torque_max`), so its integral does not wind up against it. Open: the charge limit from the BMS over the bus instead of the register, reporting to the VDC (cart DSDL), the estimated speed in the limit on a dyno (the observer's torque model expects the shaft to slow; settles within some 300 ms in the sim), the BCC voltage ratings from the schematic, a per-sample overvoltage check in the sample interrupt.
+ - [ ] Regenerative braking in the drive: DC-link overvoltage limit and trip, regen limit from the battery state, reported to the VDC; tested in the sim (section 7.1). Done 2026-10-22: battery drive and charge current limits in the outer loop (`control::DcLinkLimit`, all modes), regenerative derating from `unimoc.battery.limits.regen_derate_voltage` to `trip_voltage` (decisions 1, 2, 5, 6), hard trip in the control cycle (`overvoltage_tripped`, `ClearTrips()`), ztests in `unimoc.lib.motor_control`, `sim_overcurrent` and `sim_cyphal_drive`; the speed controller takes the same power window as output bounds (`DcLinkLimit::AllowedTorque()`, `SpeedController::torque_min`/`torque_max`), so its integral does not wind up against it. Open: the charge limit from the BMS over the bus instead of the register, reporting to the VDC (cart DSDL), the estimated speed in the limit on a dyno (the observer's torque model expects the shaft to slow; settles within some 300 ms in the sim), the BCC voltage ratings from the schematic, a per-sample overvoltage check in the sample interrupt.
  - [ ] Requirements and part choice for the STM32G4 redesign of the hardware_4850 logic board (STM32G473RET6 or G474RET6, pin and ADC check, section 5.2).
  - [ ] Generalize `hardware/zephyr_bcc` to the G4 family so the 4850 logic board shares the hot path (board differences in the devicetree).
  - [ ] Split `app/` into `apps/drive/` and `apps/vdc/` (later `apps/pedal/` and `apps/bms/`) and add `lib/vehicle/`; update `AGENTS.md`, `README.md` and `docs/zephyr_workflow.md`. The VDC firmware lives in this repository (decided); the VDC MCU starts on a G4.
@@ -60,7 +85,7 @@ first three items change it and need the owner's go-ahead.
 
  - [x] P0: Enforce the boundary in CI: `scripts/check_unit_escapes.py` (run by `check_format.sh`) counts `.Value()` and raw unit constructions per file against `scripts/unit_escapes_baseline.txt` (1214 in 73 files on 2026-10-22) and fails when a file grows; `--update` locks in a reduction. Boundary files keep their count in the baseline instead of a separate allowlist.
  - [x] P0: Math helpers in `units.hpp` so typed code needs no escape: `Abs`, `Min`/`Max`, `IsFinite`, `Hypot` (no libm beyond `sqrtf`, an instruction with `-fno-math-errno`); `Clamp(Rep, Rep)` removed and its callers (`mtpa`, `excitation_controller`, `dead_time_compensation`, `field_weakening`) clamp with typed bounds. ztests in `tests/lib/units`. Sine and cosine of an `Angle` are `system::SinCos` (`sin_cos.hpp`), the angle wrap `observer::WrapAngle()`/`WrapAnglePositive()`. `Sqrt` of a squared quantity needs a squared type: it moves to the dimension-exponent item below.
- - [ ] P0 (decision): Replace the tags by dimension exponents (SI base dimensions plus the radian as its own dimension, so that rad/s and Hz stay distinct), keeping the public aliases (`Current`, `Voltage`, ...). Products and quotients are then derived by the compiler, including the controller gains and the observer coefficients that today have no type. The precondition for the items below to stay free of `.Value()`; zero runtime cost (same `float` layout). Effort L.
+ - [ ] P0 (decided 2026-10-22): Replace the tags by dimension exponents (SI base dimensions plus the radian as its own dimension, so that rad/s and Hz stay distinct), keeping the public aliases (`Current`, `Voltage`, ...). Products and quotients are then derived by the compiler, including the controller gains and the observer coefficients that today have no type. The precondition for the items below to stay free of `.Value()`; zero runtime cost (same `float` layout). Effort L.
  - [ ] P1: Frames and transforms without unwrapping: `Stator`/`Rotor` rotation, Clarke/Park in `three_phase_system`, `hfi`, `dead_time_compensation`, `pmsm_flux_observer` (Unit x Ratio exists). Effort M.
  - [ ] P1: Typed controller gains: `kp`/`ki` of `current_controller` (V/A, V/(A s)), `speed_controller`, `position_controller`, `excitation_controller`; the integrators keep their output unit. Effort M.
  - [ ] P1: Observers in units: `mechanical_observer` (torque balance, `dt / J`), `asm_flux_observer` (27 escapes), `excitation_observer`, `field_weakening`, `mtpa`. Effort M.

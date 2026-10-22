@@ -628,6 +628,11 @@ inline constexpr const char* kSubCymonTriggerType = "uavcan.sub.cymon_trigger.ty
 /// Hardware unique-ID of the node (MCU UID). Type: unstructured (read-only)
 inline constexpr const char* kNodeUniqueId = "uavcan.node.unique_id";
 
+/// True while register writes wait for a restart of the controller (they
+/// need the drive disengaged; gains while engaged are applied at once).
+/// Type: bit[1] (read-only)
+inline constexpr const char* kSettingsPending = "unimoc.settings.pending";
+
 }  // namespace reg
 
 // ============================================================================

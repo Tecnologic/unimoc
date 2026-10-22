@@ -199,6 +199,27 @@ def test_dc_link_overvoltage_trips_the_drive(sim: SimClient):
     assert sim.latest(sim.telemetry).power_stage == 0  # DISABLED
 
 
+def test_settings_that_need_a_restart_are_reported_while_engaged(sim: SimClient):
+    sim.hold(0.2, STANDBY)
+    sim.hold(0.5, ENGAGED, sim.current_setpoint(0.0, 1.0))
+    assert sim.latest(sim.telemetry, settle=0.0).engaged
+    assert not sim.read("unimoc.settings.pending")
+
+    # A gain is applied at once; a limit waits for the disengage and says so.
+    assert sim.write("unimoc.control.current.kp_q", real(0.6)) == pytest.approx(0.6)
+    sim.hold(0.2, ENGAGED, sim.current_setpoint(0.0, 1.0))
+    assert not sim.read("unimoc.settings.pending")
+    assert sim.write("unimoc.motor.limits.i_max", real(19.0)) == pytest.approx(19.0)
+    sim.hold(0.2, ENGAGED, sim.current_setpoint(0.0, 1.0))
+    assert sim.read("unimoc.settings.pending")
+    assert "settings wait for the disengage: unimoc.motor.limits.i_max" in sim.records
+
+    sim.hold(0.3, SLEEP)
+    assert not sim.read("unimoc.settings.pending")
+    assert "waiting settings applied" in sim.records
+    assert sim.write("unimoc.motor.limits.i_max", real(20.0)) == pytest.approx(20.0)  # as before
+
+
 def test_trace_variables_ports_and_registers(sim: SimClient):
     variables = sim.trace_variables()
     names = [name for name, _unit in variables]

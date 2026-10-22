@@ -107,7 +107,10 @@ integration with ztest and pytest, as below.
 - One `trace::TraceNode` serves all five services and tells them apart by
   the port-ID. The persistent `.id` registers are settings
   (`NvmSettings::srv_cymon_*_id`, `pub_/sub_cymon_trigger_id`); the `.type`
-  companions are in `DriveInfoRegisters`.
+  companions are in `DriveInfoRegisters`. The trigger publication and
+  subscription may share one subject (decided 2026-10-22): every node of a
+  bus then triggers the captures of the others; a node does not receive its
+  own transfers. All other ports must have distinct IDs.
 - `Tick()` runs in `ControlCycleHandler()` (`src/main.cpp`) right after
   `CurrentControlIsr::OnControlCycle()`, through `trace::OnControlCycle()`,
   on every cycle (also while tripped or in force-duty mode). The mirror

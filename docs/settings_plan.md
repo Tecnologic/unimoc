@@ -134,7 +134,8 @@ software versions from the firmware (`hardware_interface_config.hpp`,
    engaged for the gains (`DriveNode::TuneLive()`: current PI gains through
    `CurrentControlIsr::SetCurrentGains()`, speed and position gains through
    `OuterLoop::SetGains()`, telemetry rate, command timeout); every other
-   register still waits for the disengage.
+   register still waits for the disengage, reported by a diagnostic record
+   and `unimoc.settings.pending`.
 
 Done: holding off `PowerStage::Enable()` during a save and serializing the
 store (see "Concurrency").

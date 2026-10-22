@@ -44,8 +44,12 @@ struct DriveHooks {
  */
 class DriveInfoRegisters final : public cyphal::RegisterProvider {
  public:
-  /// @param unique_id Unique-ID reported by `uavcan.node.unique_id`; must outlive the provider.
-  explicit DriveInfoRegisters(std::span<const uint8_t> unique_id) noexcept : unique_id_{unique_id} {}
+  /**
+   * @param unique_id Unique-ID reported by `uavcan.node.unique_id`; must outlive the provider.
+   * @param settings_pending Reported by `unimoc.settings.pending`; must outlive the provider.
+   */
+  DriveInfoRegisters(std::span<const uint8_t> unique_id, const bool& settings_pending) noexcept
+      : unique_id_{unique_id}, settings_pending_{&settings_pending} {}
 
   [[nodiscard]] std::size_t Count() const noexcept override;
   [[nodiscard]] std::string_view Name(std::size_t index) const noexcept override;
@@ -56,6 +60,7 @@ class DriveInfoRegisters final : public cyphal::RegisterProvider {
 
  private:
   std::span<const uint8_t> unique_id_;
+  const bool* settings_pending_;
 };
 
 /**
@@ -199,6 +204,8 @@ class DriveNode final : public cyphal::MessageListener,
   uint32_t checked_writes_{0U};             ///< Register writes looked at for live tuning.
   settings::NvmSettings applied_settings_;  ///< What the controller runs with.
   bool settings_pending_{false};
+  bool settings_waiting_{false};   ///< Writes not applied yet (`unimoc.settings.pending`).
+  bool waiting_announced_{false};  ///< A record said that settings wait for the disengage.
 
   cyphal::Publisher telemetry_{};
   uint64_t next_telemetry_us_{0U};

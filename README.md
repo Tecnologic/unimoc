@@ -204,7 +204,10 @@ engages).  While engaged, the gains of the current, speed and position loops
 (`unimoc.control.current.*`, `unimoc.control.speed.*`, the position gains,
 limits and tolerances), the telemetry rate and the command timeout take
 effect at once without a restart (live tuning); any other change waits for
-the disengage and also holds back live tuning until then.  `ExecuteCommand STORE_PERSISTENT_STATES` (65530) saves them to
+the disengage and also holds back live tuning until then.  Such a write is
+reported with a `uavcan.diagnostic.Record` warning ("settings wait for the
+disengage: <register>", then "waiting settings applied"), and the read-only
+`unimoc.settings.pending` (bit) reads 1 while changes wait.  `ExecuteCommand STORE_PERSISTENT_STATES` (65530) saves them to
 flash, refused (`BAD_STATE`) while the power stage is enabled.
 
 ### Ports of the drive
@@ -246,8 +249,9 @@ hardware's 60 V), where the control cycle trips the power stage.  The trip
 switches all transistors off: above the line-to-line back-EMF peak the
 motor still feeds the DC link through the body diodes, so the trip level
 must stay above the battery voltage and the chopper of the BMS (section 7.1
-of `docs/system_plan.md`) has to hold the DC link.  The BCC voltages are
-assumptions until checked against its schematic.
+of `docs/system_plan.md`) has to hold the DC link; that chopper comes with
+a later hardware design (an accepted risk until then).  The BCC voltages
+are accepted values, to be checked against its schematic during bring-up.
 
 An overcurrent or overvoltage trip or a power stage fault while engaged disengages the drive;
 it engages again only after a readiness other than `ENGAGED` (re-arm).
