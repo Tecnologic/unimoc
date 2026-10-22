@@ -38,6 +38,11 @@ CMake >= 3.20 (Zephyr's minimum) and Ninja are required. The CI job
     west build -b native_sim/native/64 unimoc/app -d unimoc/app/build/sim   # host simulation (Cyphal: README.md)
     west build -b bcc unimoc/app -d unimoc/app/build/bcc                      # battery case controller
 
+CI builds both after the tests passed and uploads them as the artifacts
+`unimoc-bcc` (`.elf`, `.hex`, `.bin`, `.map`) and `unimoc-native_sim` (the
+executable in a `.tar.gz`, which keeps its executable bit) of the workflow run.
+A pushed version tag (`v*`) also attaches them to a GitHub release of that tag.
+
 ## Tests and static analysis
 
     unimoc/scripts/twister_sca.sh       # all scenarios, native_sim + bcc, clang-tidy as SCA (CI)

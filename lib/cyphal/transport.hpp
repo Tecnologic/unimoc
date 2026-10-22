@@ -128,6 +128,7 @@ class Transport {
    * @param kind Message, or service request (server) or response (client).
    * @param port_id Subject-ID or service-ID.
    * @param extent Largest payload kept of a transfer (the DSDL extent).
+   *               A port subscribed again keeps the larger extent.
    * @return `false` when no subscription slot is left.
    */
   [[nodiscard]] virtual bool Subscribe(TransferKind kind, uint16_t port_id, std::size_t extent) noexcept = 0;

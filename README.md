@@ -1,6 +1,7 @@
 # UNIMOC — Universal Motor Control
 
-[![CI](https://github.com/Tecnologic/unimoc/actions/workflows/ci.yml/badge.svg)](https://github.com/Tecnologic/unimoc/actions/workflows/ci.yml)
+[![Zephyr CI (main)](https://github.com/Tecnologic/unimoc/actions/workflows/ci-zephyr.yml/badge.svg?branch=main)](https://github.com/Tecnologic/unimoc/actions/workflows/ci-zephyr.yml?query=branch%3Amain)
+[![Zephyr CI (develop)](https://github.com/Tecnologic/unimoc/actions/workflows/ci-zephyr.yml/badge.svg?branch=develop)](https://github.com/Tecnologic/unimoc/actions/workflows/ci-zephyr.yml?query=branch%3Adevelop)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 [![C++ Standard](https://img.shields.io/badge/C%2B%2B-20-blue.svg)](https://en.cppreference.com/w/cpp/20)
 
@@ -763,6 +764,11 @@ west twister -T unimoc/app -p native_sim/native/64 --scenario unimoc.app.cyphal_
 # One suite without static analysis, while iterating
 west twister -T unimoc/tests/lib/motor_control -p native_sim/native/64
 ```
+
+Prebuilt firmware: every CI run uploads the BCC image (`unimoc-bcc`) and the
+`native_sim` executable (`unimoc-native_sim`) as artifacts of the
+[Zephyr workflow](https://github.com/Tecnologic/unimoc/actions/workflows/ci-zephyr.yml);
+version tags (`v*`) publish them as a GitHub release.
 
 `twister_sca.sh` needs `clang-tidy` (LLVM 18) and CodeChecker
 (`pip install codechecker`) in addition to the Zephyr setup;

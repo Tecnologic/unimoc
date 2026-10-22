@@ -95,6 +95,12 @@ bool PowerStageEnable() noexcept {
     return false;
   }
   g_power_stage.enabled = true;
+  // As on the BCC: a trip of the cycle interrupt between the check and the
+  // release must not be undone.
+  if (g_power_stage.fault) {
+    g_power_stage.enabled = false;
+    return false;
+  }
   return true;
 }
 
