@@ -868,6 +868,18 @@ constexpr auto operator*(const Unit<Rep, P1, CurrentTag>& current,
 }
 
 /**
+ * @brief Divides torque by magnetic flux to obtain current.
+ * @return Current with the quotient period.
+ *
+ * With a torque constant (N m/A, the same dimension as Wb) as the divisor this
+ * is the current that produces the torque.
+ */
+template <typename Rep, typename P1, typename P2>
+constexpr auto operator/(const Unit<Rep, P1, TorqueTag>& torque, const Unit<Rep, P2, MagneticFluxTag>& flux) {
+  return Unit<Rep, std::ratio_divide<P1, P2>, CurrentTag>(torque.Value() / flux.Value());
+}
+
+/**
  * @brief Divides torque by rotational inertia to obtain angular acceleration.
  * @return Angular acceleration with the quotient period.
  */

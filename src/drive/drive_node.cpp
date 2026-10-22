@@ -224,9 +224,9 @@ void DriveNode::LoadParameters(const settings::NvmSettings& settings) noexcept {
   telemetry_period_us_ = (settings.telemetry_rate.Value() > 0.0F)
                              ? static_cast<uint64_t>(1.0e6F / settings.telemetry_rate.Value())
                              : 0U;
-  current_limit_ = settings.motor_i_max.Value();
+  current_limit_ = settings.motor_i_max;
   // PMSM torque constant: T = 3/2 p psi_pm i_q.
-  torque_constant_ = 1.5F * static_cast<float>(settings.pole_pairs) * settings.flux_pm.Value();
+  torque_constant_ = settings.flux_pm * (1.5F * static_cast<float>(settings.pole_pairs));
 }
 
 void DriveNode::SpinStartup() noexcept {
@@ -315,17 +315,17 @@ void DriveNode::OnCurrentSetpoint(const cyphal::Transfer& transfer, const uint64
   if (unimoc_drive_CurrentSetpoint_0_1_deserialize_(&setpoint, InputBytes(transfer.payload), &size) < 0) {
     return;
   }
-  SetCurrentSetpoint(setpoint.i_d, setpoint.i_q, now_us);
+  SetCurrentSetpoint(unit::Current{setpoint.i_d}, unit::Current{setpoint.i_q}, now_us);
 }
 
 void DriveNode::OnTorqueSetpoint(const cyphal::Transfer& transfer, const uint64_t now_us) noexcept {
   uavcan_si_unit_torque_Scalar_1_0 torque{};
   std::size_t size = transfer.payload.size();
   if (uavcan_si_unit_torque_Scalar_1_0_deserialize_(&torque, InputBytes(transfer.payload), &size) < 0 ||
-      torque_constant_ <= 0.0F) {
+      torque_constant_ <= unit::MagneticFlux{}) {
     return;
   }
-  SetCurrentSetpoint(0.0F, torque.newton_meter / torque_constant_, now_us);
+  SetCurrentSetpoint(unit::Current{}, unit::Torque{torque.newton_meter} / torque_constant_, now_us);
 }
 
 void DriveNode::OnSpeedSetpoint(const cyphal::Transfer& transfer, const uint64_t now_us) noexcept {
@@ -375,24 +375,27 @@ void DriveNode::OnServoSetpoint(const cyphal::Transfer& transfer, const uint64_t
       SetSpeedSetpoint(kSpeed, now_us);
       break;
     case cyphal::ControlMode::kTorque:
-      if (torque_constant_ > 0.0F) {
-        SetCurrentSetpoint(0.0F, kTorque / torque_constant_, now_us);
+      if (torque_constant_ > unit::MagneticFlux{}) {
+        SetCurrentSetpoint(unit::Current{}, unit::Torque{kTorque} / torque_constant_, now_us);
       }
       break;
   }
 }
 
-void DriveNode::SetCurrentSetpoint(const float i_d, const float i_q, const uint64_t now_us) noexcept {
-  if (!std::isfinite(i_d) || !std::isfinite(i_q)) {
+void DriveNode::SetCurrentSetpoint(const unit::Current i_d,
+                                   const unit::Current i_q,
+                                   const uint64_t now_us) noexcept {
+  if (!unit::IsFinite(i_d) || !unit::IsFinite(i_q)) {
     return;
   }
   // Limit the current vector to i_max, keeping its direction.
-  const float kMagnitude = std::sqrt((i_d * i_d) + (i_q * i_q));
-  const float kScale =
-      (kMagnitude > current_limit_ && kMagnitude > 0.0F) ? current_limit_ / kMagnitude : 1.0F;
+  const unit::Current kMagnitude = unit::Hypot(i_d, i_q);
+  const unit::Ratio kScale = (kMagnitude > current_limit_ && kMagnitude > unit::Current{})
+                                 ? current_limit_ / kMagnitude
+                                 : unit::Ratio{1.0F};
   setpoint_ = OuterSetpoint{};
   setpoint_.mode = cyphal::ControlMode::kTorque;
-  setpoint_.current = {unit::Current{i_d * kScale}, unit::Current{i_q * kScale}};
+  setpoint_.current = {i_d * kScale, i_q * kScale};
   last_setpoint_us_ = now_us;
   setpoint_active_ = true;
 }

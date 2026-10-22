@@ -240,6 +240,33 @@ def test_startup_aid_runs_steps_and_aborts(sim: SimClient):
     assert sim.latest(sim.telemetry).power_stage == 0  # DISABLED
 
 
+def test_paused_simulation_advances_by_whole_cycles(sim: SimClient):
+    sim.hold(0.2, SLEEP)
+    assert sim.read("unimoc.sim.cycle_period_ns") == 62500  # 32 kHz PWM, four half periods
+    assert sim.write("unimoc.sim.paused", natural8(1))
+    start = sim.read("unimoc.sim.cycle_count")
+    sim.wait(0.2)
+    assert sim.read("unimoc.sim.cycle_count") == start  # virtual time stands still
+
+    sim.write("unimoc.sim.advance", natural16(1600))  # 0.1 s of virtual time, run before the response
+    assert sim.read("unimoc.sim.cycle_count") == start + 1600
+    sim.write("unimoc.sim.advance", natural16(20000))  # more than 1 s at once: refused
+    assert sim.read("unimoc.sim.cycle_count") == start + 1600
+
+    # A settings restart of the controller keeps the pause (the count restarts with it).
+    assert sim.write("unimoc.control.speed.kp", real(0.01)) == pytest.approx(0.01)
+    sim.hold(0.2, STANDBY)
+    restarted = sim.read("unimoc.sim.cycle_count")
+    sim.wait(0.2)
+    assert sim.read("unimoc.sim.cycle_count") == restarted
+
+    assert not sim.write("unimoc.sim.paused", natural8(0))
+    sim.wait(0.2)
+    assert sim.read("unimoc.sim.cycle_count") > restarted + 1000  # real time again
+    sim.write("unimoc.sim.advance", natural16(10))  # only while paused
+    assert not sim.read("unimoc.sim.paused")
+
+
 def test_store_and_restart_keep_the_settings(sim: SimClient, dut):
     assert sim.command(65530) == 0  # STORE
     assert sim.command(65535) == 0  # RESTART: the simulation re-executes itself

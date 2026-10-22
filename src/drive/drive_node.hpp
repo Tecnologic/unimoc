@@ -155,7 +155,7 @@ class DriveNode final : public cyphal::MessageListener,
   void OnSpeedSetpoint(const cyphal::Transfer& transfer, uint64_t now_us) noexcept;
   void OnPositionSetpoint(const cyphal::Transfer& transfer, uint64_t now_us) noexcept;
   void OnServoSetpoint(const cyphal::Transfer& transfer, uint64_t now_us) noexcept;
-  void SetCurrentSetpoint(float i_d, float i_q, uint64_t now_us) noexcept;
+  void SetCurrentSetpoint(unit::Current i_d, unit::Current i_q, uint64_t now_us) noexcept;
   void SetSpeedSetpoint(float speed, uint64_t now_us) noexcept;
   void SetPositionSetpoint(float position, uint64_t now_us) noexcept;
   /// Back to zero current in torque mode (no setpoint).
@@ -191,8 +191,8 @@ class DriveNode final : public cyphal::MessageListener,
   uint16_t servo_setpoint_port_{cyphal::kUnsetPortId};
   uint64_t command_timeout_us_{500'000U};
   uint64_t telemetry_period_us_{0U};
-  float current_limit_{0.0F};
-  float torque_constant_{0.0F};
+  unit::Current current_limit_;
+  unit::MagneticFlux torque_constant_;  ///< PMSM 3/2 p psi_pm [N m/A = Wb]
   uint32_t applied_writes_{0U};
   bool settings_pending_{false};
 

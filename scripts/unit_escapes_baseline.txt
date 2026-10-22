@@ -34,9 +34,9 @@
 1 lib/sim/src/motor_simulation.hpp
 4 lib/sim/src/pmsm_model.hpp
 4 src/current_control/current_control_isr.cpp
-10 src/current_control/outer_loop.cpp
+5 src/current_control/outer_loop.cpp
 3 src/current_control/slow_update.cpp
-18 src/drive/drive_node.cpp
+19 src/drive/drive_node.cpp
 1 src/drive/settings_register_provider.cpp
 13 src/startup/hw_startup.cpp
 12 src/trace/trace_signals.cpp
@@ -64,7 +64,7 @@
 14 tests/lib/sim/src/mechanical_model_test.cpp
 24 tests/lib/sim/src/motor_simulation_test.cpp
 16 tests/lib/sim/src/pmsm_model_test.cpp
-43 tests/lib/units/src/units_test.cpp
+46 tests/lib/units/src/units_test.cpp
 59 tests/sim/closed_loop/src/main.cpp
 26 tests/sim/cyphal_drive/src/main.cpp
 20 tests/sim/hall_fusion/src/main.cpp

@@ -339,6 +339,15 @@ speed), `unimoc.sim.imposed_speed` [rad/s], `unimoc.sim.load_torque` [N m],
 `unimoc.sim.plant_follows_settings` (the plant takes the motor parameters of
 the settings when they are applied).
 
+Deterministic runs: `unimoc.sim.paused` (bit) stops the cycle timer, also
+across a settings restart of the controller; then a write of
+`unimoc.sim.advance` (natural32, at most 16000 = 1 s) runs that many control
+cycles before the response.  `unimoc.sim.cycle_count` and
+`unimoc.sim.cycle_period_ns` (62500 at 32 kHz PWM) give the virtual time; the
+count restarts with the controller.  The drive's readiness and setpoint
+timeouts still run in real time, so keep publishing the readiness while
+paused.
+
 The rotor angle of the controller comes from its observer only (the Hall
 fusion is milestone M5/M6 of `docs/hotpath_plan.md`); at standstill the
 estimate drifts, so the current loop is meaningful in the controller frame

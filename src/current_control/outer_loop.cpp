@@ -34,7 +34,7 @@ void OuterLoop::Init(const settings::NvmSettings& settings, CurrentControlIsr& i
   parameters.pole_pairs = settings.pole_pairs;
   parameters.dt = DtSlowFromPwmFrequency(settings.pwm_frequency) * static_cast<float>(kCyclesPerStep);
   parameters.current_limit = settings.motor_i_max;
-  parameters.torque_constant = 1.5F * kPolePairs * settings.flux_pm.Value();
+  parameters.torque_constant = settings.flux_pm * (1.5F * kPolePairs);
   parameters.speed_min = settings.motor_omega_min / kPolePairs;
   parameters.speed_max = settings.motor_omega_max / kPolePairs;
   parameters.speed_kp = settings.speed_kp;
@@ -158,7 +158,7 @@ void OuterLoop::LoadParameters(const Parameters& parameters) noexcept {
   speed_.kp = parameters.speed_kp;
   speed_.ki = parameters.speed_ki;
   speed_.accel_limit = parameters.speed_accel_limit;
-  speed_.torque_limit = Torque{parameters.current_limit.Value() * parameters.torque_constant};
+  speed_.torque_limit = parameters.torque_constant * parameters.current_limit;
   position_.kp_pos = parameters.position_kp;
   position_.speed_limit = parameters.position_speed_limit;
   position_.accel_limit = parameters.position_accel_limit;
@@ -177,10 +177,10 @@ void OuterLoop::Restart(const AngularVelocity speed) noexcept {
 }
 
 system::Rotor<Current> OuterLoop::TorqueToCurrent(const Torque torque) const noexcept {
-  if (!(active_.torque_constant > 0.0F)) {
+  if (!(active_.torque_constant > MagneticFlux{})) {
     return {Current{}, Current{}};  // no flux: the motor makes no torque from i_q
   }
-  return {Current{}, Current{torque.Value() / active_.torque_constant}};
+  return {Current{}, torque / active_.torque_constant};
 }
 
 system::Rotor<Current> OuterLoop::LimitCurrent(const system::Rotor<Current> current) const noexcept {

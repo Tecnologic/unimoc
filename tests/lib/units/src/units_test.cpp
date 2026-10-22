@@ -29,6 +29,7 @@ static_assert(std::same_as<decltype(Resistance{} * Time{}), Inductance>);
 static_assert(std::same_as<decltype(Time{} * Resistance{}), Inductance>);
 static_assert(std::same_as<decltype(MagneticFlux{} * Current{}), Torque>);
 static_assert(std::same_as<decltype(Current{} * MagneticFlux{}), Torque>);
+static_assert(std::same_as<decltype(Torque{} / MagneticFlux{}), Current>);
 static_assert(std::same_as<decltype(Torque{} / Inertia{}), AngularAcceleration>);
 static_assert(std::same_as<decltype(Inertia{} * AngularAcceleration{}), Torque>);
 static_assert(std::same_as<decltype(AngularAcceleration{} * Inertia{}), Torque>);
@@ -88,6 +89,10 @@ ZTEST(units, test_is_finite_rejects_nan_and_infinity) {
   zexpect_true(IsFinite(Voltage{48.0F}));
   zexpect_false(IsFinite(Voltage{std::numeric_limits<float>::quiet_NaN()}));
   zexpect_false(IsFinite(Voltage{std::numeric_limits<float>::infinity()}));
+}
+
+ZTEST(units, test_torque_over_torque_constant_is_current) {
+  UNIMOC_EXPECT_FLOAT_EQ((Torque{0.6F} / MagneticFlux{0.03F}).Value(), 20.0F);
 }
 
 ZTEST(units, test_hypot_is_the_vector_magnitude) {

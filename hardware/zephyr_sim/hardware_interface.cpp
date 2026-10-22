@@ -153,6 +153,7 @@ uint64_t g_half_period_ns = 0U;
 
 struct k_timer g_cycle_timer;
 bool g_free_running = false;
+bool g_paused = false;       // SetPaused(): Initialize() leaves the timer stopped
 uint64_t g_cycle_ns = 0U;    // exact cycle period
 uint64_t g_elapsed_ns = 0U;  // ideal time of the last expiry since the start
 uint64_t g_elapsed_us = 0U;  // the same, rounded down to the 1 us kernel tick
@@ -312,7 +313,9 @@ bool Initialize(Frequency pwm_frequency, uint32_t /*unused*/) noexcept {
   ResetCycleState();
   RestartHallCapture();
 
-  StartTimer();
+  if (!g_paused) {
+    StartTimer();
+  }
   return true;
 }
 
@@ -397,6 +400,15 @@ void SetFreeRunning(const bool running) noexcept {
     StopTimer();
   }
 }
+
+void SetPaused(const bool paused) noexcept {
+  g_paused = paused;
+  SetFreeRunning(!paused && g_initialized);
+}
+
+bool IsPaused() noexcept { return g_paused; }
+
+uint64_t CyclePeriodNs() noexcept { return g_cycle_ns; }
 
 void StepCycle() noexcept {
   const unsigned int kIrqKey = irq_lock();

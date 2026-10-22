@@ -141,10 +141,10 @@ class OuterLoop {
   struct Parameters {
     uint32_t generation{0U};  ///< Changes with every Init().
     uint8_t pole_pairs{1U};
-    unit::Time dt;                    ///< Period of one step.
-    unit::Current current_limit;      ///< Magnitude limit of the current reference.
-    float torque_constant{0.0F};      ///< PMSM 3/2 p psi_pm [N m/A]; 0: no torque available.
-    unit::AngularVelocity speed_min;  ///< Mechanical, from the electrical limits.
+    unit::Time dt;                       ///< Period of one step.
+    unit::Current current_limit;         ///< Magnitude limit of the current reference.
+    unit::MagneticFlux torque_constant;  ///< PMSM 3/2 p psi_pm [N m/A = Wb]; 0: no torque available.
+    unit::AngularVelocity speed_min;     ///< Mechanical, from the electrical limits.
     unit::AngularVelocity speed_max;
     unit::TorquePerAngularVelocity speed_kp;
     unit::InverseTime speed_ki;

@@ -82,9 +82,16 @@ enum class SimRegister : uint8_t {
   kFollowSettings,
   kPlantId,
   kPlantType,
+  kPaused,
+  kAdvance,
+  kCycleCount,
+  kCyclePeriodNs,
 };
 
-constexpr std::array<std::string_view, 8> kNames{
+/// Most control cycles one write of `unimoc.sim.advance` runs (1 s of virtual time at 16 kHz).
+constexpr int64_t kMaxAdvanceCycles = 16000;
+
+constexpr std::array<std::string_view, 12> kNames{
     "unimoc.sim.shaft_mode",
     "unimoc.sim.imposed_speed",
     "unimoc.sim.load_torque",
@@ -93,6 +100,10 @@ constexpr std::array<std::string_view, 8> kNames{
     "unimoc.sim.plant_follows_settings",
     "uavcan.pub.sim_plant.id",
     "uavcan.pub.sim_plant.type",
+    "unimoc.sim.paused",
+    "unimoc.sim.advance",
+    "unimoc.sim.cycle_count",
+    "unimoc.sim.cycle_period_ns",
 };
 
 /// Registers of the simulated plant; not persistent, the plant starts from the defaults.
@@ -129,6 +140,18 @@ class SimRegisters final : public cyphal::RegisterProvider {
         break;
       case SimRegister::kPlantType:
         cyphal::SetString(value, "unimoc.sim.Plant.0.1");
+        return {false, false};
+      case SimRegister::kPaused:
+        cyphal::SetBit(value, sim::IsPaused());
+        break;
+      case SimRegister::kAdvance:
+        cyphal::SetNatural32(value, 0U);  // write only: the cycles to run
+        break;
+      case SimRegister::kCycleCount:
+        cyphal::SetNatural32(value, sim::CycleCount());
+        return {false, false};
+      case SimRegister::kCyclePeriodNs:
+        cyphal::SetNatural32(value, static_cast<uint32_t>(sim::CyclePeriodNs()));
         return {false, false};
     }
     return {true, false};
@@ -179,7 +202,21 @@ class SimRegisters final : public cyphal::RegisterProvider {
         return RegisterWriteResult::kAccepted;
       }
       case SimRegister::kPlantType:
+      case SimRegister::kCycleCount:
+      case SimRegister::kCyclePeriodNs:
         return RegisterWriteResult::kReadOnly;
+      case SimRegister::kPaused:
+        sim::SetPaused(kValue != 0.0F);
+        return RegisterWriteResult::kAccepted;
+      case SimRegister::kAdvance: {
+        // Runs the cycles before the response, in the Cyphal thread.
+        const auto kCycles = cyphal::GetInteger(value);
+        if (!sim::IsPaused() || !kCycles.has_value() || *kCycles < 0 || *kCycles > kMaxAdvanceCycles) {
+          return RegisterWriteResult::kOutOfRange;
+        }
+        sim::AdvanceCycles(static_cast<uint32_t>(*kCycles));
+        return RegisterWriteResult::kAccepted;
+      }
     }
     ApplyInputs();
     return RegisterWriteResult::kAccepted;

@@ -60,6 +60,21 @@ void ClearHallCodeOverride() noexcept;
 void SetFreeRunning(bool running) noexcept;
 
 /**
+ * @brief Pauses the simulation for deterministic runs (`unimoc.sim.paused`).
+ *
+ * Unlike SetFreeRunning(false) the pause holds across Initialize(): a
+ * settings restart of the controller does not start the cycle timer again.
+ * Paused, only StepCycle()/AdvanceCycles() run cycles.
+ */
+void SetPaused(bool paused) noexcept;
+
+/// True while SetPaused(true) holds the simulation.
+[[nodiscard]] bool IsPaused() noexcept;
+
+/// Duration of one control cycle in virtual time [ns]; 0 before Initialize().
+[[nodiscard]] uint64_t CyclePeriodNs() noexcept;
+
+/**
  * @brief Runs one control cycle synchronously.
  *
  * Same order as the timer: ControlCycleHandler() and ObserverHandler() on the
