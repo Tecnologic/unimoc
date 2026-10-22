@@ -31,7 +31,7 @@ items that need the board are collected below and wait for hardware access.
  - [ ] Implement the hot-path milestones M4 to M7 from `docs/hotpath_plan.md` (observer API, Hall driver and sim Hall signals, Hall fusion, control thread), tested with ztest and the sim plant.
  - [ ] Connect the startup FSM (`HwStartup`) to Cyphal: the `unimoc.startup.*` registers of `cyphal_interface.hpp` (run, step, external measurements, results) in a register provider, the FSM stepped from the Cyphal thread; test on `native_sim`.
  - [ ] Speed and position setpoints over Cyphal (`uavcan.sub.speed_setpoint`, UDRAL servo); needs the control thread of M7.
- - [ ] cymon traces over Cyphal (the submodule is still not built; it needs CMake 4).
+ - [ ] cymon traces over Cyphal: steps in [docs/cymon_integration_plan.md](docs/cymon_integration_plan.md). `lib/cymon` is at cymon-lib 0.2 (C++20, interrupt-safe `Tick()`, DSDL `cymon.*.0.1`, CMake 3.20); the host tool is cymon (<https://github.com/Tecnologic/cymon>).
  - [ ] Firmware update over Cyphal: `ExecuteCommand BEGIN_SOFTWARE_UPDATE`, `uavcan.file.Read` into flash bank 2, bootloader swap; USB DFU as recovery.
  - [ ] Simulation-control commands over Cyphal for deterministic runs (reset, fixed-cycle advance, run-until; SIL P2); today the simulation runs in real time.
  - [ ] Live tuning while engaged: register writes reach the controller only by a runtime restart while disengaged (`docs/settings_plan.md`, open item 1).

@@ -51,8 +51,9 @@ log is on RTT and on the bus. The phase order below is the plan.
 5. Cyphal: only identifiers, heartbeat serialization and the `Transport`
    interface existed. Resolved in Phase 5 (the old heartbeat serializer
    packed health and mode into one byte and was removed).
-6. `lib/cymon` (own library, C++17, no canard dependency) is an uninitialised
-   submodule; `add_subdirectory(cymon)` fails without it.
+6. `lib/cymon` (own library, no canard dependency) is a submodule. Since
+   cymon-lib 0.2 it is C++20 and builds with the UNIMOC warning set; the
+   integration steps are in `docs/cymon_integration_plan.md`.
 7. Small items: `option(HARDWARE_DIRECTORY ...)` misuse, platform-dependent
    `uint_fast8_t VERSION` in the battery case config, stale skill path in
    `AGENTS.md`, empty `src/logging/CMakeLists.txt`.
@@ -66,7 +67,7 @@ log is on RTT and on the bus. The phase order below is the plan.
 - Tests are ztest suites under twister on native_sim (the hosted GoogleTest
   build was removed).
 - Scope warnings to project code; mark Zephyr includes as system.
-- Initialise or vendor `lib/cymon` and verify the CMake target names.
+- Initialise `lib/cymon` (target `cymon`, alias `cymon::cymon`; `docs/cymon_integration_plan.md`).
 
 ### Phase 2 - native_sim
 - Zephyr hardware layer implementing `HardwareInterface`, bound to the PMSM
@@ -112,7 +113,7 @@ log is on RTT and on the bus. The phase order below is the plan.
   current and torque setpoints, telemetry).
 - Done: native_sim without `vcan`: slcan on four pseudo terminals
   (`hardware/zephyr_sim/slcan_media.cpp`), checked with yakut 0.14.
-- Open: cymon traces over Cyphal; firmware update (file service into bank
+- Open: cymon traces over Cyphal (`docs/cymon_integration_plan.md`); firmware update (file service into bank
   2); speed and position setpoints (need the control thread, M7); the startup
   FSM registers; the board run (transceiver, bit timing).
 

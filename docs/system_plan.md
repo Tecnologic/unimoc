@@ -27,7 +27,7 @@ connect to the VDC directly (IMU, GNSS, steering angle sensor, display).
 | [Tecnologic/unimoc](https://github.com/Tecnologic/unimoc) (this repository, branch `develop`) | Firmware on Zephyr for all bus nodes: wheel drives, VDC, pedal unit and BMS controller. FOC hot path, observers, settings, vehicle dynamics, `native_sim` simulation, tests. |
 | [Tecnologic/hardware_4850](https://github.com/Tecnologic/hardware_4850) | 48 V / 50 A drive in an RND 455-00370 enclosure. [`power/`](https://github.com/Tecnologic/hardware_4850/tree/master/power): power stage, kept unchanged. [`logic/`](https://github.com/Tecnologic/hardware_4850/tree/master/logic): logic board, redesigned with an STM32G4 (section 5.2). |
 | [Tecnologic/unimoc_old_software, branch `electric_quad`](https://github.com/Tecnologic/unimoc_old_software/tree/electric_quad) | Legacy firmware (ChibiOS, STM32F730) of the 1.6 kW children's quad on the 4850 hardware. Source for proven settings and features to port (section 9); not built any more. |
-| `lib/cymon` (submodule) | Tracing and monitoring; transported over Cyphal later (`docs/zephyr_port_plan.md`, Phase 5). |
+| `lib/cymon` (submodule) | Tracing and monitoring over Cyphal (`docs/cymon_integration_plan.md`); host tool: cymon. |
 
 ### 2.1 What the 4850 hardware is (from the KiCad schematics)
 
