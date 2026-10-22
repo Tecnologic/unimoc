@@ -78,6 +78,24 @@ ZTEST(dc_link_limit, test_braking_is_limited_to_the_derated_charge_current) {
   UNIMOC_EXPECT_FLOAT_EQ(kLimit.Limit(Q(5.0F), kTorqueConstant, 200.0_rad_per_s, 58.0_V).q.Value(), 5.0F);
 }
 
+ZTEST(dc_link_limit, test_allowed_torque_is_the_same_power_window) {
+  // 200 rad/s at 48 V: 480 W motoring, 192 W braking.
+  const auto kForward = kLimit.AllowedTorque(200.0_rad_per_s, 48.0_V);
+  UNIMOC_EXPECT_NEAR(kForward.upper.Value(), 2.4F, 1e-5F);
+  UNIMOC_EXPECT_NEAR(kForward.lower.Value(), -0.96F, 1e-5F);
+  // Reverse: motoring is negative torque, braking positive.
+  const auto kReverse = kLimit.AllowedTorque(-200.0_rad_per_s, 48.0_V);
+  UNIMOC_EXPECT_NEAR(kReverse.lower.Value(), -2.4F, 1e-5F);
+  UNIMOC_EXPECT_NEAR(kReverse.upper.Value(), 0.96F, 1e-5F);
+  // Consistent with Limit(): the braking bound as a q current is the limited current.
+  UNIMOC_EXPECT_NEAR((kForward.lower / kTorqueConstant).Value(),
+                     kLimit.Limit(Q(-80.0F), kTorqueConstant, 200.0_rad_per_s, 48.0_V).q.Value(),
+                     1e-3F);
+  // Standstill: unbounded.
+  const auto kStill = kLimit.AllowedTorque(0.0_rad_per_s, 48.0_V);
+  zexpect_true(kStill.lower.Value() < -1e30F && kStill.upper.Value() > 1e30F);
+}
+
 ZTEST(dc_link_limit, test_without_a_dc_link_reading_nothing_is_scaled) {
   UNIMOC_EXPECT_FLOAT_EQ(kLimit.Limit(Q(-80.0F), kTorqueConstant, 200.0_rad_per_s, 0.0_V).q.Value(), -80.0F);
 }

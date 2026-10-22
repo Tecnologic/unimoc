@@ -15,6 +15,7 @@
  */
 #pragma once
 
+#include <limits>
 #include "rotor_system.hpp"
 #include "units.hpp"
 
@@ -61,6 +62,34 @@ struct DcLinkLimit {
       return unit::Current{};
     }
     return charge_current_max * ((trip - dc_link) / (trip - regen_derate_start));
+  }
+
+  /// Range of the shaft torque.
+  struct TorqueRange {
+    unit::Torque lower;  ///< Most negative torque.
+    unit::Torque upper;  ///< Most positive torque.
+  };
+
+  /**
+   * @brief Shaft torque that keeps the battery current within the limits at a speed.
+   *
+   * The same power window as Limit(), as torque: for the output bounds of a
+   * speed controller, so its integral does not wind up against the limit.
+   *
+   * @param speed Mechanical speed of the shaft.
+   * @param dc_link DC-link voltage.
+   * @return The torque range; unbounded at standstill or without a DC-link reading.
+   */
+  [[nodiscard]] constexpr TorqueRange AllowedTorque(const unit::AngularVelocity speed,
+                                                    const unit::Voltage dc_link) const noexcept {
+    constexpr float kInfinity = std::numeric_limits<float>::infinity();
+    if (!(dc_link > unit::Voltage{}) || speed == unit::AngularVelocity{} || !unit::IsFinite(speed)) {
+      return {unit::Torque{-kInfinity}, unit::Torque{kInfinity}};
+    }
+    const unit::Torque kMotoring = (dc_link * drive_current_max) / speed;
+    const unit::Torque kBraking = -(dc_link * AllowedChargeCurrent(dc_link)) / speed;
+    return (speed > unit::AngularVelocity{}) ? TorqueRange{kBraking, kMotoring}
+                                             : TorqueRange{kMotoring, kBraking};
   }
 
   /**

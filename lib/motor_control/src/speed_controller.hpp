@@ -16,6 +16,7 @@
 #pragma once
 
 #include <cmath>
+#include <limits>
 #include "nvm_settings.hpp"
 #include "units.hpp"
 
@@ -32,9 +33,11 @@ namespace unimoc::control {
  *
  *   T = kp · (e + ki · ∫e dt),   e = ω_ref − ω
  *
- * The output is limited to ±`torque_limit`. The integral stops while the
- * output is saturated in the direction of the error (conditional
- * integration), so a long saturation does not wind it up. The caller turns
+ * The output is limited to ±`torque_limit` and to [`torque_min`,
+ * `torque_max`], bounds the caller may change every step (for example from
+ * the battery power limit). The integral stops while the output is saturated
+ * in the direction of the error (conditional integration), so a long
+ * saturation does not wind it up. The caller turns
  * the torque into a current reference (torque constant, MTPA).
  */
 struct SpeedController {
@@ -49,6 +52,12 @@ struct SpeedController {
 
   /// Output limit, symmetric [N m].
   unit::Torque torque_limit;
+
+  /// Additional lower bound of the output for the next steps [N m]; -inf: none.
+  unit::Torque torque_min{-std::numeric_limits<float>::infinity()};
+
+  /// Additional upper bound of the output for the next steps [N m]; +inf: none.
+  unit::Torque torque_max{std::numeric_limits<float>::infinity()};
 
   /// Ramped speed reference [rad/s].
   unit::AngularVelocity reference;
@@ -125,16 +134,19 @@ struct SpeedController {
     reference = speed_reference;
 
     const unit::Torque kLimit = torque_limit > unit::Torque{} ? torque_limit : unit::Torque{};
+    // The bounds of the step: an empty range (lower above upper) gives the upper one.
+    const unit::Torque kLower = unit::Max(-kLimit, torque_min);
+    const unit::Torque kUpper = unit::Min(kLimit, torque_max);
     const unit::AngularVelocity kError = reference - measured;
     const unit::Torque kProportional = kp * kError;
     const unit::Torque kIntegral = integral + kProportional * unit::Ratio{ki.Value() * dt.Value()};
     const unit::Torque kUnlimited = kProportional + kIntegral;
-    const bool kWindsUp = (kUnlimited > kLimit && kError > unit::AngularVelocity{}) ||
-                          (kUnlimited < -kLimit && kError < unit::AngularVelocity{});
+    const bool kWindsUp = (kUnlimited > kUpper && kError > unit::AngularVelocity{}) ||
+                          (kUnlimited < kLower && kError < unit::AngularVelocity{});
     if (!kWindsUp) {
-      integral = kIntegral.Clamp(-kLimit, kLimit);
+      integral = kIntegral.Clamp(kLower, kUpper);
     }
-    output = (kProportional + integral).Clamp(-kLimit, kLimit);
+    output = (kProportional + integral).Clamp(kLower, kUpper);
     return output;
   }
 };

@@ -123,6 +123,12 @@ void OuterLoop::Step() noexcept {
     }
     was_active_ = true;
     mode_ = kSetpoint.mode;
+    // The speed controller stays inside the battery power window, so its
+    // integral does not wind up against the current limit below.
+    const control::DcLinkLimit::TorqueRange kTorqueRange =
+        active_.dc_link.AllowedTorque(kSpeed, isr_->state.raw_vdc);
+    speed_.torque_min = kTorqueRange.lower;
+    speed_.torque_max = kTorqueRange.upper;
     switch (mode_) {
       case cyphal::ControlMode::kTorque:
         current = kSetpoint.current;
