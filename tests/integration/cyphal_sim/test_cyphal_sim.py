@@ -183,6 +183,22 @@ def test_timing_registers_without_the_probes(sim: SimClient):
     assert sim.write("unimoc.timing.reset", natural8(1)) == 0
 
 
+def test_dc_link_overvoltage_trips_the_drive(sim: SimClient):
+    sim.hold(0.2, STANDBY)
+    sim.hold(0.5, ENGAGED, sim.current_setpoint(0.0, 1.0))
+    assert sim.latest(sim.telemetry, settle=0.0).engaged
+    assert sim.write("unimoc.sim.dc_link_voltage", real(59.0)) == pytest.approx(59.0)  # trip at 58 V
+    sim.hold(0.3, ENGAGED, sim.current_setpoint(0.0, 1.0))
+    telemetry = sim.latest(sim.telemetry)
+    assert not telemetry.engaged
+    assert telemetry.power_stage == 2  # FAULT
+    assert "disengaged: DC-link overvoltage trip" in sim.records
+
+    assert sim.write("unimoc.sim.dc_link_voltage", real(48.0)) == pytest.approx(48.0)
+    sim.hold(0.3, STANDBY)  # acknowledges the trip
+    assert sim.latest(sim.telemetry).power_stage == 0  # DISABLED
+
+
 def test_trace_variables_ports_and_registers(sim: SimClient):
     variables = sim.trace_variables()
     names = [name for name, _unit in variables]

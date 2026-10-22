@@ -184,9 +184,10 @@ void DriveNode::Spin(const uint64_t now_us) noexcept {
   if (engaged_) {
     if (now_us - last_readiness_us_ > command_timeout_us_) {
       Disengage("readiness timeout");
-    } else if (kPowerStage.GetState() != PowerStageState::kEnabled || isr.state.overcurrent_tripped) {
+    } else if (kPowerStage.GetState() != PowerStageState::kEnabled || isr.Tripped()) {
       rearm_required_ = true;
-      Disengage(isr.state.overcurrent_tripped ? "overcurrent trip" : "power stage fault");
+      const char* const kTrip = isr.TripName();
+      Disengage(kTrip != nullptr ? kTrip : "power stage fault");
     }
   }
   if (engaged_ && setpoint_active_ && now_us - last_setpoint_us_ > command_timeout_us_) {
@@ -303,7 +304,7 @@ void DriveNode::OnReadiness(const cyphal::Transfer& transfer, const uint64_t now
     } else if (readiness.value == reg_udral_service_common_Readiness_0_1_STANDBY) {
       // STANDBY acknowledges a latched trip or fault without releasing the
       // outputs, so a flash save is possible again (the save gate needs kDisabled).
-      CurrentControlIsr::Instance().ClearOvercurrentTrip();
+      CurrentControlIsr::Instance().ClearTrips();
       kPowerStage.ClearFault();
     }
   }
@@ -445,7 +446,7 @@ void DriveNode::Engage() noexcept {
   ClearSetpoint();
   OuterLoop::Instance().SetSetpoint(OuterSetpoint{});
   // ENGAGED is the explicit acknowledgement of a latched trip (as HwStartup::RequestRun()).
-  isr.ClearOvercurrentTrip();
+  isr.ClearTrips();
   kPowerStage.ClearFault();
   if (!kPowerStage.Enable()) {
     rearm_required_ = true;
@@ -564,7 +565,7 @@ void DriveNode::UpdateStatus() noexcept {
   cyphal::Health health = cyphal::Health::kNominal;
   if (emergency_stop_) {
     health = cyphal::Health::kCaution;
-  } else if (kState == PowerStageState::kFault || CurrentControlIsr::Instance().state.overcurrent_tripped) {
+  } else if (kState == PowerStageState::kFault || CurrentControlIsr::Instance().Tripped()) {
     health = cyphal::Health::kAdvisory;
   }
   node_->SetHealth(health);

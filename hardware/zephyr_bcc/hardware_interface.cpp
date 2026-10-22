@@ -61,6 +61,13 @@ const settings::SettingsProfile kSettingsProfile = [] {
   profile.capabilities.max_motor_current = 50.0_A;
   profile.capabilities.max_battery_drive_current = 50.0_A;
   profile.capabilities.max_battery_charge_current = 20.0_A;
+  // DC link: 48 V battery (13s, 54.6 V full). Regenerative braking derates
+  // from 55 V and the drive trips at 58 V. Assumption, not verified: the
+  // switches and capacitors of the BCC take 60 V with margin; check the
+  // ratings in the schematic before raising the capability.
+  profile.factory_settings.dc_link_regen_derate_start = 55.0_V;
+  profile.factory_settings.dc_link_trip = 58.0_V;
+  profile.capabilities.max_dc_link_voltage = 60.0_V;
   return profile;
 }();
 

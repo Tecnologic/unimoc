@@ -42,6 +42,7 @@
 12 src/trace/trace_signals.cpp
 17 tests/lib/motor_control/src/control_observer_units_test.cpp
 20 tests/lib/motor_control/src/core_control_test.cpp
+19 tests/lib/motor_control/src/dc_link_limit_test.cpp
 15 tests/lib/motor_control/src/excitation_controller_test.cpp
 12 tests/lib/motor_control/src/excitation_observer_test.cpp
 33 tests/lib/motor_control/src/hall_decoder_test.cpp
@@ -59,16 +60,16 @@
 107 tests/lib/motor_control/src/three_phase_system_test.cpp
 12 tests/lib/settings/src/nvm_settings_test.cpp
 1 tests/lib/settings/src/settings_registers_test.cpp
-14 tests/lib/settings/src/settings_store_test.cpp
+15 tests/lib/settings/src/settings_store_test.cpp
 8 tests/lib/sim/src/hall_sensor_test.cpp
 14 tests/lib/sim/src/mechanical_model_test.cpp
 24 tests/lib/sim/src/motor_simulation_test.cpp
 16 tests/lib/sim/src/pmsm_model_test.cpp
 46 tests/lib/units/src/units_test.cpp
 59 tests/sim/closed_loop/src/main.cpp
-26 tests/sim/cyphal_drive/src/main.cpp
+40 tests/sim/cyphal_drive/src/main.cpp
 20 tests/sim/hall_fusion/src/main.cpp
 10 tests/sim/irq_cadence/src/main.cpp
-10 tests/sim/overcurrent/src/main.cpp
+11 tests/sim/overcurrent/src/main.cpp
 3 tests/sim/settings_persistence/src/main.cpp
 36 tests/sim/speed_control/src/main.cpp

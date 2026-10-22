@@ -230,8 +230,22 @@ exception: publishing and subscribing one shared trigger subject lets every
 node of a bus trigger the others.  Readiness and setpoints must be
 refreshed within `unimoc.control.command_timeout` (0.5 s): a missing
 readiness disengages the drive, a missing setpoint falls back to zero
-current.  The current vector is limited to `unimoc.motor.limits.i_max`.  An
-overcurrent trip or a power stage fault while engaged disengages the drive;
+current.  The current vector is limited to `unimoc.motor.limits.i_max`.
+
+The battery current is limited as well, in every mode: the drive estimates
+it from the mechanical power of the q current (k_t i_q ω / V_dc, losses
+ignored) and scales i_q to `unimoc.battery.limits.drive_current` when
+motoring and to `unimoc.battery.limits.charge_current` when braking.  The
+charge limit falls linearly from `unimoc.battery.limits.regen_derate_voltage`
+(55 V) to zero at `unimoc.battery.limits.trip_voltage` (58 V, at most the
+hardware's 60 V), where the control cycle trips the power stage.  The trip
+switches all transistors off: above the line-to-line back-EMF peak the
+motor still feeds the DC link through the body diodes, so the trip level
+must stay above the battery voltage and the chopper of the BMS (section 7.1
+of `docs/system_plan.md`) has to hold the DC link.  The BCC voltages are
+assumptions until checked against its schematic.
+
+An overcurrent or overvoltage trip or a power stage fault while engaged disengages the drive;
 it engages again only after a readiness other than `ENGAGED` (re-arm).
 `STANDBY` while disengaged acknowledges a latched trip or fault without
 releasing the outputs; the settings can only be stored without one.

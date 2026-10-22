@@ -384,6 +384,14 @@ inline constexpr const char* kBatteryDriveIMax = "unimoc.battery.limits.drive_cu
 /// Type: real32[1] (read/write, persistent)
 inline constexpr const char* kBatteryChargeIMax = "unimoc.battery.limits.charge_current";
 
+/// DC-link voltage above which regenerative braking is derated [V].
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kBatteryRegenDerateVoltage = "unimoc.battery.limits.regen_derate_voltage";
+
+/// DC-link voltage at which the drive trips the power stage [V].
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kBatteryTripVoltage = "unimoc.battery.limits.trip_voltage";
+
 // --- PWM frequency ---
 
 /// PWM switching frequency selection: 16/20/24/28/32 kHz.

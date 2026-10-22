@@ -18,6 +18,7 @@
 #include <cstdint>
 #include "current_control_isr.hpp"
 #include "cyphal/control_mode.hpp"
+#include "dc_link_limit.hpp"
 #include "mailbox.hpp"
 #include "nvm_settings.hpp"
 #include "position_controller.hpp"
@@ -85,8 +86,10 @@ struct OuterStatus {
  *  - The control thread calls Step(). It limits the setpoint, runs the speed
  *    controller (speed mode) or the position loop and the speed controller
  *    (position mode), turns the torque into a q current with the torque
- *    constant (PMSM, i_d = 0) and hands the current reference to the
- *    control cycle (CurrentControlIsr::SetCurrentRef(), a mailbox).
+ *    constant (PMSM, i_d = 0), limits it to the motor current and to the
+ *    battery current limits (control::DcLinkLimit: regenerative braking
+ *    derated with the DC-link voltage) and hands the current reference to
+ *    the control cycle (CurrentControlIsr::SetCurrentRef(), a mailbox).
  *  - The drive (Cyphal thread) writes setpoints and parameters through
  *    mailboxes; it never touches the controllers.
  *
@@ -144,6 +147,7 @@ class OuterLoop {
     unit::Time dt;                       ///< Period of one step.
     unit::Current current_limit;         ///< Magnitude limit of the current reference.
     unit::MagneticFlux torque_constant;  ///< PMSM 3/2 p psi_pm [N m/A = Wb]; 0: no torque available.
+    control::DcLinkLimit dc_link;        ///< Battery current limits, regenerative derating.
     unit::AngularVelocity speed_min;     ///< Mechanical, from the electrical limits.
     unit::AngularVelocity speed_max;
     unit::TorquePerAngularVelocity speed_kp;

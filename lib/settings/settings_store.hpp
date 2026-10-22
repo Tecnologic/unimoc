@@ -94,7 +94,8 @@ template <unit::UnitLike U>
          unit::IsFinite(settings.adc_gain_a) && unit::IsFinite(settings.adc_gain_b) &&
          unit::IsFinite(settings.adc_gain_vdc) && unit::IsFinite(settings.phase_balance_a) &&
          unit::IsFinite(settings.phase_balance_b) && unit::IsFinite(settings.phase_balance_c) &&
-         unit::IsFinite(settings.telemetry_rate) && unit::IsFinite(settings.command_timeout);
+         unit::IsFinite(settings.telemetry_rate) && unit::IsFinite(settings.command_timeout) &&
+         unit::IsFinite(settings.dc_link_regen_derate_start) && unit::IsFinite(settings.dc_link_trip);
 }
 
 [[nodiscard]] inline bool IsValidEnumValues(const NvmSettings& settings) noexcept {
@@ -125,7 +126,9 @@ template <unit::UnitLike U>
          limits.max_motor_current > ZeroOf(limits.max_motor_current) &&
          limits.max_motor_current <= limits.max_phase_current &&
          limits.max_battery_drive_current > ZeroOf(limits.max_battery_drive_current) &&
-         limits.max_battery_charge_current >= ZeroOf(limits.max_battery_charge_current);
+         limits.max_battery_charge_current >= ZeroOf(limits.max_battery_charge_current) &&
+         unit::IsFinite(limits.max_dc_link_voltage) &&
+         limits.max_dc_link_voltage > ZeroOf(limits.max_dc_link_voltage);
 }
 
 /// Largest Cyphal subject-ID.
@@ -194,7 +197,10 @@ template <std::size_t kCount>
       settings.battery_charge_current_max < ZeroOf(settings.battery_charge_current_max) ||
       settings.battery_charge_current_max > limits.max_battery_charge_current ||
       settings.motor_omega_min > ZeroOf(settings.motor_omega_min) ||
-      settings.motor_omega_max < ZeroOf(settings.motor_omega_max)) {
+      settings.motor_omega_max < ZeroOf(settings.motor_omega_max) ||
+      settings.dc_link_regen_derate_start <= ZeroOf(settings.dc_link_regen_derate_start) ||
+      settings.dc_link_trip <= settings.dc_link_regen_derate_start ||
+      settings.dc_link_trip > limits.max_dc_link_voltage) {
     return SettingsStatus::kOutOfRange;
   }
 

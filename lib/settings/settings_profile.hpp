@@ -40,6 +40,10 @@ struct HardwareCapabilities {
 
   /// Absolute regenerative battery-charge current limit [A].
   unit::Current max_battery_charge_current{5.0_A};
+
+  /// Highest DC-link trip voltage the power stage allows [V] (below the
+  /// rating of the switches and the DC-link capacitors).
+  unit::Voltage max_dc_link_voltage{60.0_V};
 };
 
 /**

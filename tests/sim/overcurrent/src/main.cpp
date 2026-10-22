@@ -73,10 +73,11 @@ void Before(void* /*unused*/) {
   // Flush the samples of the previous test with the stage off.
   sim::SetPhaseCurrentOverride(0.0F, 0.0F, 0.0F);
   sim::SetExternalEnable(true);
+  sim::Plant().SetDcLinkVoltage(48.0_V);
   kPowerStage.Disable();
   RunCycles(1);
   kPowerStage.ClearFault();
-  CurrentControlIsr::Instance().ClearOvercurrentTrip();
+  CurrentControlIsr::Instance().ClearTrips();
 }
 
 }  // namespace
@@ -129,6 +130,30 @@ ZTEST_F(sim_overcurrent, test_forced_duties_replace_the_loop_until_released) {
     zassert_within(duties.a.Value(), 0.5F, 1e-3F);
     zassert_within(duties.c.Value(), 0.5F, 1e-3F);
   }
+}
+
+ZTEST_F(sim_overcurrent, test_dc_link_overvoltage_trips_and_freezes_the_loop) {
+  CurrentControlIsr& isr = CurrentControlIsr::Instance();
+  zassert_true(kPowerStage.Enable());
+  sim::Plant().SetDcLinkVoltage(57.9_V);  // below the 58 V trip of the sim profile
+  RunCycles(2);
+  zassert_false(isr.state.overvoltage_tripped);
+  zassert_equal(kPowerStage.GetState(), PowerStageState::kEnabled);
+
+  sim::Plant().SetDcLinkVoltage(58.5_V);
+  RunCycles(2);  // the samples of a cycle reach the control cycle in the next one
+  zassert_true(isr.state.overvoltage_tripped);
+  zassert_true(isr.Tripped());
+  zassert_equal(kPowerStage.GetState(), PowerStageState::kFault);
+  for (const auto& duties : isr.state.duty_plan.duties) {
+    zassert_within(duties.a.Value(), 0.5F, 1e-6F);
+  }
+
+  sim::Plant().SetDcLinkVoltage(48.0_V);
+  RunCycles(2);
+  zassert_true(isr.state.overvoltage_tripped, "latched until acknowledged");
+  isr.ClearTrips();
+  zassert_false(isr.Tripped());
 }
 
 ZTEST_F(sim_overcurrent, test_startup_needs_external_enable) {

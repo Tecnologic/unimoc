@@ -35,6 +35,10 @@ void OuterLoop::Init(const settings::NvmSettings& settings, CurrentControlIsr& i
   parameters.dt = DtSlowFromPwmFrequency(settings.pwm_frequency) * static_cast<float>(kCyclesPerStep);
   parameters.current_limit = settings.motor_i_max;
   parameters.torque_constant = settings.flux_pm * (1.5F * kPolePairs);
+  parameters.dc_link = control::DcLinkLimit{.drive_current_max = settings.battery_drive_current_max,
+                                            .charge_current_max = settings.battery_charge_current_max,
+                                            .regen_derate_start = settings.dc_link_regen_derate_start,
+                                            .trip = settings.dc_link_trip};
   parameters.speed_min = settings.motor_omega_min / kPolePairs;
   parameters.speed_max = settings.motor_omega_max / kPolePairs;
   parameters.speed_kp = settings.speed_kp;
@@ -138,7 +142,8 @@ void OuterLoop::Step() noexcept {
       }
     }
   }
-  current = LimitCurrent(current);
+  current =
+      active_.dc_link.Limit(LimitCurrent(current), active_.torque_constant, kSpeed, isr_->state.raw_vdc);
   isr_->SetCurrentRef(current);
 
   status.active = kSetpoint.active;

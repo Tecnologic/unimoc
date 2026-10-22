@@ -327,7 +327,7 @@ void Before(void* /*unused*/) {
   sim::SetExternalEnable(true);
   sim::ClearPhaseCurrentOverride();
   kPowerStage.ClearFault();
-  CurrentControlIsr::Instance().ClearOvercurrentTrip();
+  CurrentControlIsr::Instance().ClearTrips();
   EraseAllRegisters();
   // Locked rotor: the current loop works on a standing plant.
   sim::Plant().SetShaftMode(unimoc::sim::ShaftMode::kImposedSpeed, AngularVelocity{});
@@ -657,6 +657,62 @@ ZTEST(sim_cyphal_drive, test_servo_setpoint_selects_the_mode) {
   // Nothing finite: ignored, the last setpoint stays.
   rig.HoldWith([&] { rig.Servo(kNan, kNan, kNan); }, 50U);
   zexpect_within(CurrentControlIsr::Instance().state.i_ref.q.Value(), 1.0F, 1e-3F);
+}
+
+ZTEST(sim_cyphal_drive, test_regenerative_braking_is_limited_by_the_charge_current_and_the_dc_link) {
+  Rig& rig = *g_rig;
+  ConfigureSpeedControl(rig);  // torque constant 3/2 * 7 * 5 mWb = 0.0525 N m/A
+  (void)rig.Access(reg::kBatteryChargeIMax, Real(0.5F));
+  zassert_equal(rig.store.GetSnapshot().Get().battery_charge_current_max.Value(), 0.5F);
+  rig.Run(2U);  // applied while disengaged
+  // A dyno: the shaft turns at 50 rad/s whatever the torque.
+  sim::Plant().SetShaftMode(unimoc::sim::ShaftMode::kImposedSpeed, AngularVelocity{50.0F});
+  constexpr float kTorqueConstant = 1.5F * 7.0F * 5e-3F;
+
+  // Motoring: 20 A make 52.5 W, far below the drive limit.
+  rig.Hold(0.0F, 20.0F, 500U);
+  zassert_true(rig.drive.IsEngaged());
+  zexpect_within(OuterLoop::Instance().Status().current_reference.q.Value(), 20.0F, 1e-3F);
+
+  // Braking: at most 0.5 A * 48 V = 24 W into the battery. The observer
+  // expects the braking torque to slow the shaft, which the dyno does not:
+  // its speed estimate (and with it the limit) settles within some 300 ms.
+  rig.Hold(0.0F, -20.0F, 500U);
+  auto status = OuterLoop::Instance().Status();
+  zexpect_within(status.speed.Value(),
+                 50.0F,
+                 1.0F,
+                 "estimated speed %f",
+                 static_cast<double>(status.speed.Value()));
+  zexpect_within(status.current_reference.q.Value(),
+                 -24.0F / (kTorqueConstant * status.speed.Value()),
+                 1e-3F,
+                 "i_q %f",
+                 static_cast<double>(status.current_reference.q.Value()));
+  const float kChargePower = -kTorqueConstant * PlantCurrent().q.Value() * PlantSpeed();
+  zexpect_within(kChargePower,
+                 24.0F,
+                 2.0F,
+                 "mechanical braking power %f W",
+                 static_cast<double>(kChargePower));
+
+  // At 56.5 V (derating from 55 V to the 58 V trip) half of the 0.5 A remains.
+  sim::Plant().SetDcLinkVoltage(Voltage{56.5F});
+  rig.Hold(0.0F, -20.0F, 500U);
+  status = OuterLoop::Instance().Status();
+  zexpect_within(status.current_reference.q.Value(),
+                 -(0.25F * 56.5F) / (kTorqueConstant * status.speed.Value()),
+                 1e-3F,
+                 "i_q %f",
+                 static_cast<double>(status.current_reference.q.Value()));
+  zexpect_true(rig.drive.IsEngaged());
+
+  // From the trip level the control cycle trips the power stage and the drive disengages.
+  sim::Plant().SetDcLinkVoltage(Voltage{58.5F});
+  rig.Hold(0.0F, -20.0F, 20U);
+  zexpect_false(rig.drive.IsEngaged());
+  zexpect_true(CurrentControlIsr::Instance().state.overvoltage_tripped);
+  zexpect_equal(kPowerStage.GetState(), PowerStageState::kFault);
 }
 
 ZTEST(sim_cyphal_drive, test_speed_setpoint_is_limited_to_the_motor_speed) {

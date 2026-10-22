@@ -49,6 +49,7 @@ void CurrentControlIsr::Init(const settings::NvmSettings& settings,
   state.dt_slow = DtSlowFromPwmFrequency(settings.pwm_frequency);
   state.adc_trigger_offset = static_cast<uint32_t>(std::roundf(1e-6F * static_cast<float>(timer_clock_hz)));
 
+  state.dc_link_trip = settings.dc_link_trip;
   hfi.Init(settings);
   dtc.Init(settings);
   svm.Init(settings);
@@ -145,14 +146,20 @@ void CurrentControlIsr::OnControlCycle() noexcept {
       state.overcurrent_tripped = true;
     }
   }
-  if (state.overcurrent_tripped) {
+  // 1c. DC-link overvoltage: no braking current can be taken any more; the
+  //     outer loop has derated regenerative braking before this level.
+  if (!state.overvoltage_tripped && !(kSamples.dc_link < state.dc_link_trip)) {
+    hardware::hot_path::TripPowerStage();
+    state.overvoltage_tripped = true;
+  }
+  if (state.overcurrent_tripped || state.overvoltage_tripped) {
     SetUniformDuties(system::ThreePhase<unit::Ratio>{0.5_ratio, 0.5_ratio, 0.5_ratio});
     FinishCycleWithoutControl();
     return;
   }
 
   // -------------------------------------------------------------------------
-  // 1c. Force-duty mode: fixed duties, no control loop.
+  // 1d. Force-duty mode: fixed duties, no control loop.
   // -------------------------------------------------------------------------
   if (force_duty_active_.load(std::memory_order_acquire)) {
     SetUniformDuties(forced_duties_.Read());

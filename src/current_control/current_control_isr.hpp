@@ -156,8 +156,16 @@ struct CurrentControlState {
   unit::Current overcurrent_limit{std::numeric_limits<float>::infinity()};
 
   /// Set by the control cycle when the limit was exceeded; the control loop
-  /// stays frozen at neutral duties until ClearOvercurrentTrip().
+  /// stays frozen at neutral duties until ClearTrips().
   volatile bool overcurrent_tripped{false};
+
+  /// DC-link voltage at which the control cycle trips the power stage; set by
+  /// Init() from the settings. Infinity disables the check.
+  unit::Voltage dc_link_trip{std::numeric_limits<float>::infinity()};
+
+  /// Set by the control cycle when the DC link reached `dc_link_trip`; the
+  /// control loop stays frozen at neutral duties until ClearTrips().
+  volatile bool overvoltage_tripped{false};
 };
 
 /**
@@ -330,11 +338,28 @@ class CurrentControlIsr {
    */
   void SetOvercurrentLimit(unit::Current limit) noexcept;
 
-  /// Acknowledges an overcurrent trip. The power stage fault is cleared separately
-  /// (kPowerStage.ClearFault()).
-  void ClearOvercurrentTrip() noexcept {
+  /// Acknowledges an overcurrent or overvoltage trip. The power stage fault is
+  /// cleared separately (kPowerStage.ClearFault()).
+  void ClearTrips() noexcept {
     cc.Reset();
     state.overcurrent_tripped = false;
+    state.overvoltage_tripped = false;
+  }
+
+  /// True while a trip of the control cycle holds the loop at neutral duties.
+  [[nodiscard]] bool Tripped() const noexcept {
+    return state.overcurrent_tripped || state.overvoltage_tripped;
+  }
+
+  /// Name of the latched trip for the log; nullptr without one.
+  [[nodiscard]] const char* TripName() const noexcept {
+    if (state.overcurrent_tripped) {
+      return "overcurrent trip";
+    }
+    if (state.overvoltage_tripped) {
+      return "DC-link overvoltage trip";
+    }
+    return nullptr;
   }
 
   // =========================================================================

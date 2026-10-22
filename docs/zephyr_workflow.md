@@ -158,7 +158,7 @@ the hardware layer, which trips the stage at the sample. The control cycle
 again before any control computation. Over the limit it calls
 `kPowerStage.Trip()`, latches
 `state.overcurrent_tripped` and holds the duties at 50 % until
-`ClearOvercurrentTrip()`. `HwStartup::RequestRun()` is the explicit
+`ClearTrips()`. `HwStartup::RequestRun()` is the explicit
 acknowledgement: it clears a latched break and the trip, then calls
 `Enable()`; without the external enable the run is not started and the FSM
 stays IDLE. While a run is active `RunOnce()` leaves for FAULT as soon as the

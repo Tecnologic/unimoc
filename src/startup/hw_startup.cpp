@@ -87,7 +87,7 @@ void HwStartup::RequestRun() noexcept {
   if (hardware::kPowerStage.GetState() == hardware::PowerStageState::kFault) {
     hardware::kPowerStage.ClearFault();
   }
-  cc_->ClearOvercurrentTrip();
+  cc_->ClearTrips();
   cc_->ForceDuty(kNeutralDuty, kNeutralDuty, kNeutralDuty);  // neutral before the outputs are released
 
   LogInfo(
@@ -151,7 +151,8 @@ void HwStartup::RunOnce() noexcept {
   // overcurrent trip in the ISR, external break, e-stop), stop here.
   if (state_ != FsmState::kIdle && state_ != FsmState::kDone && state_ != FsmState::kFault &&
       hardware::kPowerStage.GetState() != hardware::PowerStageState::kEnabled) {
-    EnterFault(cc_->state.overcurrent_tripped ? "hard over-current trip" : "power stage broken or blocked");
+    const char* const kTrip = cc_->TripName();
+    EnterFault(kTrip != nullptr ? kTrip : "power stage broken or blocked");
     return;
   }
 
