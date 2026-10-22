@@ -370,6 +370,12 @@ bool PowerStageEnable() noexcept {
     return false;  // fault latched
   }
   kTim->BDTR |= TIM_BDTR_MOE;  // ignored by the hardware while the break input is active
+  // The sample interrupt preempts this read-modify-write: a trip (BG) between
+  // the BIF check and the write would be undone by setting MOE again.
+  if ((kTim->SR & TIM_SR_BIF) != 0U) {
+    kTim->BDTR &= ~TIM_BDTR_MOE;
+    return false;
+  }
   return (kTim->BDTR & TIM_BDTR_MOE) != 0U;
 }
 

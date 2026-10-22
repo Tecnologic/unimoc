@@ -170,6 +170,14 @@ ReceiveResult CanardTransport::Receive(const std::span<std::byte> payload_buffer
 bool CanardTransport::Subscribe(const TransferKind kind,
                                 const uint16_t port_id,
                                 const std::size_t extent) noexcept {
+  // A port subscribed again (two registers set to the same port-ID) keeps its
+  // object with the larger extent. libcanard would link the next free slot
+  // instead, which the following Subscribe() then reuses while it is linked.
+  CanardRxSubscription* existing = nullptr;
+  if (canardRxGetSubscription(&canard_, ToCanard(kind), port_id, &existing) == 1) {
+    return extent <= existing->extent ||
+           canardRxSubscribe(&canard_, ToCanard(kind), port_id, extent, kTransferIdTimeoutUs, existing) >= 0;
+  }
   if (subscription_count_ >= kMaxSubscriptions) {
     return false;
   }
@@ -182,9 +190,7 @@ bool CanardTransport::Subscribe(const TransferKind kind,
   if (kResult < 0) {
     return false;
   }
-  if (kResult > 0) {
-    ++subscription_count_;  // a new subscription; 0 replaced an existing one in place
-  }
+  ++subscription_count_;
   return true;
 }
 

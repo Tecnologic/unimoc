@@ -5,6 +5,8 @@ on:
   # branches (merges) still run.
   push:
     branches: [main, develop]
+    # A version tag publishes the firmware as a GitHub release (job release).
+    tags: ["v*"]
   pull_request:
     branches: [main, develop, "copilot/**"]
   workflow_dispatch:
@@ -59,6 +61,37 @@ jobs:
             fi
           done
 
+      # Plain builds of the application, outside twister and without the SCA:
+      # the firmware of the battery case controller and the host simulation.
+      - name: Build the firmware (bcc, native_sim)
+        run: |
+          west build -p always -b bcc unimoc/app -d build/bcc
+          west build -p always -b native_sim/native/64 unimoc/app -d build/sim
+
+      - name: Collect the firmware
+        run: |
+          version="$(git -C unimoc describe --tags --always --dirty)"
+          mkdir -p firmware/bcc firmware/sim
+          for ext in elf hex bin; do
+            cp "build/bcc/zephyr/zephyr.$ext" "firmware/bcc/unimoc-bcc-$version.$ext"
+          done
+          cp build/bcc/zephyr/zephyr.map "firmware/bcc/unimoc-bcc-$version.map"
+          # tar keeps the executable bit, which the artifact zip drops.
+          tar -C build/sim/zephyr -czf "firmware/sim/unimoc-native_sim-$version.tar.gz" \
+              --transform "s/zephyr.exe/unimoc-native_sim/" zephyr.exe
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: unimoc-bcc
+          path: firmware/bcc/
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: unimoc-native_sim
+          path: firmware/sim/
+          if-no-files-found: error
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -69,3 +102,24 @@ jobs:
             twister-out/**/sca/codechecker/
             twister-out/**/twister_harness.log
             twister-out/**/handler.log
+
+  # A pushed version tag (v*) attaches the firmware of the passed run to a
+  # GitHub release of that tag.
+  release:
+    needs: twister
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: unimoc-*
+          path: firmware
+          merge-multiple: true
+      - name: Create the release with the firmware
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+              --title "UNIMOC $GITHUB_REF_NAME" --generate-notes firmware/*

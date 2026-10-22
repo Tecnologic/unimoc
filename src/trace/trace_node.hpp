@@ -14,7 +14,6 @@
  *    See the repository LICENSE file for details.
  */
 #pragma once
-#pragma once
 
 #include <cstddef>
 #include <cstdint>

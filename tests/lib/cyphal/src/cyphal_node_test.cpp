@@ -548,6 +548,36 @@ ZTEST(cyphal_stack, test_messages_reach_listeners_and_logs_are_published) {
                 std::string_view{"overcurrent trip"});
 }
 
+ZTEST(cyphal_stack, test_a_subject_subscribed_twice_keeps_one_subscription) {
+  Rig& rig = MakeRig(kCanFdMtu);
+  TestMessages first;
+  TestMessages second;
+  TestMessages other;
+  // Two registers on the same subject, the second with the larger extent,
+  // then another port: its subscription must not reuse a linked object.
+  zassert_true(rig.node.Subscribe(300U, 2U, first));
+  zassert_true(rig.node.Subscribe(300U, 8U, second));
+  zassert_true(rig.node.Subscribe(301U, 8U, other));
+  zassert_true(rig.node.Start(kServerId, rig.now));
+
+  const std::array<std::byte, 6> kPayload{};
+  Transfer message{.port_id = 300U,
+                   .source_node_id = kClientId,
+                   .destination_node_id = kNodeIdUnset,
+                   .transfer_id = 0U,
+                   .kind = TransferKind::kMessage,
+                   .priority = Priority::kNominal,
+                   .payload = kPayload};
+  zassert_true(rig.client.Send(message));
+  message.port_id = 301U;
+  zassert_true(rig.client.Send(message));
+  rig.Run();
+  zexpect_equal(first.count, 1U);
+  zexpect_equal(second.count, 1U);
+  zexpect_equal(second.last_size, kPayload.size());  // the larger extent applies
+  zexpect_equal(other.count, 1U);
+}
+
 ZTEST(cyphal_stack, test_redundant_interfaces_deliver_once_and_survive_a_dead_bus) {
   Rig& rig = MakeRig(kCanFdMtu, true);
   zassert_equal(rig.server_transport.InterfaceCount(), 2U);

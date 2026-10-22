@@ -28,6 +28,9 @@ items that need the board are collected below and wait for hardware access.
 
 ### P0 - Without hardware (twister on `native_sim`, BCC build)
 
+ - [ ] Settings apply on the BCC re-runs `foc_stm32g4::Initialize()` on running hardware (`DriveNode::ApplySettings()` -> `StartRuntime()`): ADC calibration with ADEN = 1 and a JSQR write while JADSTART = 1 are not allowed by the reference manual, so the init most likely fails ("settings rejected by the hardware") and the drive cannot engage after any register write until a reboot; `CurrentControlIsr::Init()` also rewrites the control state while the zero-latency interrupt runs. Add a restart path that stops the timer, the ADC sequences and the DMA (or reprograms only what changed, e.g. the PWM frequency) and quiesces the control cycle; build-test now, verify on the board with M8. Review 2026-10-22; effort M.
+ - [ ] Reject settings with two ports on the same port-ID (`settings_store_internal::Validate()`): the transport keeps one subscription since 2026-10-22, but `DriveNode::OnMessage()` gives the message only to the first matching setpoint (torque before speed) and an equal pub/sub trigger ID is ambiguous. Effort S.
+ - [ ] Publish the thread-side writes the zero-latency interrupt reads with a defined order: `CurrentControlIsr::ForceDuty()` (three duties, then the flag, plain members) and `SetOvercurrentWindow()` (low/high) can be seen half written for one cycle. A mailbox or an atomic flag after the data, as `i_ref_mailbox`. Effort S.
  - [ ] Connect the startup FSM (`HwStartup`) to Cyphal: the `unimoc.startup.*` registers of `cyphal_interface.hpp` (run, step, external measurements, results) in a register provider, the FSM stepped from the Cyphal thread; test on `native_sim`.
  - [ ] Speed and position setpoints over Cyphal (`uavcan.sub.speed_setpoint`, UDRAL servo); needs the control thread of M7.
  - [x] cymon traces over Cyphal ([docs/cymon_integration_plan.md](docs/cymon_integration_plan.md)): cymon-lib 0.2 linked, `cymon.*` services and trigger event, `Tick()` in the control cycle, plant truth on `native_sim`; the host tool is cymon (<https://github.com/Tecnologic/cymon>).
@@ -38,6 +41,33 @@ items that need the board are collected below and wait for hardware access.
  - [ ] Write the M0 instrumentation (DWT cycle counters around the sample ISR, control cycle and observer, min/mean/max, overrun counters, output through the log and Cyphal registers); build-tested only until the board is available.
  - [ ] Check whether the hot path (sample ISR, control cycle, buffers) belongs in CCM SRAM on the G4 (`docs/hotpath_plan.md`, "Risks and Open Points"); decide with the M0 timing numbers.
  - [ ] Confirm the CAN-FD transceiver change for the BCC (the board has an SN65HVD230, classic CAN). A board decision, no board access needed.
+ - [ ] CI housekeeping (review 2026-10-22): bump `actions/checkout`, `upload-artifact` and `download-artifact` in `ci-zephyr.yml` to their Node 24 releases (the runner warns and forces Node 24); `ci-docs.yml` requests Pages permissions but only uploads the Doxygen HTML, deploy it or drop the permissions. Effort XS.
+ - [ ] One angle convention for the bus: the traces report the electrical angle in (-pi, pi], `unimoc.drive.Telemetry` in [0, 2 pi). Effort XS.
+
+### Unit types throughout the code base (static checks of the physics)
+
+Review 2026-10-22: `lib/units/units.hpp` is used for the settings and the
+interfaces, but most formulas unwrap it. Non-test code has about 265
+`.Value()` calls in `lib/motor_control/src` (most in `asm_flux_observer`,
+`position_controller`, `mechanical_observer`, `current_controller`, the frame
+types), about 130 in `lib/settings`, about 80 in `src/` and `hardware/`, and
+raw `float` members for physical quantities in `src/` (`CurrentControlState`,
+`DriveNode`, `OuterLoop`, `HwStartup`). The root cause is the tag-per-quantity
+design: every product or quotient needs a hand-written operator (about 60
+today), so a formula without one falls back to raw floats and the compiler
+checks nothing. `units.hpp` is in the validated scope (`AGENTS.md`): the
+first three items change it and need the owner's go-ahead.
+
+ - [ ] P0: Enforce the boundary in CI: a check (script in `check_format.sh` or a clang-tidy matcher) that counts `.Value()` and raw `unit::X{float}` construction per file outside an allowlist of boundary files (DSDL serialization, cymon float mirror, register encoding, HAL counts), fails when the count grows, and is ratcheted down as the items below land. Effort S.
+ - [ ] P0: Math helpers in `units.hpp` so typed code needs no escape: `Abs`, `Min`/`Max`, `IsFinite`, `Sqrt` and `Hypot` of a squared quantity, `Sin`/`Cos` of an `Angle` returning `Ratio` (builtins, no libm in the hot path), angle wrap; remove `Clamp(Rep, Rep)`, which accepts unit-less bounds. ztest in `tests/lib/units`. Effort S-M.
+ - [ ] P0 (decision): Replace the tags by dimension exponents (SI base dimensions plus the radian as its own dimension, so that rad/s and Hz stay distinct), keeping the public aliases (`Current`, `Voltage`, ...). Products and quotients are then derived by the compiler, including the controller gains and the observer coefficients that today have no type. The precondition for the items below to stay free of `.Value()`; zero runtime cost (same `float` layout). Effort L.
+ - [ ] P1: Frames and transforms without unwrapping: `Stator`/`Rotor` rotation, Clarke/Park in `three_phase_system`, `hfi`, `dead_time_compensation`, `pmsm_flux_observer` (Unit x Ratio exists). Effort M.
+ - [ ] P1: Typed controller gains: `kp`/`ki` of `current_controller` (V/A, V/(A s)), `speed_controller`, `position_controller`, `excitation_controller`; the integrators keep their output unit. Effort M.
+ - [ ] P1: Observers in units: `mechanical_observer` (torque balance, `dt / J`), `asm_flux_observer` (27 escapes), `excitation_observer`, `field_weakening`, `mtpa`. Effort M.
+ - [ ] P1: Application state in units: `CurrentControlState::dt_fast`/`dt_slow` (`Time`), `overcurrent_limit` (`Current`), `ForceDuty(float...)` (`Ratio`), `DriveNode::current_limit_` and `torque_constant_` and `OuterLoop::Parameters::torque_constant` (a torque-constant type, N m/A), `HwStartup` thresholds and results (offsets and noise in A, gains as `Ratio`; the `double` accumulators to `float` or a documented exception), `StartupRegisters::ext_current_`/`ext_vdc_`. Effort M.
+ - [ ] P1: Hardware conversions typed at the source: `analog::CountsToCurrent`/`CountsToVoltage`/`CountsToTemperature` return units, the sim `Exceeds()` and the BCC `SetOvercurrentLimit()` compare units. Effort S.
+ - [ ] P2: `settings_store_internal::Validate()` compares units with typed limits instead of `.Value()` (about 130 calls). Effort S.
+ - [ ] P2: Typed test checks (`UNIMOC_EXPECT_NEAR` for units) and the tests migrated (about 520 `.Value()` calls); document the remaining boundaries (DSDL, cymon, registers) in `CONTEXT.md`. Effort M.
 
 ### P1 - Blocked on hardware access
 
@@ -69,6 +99,7 @@ items that need the board are collected below and wait for hardware access.
  - [x] pycyphal integration tests of the running simulation (`tests/integration/cyphal_sim`, twister pytest harness, scenario `unimoc.app.cyphal_integration`): node services, registers, arming, setpoints, telemetry, diagnostics, simulation registers, store and restart.
  - [ ] Extend the pycyphal integration tests with every new bus feature (startup FSM registers, speed setpoints, multi-node runs on `vcan` once available in CI).
  - [x] Fix the ExecuteCommand status codes in `cyphal_interface.hpp` (BAD_COMMAND and BAD_STATE were swapped against the specification) and remove the heartbeat serializer that packed health and mode into one byte.
+ - [x] Review fixes (2026-10-22): a port subscribed twice no longer corrupts the libcanard subscription tree (`CanardTransport::Subscribe()`, ztest); `PowerStageEnable()` checks the break flag again after the release (BCC and sim, not run on the board); CI badge points at `ci-zephyr.yml`; CI uploads the BCC and `native_sim` firmware as artifacts and attaches them to a release for `v*` tags.
  - [x] `app/boards/native_sim.*` were never applied to the 64-bit build: renamed to `native_sim_native_64.*` (1 us tick, real time).
 
 ## Prioritized software-in-the-loop plan
