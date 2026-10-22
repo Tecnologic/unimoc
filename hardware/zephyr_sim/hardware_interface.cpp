@@ -141,7 +141,7 @@ ControlCycleSamples g_samples{};  // samples of the cycle that just ended
 DutyPlan g_plan{};                // written by the control cycle
 Duties g_carry = kNeutral;        // entry 3 of the last plan: first half period of the next cycle
 std::array<Duties, kHalfPeriodsPerCycle> g_applied{kNeutral, kNeutral, kNeutral, kNeutral};
-float g_overcurrent_limit = std::numeric_limits<float>::infinity();
+Current g_overcurrent_limit{std::numeric_limits<float>::infinity()};
 bool g_current_override = false;
 system::ThreePhase<Current> g_override_currents{};
 uint32_t g_cycle_count = 0U;
@@ -186,9 +186,8 @@ void RestartHallCapture() noexcept {
 }
 
 bool Exceeds(const system::ThreePhase<Current>& currents) noexcept {
-  const float kLimit = g_overcurrent_limit;
-  return std::abs(currents.a.Value()) > kLimit || std::abs(currents.b.Value()) > kLimit ||
-         std::abs(currents.c.Value()) > kLimit;
+  const Current kLimit = g_overcurrent_limit;
+  return Abs(currents.a) > kLimit || Abs(currents.b) > kLimit || Abs(currents.c) > kLimit;
 }
 
 /// Copies the plant truth for the traces; the next control cycle samples it with its own state.
@@ -330,7 +329,7 @@ system::ThreePhase<Voltage> GetPhaseVoltages() noexcept { return g_plant.Output(
 
 TemperatureMeasurements GetTemperatureMeasurements() noexcept { return {}; }
 
-void SetOvercurrentLimit(const Current limit) noexcept { g_overcurrent_limit = limit.Value(); }
+void SetOvercurrentLimit(const Current limit) noexcept { g_overcurrent_limit = limit; }
 
 void SetAdcTriggerOffset(uint32_t /*unused*/) noexcept {}
 

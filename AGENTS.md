@@ -84,7 +84,9 @@ Read `README.md` for the supported motor types and public features, and
   a pycyphal node drives it over an slcan pseudo terminal. They are skipped
   without pycyphal (`scripts/requirements-cyphal-tools.txt`).
 - `scripts/` holds the validation scripts (`check_format.sh`,
-  `twister_sca.sh`) that CI runs as well, the Python requirements of the
+  `twister_sca.sh`) that CI runs as well (`check_format.sh` also runs the
+  unit-escape ratchet `check_unit_escapes.py` against
+  `unit_escapes_baseline.txt`), the Python requirements of the
   Cyphal build (`requirements-cyphal.txt`, Nunavut) and tools
   (`requirements-cyphal-tools.txt`, yakut), and `sim_yakut_env.sh`.
 - `docs/` contains the plans and the workflow notes. `TODO.md` lists open topics.
@@ -119,7 +121,7 @@ Run from the west workspace root, which contains `unimoc/` and `zephyr/`
 (setup in `docs/zephyr_workflow.md`; on Windows in WSL2):
 
 ```sh
-unimoc/scripts/check_format.sh     # clang-format check (--fix to apply)
+unimoc/scripts/check_format.sh     # clang-format check (--fix to apply) and the unit-escape ratchet
 unimoc/scripts/twister_sca.sh      # all scenarios, native_sim + bcc, with clang-tidy
 ```
 
@@ -163,6 +165,12 @@ Earlier sessions lost time on these points; do them from the start:
   (also methods), `snake_case` variables, parameters and members (private
   members end in `_`), `kPascalCase` for every `const`/`constexpr` variable
   that is not a parameter (also locals) and for enumerators.
+- **Unit escapes may only go down:** a file with more `.Value()` calls or
+  raw unit constructions than its line in `scripts/unit_escapes_baseline.txt`
+  fails `check_format.sh`. Keep the calculation in the unit types; at a real
+  boundary (DSDL, cymon mirror, registers, ADC counts) raise the baseline
+  with `scripts/check_unit_escapes.py --update` in the same change, and run
+  `--update` after removing escapes to lock the reduction in.
 - **`NOLINT`** only with the check name and a reason in the same comment.
   The directory `.clang-tidy` files in `hardware/zephyr_*` and `tests/` only
   waive checks that Zephyr's own macros cannot meet; do not widen them.
