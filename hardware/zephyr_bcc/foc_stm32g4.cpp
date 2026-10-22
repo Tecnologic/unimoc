@@ -110,6 +110,7 @@ static_assert(std::atomic<uint32_t>::is_always_lock_free);
 TickPlan g_applied{};
 PhaseTicks g_last_entry{};  // entry 3 of the last plan
 bool g_control_at_peak = true;
+bool g_started = false;  // Initialize() has programmed the hardware, Stop() has not run since
 uint32_t g_duty_overruns = 0U;
 
 inline ADC_TypeDef* Adc(const AdcDescription& d) noexcept { return reinterpret_cast<ADC_TypeDef*>(d.base); }
@@ -180,6 +181,26 @@ bool InitAdc(const AdcDescription& description, const bool fast_interrupt) noexc
   kAdc->ISR = ADC_ISR_JEOC | ADC_ISR_JEOS | ADC_ISR_JQOVF;
   kAdc->IER = fast_interrupt ? ADC_IER_JEOSIE : 0U;
   kAdc->CR |= ADC_CR_JADSTART;  // arm: waits for the hardware trigger
+  return true;
+}
+
+// Stops the injected sequence and disables the ADC (RM0440: JADSTP only
+// while JADSTART = 1, ADDIS only while ADEN = 1 and no conversion runs).
+bool StopAdc(const AdcDescription& description) noexcept {
+  ADC_TypeDef* const kAdc = Adc(description);
+  if ((kAdc->CR & ADC_CR_JADSTART) != 0U) {
+    kAdc->CR |= ADC_CR_JADSTP;
+    if (!WaitWhile(kAdc->CR, ADC_CR_JADSTART, false)) {
+      return false;
+    }
+  }
+  kAdc->IER = 0U;
+  if ((kAdc->CR & ADC_CR_ADEN) != 0U) {
+    kAdc->CR |= ADC_CR_ADDIS;
+    if (!WaitWhile(kAdc->CR, ADC_CR_ADEN, false)) {
+      return false;
+    }
+  }
   return true;
 }
 
@@ -323,9 +344,13 @@ bool Initialize(const unit::Frequency pwm_frequency, const uint32_t adc_trigger_
     return false;
   }
 
+  // A restart (new settings): stop what the last Initialize() started, also
+  // when it failed half way.
+  Stop();
   if (pinctrl_apply_state(PINCTRL_DT_DEV_CONFIG_GET(UNIMOC_FOC), PINCTRL_STATE_DEFAULT) != 0) {
     return false;
   }
+  g_started = true;
   if (!InitTimer(kPwmHz, adc_trigger_offset)) {
     return false;
   }
@@ -366,6 +391,34 @@ bool Initialize(const unit::Frequency pwm_frequency, const uint32_t adc_trigger_
   kTim->DIER = TIM_DIER_UDE;  // after UG: the initial update must not start a burst
   kTim->CR1 |= TIM_CR1_CEN;
   return true;
+}
+
+void Stop() noexcept {
+  if (!g_started) {
+    return;
+  }
+  g_started = false;
+  // First the interrupts: no control cycle or observer runs from here on.
+  irq_disable(kFastIrq);
+  irq_disable(kObserverIrq);
+
+  kTim->BDTR &= ~TIM_BDTR_MOE;  // outputs off (the power stage is disabled already)
+  kTim->DIER = 0U;              // no more DMA requests
+  kTim->CR1 &= ~TIM_CR1_CEN;    // no more ADC triggers
+  kDma->CCR &= ~DMA_CCR_EN;
+
+  // An ADC that does not stop is left as it is; the calibration in the
+  // following Initialize() then fails and reports it.
+  (void)StopAdc(kAdcPhaseA);
+  (void)StopAdc(kAdcPhaseB);
+  (void)StopAdc(kAdcPhaseC);
+  (void)StopAdc(kAdcDcLink);
+  if (kBridgeTemperatureAvailable || kMotorTemperatureAvailable) {
+    (void)StopAdc(kAdcTemperature);
+  }
+
+  NVIC_ClearPendingIRQ(static_cast<IRQn_Type>(kFastIrq));
+  NVIC_ClearPendingIRQ(static_cast<IRQn_Type>(kObserverIrq));
 }
 
 bool PowerStageEnable() noexcept {

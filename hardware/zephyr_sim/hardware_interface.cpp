@@ -303,6 +303,13 @@ bool Initialize(Frequency pwm_frequency, uint32_t /*unused*/) noexcept {
   return true;
 }
 
+// The cycle timer runs the control cycle and the observer: stopped, neither runs.
+void Stop() noexcept {
+  if (g_initialized) {
+    StopTimer();
+  }
+}
+
 system::ThreePhase<Current> GetPhaseCurrents() noexcept { return MeasuredCurrents(); }
 
 system::ThreePhase<Voltage> GetPhaseVoltages() noexcept { return g_plant.Output().phase_voltages; }
@@ -422,6 +429,7 @@ const PowerStageInterface kPowerStage{PowerStageEnable,
 const HardwareSettingsInterface kSettings{kSettingsProfile, kSettingsStorage, ZephyrSettingsStorage::Lock()};
 
 const std::array<HardwareInterface, kMotorCount> kMotors = {HardwareInterface(Initialize,
+                                                                              Stop,
                                                                               GetPhaseCurrents,
                                                                               GetPhaseVoltages,
                                                                               GetTemperatureMeasurements,

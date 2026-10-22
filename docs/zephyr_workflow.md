@@ -99,7 +99,11 @@ wakes on each received frame and at least every millisecond and runs the node
 and the drive application (`src/drive/drive_node.cpp`). It reaches the
 control cycle only through `CurrentControlIsr::SetCurrentRef()`, reads its
 state for the telemetry and restarts the runtime (`StartRuntime()`) with new
-settings while the power stage is disabled.
+settings while the power stage is disabled. A restart first stops the cycle
+source (`HardwareInterface::Stop()`; BCC: both interrupts off, TIM8 and the
+duty DMA stopped, the injected sequences stopped and the ADCs disabled), so
+the control state is not rewritten under the running interrupts and the ADC
+calibration and `JSQR` writes of `Initialize()` meet the reference manual.
 
 | | BCC | native_sim |
 |---|---|---|

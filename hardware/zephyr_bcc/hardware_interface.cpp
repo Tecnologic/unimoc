@@ -293,6 +293,7 @@ const PowerStageInterface kPowerStage{foc_stm32g4::PowerStageEnable,
                                       foc_stm32g4::GetPowerStageState};
 
 const std::array<HardwareInterface, kMotorCount> kMotors = {HardwareInterface(Initialize,
+                                                                              foc_stm32g4::Stop,
                                                                               GetPhaseCurrents,
                                                                               GetPhaseVoltages,
                                                                               GetTemperatureMeasurements,

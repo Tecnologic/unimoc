@@ -110,6 +110,26 @@ ZTEST(sim_irq_cadence, test_plan_entries_reach_the_following_half_periods) {
   zassert_equal(sim::CycleCount(), 2U);
 }
 
+ZTEST(sim_irq_cadence, test_stop_halts_the_cycle_source_until_the_next_initialize) {
+  Reset();
+  kMotors[0].Stop();  // nothing running yet: no effect
+  zassert_true(kMotors[0].Initialize(unimoc::unit::Frequency{32'000.0F}, 0U));
+  k_sleep(K_MSEC(10));
+  kMotors[0].Stop();
+  const uint32_t kStopped = g_control_count;
+  zassert_true(kStopped > 0U);
+  k_sleep(K_MSEC(20));
+  zassert_equal(g_control_count, kStopped, "no control cycle after Stop()");
+  zassert_equal(g_observer_count, kStopped, "no observer after Stop()");
+
+  // A restart with another PWM frequency runs from cycle 0 again.
+  zassert_true(kMotors[0].Initialize(unimoc::unit::Frequency{16'000.0F}, 0U));
+  sim::SetFreeRunning(false);
+  sim::StepCycle();
+  zassert_equal(sim::CycleCount(), 1U);
+  zassert_equal(g_control_count, kStopped + 1U);
+}
+
 ZTEST(sim_power_stage, test_enable_needs_external_enable) {
   using unimoc::hardware::kPowerStage;
   using unimoc::hardware::PowerStageState;
