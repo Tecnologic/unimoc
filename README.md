@@ -219,7 +219,11 @@ flash, refused (`BAD_STATE`) while the power stage is enabled.
 | `uavcan.pub.cymon_trigger.id` | 65535 | `cymon.TriggerEvent.0.1` | Published when a capture triggers (disabled by default) |
 | `uavcan.sub.cymon_trigger.id` | 65535 | `cymon.TriggerEvent.0.1` | Triggers the armed capture on another node's event (disabled by default) |
 
-Each port has a read-only `.type` register.  Readiness and setpoints must be
+Each port has a read-only `.type` register.  Two enabled ports may not share
+a subject-ID (or two services a service-ID): such a write is rejected, so to
+swap two IDs, disable one port (65535) first.  The cymon trigger is the
+exception: publishing and subscribing one shared trigger subject lets every
+node of a bus trigger the others.  Readiness and setpoints must be
 refreshed within `unimoc.control.command_timeout` (0.5 s): a missing
 readiness disengages the drive, a missing setpoint falls back to zero
 current.  The current vector is limited to `unimoc.motor.limits.i_max`.  An

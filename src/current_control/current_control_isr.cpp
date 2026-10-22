@@ -15,6 +15,7 @@
  */
 #include "current_control_isr.hpp"
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include "hardware_interface.hpp"
 #include "hot_path_interface.hpp"
@@ -88,7 +89,7 @@ void CurrentControlIsr::Init(const settings::NvmSettings& settings,
   state.phase_duties = system::ThreePhase<unit::Ratio>{0.5_ratio, 0.5_ratio, 0.5_ratio};
   // A restart leaves a bring-up mode: the control loop runs again, from zero
   // current until the outer loop hands over a reference.
-  force_duty_active = false;
+  force_duty_active_.store(false, std::memory_order_release);
   state.i_ref = system::Rotor<unit::Current>{0.0F, 0.0F};
   state.i_ref_mailbox.Write(state.i_ref);
   state.i_dq_last = system::Rotor<unit::Current>{0.0F, 0.0F};
@@ -154,8 +155,8 @@ void CurrentControlIsr::OnControlCycle() noexcept {
   // -------------------------------------------------------------------------
   // 1c. Force-duty mode: fixed duties, no control loop.
   // -------------------------------------------------------------------------
-  if (force_duty_active) {
-    SetUniformDuties(forced_duties);
+  if (force_duty_active_.load(std::memory_order_acquire)) {
+    SetUniformDuties(forced_duties_.Read());
     FinishCycleWithoutControl();
     return;
   }
@@ -233,10 +234,8 @@ void CurrentControlIsr::ForceDuty(float da, float db, float dc) noexcept {
   const auto kClampDuty = [this](float duty) noexcept {
     return unit::Ratio{std::clamp(duty, svm.duty_min.Value(), svm.duty_max.Value())};
   };
-  forced_duties.a = kClampDuty(da);
-  forced_duties.b = kClampDuty(db);
-  forced_duties.c = kClampDuty(dc);
-  force_duty_active = true;
+  forced_duties_.Write(system::ThreePhase<unit::Ratio>{kClampDuty(da), kClampDuty(db), kClampDuty(dc)});
+  force_duty_active_.store(true, std::memory_order_release);
 }
 
 // =============================================================================
@@ -244,8 +243,10 @@ void CurrentControlIsr::ForceDuty(float da, float db, float dc) noexcept {
 // =============================================================================
 
 void CurrentControlIsr::ReleaseForceDuty() noexcept {
-  force_duty_active = false;
-  cc.Reset();  // clear integrators before resuming closed-loop control
+  // Clear the integrators while the control cycle still bypasses the PI
+  // loop, then hand the loop back (release: the reset is seen first).
+  cc.Reset();
+  force_duty_active_.store(false, std::memory_order_release);
 }
 
 // =============================================================================

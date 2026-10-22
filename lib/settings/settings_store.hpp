@@ -15,6 +15,7 @@
  */
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdint>
@@ -129,6 +130,46 @@ inline constexpr unit::Frequency kMaxTelemetryRate{1000.0F};
 /// Longest readiness and setpoint timeout.
 inline constexpr unit::Time kMaxCommandTimeout{10.0F};
 
+/// True when two enabled ports in @p port_ids share one port-ID.
+template <std::size_t kCount>
+[[nodiscard]] constexpr bool HasDuplicatePort(const std::array<uint16_t, kCount>& port_ids) noexcept {
+  for (std::size_t i = 0U; i < kCount; ++i) {
+    for (std::size_t j = i + 1U; j < kCount; ++j) {
+      if (port_ids[i] != cyphal::kUnsetPortId && port_ids[i] == port_ids[j]) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+/**
+ * @brief True when two enabled ports of the drive would share one port-ID.
+ *
+ * The drive dispatches a received message by its subject-ID, so two
+ * subscriptions on one subject would give the message to the first match
+ * only, and a publication on a subscribed subject mixes two data types on
+ * one subject. Subject-IDs and service-IDs are separate spaces. The one
+ * allowed overlap is the cymon trigger: publishing and subscribing the same
+ * `cymon.TriggerEvent` subject lets every node of a bus trigger the others
+ * (a node does not receive its own transfers).
+ */
+[[nodiscard]] inline bool HasPortIdCollision(const NvmSettings& settings) noexcept {
+  const std::array<uint16_t, 7U> kSubjects{settings.sub_readiness_id,       settings.sub_current_setpoint_id,
+                                           settings.sub_torque_setpoint_id, settings.sub_speed_setpoint_id,
+                                           settings.sub_position_setpoint_id, settings.sub_servo_setpoint_id,
+                                           settings.pub_telemetry_id};
+  const std::array<uint16_t, 5U> kServices{settings.srv_cymon_variables_id, settings.srv_cymon_buffer_info_id,
+                                           settings.srv_cymon_setup_id, settings.srv_cymon_arm_id,
+                                           settings.srv_cymon_read_id};
+  const auto kOnSubject = [&kSubjects](const uint16_t port_id) {
+    return port_id != cyphal::kUnsetPortId &&
+           std::find(kSubjects.begin(), kSubjects.end(), port_id) != kSubjects.end();
+  };
+  return HasDuplicatePort(kSubjects) || HasDuplicatePort(kServices) ||
+         kOnSubject(settings.pub_cymon_trigger_id) || kOnSubject(settings.sub_cymon_trigger_id);
+}
+
 [[nodiscard]] inline SettingsStatus Validate(const NvmSettings& settings,
                                              const HardwareCapabilities& limits) noexcept {
   if (!IsFinite(settings) || !IsValidEnumValues(settings) || settings.node_id > 127U ||
@@ -202,6 +243,10 @@ inline constexpr unit::Time kMaxCommandTimeout{10.0F};
       !kIsServiceId(settings.srv_cymon_read_id) || !kIsSubjectId(settings.pub_cymon_trigger_id) ||
       !kIsSubjectId(settings.sub_cymon_trigger_id)) {
     return SettingsStatus::kOutOfRange;
+  }
+
+  if (HasPortIdCollision(settings)) {
+    return SettingsStatus::kInvalidSettings;
   }
 
   return SettingsStatus::kSuccess;

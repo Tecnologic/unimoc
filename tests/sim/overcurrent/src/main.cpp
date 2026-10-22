@@ -110,6 +110,26 @@ ZTEST_F(sim_overcurrent, test_sample_check_trips_at_once_and_freezes_loop) {
   zassert_false(kPowerStage.Enable());
 }
 
+ZTEST_F(sim_overcurrent, test_forced_duties_replace_the_loop_until_released) {
+  CurrentControlIsr& isr = CurrentControlIsr::Instance();
+  const float kDutyMax = isr.svm.duty_max.Value();
+  isr.ForceDuty(0.25F, 0.5F, 2.0F);  // phase C clamped to the SVM limit
+  RunCycles(1);
+  for (const auto& duties : isr.state.duty_plan.duties) {
+    zassert_within(duties.a.Value(), 0.25F, 1e-6F);
+    zassert_within(duties.b.Value(), 0.5F, 1e-6F);
+    zassert_within(duties.c.Value(), kDutyMax, 1e-6F);
+  }
+
+  // Released, the loop runs again: zero current and reference give neutral duties.
+  isr.ReleaseForceDuty();
+  RunCycles(2);
+  for (const auto& duties : isr.state.duty_plan.duties) {
+    zassert_within(duties.a.Value(), 0.5F, 1e-3F);
+    zassert_within(duties.c.Value(), 0.5F, 1e-3F);
+  }
+}
+
 ZTEST_F(sim_overcurrent, test_startup_needs_external_enable) {
   sim::SetExternalEnable(false);
   unimoc::startup::HwStartup startup{CurrentControlIsr::Instance(), fixture->store.GetOperations()};

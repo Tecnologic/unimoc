@@ -25,6 +25,7 @@
 #include <zephyr/kernel.h>
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cstddef>
 #include "dead_time.hpp"
 #include "foc_stm32g4_dt.hpp"
@@ -95,8 +96,15 @@ static_assert(sizeof(g_dma_slots) == kDmaTransfers * sizeof(uint32_t), "slots ar
 // Sample interrupt state. Only the zero-latency context writes it.
 CycleRaw g_cycle{};
 uint8_t g_sample_index = 0U;
-uint32_t g_overcurrent_low = 0U;
-uint32_t g_overcurrent_high = 0xFFFU;
+
+// Overcurrent window, low limit in bits 0..15 and high limit in bits 16..31.
+// Written by the thread context (SetOvercurrentWindow()), read by the sample
+// interrupt: one word, so it never sees the limits of two windows.
+constexpr uint32_t PackWindow(const uint32_t low, const uint32_t high) noexcept {
+  return (low & 0xFFFFU) | ((high & 0xFFFFU) << 16U);
+}
+std::atomic<uint32_t> g_overcurrent_window{PackWindow(0U, 0xFFFU)};
+static_assert(std::atomic<uint32_t>::is_always_lock_free);
 
 // What was active while the samples of the current cycle were taken.
 TickPlan g_applied{};
@@ -178,8 +186,8 @@ bool InitAdc(const AdcDescription& description, const bool fast_interrupt) noexc
 // ----- Zero-latency interrupt service routine --------------------------------
 // No kernel calls, no logging. Direct ISRs return 0: never a reschedule.
 
-bool OutsideWindow(const uint32_t raw) noexcept {
-  return raw < g_overcurrent_low || raw > g_overcurrent_high;
+bool OutsideWindow(const uint32_t raw, const uint32_t window) noexcept {
+  return raw < (window & 0xFFFFU) || raw > (window >> 16U);
 }
 
 ISR_DIRECT_DECLARE(SampleIsr) {
@@ -190,7 +198,8 @@ ISR_DIRECT_DECLARE(SampleIsr) {
   const uint8_t kIndex = g_sample_index;
   g_cycle.currents[kIndex] =
       RawCurrents{static_cast<uint16_t>(kIa), static_cast<uint16_t>(kIb), static_cast<uint16_t>(kIc)};
-  if (OutsideWindow(kIa) || OutsideWindow(kIb) || OutsideWindow(kIc)) {
+  const uint32_t kWindow = g_overcurrent_window.load(std::memory_order_relaxed);
+  if (OutsideWindow(kIa, kWindow) || OutsideWindow(kIb, kWindow) || OutsideWindow(kIc, kWindow)) {
     kTim->EGR = TIM_EGR_BG;  // break: outputs off at once, BIF latched
     g_cycle.overcurrent = true;
   }
@@ -460,8 +469,7 @@ bool SampleAtPeak(const uint8_t sample) noexcept {
 }
 
 void SetOvercurrentWindow(const uint32_t low, const uint32_t high) noexcept {
-  g_overcurrent_low = low;
-  g_overcurrent_high = high;
+  g_overcurrent_window.store(PackWindow(low, high), std::memory_order_relaxed);
 }
 
 RawSamples ReadRaw() noexcept {

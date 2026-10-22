@@ -210,6 +210,49 @@ ZTEST(settings_store, test_capability_violation_leaves_settings_unchanged) {
   zexpect_equal(operations.UnsavedCount(), 0U);
 }
 
+ZTEST(settings_store, test_two_ports_on_one_port_id_are_rejected) {
+  Fixture ctx;
+  zassert_equal(ctx.store.Load(), SettingsStatus::kFactoryDefaults);
+  auto operations = ctx.store.GetOperations();
+  const auto kSet = [&operations](uint16_t NvmSettings::* port, const uint16_t port_id) {
+    return operations.Update([port, port_id](NvmSettings& settings) { settings.*port = port_id; });
+  };
+  const NvmSettings& factory = MakeProfile().factory_settings;
+
+  // Two subscriptions, or a publication on a subscribed subject.
+  zexpect_equal(kSet(&NvmSettings::sub_speed_setpoint_id, factory.sub_torque_setpoint_id),
+                SettingsStatus::kInvalidSettings);
+  zexpect_equal(kSet(&NvmSettings::pub_telemetry_id, factory.sub_readiness_id),
+                SettingsStatus::kInvalidSettings);
+  zexpect_equal(kSet(&NvmSettings::sub_cymon_trigger_id, factory.sub_current_setpoint_id),
+                SettingsStatus::kInvalidSettings);
+  zexpect_equal(kSet(&NvmSettings::pub_cymon_trigger_id, factory.pub_telemetry_id),
+                SettingsStatus::kInvalidSettings);
+  // Two services on one service-ID.
+  zexpect_equal(kSet(&NvmSettings::srv_cymon_read_id, factory.srv_cymon_arm_id),
+                SettingsStatus::kInvalidSettings);
+  zexpect_equal(operations.UnsavedCount(), 0U);
+
+  // A subject-ID may equal a service-ID, and disabled ports never collide.
+  zexpect_equal(kSet(&NvmSettings::srv_cymon_setup_id, factory.sub_torque_setpoint_id),
+                SettingsStatus::kSuccess);
+  zexpect_equal(kSet(&NvmSettings::sub_speed_setpoint_id, cyphal::kUnsetPortId), SettingsStatus::kSuccess);
+  zexpect_equal(kSet(&NvmSettings::sub_position_setpoint_id, cyphal::kUnsetPortId), SettingsStatus::kSuccess);
+  // The cymon trigger may publish and subscribe one shared subject.
+  zexpect_equal(kSet(&NvmSettings::pub_cymon_trigger_id, 300U), SettingsStatus::kSuccess);
+  zexpect_equal(kSet(&NvmSettings::sub_cymon_trigger_id, 300U), SettingsStatus::kSuccess);
+}
+
+ZTEST(settings_store, test_stored_port_id_collision_falls_back_to_factory) {
+  Fixture ctx;
+  std::size_t size = 0U;
+  const auto kBytes = Bytes(uint16_t{cyphal::kSubTorqueSetpoint}, size);
+  ctx.backend.Put(reg::kSubSpeedSetpointId, std::span<const std::byte>{kBytes.data(), size});
+
+  zexpect_equal(ctx.store.Load(), SettingsStatus::kInvalidSettings);
+  zexpect_equal(ctx.store.GetSnapshot().Get().sub_speed_setpoint_id, cyphal::kSubSpeedSetpoint);
+}
+
 ZTEST(settings_store, test_write_failure_keeps_the_register_unsaved_and_a_retry_saves_it) {
   Fixture ctx;
   zassert_equal(ctx.store.Load(), SettingsStatus::kFactoryDefaults);

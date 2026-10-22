@@ -284,7 +284,9 @@ class CurrentControlIsr {
    * state.raw_phase_currents / raw_vdc, but skips Clarke / Park / PI / SVM and
    * writes the requested duties through the hardware interface.
    *
-   * Duties are clamped to [svm.duty_min, svm.duty_max].  To ensure the ADC
+   * Duties are clamped to [svm.duty_min, svm.duty_max]. The control cycle sees
+   * either the previous or all three new duties, never a mix. One writer
+   * thread only (the startup FSM). To ensure the ADC
    * sampling window is never corrupted, consider keeping duties well within
    * this range during calibration steps.
    *
@@ -367,15 +369,6 @@ class CurrentControlIsr {
   /// True when HFI injection is active.
   bool hfi_active{false};
 
-  /// When true, OnControlCycle() writes forced_duties as the duty plan and
-  /// bypasses the PI control loop.  Set by ForceDuty(); cleared by
-  /// ReleaseForceDuty().
-  bool force_duty_active{false};
-
-  /// Fixed duty cycles applied to CCR1/2/3 while force_duty_active is true.
-  /// Clamped to [svm.duty_min, svm.duty_max] by ForceDuty().
-  system::ThreePhase<unit::Ratio> forced_duties{0.5_ratio, 0.5_ratio, 0.5_ratio};
-
   // NOLINTEND(cppcoreguidelines-non-private-member-variables-in-classes)
 
  private:
@@ -390,6 +383,17 @@ class CurrentControlIsr {
   void FinishCycleWithoutControl() noexcept;
 
   const hardware::HardwareInterface* hardware_{nullptr};
+
+  /// Fixed duty cycles applied to CCR1/2/3 while force_duty_active_ is true.
+  /// Clamped to [svm.duty_min, svm.duty_max] by ForceDuty(), which publishes
+  /// them before it sets the flag.
+  Mailbox<system::ThreePhase<unit::Ratio>> forced_duties_{};
+
+  /// When true, OnControlCycle() writes forced_duties_ as the duty plan and
+  /// bypasses the PI control loop. Set by ForceDuty() after the duties
+  /// (release), read by the control cycle (acquire); cleared by
+  /// ReleaseForceDuty().
+  std::atomic<bool> force_duty_active_{false};
 };
 
 }  // namespace unimoc::current_control
