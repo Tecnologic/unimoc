@@ -145,6 +145,23 @@ def test_imposed_speed_drives_the_plant(sim: SimClient):
     assert math.isfinite(advance)
 
 
+def test_speed_setpoint_runs_the_speed_loop(sim: SimClient):
+    # Pole pairs (7) and flux (5 mWb) from the tests above; Hall fusion and a speed PI.
+    assert sim.write("unimoc.observer.hall.enable", natural8(1)) == 1
+    assert sim.write("unimoc.observer.pmsm_flux.R_speed", real(1.0)) == pytest.approx(1.0)
+    assert sim.write("unimoc.control.speed.kp", real(0.01)) == pytest.approx(0.01)
+    assert sim.write("unimoc.control.speed.ki", real(40.0)) == pytest.approx(40.0)
+    assert sim.write("unimoc.sim.shaft_mode", natural8(0)) == 0  # free shaft
+    sim.hold(0.2, STANDBY)  # the settings apply while disengaged
+
+    sim.hold(1.5, ENGAGED, sim.speed_setpoint(30.0))
+    assert sim.latest(sim.telemetry, settle=0.0).engaged
+    assert sim.latest(sim.plant, settle=0.0).mechanical_speed == pytest.approx(30.0, abs=2.0)
+
+    sim.hold(0.3, SLEEP)
+    assert sim.write("unimoc.sim.shaft_mode", natural8(1)) == 1  # locked again (imposed 0 rad/s)
+
+
 def test_trace_variables_ports_and_registers(sim: SimClient):
     variables = sim.trace_variables()
     names = [name for name, _unit in variables]

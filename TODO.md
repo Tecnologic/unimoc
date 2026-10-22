@@ -32,7 +32,7 @@ items that need the board are collected below and wait for hardware access.
  - [x] Reject settings with two ports on the same port-ID (`settings_store_internal::HasPortIdCollision()` in `Validate()`): subscriptions and publications on distinct subject-IDs, cymon services on distinct service-IDs; the cymon trigger may publish and subscribe one shared subject (same type, a node does not receive its own transfers). ztest in `unimoc.lib.settings`.
  - [x] Publish the thread-side writes the zero-latency interrupt reads with a defined order: `CurrentControlIsr::ForceDuty()` hands the duties over in a `Mailbox` before an atomic flag (release/acquire); `ReleaseForceDuty()` resets the PI before it clears the flag; the BCC overcurrent window (`SetOvercurrentWindow()`) is one packed atomic word. Not run on the board.
  - [x] Connect the startup FSM (`HwStartup`) to Cyphal: `drive::StartupRegisters` (run, step, external measurements, results), the FSM stepped in `DriveNode::Spin()` in the Cyphal thread; ztests in `sim_cyphal_drive`. The pycyphal test is open (see Validation).
- - [ ] Speed and position setpoints over Cyphal (`uavcan.sub.speed_setpoint`, UDRAL servo); needs the control thread of M7.
+ - [x] Speed and position setpoints over Cyphal (`uavcan.sub.speed_setpoint`, `position_setpoint`, UDRAL servo) through the control thread of M7: ztests in `sim_cyphal_drive`, pycyphal speed test against the running simulation.
  - [x] cymon traces over Cyphal ([docs/cymon_integration_plan.md](docs/cymon_integration_plan.md)): cymon-lib 0.2 linked, `cymon.*` services and trigger event, `Tick()` in the control cycle, plant truth on `native_sim`; the host tool is cymon (<https://github.com/Tecnologic/cymon>).
  - [ ] Measure the cost of the trace `Tick()` in the control cycle on the BCC (M0, target < 1 us); move it to the observer interrupt if it is too slow.
  - [ ] Firmware update over Cyphal: `ExecuteCommand BEGIN_SOFTWARE_UPDATE`, `uavcan.file.Read` into flash bank 2, bootloader swap; USB DFU as recovery.
@@ -97,7 +97,7 @@ first three items change it and need the owner's go-ahead.
  - [x] ~~Enable the USB CDC-ACM console~~ Superseded (2026-10-21): USB and the shell were dropped; the bench log is on RTT and on the bus. Link limited to the code partition (`CONFIG_USE_DT_CODE_PARTITION`).
  - [x] Cyphal over CAN-FD as the primary interface (2026-10-21): libcanard 4.0 + O1Heap + Nunavut DSDL pinned in `west.yml`; heartbeat, port list, GetInfo, register List/Access on the settings store (77 registers), ExecuteCommand (restart, store, factory reset, emergency stop), PnP v1, diagnostic records from the Zephyr log; drive application (readiness, current and torque setpoints with timeouts and limits, telemetry); shared between BCC (FDCAN3) and `native_sim` (SocketCAN plus slcan pseudo terminals, plant registers and plant trace). Tests `unimoc.lib.cyphal`, `unimoc.sim.cyphal_drive`; checked with yakut 0.14 against the simulation. Not run on the board.
  - [x] pycyphal integration tests of the running simulation (`tests/integration/cyphal_sim`, twister pytest harness, scenario `unimoc.app.cyphal_integration`): node services, registers, arming, setpoints, telemetry, diagnostics, simulation registers, store and restart.
- - [ ] Extend the pycyphal integration tests with every new bus feature (startup FSM registers, speed setpoints, multi-node runs on `vcan` once available in CI).
+ - [ ] Extend the pycyphal integration tests with every new bus feature (startup FSM registers and speed setpoints done; position and servo setpoints, the timing registers, multi-node runs on `vcan` once available in CI).
  - [x] Fix the ExecuteCommand status codes in `cyphal_interface.hpp` (BAD_COMMAND and BAD_STATE were swapped against the specification) and remove the heartbeat serializer that packed health and mode into one byte.
  - [x] Review fixes (2026-10-22): a port subscribed twice no longer corrupts the libcanard subscription tree (`CanardTransport::Subscribe()`, ztest); `PowerStageEnable()` checks the break flag again after the release (BCC and sim, not run on the board); CI badge points at `ci-zephyr.yml`; CI uploads the BCC and `native_sim` firmware as artifacts and attaches them to a release for `v*` tags.
  - [x] `app/boards/native_sim.*` were never applied to the 64-bit build: renamed to `native_sim_native_64.*` (1 us tick, real time).
@@ -140,7 +140,7 @@ criteria.
 
  - [ ] Build a host simulator executable around the coordinator.
  - [x] Map standard Cyphal register operations to the settings operation boundary.
- - [ ] Route torque, speed, position, and excitation setpoints into the normal controller input path (torque and d/q current done; speed, position and excitation open).
+ - [ ] Route torque, speed, position, and excitation setpoints into the normal controller input path (torque, d/q current, speed, position and the UDRAL servo done; excitation open).
  - [ ] Publish telemetry and heartbeat with explicit virtual-time semantics (published in real time today; the telemetry carries the control-cycle count).
  - [ ] Add simulation-control commands for reset, fixed-cycle advance, run-until, snapshot, and clock status.
  - [ ] Add protocol and localhost end-to-end tests for single- and multi-node operation (single node done: `unimoc.app.cyphal_integration`).

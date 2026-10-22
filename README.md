@@ -157,8 +157,9 @@ interfaces and the simulation registers are platform specific.
 > The BCC builds with the node on FDCAN3 but has not run on the board; its
 > SN65HVD230 is a classic CAN transceiver, so CAN FD frames run at 1 Mbit/s
 > without bit rate switch (`boards/unimoc/bcc/bcc.dts`).  Not implemented
-> yet: firmware update over Cyphal and the speed and position setpoints.
-> The startup FSM runs over the `unimoc.startup.*` registers.  The cymon traces run on both
+> yet: firmware update over Cyphal.  Speed, position and UDRAL servo
+> setpoints run the outer loop in the control thread; the startup FSM runs
+> over the `unimoc.startup.*` registers.  The cymon traces run on both
 > platforms; their cost in the control cycle is not yet measured on the board.
 
 ### Stack
@@ -209,6 +210,9 @@ flash, refused (`BAD_STATE`) while the power stage is enabled.
 | `uavcan.sub.readiness.id` | 106 | `reg.udral.service.common.Readiness.0.1` | `ENGAGED` (3) releases the power stage, `SLEEP`/`STANDBY` disable it |
 | `uavcan.sub.current_setpoint.id` | 107 | `unimoc.drive.CurrentSetpoint.0.1` | d/q current setpoint [A] |
 | `uavcan.sub.torque_setpoint.id` | 100 | `uavcan.si.unit.torque.Scalar.1.0` | Torque [N m], converted to i_q with 3/2 p ψ_PM |
+| `uavcan.sub.speed_setpoint.id` | 101 | `uavcan.si.unit.angular_velocity.Scalar.1.0` | Mechanical speed [rad/s], speed loop of the control thread, limited to the motor speed range |
+| `uavcan.sub.position_setpoint.id` | 102 | `uavcan.si.unit.angle.Scalar.1.0` | Mechanical position [rad] from home (the estimate at start) |
+| `uavcan.sub.servo_setpoint.id` | 108 | `reg.udral.physics.dynamics.rotation.Planar.0.1` | UDRAL servo: the commanded (non-NaN) field selects position, speed or torque |
 | `uavcan.pub.telemetry.id` | 212 | `unimoc.drive.Telemetry.0.1` | Current controller trace at `unimoc.telemetry.rate` (20 Hz) |
 | `uavcan.pub.sim_plant.id` (sim only) | 213 | `unimoc.sim.Plant.0.1` | Plant truth: phase currents, shaft angle and speed, torque, Hall code |
 | `uavcan.srv.cymon_variables.id` | 120 | `cymon.GetVariableList.0.1` | Trace variables: index -> name and unit |
