@@ -157,7 +157,9 @@ Earlier sessions lost time on these points; do them from the start:
   the bus. New tests go into the
   matching `tests/lib/<library>/src/` or a new `tests/<area>/<name>/`
   scenario. Use `zexpect_*`/`zassert_*`, plus `UNIMOC_EXPECT_FLOAT_EQ` /
-  `UNIMOC_EXPECT_NEAR` from `tests/common/unimoc_test.hpp` for floats.
+  `UNIMOC_EXPECT_NEAR` from `tests/common/unimoc_test.hpp` for floats; they
+  also take two values (and a tolerance) of one unit, e.g.
+  `UNIMOC_EXPECT_NEAR(current, 2.0_A, 1e-3_A)`, without `.Value()`.
 - **`twister_sca.sh` must pass** (clang-tidy included) and
   **`check_format.sh` must pass** before a change is done or a PR is opened.
   Do not treat a successful build or editor diagnostics as a substitute.

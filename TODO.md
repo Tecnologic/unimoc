@@ -67,7 +67,7 @@ first three items change it and need the owner's go-ahead.
  - [ ] P1: Application state in units (done 2026-10-22: `CurrentControlState::dt_fast`/`dt_slow` as `Time`, `overcurrent_limit` as `Current`, `ForceDuty(Ratio...)` with the startup duties as `Ratio`, `DriveNode::current_limit_` as `Current`, the torque constants of `DriveNode` and `OuterLoop` as `MagneticFlux` (N m/A = Wb, `Torque / MagneticFlux` gives the current); open:) `HwStartup` thresholds and results (offsets and noise in A, gains as `Ratio`; the `double` accumulators to `float` or a documented exception), `StartupRegisters::ext_current_`/`ext_vdc_`. Effort M.
  - [x] P1: Hardware conversions typed at the source: `analog::CountsToCurrent`/`CountsToVoltage`/`CountsToTemperature`/`CountsToTorque` return units (compile-time checks in `analog_scaling.hpp`), the BCC phase-current reconstruction and `SetOvercurrentLimit()` (`kCurrentPerCount`) and the sim `Exceeds()` work in units.
  - [x] P2: `settings_store_internal::Validate()` compares units with typed limits (`unit::IsFinite`, `ZeroOf()`, typed PWM frequencies): no `.Value()` left in `settings_store.hpp`.
- - [ ] P2: Typed test checks (`UNIMOC_EXPECT_NEAR` for units) and the tests migrated (about 520 `.Value()` calls); document the remaining boundaries (DSDL, cymon, registers) in `CONTEXT.md`. Effort M.
+ - [ ] P2: Typed test checks (done 2026-10-22: `UNIMOC_EXPECT_FLOAT_EQ`/`UNIMOC_EXPECT_NEAR`/`UNIMOC_ASSERT_NEAR` take two values of one unit, a raw number against a unit does not compile; `dc_link_limit_test.cpp` migrated) and the tests migrated (about 520 `.Value()` calls); document the remaining boundaries (DSDL, cymon, registers) in `CONTEXT.md`. Effort M.
 
 ### P1 - Blocked on hardware access
 

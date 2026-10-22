@@ -100,4 +100,11 @@ ZTEST(units, test_hypot_is_the_vector_magnitude) {
   UNIMOC_EXPECT_FLOAT_EQ(Hypot(Current{}, Current{}).Value(), 0.0F);
 }
 
+ZTEST(units, test_float_checks_take_values_of_one_unit) {
+  UNIMOC_EXPECT_FLOAT_EQ(Hypot(3.0_A, -4.0_A), 5.0_A);
+  UNIMOC_EXPECT_NEAR(48.0_V + 1e-4_V, 48.0_V, 1e-3_V);
+  zexpect_false(::unimoc::test::NearAny(48.1_V, 48.0_V, 1e-3_V));
+  zexpect_false(::unimoc::test::FloatEqAny(1.0_A, 1.001_A));
+}
+
 ZTEST_SUITE(units, nullptr, nullptr, nullptr, nullptr, nullptr);

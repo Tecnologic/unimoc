@@ -41,9 +41,10 @@
 1 src/drive/settings_register_provider.cpp
 13 src/startup/hw_startup.cpp
 12 src/trace/trace_signals.cpp
+5 tests/common/unimoc_test.hpp
 17 tests/lib/motor_control/src/control_observer_units_test.cpp
 20 tests/lib/motor_control/src/core_control_test.cpp
-27 tests/lib/motor_control/src/dc_link_limit_test.cpp
+1 tests/lib/motor_control/src/dc_link_limit_test.cpp
 15 tests/lib/motor_control/src/excitation_controller_test.cpp
 12 tests/lib/motor_control/src/excitation_observer_test.cpp
 33 tests/lib/motor_control/src/hall_decoder_test.cpp
