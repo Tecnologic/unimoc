@@ -120,7 +120,7 @@ a boundary.
 
 | Boundary | Where | What crosses |
 |---|---|---|
-| **Bus (DSDL)** | `src/drive/drive_node.cpp`, `hardware/zephyr_sim/cyphal_platform.cpp` | `unimoc.drive.Telemetry`, `unimoc.sim.Plant`, the `uavcan.si.*` setpoints and the sim inputs: `float32` fields in base units, the electrical angle wrapped to [0, 2 pi). |
+| **Bus (DSDL)** | `src/drive/drive_node.cpp`, `hardware/zephyr_sim/cyphal_platform.cpp` | `unimoc.drive.Telemetry`, `unimoc.sim.Plant`, the `uavcan.si.*` setpoints and the sim inputs: `float32` fields in base units, the electrical angle wrapped to [0, 2 pi). The cart messages (`unimoc.cart.*`) use `float16` fields in base units. |
 | **Registers** | `lib/settings/settings_registers.hpp`, `src/drive/settings_register_provider.cpp` | A unit setting is one `real32` register in its base unit (`EncodeRegisterValue()`/`DecodeRegisterValue()`). |
 | **Traces** | `src/trace/trace_signals.cpp`, the plant trace in `hardware/zephyr_sim/hardware_interface.cpp` | The cymon float mirror: one `float` per trace variable, sampled after the control cycle. |
 | **ADC and timer counts** | `hardware/zephyr_bcc/analog_scaling.hpp`, `hardware/zephyr_bcc/hardware_interface.cpp` | ADC counts in, units out (`CountsToCurrent()`, ...); the overcurrent limit back to ADC counts, a duty to compare counts. |

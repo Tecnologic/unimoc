@@ -1,0 +1,26 @@
+# Driver pedals, published by the pedal unit at the cycle rate of the VDC
+# (docs/system_plan.md, sections 5.4 and 6.2). The pedal unit only measures; it
+# sends no commands. The VDC maps the pedals to wheel torques; the drives use
+# them directly in limp-home mode, the brake pedal before the drive pedal.
+#
+# Every pedal has two independent sensor channels. A channel value is the
+# pedal travel from 0 (released) to 1 (fully pressed); NaN marks a failed
+# channel.
+#
+# Payload 9 bytes, one CAN FD frame.
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+float16[2] drive_pedal
+# Drive (accelerator) pedal, channel 1 and 2.
+
+float16[2] brake_pedal
+# Brake pedal, channel 1 and 2.
+
+bool drive_pedal_plausible
+bool brake_pedal_plausible
+# Both channels of the pedal agree within the tolerance of the pedal unit.
+# A receiver uses an implausible drive pedal as released and an implausible
+# brake pedal as the larger of its valid channels.
+
+@extent 63 * 8

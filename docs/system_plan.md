@@ -261,19 +261,21 @@ it; the firmware is portable between both.
 - Node IDs are static (settings register per node), no plug-and-play
   allocation at runtime, so the cart starts without an allocator node.
 
-### 6.2 Messages (first draft)
+### 6.2 Messages
 
 The DSDL namespace is `dsdl/unimoc/` (2026-10-21: `unimoc.drive.CurrentSetpoint`,
 `unimoc.drive.Telemetry`, `unimoc.sim.Plant`, port-IDs as registers with
-defaults in `lib/cyphal/cyphal_interface.hpp`). The cart messages below are
-not defined yet. Every message fits in one CAN FD frame.
+defaults in `lib/cyphal/cyphal_interface.hpp`). The cart messages are
+defined in `dsdl/unimoc/cart/` (2026-10-23, version 0.1, not used by a node
+yet). Every message fits in one CAN FD frame; a ztest in `unimoc.lib.cyphal`
+checks it for every type of the namespace.
 
-| Message | From → to | Rate | Content |
-|---|---|---|---|
-| Wheel command | VDC → drives | 250 to 500 Hz | Torque per wheel, drive or brake (one message for all wheels, applied on reception), mode |
-| Drive status | each drive → VDC | same | Wheel speed, torque estimate, DC link, temperatures, regen limit, fault flags |
-| Pedal state | pedal unit → VDC and drives | same | Drive and brake pedal, both channels, plausibility flag |
-| Battery status | BMS → VDC and drives | 50 to 100 Hz | Pack voltage and current, state of charge, charge and discharge current limits, contactor state, chopper state and temperature |
+| Message | Type | From → to | Rate | Payload | Content |
+|---|---|---|---|---|---|
+| Wheel command | `unimoc.cart.WheelCommand.0.1` | VDC → drives | 250 to 500 Hz | 8 bytes | Torque per wheel (front left, front right, rear left, rear right) in the forward direction of the cart, negative brakes; one message for all wheels, applied on reception |
+| Drive status | `unimoc.cart.DriveStatus.0.1` | each drive → VDC | same | 18 bytes | Wheel index, wheel speed, torque estimate, drive and brake torque limits, DC-link voltage and current, temperatures, power stage state, engaged, limp-home, regen derated, trips |
+| Pedal state | `unimoc.cart.PedalState.0.1` | pedal unit → VDC and drives | same | 9 bytes | Drive and brake pedal travel 0 to 1, both channels, plausibility flags |
+| Battery status | `unimoc.cart.BatteryStatus.0.1` | BMS → VDC and drives | 50 to 100 Hz | 15 bytes | Pack voltage and current, state of charge, charge and discharge current limits, cell temperature, contactor state (with the announced opening), chopper state and temperature |
 | Heartbeat | all | 1 Hz (standard) | Health, mode |
 | Registers, GetInfo, file update | VDC/PC ↔ all | on demand, low priority | Settings, version, firmware update |
 | Diagnostics | all | event, low priority | `uavcan.diagnostic.Record` instead of the USB log |
@@ -281,6 +283,30 @@ not defined yet. Every message fits in one CAN FD frame.
 The wheel command gets the highest Cyphal priority, then the pedal state and
 the drive status; services, file transfers and diagnostics run at low
 priority and cannot delay the control loop.
+
+Design of the cart messages:
+
+- **`float16` values** in SI base units (N m, rad/s, V, A, K; pedal travel
+  and state of charge as ratios), NaN for a value a node does not measure.
+  `float16` keeps the frames short; its 11 significant bits (0.05 % of the
+  value) are finer than the measurements. The drive-internal
+  `unimoc.drive.Telemetry` stays `float32`.
+- **Directions in the cart frame:** positive torque and speed drive the cart
+  forward. Each drive maps them to its own rotor direction (a settings
+  register of the drive, with the wheel index; defined with the drive side).
+- **Arming stays with `reg.udral.service.common.Readiness`**; the wheel
+  command carries no mode. Limp-home is decided by each drive (section 7)
+  and reported in the drive status.
+- **`@extent 63 * 8`** instead of `@sealed`: a later minor version can add
+  fields within the one frame and older receivers still accept it.
+- **Own types instead of the UDRAL battery service** (`reg.udral.service.battery`):
+  it spreads the state over several subjects and carries more than the
+  drives need; one battery status frame is enough for the cart.
+- Port-IDs are registers (`uavcan.sub.*.id`, `uavcan.pub.*.id`) as for the
+  existing types; they are defined with the node that uses a message.
+- Field names do not start with `is` or `to` followed by a lowercase letter:
+  C reserves them and Nunavut escapes them with a leading `_` (hence
+  `wheel_torque` and `estimated_torque`).
 
 ### 6.3 Bit rates and bus load (estimate, to verify by measurement)
 
