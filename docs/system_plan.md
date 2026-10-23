@@ -475,7 +475,7 @@ the simulation, not on hardware):
 | Cyphal layer | `lib/cyphal` | `Transport` with a CAN-FD implementation (libcanard), register service on `SettingsStore`, heartbeat, GetInfo, file update; a UDP implementation (libudpard) only for the simulation fallback |
 | Simulation | `native_sim` | Single-process deterministic tests (`tests/sim/`), plus multi-process runs: one `native_sim` per node on `vcan` (section 6.4) |
 | Vehicle model | `lib/sim` (P4 in `TODO.md`) | Four wheels, tyres, steering angle, shared battery; needed for VDC tests |
-| Tools | Python, pycyphal | Register access, telemetry, scenarios, later the GUI (`docs/software_in_loop_plan.md`, P3) over CAN FD |
+| Tools | Python, pycyphal | Register access, telemetry, scenarios, the operator GUI and CLI (`docs/gui_plan.md`) over CAN FD |
 | Steering assist | Later | Own plan once the steering concept exists |
 
 ## 9. Porting from the `electric_quad` Firmware

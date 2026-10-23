@@ -77,6 +77,18 @@ In this order; all without hardware unless marked.
  - [ ] Split `app/` into `apps/drive/` and `apps/vdc/` (later `apps/pedal/` and `apps/bms/`) and add `lib/vehicle/`; update `AGENTS.md`, `README.md` and `docs/zephyr_workflow.md`. The VDC firmware lives in this repository (decided); the VDC MCU starts on a G4.
  - [ ] BMS controller as `apps/bms/` with `lib/battery/` (system plan section 5.5): board (BCC or new G4 board), cell monitoring front end, contactor and precharge, battery status message. Whether it still needs its own brake chopper next to the choppers in the drives is open (system plan section 12).
 
+## GUI
+
+The operator GUI and CLI for one to many nodes (`tools/gui/`, Python with
+pycyphal and PySide6) are planned in [docs/gui_plan.md](docs/gui_plan.md).
+Its open decisions are in section 13 of that plan.
+
+ - [ ] Decide the open points of the GUI plan (place, tests, cymon host code, vendor status bits, register descriptions, readiness per drive, license).
+ - [ ] G0 to G3: core, CLI `unimoc-ctl`, Qt main window, registers and profiles, arming groups, stop all, recovery procedures; twister pytest scenario `unimoc.app.gui` against the simulation.
+ - [ ] G4 and G5: live plots across nodes, recorder and export, multi-node cymon scope shots on the shared trigger subject.
+ - [ ] G6: firmware support (vendor status bits 4 to 7, GetInfo names, `scripts/sim_cluster.sh`), four-drive suite on `vcan0`.
+ - [ ] G7 and G8: cart, e-bike (PR #29), VDC and BMS profiles; Windows bundle and slcan over TCP to WSL2.
+
 ## Motor types: ASM and EESM in the simulation and the firmware
 
 `lib/motor_control` has the ASM flux observer and controller and the EESM
@@ -127,7 +139,7 @@ down. The boundaries are documented in `CONTEXT.md` ("Unit Boundaries").
  - [ ] P2: Telemetry and heartbeat with explicit virtual-time semantics (published in real time today; the telemetry carries the control-cycle count).
  - [ ] P2: Simulation-control commands run-until and snapshot (pause, fixed-cycle advance, reset and clock status done).
  - [ ] P2: Protocol and localhost end-to-end tests for multi-node operation (single node done: `unimoc.app.cyphal_integration`).
- - [ ] P3: Python command-and-control GUI: separate Python package and dependency file, `pycyphal` client (discovery, registers, setpoints, telemetry, reset, virtual-time stepping), PySide6/pyqtgraph step responses, scenarios with run/pause/reset/step, CSV/JSON export and replay, network I/O outside the UI thread, headless protocol and smoke tests.
+ - [ ] P3: The command-and-control GUI moved to its own plan, [docs/gui_plan.md](docs/gui_plan.md) (section "GUI" below).
  - [ ] P4: Startup, observer, field-weakening, homing and control-mode transition scenarios.
  - [ ] P4: Vehicle-level models: shared battery and DC link, wheels, differential load, road load, torque vectoring.
  - [ ] P4: Fault injection, profiling and large-N motor trace tooling; process-per-motor hosting only once the coordinator is stable and a concrete isolation need exists.
