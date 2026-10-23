@@ -37,6 +37,16 @@ using namespace unit;
 /// Rate of change of a torque [N m/s].
 using TorqueRate = decltype(Torque{} / Time{});
 
+/// Phase resistance of the default motor (6.5" hoverboard hub motor).
+inline constexpr unit::Resistance kHoverboardR{0.15_Ohm};
+
+/// Phase inductance of the default motor; surface magnets, so L_d = L_q.
+inline constexpr unit::Inductance kHoverboardL{0.35_mH};
+
+/// Bandwidth of the default current PI, about 320 Hz (pole-zero cancellation:
+/// kp = L * w_c, ki = R * w_c).
+inline constexpr unit::InverseTime kHoverboardCurrentBandwidth{2000.0_per_s};
+
 /**
  * @brief Aggregate of all persistent (NVM-backed) UNIMOC configuration.
  *
@@ -64,6 +74,11 @@ using TorqueRate = decltype(Torque{} / Time{});
  * --------------
  * All fields are initialised to sensible defaults so that an unprogrammed
  * device boots and operates in a known state without manual configuration.
+ * The motor defaults describe the cart wheel: a 6.5" hoverboard hub motor
+ * (36 V, 350 W, 15 pole pairs, about 16 rpm/V) with a 3.50-6 pneumatic tyre
+ * (about 300 mm diameter); `kHoverboard*` below. These are typical values of
+ * that motor class, not a measurement: identify the actual motor before
+ * closing the loop at full current.
  */
 struct NvmSettings {
   // =========================================================================
@@ -88,7 +103,7 @@ struct NvmSettings {
 
   /// Motor pole-pair count.
   /// Register: `unimoc.motor.pole_pairs`
-  uint8_t pole_pairs{1};
+  uint8_t pole_pairs{15};
 
   /// Initial control mode after boot (overridden at runtime via Cyphal).
   /// Register: `unimoc.control.mode`
@@ -100,11 +115,11 @@ struct NvmSettings {
 
   /// Stator phase resistance [Ω].
   /// Register: `unimoc.motor.stator.R`
-  unit::Resistance stator_r{0.1_Ohm};
+  unit::Resistance stator_r{kHoverboardR};
 
   /// Stator inductance [H] (L_q for IPMSM; average (L_d+L_q)/2 otherwise).
   /// Register: `unimoc.motor.stator.L`
-  unit::Inductance stator_l{1.0_mH};
+  unit::Inductance stator_l{kHoverboardL};
 
   // =========================================================================
   // Motor operating limits
@@ -113,19 +128,23 @@ struct NvmSettings {
   // immutable capabilities supplied by the selected hardware profile.
   // =========================================================================
 
-  /// Maximum motor (resultant stator vector) current [A].
+  /// Maximum motor (resultant stator vector) current [A]. 15 A (about 7.8 N m)
+  /// is the usual motor current limit of a hoverboard hub motor.
   /// Hard upper bound: hardware profile's maximum motor current.
   /// Register: `unimoc.motor.limits.i_max`
-  unit::Current motor_i_max{40.0_A};
+  unit::Current motor_i_max{15.0_A};
 
   /// Maximum electrical angular velocity in the forward direction [rad/s].
+  /// 1500 rad/s is 100 rad/s mechanical (955 rpm, about 54 km/h on the
+  /// 3.50-6 tyre), just above the no-load speed at 54.6 V (about 91 rad/s).
+  /// A motor limit; the cart speed limit belongs to the VDC.
   /// Register: `unimoc.motor.limits.omega_max`
-  unit::AngularVelocity motor_omega_max{2000.0_rad_per_s};
+  unit::AngularVelocity motor_omega_max{1500.0_rad_per_s};
 
   /// Maximum electrical angular velocity in the reverse direction [rad/s]
   /// (stored as a negative value).
   /// Register: `unimoc.motor.limits.omega_min`
-  unit::AngularVelocity motor_omega_min{-2000.0_rad_per_s};
+  unit::AngularVelocity motor_omega_min{-1500.0_rad_per_s};
 
   /// Maximum battery discharge (drive) current [A].
   /// Hard upper bound: hardware profile's maximum drive current.
@@ -155,16 +174,18 @@ struct NvmSettings {
   /// Permanent-magnet flux linkage ψ_PM [Wb].
   /// For EESM, this is the initial/nominal ψ_f used until the excitation
   /// observer provides a measured value.
+  /// 23 mWb from 16 rpm/V at 15 pole pairs (amplitude invariant), a torque
+  /// constant of 1.5 * 15 * 23 mWb = 0.52 N m/A.
   /// Register: `unimoc.motor.pmsm.flux_pm`
-  unit::MagneticFlux flux_pm{0.0_Wb};
+  unit::MagneticFlux flux_pm{23.0_mWb};
 
   /// d-axis inductance L_d [H].
   /// Register: `unimoc.motor.pmsm.L_d`
-  unit::Inductance l_d{1.0_mH};
+  unit::Inductance l_d{kHoverboardL};
 
   /// q-axis inductance L_q [H].
   /// Register: `unimoc.motor.pmsm.L_q`
-  unit::Inductance l_q{1.0_mH};
+  unit::Inductance l_q{kHoverboardL};
 
   // =========================================================================
   // Asynchronous motor (ASM) parameters
@@ -196,8 +217,11 @@ struct NvmSettings {
 
   /// Rotor + load inertia J [kg·m²].
   /// Used by MechanicalObserver::predict() to integrate the torque equation.
+  /// The hub motor with the 3.50-6 tyre and tube alone (estimate: rotor
+  /// 0.007, tyre 0.017); the share of the cart mass on the wheel is far larger
+  /// (25 kg at 150 mm: 0.56 kg·m²).
   /// Register: `unimoc.motor.mechanics.J`
-  unit::Inertia motor_j{1.0e-4_kg_m2};
+  unit::Inertia motor_j{2.5e-2_kg_m2};
 
   /// Kalman filter process noise variance Q.
   /// Increase to let the filter track faster but noisier.
@@ -316,19 +340,19 @@ struct NvmSettings {
 
   /// d-axis proportional gain [V/A].
   /// Register: `unimoc.control.current.kp_d`
-  unit::VoltagePerCurrent current_kp_d{1.0_V_per_A};
+  unit::VoltagePerCurrent current_kp_d{kHoverboardL * kHoverboardCurrentBandwidth};
 
   /// d-axis integral gain [V/(A·s)].
   /// Register: `unimoc.control.current.ki_d`
-  unit::VoltagePerCurrentTime current_ki_d{100.0_V_per_A_s};
+  unit::VoltagePerCurrentTime current_ki_d{kHoverboardR * kHoverboardCurrentBandwidth};
 
   /// q-axis proportional gain [V/A].
   /// Register: `unimoc.control.current.kp_q`
-  unit::VoltagePerCurrent current_kp_q{1.0_V_per_A};
+  unit::VoltagePerCurrent current_kp_q{kHoverboardL * kHoverboardCurrentBandwidth};
 
   /// q-axis integral gain [V/(A·s)].
   /// Register: `unimoc.control.current.ki_q`
-  unit::VoltagePerCurrentTime current_ki_q{100.0_V_per_A_s};
+  unit::VoltagePerCurrentTime current_ki_q{kHoverboardR * kHoverboardCurrentBandwidth};
 
   /// Maximum voltage vector magnitude (normalised by V_dc, range (0, 1]).
   /// Limits the current controller output before it reaches the SVM
@@ -421,13 +445,14 @@ struct NvmSettings {
   // Speed controller (outer loop, mechanical speed)
   // =========================================================================
 
-  /// Proportional gain [N m per rad/s of mechanical speed].
+  /// Proportional gain [N m per rad/s of mechanical speed]. 0.3 gives
+  /// about 12 rad/s bandwidth on the wheel alone (`motor_j`).
   /// Register: `unimoc.control.speed.kp`
-  unit::TorquePerAngularVelocity speed_kp{0.01F};
+  unit::TorquePerAngularVelocity speed_kp{0.3_Nm_s_per_rad};
 
   /// Integral gain 1/T_i [1/s] (T = kp · (e + ki · ∫e dt)).
   /// Register: `unimoc.control.speed.ki`
-  unit::InverseTime speed_ki{10.0_per_s};
+  unit::InverseTime speed_ki{5.0_per_s};
 
   /// Largest rate of change of the speed reference [rad/s²]; 0: no ramp.
   /// Register: `unimoc.control.speed.accel_limit`

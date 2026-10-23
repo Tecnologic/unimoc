@@ -66,7 +66,6 @@ const settings::SettingsProfile kSettingsProfile = [] {
   // and weight the flux observer down at low speed.
   profile.factory_settings.hall_enable = 1U;
   profile.factory_settings.pmsm_flux_obs_r_speed = 1.0F;
-  profile.factory_settings.motor_i_max = 50.0_A;  // current controller limit
   profile.factory_settings.battery_drive_current_max = 50.0_A;
   profile.factory_settings.battery_charge_current_max = 20.0_A;
   profile.capabilities.max_phase_current = 60.0_A;  // hard trip limit of the power stage

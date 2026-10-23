@@ -24,5 +24,6 @@ target_include_directories(app PRIVATE
   ${UNIMOC_ROOT}/src/current_control
   ${UNIMOC_ROOT}/src/startup
   ${UNIMOC_ROOT}/hardware/zephyr_sim
-  ${UNIMOC_ROOT}/hardware/zephyr_common)
+  ${UNIMOC_ROOT}/hardware/zephyr_common
+  ${UNIMOC_ROOT}/tests/common)
 target_link_libraries(app PRIVATE unimoc_lib unimoc_sim)
