@@ -79,15 +79,19 @@ In this order; all without hardware unless marked.
 
 ## GUI
 
-The operator GUI and CLI for one to many nodes (`tools/gui/`, Python with
-pycyphal and PySide6) are planned in [docs/gui_plan.md](docs/gui_plan.md).
-Its open decisions are in section 13 of that plan.
+The operator GUI and CLI for one to many nodes live in their own repository
+(proposed `Tecnologic/unimoc-gui`, Python with pycyphal and PySide6), planned
+in [docs/gui_plan.md](docs/gui_plan.md). Decided 2026-10-23: separate
+repository with plain pytest, reuse of the cymon host capture client, vendor
+status bits 4 to 7, a register description file owned by this repository,
+readiness per node; Windows only on real adapters (simulation and GUI together
+in WSL2). Open points in section 13 of the plan. The firmware side, in this
+repository:
 
- - [ ] Decide the open points of the GUI plan (place, tests, cymon host code, vendor status bits, register descriptions, readiness per drive, license).
- - [ ] G0 to G3: core, CLI `unimoc-ctl`, Qt main window, registers and profiles, arming groups, stop all, recovery procedures; twister pytest scenario `unimoc.app.gui` against the simulation.
- - [ ] G4 and G5: live plots across nodes, recorder and export, multi-node cymon scope shots on the shared trigger subject.
- - [ ] G6: firmware support (vendor status bits 4 to 7, GetInfo names, `scripts/sim_cluster.sh`), four-drive suite on `vcan0`.
- - [ ] G7 and G8: cart, e-bike (PR #29), VDC and BMS profiles; Windows bundle and slcan over TCP to WSL2.
+ - [ ] F1: vendor status bits 4 to 7 (trip latched, E-stop latched, settings pending, local control) in the heartbeat; readiness subject per node (`uavcan.sub.readiness.id` follows the node-ID until written, proposed base 1024); GetInfo names per application; README, system plan 6.2 and the pycyphal tests.
+ - [ ] F2: register description file: unit, limits, default, live-tunable flag and help next to each register, `registers.json` from the build, a twister check against the registers on the bus, a CI and release asset; `scripts/sim_cluster.sh` for N drives on `vcan0`.
+ - [ ] F3: serve the description file over `uavcan.file.Read` (with the Cyphal file service of the firmware update).
+ - [ ] Decide the license of `dsdl/unimoc/` (proposed: permissive, so the GUI repository can carry it; plan section 2.1).
 
 ## Motor types: ASM and EESM in the simulation and the firmware
 
