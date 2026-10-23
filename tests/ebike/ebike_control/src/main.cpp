@@ -82,10 +82,10 @@ class Rig {
     parameters.display_timeout = 1.0_s;
     parameters.pedal.zero_offset = 0.0_Nm;
     control_.Configure(parameters);
-    vehicle.torque_min = -40.0_Nm;
-    vehicle.torque_max = 40.0_Nm;
-    vehicle.dc_link = 38.0_V;
-    vehicle.motor_temperature = 40.0_degC;
+    vehicle_.torque_min = -40.0_Nm;
+    vehicle_.torque_max = 40.0_Nm;
+    vehicle_.dc_link = 38.0_V;
+    vehicle_.motor_temperature = 40.0_degC;
   }
 
   /// The display asks for @p level with a speed limit of @p max_speed km/h, now and every 100 ms.
@@ -115,25 +115,24 @@ class Rig {
       const Time kStep = 1.0_ms;
       const Angle kBefore = angle_;
       angle_ += cadence_ * kStep;
-      const float kFirst = std::floor((kBefore / kPulseAngle).Value()) + 1.0F;
-      const float kLast = std::floor((angle_ / kPulseAngle).Value());
-      for (float k = kFirst; k <= kLast; k += 1.0F) {
-        const Ratio kFraction = (k * kPulseAngle - kBefore) / (angle_ - kBefore);
+      const auto kFirst = static_cast<int>(std::floor((kBefore / kPulseAngle).Value())) + 1;
+      const auto kLast = static_cast<int>(std::floor((angle_ / kPulseAngle).Value()));
+      for (int pulse = kFirst; pulse <= kLast; ++pulse) {
+        const Ratio kFraction = ((static_cast<float>(pulse) * kPulseAngle) - kBefore) / (angle_ - kBefore);
         g_fake.ages.push_back(kStep * (1.0_ratio - kFraction));
       }
       g_fake.torque = pedal_torque_;
-      vehicle.engaged = output.engage;  // the drive follows the request at once in this rig
-      output = control_.Update(now_us_, vehicle);
-      if (!output.engage) {
-        vehicle.engaged = false;
+      vehicle_.engaged = output_.engage;  // the drive follows the request at once in this rig
+      output_ = control_.Update(now_us_, vehicle_);
+      if (!output_.engage) {
+        vehicle_.engaged = false;
       }
     }
   }
 
-  EbikeControl& control() { return control_; }
-
-  EbikeVehicle vehicle;
-  EbikeOutput output;
+  EbikeControl& Control() { return control_; }
+  EbikeVehicle& Vehicle() { return vehicle_; }
+  [[nodiscard]] const EbikeOutput& Output() const { return output_; }
 
  private:
   void SendRequest() {
@@ -142,6 +141,8 @@ class Rig {
   }
 
   EbikeControl control_;
+  EbikeVehicle vehicle_;
+  EbikeOutput output_;
   kunteng::DisplayRequest request_;
   bool polling_{false};
   uint64_t now_us_{0U};
@@ -205,34 +206,34 @@ ZTEST(ebike_control, test_no_assist_without_a_display) {
   Rig rig;
   rig.Pedal(kCadence, 20.0_Nm);
   rig.Step(3000);
-  zexpect_true(rig.control().Pedal().Pedaling());
-  zexpect_false(rig.control().DisplayAlive());
-  zexpect_false(rig.output.engage);
-  UNIMOC_EXPECT_NEAR(rig.output.torque, 0.0_Nm, 1e-6_Nm);
+  zexpect_true(rig.Control().Pedal().Pedaling());
+  zexpect_false(rig.Control().DisplayAlive());
+  zexpect_false(rig.Output().engage);
+  UNIMOC_EXPECT_NEAR(rig.Output().torque, 0.0_Nm, 1e-6_Nm);
 }
 
 ZTEST(ebike_control, test_assist_follows_the_pedals_at_the_display_level) {
   Rig rig;
   Riding(rig);
-  zexpect_true(rig.control().DisplayAlive());
-  zexpect_true(rig.output.engage);
+  zexpect_true(rig.Control().DisplayAlive());
+  zexpect_true(rig.Output().engage);
   // Level 3 (ratio 1.0) at a standing motor: torque ratio 0.5 times the pedal torque.
-  UNIMOC_EXPECT_NEAR(rig.output.torque, 10.0_Nm, 0.3_Nm);
-  UNIMOC_EXPECT_NEAR(rig.control().Pedal().Cadence(), kCadence, 0.1_rad_per_s);
+  UNIMOC_EXPECT_NEAR(rig.Output().torque, 10.0_Nm, 0.3_Nm);
+  UNIMOC_EXPECT_NEAR(rig.Control().Pedal().Cadence(), kCadence, 0.1_rad_per_s);
 }
 
 ZTEST(ebike_control, test_torque_limit_of_the_drive) {
   Rig rig;
-  rig.vehicle.torque_max = 4.0_Nm;
+  rig.Vehicle().torque_max = 4.0_Nm;
   Riding(rig);
-  UNIMOC_EXPECT_NEAR(rig.output.torque, 4.0_Nm, 1e-3_Nm);
+  UNIMOC_EXPECT_NEAR(rig.Output().torque, 4.0_Nm, 1e-3_Nm);
 }
 
 ZTEST(ebike_control, test_level_zero_gives_no_assist_and_no_engagement) {
   Rig rig;
   Riding(rig, 0U);
-  zexpect_false(rig.output.engage);
-  UNIMOC_EXPECT_NEAR(rig.output.torque, 0.0_Nm, 1e-6_Nm);
+  zexpect_false(rig.Output().engage);
+  UNIMOC_EXPECT_NEAR(rig.Output().torque, 0.0_Nm, 1e-6_Nm);
 }
 
 ZTEST(ebike_control, test_stopping_the_pedals_ramps_down_then_releases_the_drive) {
@@ -241,77 +242,77 @@ ZTEST(ebike_control, test_stopping_the_pedals_ramps_down_then_releases_the_drive
   rig.Pedal(0.0_rad_per_s, 0.0_Nm);
   // The crank counts as stopped after 0.5 s without a pulse; the torque is gone long before.
   rig.Step(300);
-  UNIMOC_EXPECT_NEAR(rig.output.torque, 0.0_Nm, 1e-6_Nm);
+  UNIMOC_EXPECT_NEAR(rig.Output().torque, 0.0_Nm, 1e-6_Nm);
   rig.Step(400);
-  zexpect_false(rig.control().Pedal().Pedaling());
+  zexpect_false(rig.Control().Pedal().Pedaling());
   // The drive stays engaged for the engage hold (0.5 s) at zero torque ...
-  zexpect_true(rig.output.engage);
-  UNIMOC_EXPECT_NEAR(rig.output.torque, 0.0_Nm, 1e-6_Nm);
+  zexpect_true(rig.Output().engage);
+  UNIMOC_EXPECT_NEAR(rig.Output().torque, 0.0_Nm, 1e-6_Nm);
   // ... and is released after it.
   rig.Step(700);
-  zexpect_false(rig.output.engage);
+  zexpect_false(rig.Output().engage);
 }
 
 ZTEST(ebike_control, test_a_fault_latches_until_the_pedals_stood_still) {
   Rig rig;
   Riding(rig);
-  zexpect_true(rig.output.engage);
+  zexpect_true(rig.Output().engage);
   // The drive tripped and waits for a re-arm; the rider keeps pedaling.
-  rig.vehicle.faulted = true;
+  rig.Vehicle().faulted = true;
   rig.Step(5);
-  rig.vehicle.faulted = false;  // the drive's re-arm flag clears once the engage request ends
+  rig.Vehicle().faulted = false;  // the drive's re-arm flag clears once the engage request ends
   rig.Step(3000);
-  zexpect_false(rig.output.engage);
-  UNIMOC_EXPECT_NEAR(rig.output.torque, 0.0_Nm, 1e-6_Nm);
+  zexpect_false(rig.Output().engage);
+  UNIMOC_EXPECT_NEAR(rig.Output().torque, 0.0_Nm, 1e-6_Nm);
   // The pedals stand still for the re-arm time, then the rider starts again.
   rig.Pedal(0.0_rad_per_s, 0.0_Nm);
   rig.Step(1500);
   rig.Pedal(kCadence, 20.0_Nm);
   rig.Step(1500);
-  zexpect_true(rig.output.engage);
-  UNIMOC_EXPECT_NEAR(rig.output.torque, 10.0_Nm, 0.5_Nm);
+  zexpect_true(rig.Output().engage);
+  UNIMOC_EXPECT_NEAR(rig.Output().torque, 10.0_Nm, 0.5_Nm);
 }
 
 ZTEST(ebike_control, test_inhibit_takes_the_drive_off_until_the_pedals_stood_still) {
   Rig rig;
   Riding(rig);
-  zexpect_true(rig.output.engage);
-  rig.control().Inhibit();
+  zexpect_true(rig.Output().engage);
+  rig.Control().Inhibit();
   rig.Step(3000);  // the rider keeps pedaling
-  zexpect_false(rig.output.engage);
-  UNIMOC_EXPECT_NEAR(rig.output.torque, 0.0_Nm, 1e-6_Nm);
+  zexpect_false(rig.Output().engage);
+  UNIMOC_EXPECT_NEAR(rig.Output().torque, 0.0_Nm, 1e-6_Nm);
   rig.Pedal(0.0_rad_per_s, 0.0_Nm);
   rig.Step(1500);
   rig.Pedal(kCadence, 20.0_Nm);
   rig.Step(1500);
-  zexpect_true(rig.output.engage);
+  zexpect_true(rig.Output().engage);
 }
 
 ZTEST(ebike_control, test_a_lost_display_ends_the_assist) {
   Rig rig;
   Riding(rig);
-  zexpect_true(rig.output.engage);
+  zexpect_true(rig.Output().engage);
   // No further requests: after the display timeout the level counts as 0.
   rig.StopDisplay();
   rig.Step(1500);
-  zexpect_false(rig.control().DisplayAlive());
-  UNIMOC_EXPECT_NEAR(rig.output.torque, 0.0_Nm, 1e-6_Nm);
+  zexpect_false(rig.Control().DisplayAlive());
+  UNIMOC_EXPECT_NEAR(rig.Output().torque, 0.0_Nm, 1e-6_Nm);
   rig.Step(1000);
-  zexpect_false(rig.output.engage);
+  zexpect_false(rig.Output().engage);
 }
 
 ZTEST(ebike_control, test_speed_limit_of_the_display) {
   Rig rig;
   // 25 km/h is 6.94 m/s: on a 2.1 m wheel the hub motor turns at 2 pi * 6.94 / 2.1 = 20.8 rad/s.
   Riding(rig);
-  rig.vehicle.motor_speed = 19.0_rad_per_s;
+  rig.Vehicle().motor_speed = 19.0_rad_per_s;
   rig.Request(3U);
   rig.Step(1200);
-  zexpect_true(rig.output.torque > 0.5_Nm);
-  rig.vehicle.motor_speed = 21.0_rad_per_s;
+  zexpect_true(rig.Output().torque > 0.5_Nm);
+  rig.Vehicle().motor_speed = 21.0_rad_per_s;
   rig.Request(3U);
   rig.Step(1200);
-  UNIMOC_EXPECT_NEAR(rig.output.torque, 0.0_Nm, 1e-6_Nm);
+  UNIMOC_EXPECT_NEAR(rig.Output().torque, 0.0_Nm, 1e-6_Nm);
 }
 
 ZTEST(ebike_control, test_reversed_drive_flips_the_sign) {
@@ -321,9 +322,9 @@ ZTEST(ebike_control, test_reversed_drive_flips_the_sign) {
   parameters.assist.torque_deadband = 0.0_Nm;
   parameters.pedal.zero_offset = 0.0_Nm;
   parameters.reversed = true;
-  rig.control().Configure(parameters);
+  rig.Control().Configure(parameters);
   Riding(rig);
-  UNIMOC_EXPECT_NEAR(rig.output.torque, -10.0_Nm, 0.3_Nm);
+  UNIMOC_EXPECT_NEAR(rig.Output().torque, -10.0_Nm, 0.3_Nm);
 }
 
 ZTEST(ebike_control, test_reversed_drive_is_limited_by_the_negative_torque_limit) {
@@ -333,17 +334,17 @@ ZTEST(ebike_control, test_reversed_drive_is_limited_by_the_negative_torque_limit
   parameters.assist.torque_deadband = 0.0_Nm;
   parameters.pedal.zero_offset = 0.0_Nm;
   parameters.reversed = true;
-  rig.control().Configure(parameters);
-  rig.vehicle.torque_min = -3.0_Nm;
-  rig.vehicle.torque_max = 40.0_Nm;
+  rig.Control().Configure(parameters);
+  rig.Vehicle().torque_min = -3.0_Nm;
+  rig.Vehicle().torque_max = 40.0_Nm;
   Riding(rig);
-  UNIMOC_EXPECT_NEAR(rig.output.torque, -3.0_Nm, 1e-3_Nm);
+  UNIMOC_EXPECT_NEAR(rig.Output().torque, -3.0_Nm, 1e-3_Nm);
 }
 
 ZTEST(ebike_control, test_every_request_is_answered_with_the_status_frame) {
   Rig rig;
-  rig.vehicle.motor_speed = 10.0_rad_per_s;
-  rig.vehicle.battery_current = 0.5_A;
+  rig.Vehicle().motor_speed = 10.0_rad_per_s;
+  rig.Vehicle().battery_current = 0.5_A;
   rig.Request(2U);
   rig.Step(5);
   zexpect_equal(g_fake.display_tx.size(), 1U);
@@ -375,27 +376,27 @@ ZTEST(ebike_control, test_standstill_reports_the_longest_wheel_period) {
 
 ZTEST(ebike_control, test_battery_bars_have_hysteresis_and_hold_under_load) {
   Rig rig;
-  const auto bars = [&rig]() {
+  const auto kBars = [&rig]() {
     rig.Request(1U);
     rig.Step(5);
     return g_fake.display_tx.back()[1];
   };
-  rig.vehicle.dc_link = 38.0_V;
-  zexpect_equal(bars(), static_cast<uint8_t>(kunteng::BatteryLevel::kThreeBars));
-  rig.vehicle.dc_link = 37.6_V;  // inside the hysteresis band of the 3.75 V threshold
-  zexpect_equal(bars(), static_cast<uint8_t>(kunteng::BatteryLevel::kThreeBars));
-  rig.vehicle.dc_link = 36.9_V;  // below it
-  zexpect_equal(bars(), static_cast<uint8_t>(kunteng::BatteryLevel::kTwoBars));
-  rig.vehicle.dc_link = 30.0_V;
-  rig.vehicle.battery_current = 15.0_A;  // under load the bars hold
-  zexpect_equal(bars(), static_cast<uint8_t>(kunteng::BatteryLevel::kTwoBars));
-  rig.vehicle.battery_current = 0.0_A;
-  zexpect_equal(bars(), static_cast<uint8_t>(kunteng::BatteryLevel::kBelowEmpty));
+  rig.Vehicle().dc_link = 38.0_V;
+  zexpect_equal(kBars(), static_cast<uint8_t>(kunteng::BatteryLevel::kThreeBars));
+  rig.Vehicle().dc_link = 37.6_V;  // inside the hysteresis band of the 3.75 V threshold
+  zexpect_equal(kBars(), static_cast<uint8_t>(kunteng::BatteryLevel::kThreeBars));
+  rig.Vehicle().dc_link = 36.9_V;  // below it
+  zexpect_equal(kBars(), static_cast<uint8_t>(kunteng::BatteryLevel::kTwoBars));
+  rig.Vehicle().dc_link = 30.0_V;
+  rig.Vehicle().battery_current = 15.0_A;  // under load the bars hold
+  zexpect_equal(kBars(), static_cast<uint8_t>(kunteng::BatteryLevel::kTwoBars));
+  rig.Vehicle().battery_current = 0.0_A;
+  zexpect_equal(kBars(), static_cast<uint8_t>(kunteng::BatteryLevel::kBelowEmpty));
 }
 
 ZTEST(ebike_control, test_a_fault_is_reported_to_the_display) {
   Rig rig;
-  rig.vehicle.faulted = true;
+  rig.Vehicle().faulted = true;
   rig.Request(1U);
   rig.Step(5);
   zexpect_equal(g_fake.display_tx.back()[5], 1U);
@@ -405,10 +406,10 @@ ZTEST(ebike_control, test_the_light_request_is_passed_on) {
   Rig rig;
   rig.Request(1U, 25U, true);
   rig.Step(5);
-  zexpect_true(rig.output.light);
+  zexpect_true(rig.Output().light);
   rig.Request(1U, 25U, false);
   rig.Step(5);
-  zexpect_false(rig.output.light);
+  zexpect_false(rig.Output().light);
 }
 
 ZTEST_SUITE(ebike_control, nullptr, nullptr, nullptr, nullptr, nullptr);

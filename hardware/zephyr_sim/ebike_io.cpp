@@ -74,10 +74,11 @@ std::size_t ReadCadencePulses(const std::span<unit::Time> ages) noexcept {
     const unit::Time kElapsed = 1.0_us * static_cast<float>(kNow - g_sim.last_us);
     const unit::Angle kBefore = g_sim.angle;
     g_sim.angle += g_sim.cadence * kElapsed;
-    const float kFirst = std::floor((kBefore / kPulseAngle).Value()) + 1.0F;
-    const float kLast = std::floor((g_sim.angle / kPulseAngle).Value());
-    for (float pulse = kFirst; pulse <= kLast && count < ages.size(); pulse += 1.0F) {
-      const unit::Ratio kFraction = ((pulse * kPulseAngle) - kBefore) / (g_sim.angle - kBefore);
+    const auto kFirst = static_cast<int>(std::floor((kBefore / kPulseAngle).Value())) + 1;
+    const auto kLast = static_cast<int>(std::floor((g_sim.angle / kPulseAngle).Value()));
+    for (int pulse = kFirst; pulse <= kLast && count < ages.size(); ++pulse) {
+      const unit::Ratio kFraction =
+          ((static_cast<float>(pulse) * kPulseAngle) - kBefore) / (g_sim.angle - kBefore);
       ages[count++] = kElapsed * (1.0_ratio - kFraction);
     }
   }

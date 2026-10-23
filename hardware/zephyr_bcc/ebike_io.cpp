@@ -181,7 +181,10 @@ namespace {
 // PB15 as TIM15 channel 2 input, free-running timer, an interrupt on every edge of the line.
 bool StartDisplayCapture() noexcept {
   if (pinctrl_apply_state(PINCTRL_DT_DEV_CONFIG_GET(UNIMOC_EBIKE), PINCTRL_STATE_DEFAULT) != 0) {
+    // NOLINTBEGIN(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays,cppcoreguidelines-pro-bounds-array-to-pointer-decay):
+    // the LOG macro declares a C array.
     LOG_ERR("display receive pin not configured");
+    // NOLINTEND(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays,cppcoreguidelines-pro-bounds-array-to-pointer-decay)
     return false;
   }
   // Channel 2 captures both edges of TI2 (CC2P and CC2NP together select both).
@@ -200,7 +203,10 @@ bool StartDisplayCapture() noexcept {
 
 bool StartCrankPulse() noexcept {
   if (!gpio_is_ready_dt(&kCrankPulse) || gpio_pin_configure_dt(&kCrankPulse, GPIO_INPUT) != 0) {
+    // NOLINTBEGIN(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays,cppcoreguidelines-pro-bounds-array-to-pointer-decay):
+    // the LOG macro declares a C array.
     LOG_ERR("crank pulse pin not ready");
+    // NOLINTEND(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays,cppcoreguidelines-pro-bounds-array-to-pointer-decay)
     return false;
   }
   gpio_init_callback(&g_crank_callback, CrankPulseIsr, BIT(kCrankPulse.pin));
@@ -211,7 +217,10 @@ bool StartCrankPulse() noexcept {
 
 bool StartDisplayUart() noexcept {
   if (!device_is_ready(kDisplayUart)) {
+    // NOLINTBEGIN(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays,cppcoreguidelines-pro-bounds-array-to-pointer-decay):
+    // the LOG macro declares a C array.
     LOG_ERR("display UART not ready");
+    // NOLINTEND(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays,cppcoreguidelines-pro-bounds-array-to-pointer-decay)
     return false;
   }
   uart_irq_callback_user_data_set(kDisplayUart, DisplayUartIsr, nullptr);
@@ -222,7 +231,10 @@ bool StartDisplayUart() noexcept {
 
 void StartEbikeIo() noexcept {
   if (StartDisplayCapture() && StartCrankPulse() && StartDisplayUart()) {
+    // NOLINTBEGIN(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays,cppcoreguidelines-pro-bounds-array-to-pointer-decay):
+    // the LOG macro declares a C array.
     LOG_INF("e-bike inputs started");
+    // NOLINTEND(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays,cppcoreguidelines-pro-bounds-array-to-pointer-decay)
   }
 }
 

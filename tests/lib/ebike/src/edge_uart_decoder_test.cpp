@@ -32,23 +32,24 @@ std::vector<UartEdge> Line(const std::vector<uint8_t>& bytes,
                            const float baud_error = 1.0F,
                            const uint32_t gap_bits = 0U) {
   std::vector<UartEdge> edges;
+  edges.reserve((bytes.size() * 10U) + 1U);
   const float kBit = static_cast<float>(kTicksPerBit) * baud_error;
   bool level = true;
-  float now = static_cast<float>(start);
-  const auto set_level = [&](const bool next) {
+  auto now = static_cast<float>(start);
+  const auto kSetLevel = [&](const bool next) {
     if (next != level) {
       level = next;
       edges.push_back({static_cast<uint32_t>(now), level});
     }
   };
-  for (const uint8_t byte : bytes) {
-    set_level(false);  // start
+  for (const uint8_t kByte : bytes) {
+    kSetLevel(false);  // start
     now += kBit;
     for (unsigned i = 0U; i < 8U; ++i) {
-      set_level(((byte >> i) & 1U) != 0U);
+      kSetLevel(((kByte >> i) & 1U) != 0U);
       now += kBit;
     }
-    set_level(true);  // stop
+    kSetLevel(true);  // stop
     now += kBit * static_cast<float>(1U + gap_bits);
   }
   return edges;
@@ -57,11 +58,12 @@ std::vector<UartEdge> Line(const std::vector<uint8_t>& bytes,
 std::vector<uint8_t> Decode(EdgeUartDecoder& decoder,
                             const std::vector<UartEdge>& edges,
                             const uint32_t end) {
-  for (const UartEdge edge : edges) {
-    decoder.Push(edge);
+  for (const UartEdge kEdge : edges) {
+    decoder.Push(kEdge);
   }
   decoder.Poll(end);
   std::vector<uint8_t> bytes;
+  bytes.reserve(EdgeUartDecoder::kFifoSize);
   uint8_t byte = 0U;
   while (decoder.Pop(byte)) {
     bytes.push_back(byte);
@@ -73,6 +75,7 @@ std::vector<uint8_t> Decode(EdgeUartDecoder& decoder,
 
 ZTEST(edge_uart_decoder, test_decodes_every_byte_value) {
   std::vector<uint8_t> all;
+  all.reserve(256U);
   for (unsigned value = 0U; value < 256U; ++value) {
     all.push_back(static_cast<uint8_t>(value));
   }
@@ -80,10 +83,10 @@ ZTEST(edge_uart_decoder, test_decodes_every_byte_value) {
   // The FIFO holds 32 bytes: decode in chunks.
   uint32_t start = 1000U;
   for (std::size_t offset = 0U; offset < all.size(); offset += 16U) {
-    const std::vector<uint8_t> chunk(all.begin() + static_cast<long>(offset),
-                                     all.begin() + static_cast<long>(offset + 16U));
+    const std::vector<uint8_t> kChunk(all.begin() + static_cast<long>(offset),
+                                      all.begin() + static_cast<long>(offset + 16U));
     const uint32_t kEnd = start + (16U * 10U + 2U) * kTicksPerBit;
-    zexpect_true(Decode(decoder, Line(chunk, start), kEnd) == chunk,
+    zexpect_true(Decode(decoder, Line(kChunk, start), kEnd) == kChunk,
                  "chunk at %u",
                  static_cast<unsigned>(offset));
     start = kEnd;
@@ -97,8 +100,8 @@ ZTEST(edge_uart_decoder, test_poll_completes_a_frame_that_ends_in_idle_level_bit
   EdgeUartDecoder decoder(kTicksPerBit);
   const std::vector<uint8_t> kBytes{0xFF};
   const auto kEdges = Line(kBytes, 5000U);
-  for (const UartEdge edge : kEdges) {
-    decoder.Push(edge);
+  for (const UartEdge kEdge : kEdges) {
+    decoder.Push(kEdge);
   }
   uint8_t byte = 0U;
   zexpect_false(decoder.Pop(byte), "the frame is not complete before its bits have passed");
@@ -116,11 +119,11 @@ ZTEST(edge_uart_decoder, test_back_to_back_bytes_and_the_counter_wrap) {
 
 ZTEST(edge_uart_decoder, test_baud_rate_tolerance) {
   const std::vector<uint8_t> kBytes{0x41, 0x0C, 0x24, 0x01, 0xF4, 0x00, 0xCC, 0x20, 0x28, 0x19, 0x00, 0x00};
-  for (const float error : {0.97F, 0.99F, 1.0F, 1.01F, 1.03F}) {
+  for (const float kError : {0.97F, 0.99F, 1.0F, 1.01F, 1.03F}) {
     EdgeUartDecoder decoder(kTicksPerBit);
-    zexpect_true(Decode(decoder, Line(kBytes, 2000U, error), 2000U + 140U * kTicksPerBit * 2U) == kBytes,
+    zexpect_true(Decode(decoder, Line(kBytes, 2000U, kError), 2000U + 140U * kTicksPerBit * 2U) == kBytes,
                  "error %f",
-                 static_cast<double>(error));
+                 static_cast<double>(kError));
   }
 }
 
@@ -169,8 +172,8 @@ ZTEST(edge_uart_decoder, test_fifo_overrun_is_counted) {
   EdgeUartDecoder decoder(kTicksPerBit);
   const std::vector<uint8_t> kBytes(EdgeUartDecoder::kFifoSize + 3U, 0x5AU);
   const auto kEdges = Line(kBytes, 1000U);
-  for (const UartEdge edge : kEdges) {
-    decoder.Push(edge);
+  for (const UartEdge kEdge : kEdges) {
+    decoder.Push(kEdge);
   }
   decoder.Poll(1000U + (kBytes.size() + 1U) * 10U * kTicksPerBit);
   zexpect_equal(decoder.Overruns(), 3U);
@@ -188,8 +191,8 @@ ZTEST(edge_uart_decoder, test_display_request_through_the_decoder) {
   kunteng::DisplayDecoder decoder;
   kunteng::DisplayRequest decoded;
   int frames = 0;
-  for (const uint8_t byte : Decode(uart, Line(kBytes, 3000U, 1.0F, 1U), 3000U + 150U * kTicksPerBit)) {
-    if (decoder.Push(byte, decoded)) {
+  for (const uint8_t kByte : Decode(uart, Line(kBytes, 3000U, 1.0F, 1U), 3000U + 150U * kTicksPerBit)) {
+    if (decoder.Push(kByte, decoded)) {
       ++frames;
     }
   }
