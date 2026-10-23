@@ -17,6 +17,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include "battery_limits.hpp"
 #include "current_control_isr.hpp"
 #include "cyphal/control_mode.hpp"
 #include "dc_link_limit.hpp"
@@ -51,21 +52,6 @@ struct OuterSetpoint {
   unit::AngularVelocity speed;
   /// kPosition: mechanical position setpoint [rad].
   unit::Angle position;
-};
-
-/**
- * @brief Battery current limits that replace those of the settings.
- *
- * Written by the drive from the battery status of the BMS (Cyphal thread).
- * Without valid limits the outer loop uses `unimoc.battery.limits.*`.
- */
-struct BatteryLimits {
-  /// The limits below apply; false: the limits of the settings apply.
-  bool valid{false};
-  /// Largest battery discharge (motoring) current.
-  unit::Current drive_current;
-  /// Largest battery charge (regenerative) current.
-  unit::Current charge_current;
 };
 
 /// State of the outer loop after its last step, for telemetry and tests.

@@ -18,8 +18,8 @@
 
 #include <array>
 #include <cstdint>
+#include "battery_limits.hpp"
 #include "nvm_settings.hpp"
-#include "outer_loop.hpp"
 #include "units.hpp"
 
 namespace unimoc::drive {
