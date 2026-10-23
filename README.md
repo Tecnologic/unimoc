@@ -438,6 +438,13 @@ All settings are aggregated in `unimoc::settings::NvmSettings`
   stage is disabled, because a flash write can stall the zero-latency control
   cycle. A register that is not stored has its factory value, so new firmware can
   add registers without invalidating stored settings.
+- **Factory motor** — the motor defaults describe the cart wheel: a 6.5"
+  36 V hoverboard hub motor with a 3.50-6 pneumatic tyre (15 pole pairs,
+  0.15 Ω, 0.35 mH, ψ 23 mWb, k_t 0.52 N m/A, 15 A, current PI at about
+  320 Hz). These are typical values, not a measurement of the actual motor;
+  the platform profiles leave them as they are and only set the power stage
+  limits. The simulation runs this motor too; the sim tests that were written
+  for a smaller motor load it from `tests/common/sim_test_motor.hpp`.
 - **Platform-agnostic** — the hardware layer supplies an immutable profile and
    a key/value storage adapter. The Zephyr platforms use the settings
    subsystem on ZMS in the `storage_partition` (`hardware/zephyr_common/

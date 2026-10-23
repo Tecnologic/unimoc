@@ -22,6 +22,7 @@
 #include "power_stage_interface.hpp"
 #include "settings_store.hpp"
 #include "sim_control.hpp"
+#include "sim_test_motor.hpp"
 #include "slow_update.hpp"
 
 namespace {
@@ -42,7 +43,8 @@ void unimoc::hardware::ControlCycleHandler() noexcept { CurrentControlIsr::Insta
 void unimoc::hardware::ObserverHandler() noexcept { SlowUpdate::Instance().RunOnce(); }
 
 struct sim_overcurrent_fixture {
-  unimoc::settings::SettingsStore store{unimoc::hardware::kSettings.GetSettingsProfile(),
+  unimoc::settings::SettingsStore store{unimoc::test::SimTestMotorProfile(
+                                            unimoc::hardware::kSettings.GetSettingsProfile()),
                                         unimoc::hardware::kSettings.GetSettingsStorage(),
                                         unimoc::settings::SettingsSaveGate::Always()};
 };
@@ -62,6 +64,7 @@ void* Setup() {
   zassert_equal(fixture.store.Load(), unimoc::settings::SettingsStatus::kFactoryDefaults);
   const auto kSnapshot = fixture.store.GetSnapshot();
   const auto& settings = kSnapshot.Get();
+  zassert_equal(sim::Plant().Configure(settings), unimoc::sim::Status::kOk);
   zassert_true(unimoc::current_control::StartRuntime(settings,
                                                      unimoc::hardware::kMotors[0],
                                                      unimoc::unit::Current{kLimitA}));

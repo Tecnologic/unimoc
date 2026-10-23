@@ -10,8 +10,9 @@
             "cwd": "${workspaceFolder}/app/build/sim",
             "stopAtEntry": false,
             "externalConsole": false,
+            "preLaunchTask": "Zephyr: build sim",
             "MIMode": "gdb",
-            "miDebuggerPath": "/usr/bin/gdb",
+            "miDebuggerPath": "gdb",
             "setupCommands": [
                 {
                     "description": "Enable pretty-printing for gdb",
