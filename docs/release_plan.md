@@ -1,7 +1,23 @@
 # Release plan
 
-Status: plan, not implemented. Replaces the manual `v*` tag release job in
-`.github/workflows/ci-zephyr.yml`.
+Status: implemented (the manual `v*` tag release job is gone); not yet run on
+GitHub. Open repository settings are listed under "Setup".
+
+Differences to the first draft: the firmware builds are a reusable workflow
+(`build-firmware.yml`, as in the cymon tool repo) called by the Zephyr
+workflow, a `plan` job decides whether a run releases, and step 5 of the order
+of work (version over Cyphal `GetInfo`) already existed
+(`lib/cyphal/sw_version.hpp`, `UNIMOC_VCS_REVISION`).
+
+## Setup (repository settings, once)
+
+- Secret `RELEASE_TOKEN` (GitHub App token or PAT, `contents: write`) so the
+  bump commit on `develop` starts CI. Without it the workflow falls back to
+  the default token and that commit gets no CI run.
+- Allow merge commits and squash merging; `develop` accepts squash only and
+  `main` merge commits only (branch rules).
+- Require the checks *Zephyr* and *PR title* on `develop`, *Zephyr* on `main`.
+- Optional labels `release-as:X.Y.Z` (created on first use).
 
 ## Goal
 

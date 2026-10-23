@@ -107,7 +107,8 @@ no motor-type selection and runs the PMSM path only, and `lib/sim` has only
  - [ ] Verify ZMS, the flash stall, the dual-bank option bit (DBANK, bank 2 free for Cyphal firmware updates) and the size of the settings partition on the BCC board (settings plan, "Not verified on hardware").
  - [ ] Configure the duty DMA from the devicetree (`dmas` of `foc0`, Zephyr DMA API at init) instead of the fixed DMA1 channel 1 / DMAMUX request 53, and enable its clock through `clock_control` instead of writing `RCC->AHB1ENR`. The zero-latency path keeps reading the channel counter directly. Do this after the M8 first step, so the fixed configuration is a verified reference.
  - [ ] M8 remainder: Hall table, closed current loop with the 50 A limit.
- - [ ] Merge `develop` into `main` as the first Zephyr release (tag it) once the board items above pass; `main` still holds the legacy firmware.
+ - [ ] Merge `develop` into `main` as the first Zephyr release once the board items above pass; `main` still holds the legacy firmware. The merge tags it (`docs/release_plan.md`); the first change log only lists Conventional Commit titles, so check `CHANGELOG.md` in the pull request.
+ - [ ] Release setup on GitHub: secret `RELEASE_TOKEN`, merge methods and required checks (`docs/release_plan.md`, "Setup"); the release workflows have not run yet.
 
 ## Unit types
 

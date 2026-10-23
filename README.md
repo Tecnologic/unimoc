@@ -1,7 +1,8 @@
 # UNIMOC — Universal Motor Control
 
-[![Zephyr CI (main)](https://github.com/Tecnologic/unimoc/actions/workflows/ci-zephyr.yml/badge.svg?branch=main)](https://github.com/Tecnologic/unimoc/actions/workflows/ci-zephyr.yml?query=branch%3Amain)
-[![Zephyr CI (develop)](https://github.com/Tecnologic/unimoc/actions/workflows/ci-zephyr.yml/badge.svg?branch=develop)](https://github.com/Tecnologic/unimoc/actions/workflows/ci-zephyr.yml?query=branch%3Adevelop)
+[![Zephyr CI (main)](https://github.com/Tecnologic/unimoc/actions/workflows/ci-zephyr.yml/badge.svg?branch=main&event=push)](https://github.com/Tecnologic/unimoc/actions/workflows/ci-zephyr.yml?query=branch%3Amain+event%3Apush)
+[![Zephyr CI (develop)](https://github.com/Tecnologic/unimoc/actions/workflows/ci-zephyr.yml/badge.svg?branch=develop&event=push)](https://github.com/Tecnologic/unimoc/actions/workflows/ci-zephyr.yml?query=branch%3Adevelop+event%3Apush)
+[![Release](https://img.shields.io/github/v/release/Tecnologic/unimoc?include_prereleases)](https://github.com/Tecnologic/unimoc/releases/latest)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 [![C++ Standard](https://img.shields.io/badge/C%2B%2B-20-blue.svg)](https://en.cppreference.com/w/cpp/20)
 
@@ -878,8 +879,36 @@ west twister -T unimoc/tests/lib/motor_control -p native_sim/native/64
 
 Prebuilt firmware: every CI run uploads the BCC image (`unimoc-bcc`) and the
 `native_sim` executable (`unimoc-native_sim`) as artifacts of the
-[Zephyr workflow](https://github.com/Tecnologic/unimoc/actions/workflows/ci-zephyr.yml);
-version tags (`v*`) publish them as a GitHub release.
+[Zephyr workflow](https://github.com/Tecnologic/unimoc/actions/workflows/ci-zephyr.yml).
+Releases (below) attach the same files with checksums, the twister report and
+the API documentation.
+
+### Releases
+
+A release is made by merging a pull request from `develop` into `main` (merge
+commit). Nothing is tagged by hand ([docs/release_plan.md](docs/release_plan.md)):
+
+- The version is in the Zephyr version file `app/VERSION`. While the
+  `develop` to `main` pull request is open, the *Release prepare* workflow
+  commits the next version and `CHANGELOG.md` to `develop` and comments the
+  release on the pull request. The label `release-as:X.Y.Z` forces a version.
+- Versions follow [semantic versioning](https://semver.org) and come from the
+  [conventional commits](https://www.conventionalcommits.org) of the squash
+  merges into `develop` (the pull request title is checked):
+
+  | Title | Version (below 1.0) |
+  |---|---|
+  | `fix: ...`, `perf: ...`, `refactor: ...` | patch |
+  | `feat: ...`, `feat!: ...` | minor |
+  | `docs:`, `test:`, `ci:`, `build:`, `chore:` | none |
+
+  A change of the DSDL types or of register and subject IDs is always `feat!`
+  or `fix!`, because it changes the bus protocol.
+- The merge runs the Zephyr workflow on `main`. After the tests and all
+  firmware builds passed, its `release` job creates the tag `vX.Y.Z` and the
+  GitHub release with the change log and every build (BCC, `native_sim`,
+  later ones), `SHA256SUMS`, the twister report and the Doxygen HTML. The
+  release is a step of that CI run, so the badge of `main` shows it.
 
 `twister_sca.sh` needs `clang-tidy` (LLVM 18) and CodeChecker
 (`pip install codechecker`) in addition to the Zephyr setup;
