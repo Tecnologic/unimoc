@@ -16,7 +16,14 @@ of work (version over Cyphal `GetInfo`) already existed
   the default token and that commit gets no CI run.
 - Allow merge commits and squash merging; `develop` accepts squash only and
   `main` merge commits only (branch rules).
-- Require the checks *Zephyr* and *PR title* on `develop`, *Zephyr* on `main`.
+- `develop` ruleset: squash only, linear history, bypass for the owner of
+  `RELEASE_TOKEN` (the bump commit is pushed directly), required checks
+  `twister`, `firmware / firmware (bcc)`, `firmware / firmware (sim)` and
+  `conventional-title`. The context is the check run name (job name; a job of
+  a reusable workflow is `<caller job> / <job>`), without the workflow name.
+- `main` ruleset: merge commits only and **no** linear-history rule (it
+  forbids merge commits), same required checks except `conventional-title`.
+  `plan` and `release` run on pushes to `main` only and are not required.
 - Optional labels `release-as:X.Y.Z` (created on first use).
 
 ## Goal
