@@ -21,6 +21,7 @@
 #include <string_view>
 #include "cart_control.hpp"
 #include "cyphal/node.hpp"
+#include "ebike_control.hpp"
 #include "hardware_interface.hpp"
 #include "hw_startup.hpp"
 #include "outer_loop.hpp"
@@ -165,6 +166,17 @@ class DriveNode final : public cyphal::MessageListener,
   /// True while the power stage is released for the setpoint.
   [[nodiscard]] bool IsEngaged() const noexcept { return engaged_; }
 
+  /**
+   * @brief Makes the e-bike control the local source of the engagement and of the torque.
+   *
+   * With a local control the readiness ENGAGED of the bus no longer engages the drive (STANDBY and SLEEP
+   * still disengage it and acknowledge a latched fault); the control asks for the drive while the rider needs
+   * the assist, and its torque replaces the other setpoints while the drive is engaged. Call before Start().
+   *
+   * @param control E-bike control; must outlive the drive node. Null removes it.
+   */
+  void SetLocalControl(ebike::EbikeControl* control) noexcept { ebike_ = control; }
+
   /// The startup FSM of the drive (state and results).
   [[nodiscard]] const startup::HwStartup& Startup() const noexcept { return startup_; }
 
@@ -191,6 +203,8 @@ class DriveNode final : public cyphal::MessageListener,
   void ClearSetpoint() noexcept;
   /// Runs the startup FSM and restarts the controller after it ends.
   void SpinStartup() noexcept;
+  /// The e-bike control: engagement on demand and its torque (only with a local control).
+  void SpinLocalControl(uint64_t now_us) noexcept;
   /// Cart torque, readiness and fault checks, setpoint timeout, battery limits.
   void SpinEngagement(uint64_t now_us) noexcept;
   void Engage() noexcept;
@@ -246,8 +260,11 @@ class DriveNode final : public cyphal::MessageListener,
 
   CartControl cart_{};
   CartMode cart_mode_{CartMode::kOff};
-  bool bus_lost_{false};        ///< Bus-off seen and not yet back on the bus.
-  uint32_t bus_off_count_{0U};  ///< `unimoc.can.bus_off_count`.
+  ebike::EbikeControl* ebike_{nullptr};  ///< Local source of engagement and torque; null: the bus decides.
+  bool ebike_engage_{false};             ///< The e-bike control asks for the drive.
+  unit::Torque ebike_torque_;            ///< Its torque, rotor frame.
+  bool bus_lost_{false};                 ///< Bus-off seen and not yet back on the bus.
+  uint32_t bus_off_count_{0U};           ///< `unimoc.can.bus_off_count`.
 
   bool engaged_{false};
   bool rearm_required_{false};

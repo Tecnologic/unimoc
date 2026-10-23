@@ -87,7 +87,7 @@ EbikeOutput EbikeControl::Update(const uint64_t now_us, const EbikeVehicle& vehi
   input.pedal_torque = pedal_.MeanTorque();
   input.motor_speed = kForwardSpeed;
   input.speed_limit = motor_speed_per_kmh_ * static_cast<float>(request_.max_speed);
-  input.torque_limit = vehicle.torque_limit;
+  input.torque_limit = parameters_.reversed ? -vehicle.torque_min : vehicle.torque_max;
   input.level = display_alive_ ? request_.assist_level : 0U;
 
   // Engagement on demand.

@@ -45,4 +45,7 @@ struct EbikeIo {
 /// The e-bike hardware of the platform.
 [[nodiscard]] const EbikeIo& GetEbikeIo() noexcept;
 
+/// Starts the interrupt side of the e-bike hardware (pins, capture, transmit); thread context, once.
+void StartEbikeIo() noexcept;
+
 }  // namespace unimoc::hardware

@@ -15,6 +15,15 @@ tests:
     extra_configs:
       - CONFIG_UNIMOC_HOT_PATH_TIMING=y
     tags: unimoc app
+  # The e-bike control and its BCC hardware (cadence capture, display line, UART) compiled in
+  # (CONFIG_UNIMOC_EBIKE; native_sim has it on in unimoc.app.build).
+  unimoc.app.build.ebike:
+    build_only: true
+    platform_allow:
+      - bcc
+    extra_configs:
+      - CONFIG_UNIMOC_EBIKE=y
+    tags: unimoc app
   # The simulation as a Cyphal node, tested from pycyphal over its slcan
   # pseudo terminal (tests/integration/cyphal_sim). Needs pycyphal, python-can
   # and pyserial (scripts/requirements-cyphal-tools.txt); skipped without them.

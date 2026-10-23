@@ -44,6 +44,8 @@
 #include "cyphal/canard_transport.hpp"
 #include "cyphal/node.hpp"
 #include "drive_node.hpp"
+#include "ebike_control.hpp"
+#include "ebike_interface.hpp"
 #include "hardware_interface.hpp"
 #include "hot_path_interface.hpp"
 #include "outer_loop.hpp"
@@ -52,6 +54,7 @@
 #include "settings_save_gate.hpp"
 #include "settings_store.hpp"
 #include "sim_control.hpp"
+#include "sim_ebike.hpp"
 #include "sin_cos.hpp"
 #include "slow_update.hpp"
 #include "zephyr_settings_storage.hpp"
@@ -160,6 +163,7 @@ struct Rig {
   void Run(const unsigned milliseconds) {
     for (unsigned i = 0U; i < milliseconds; ++i) {
       now += 1000U;
+      sim::SetTime(now);  // the simulated rider and display follow the virtual time
       drive.Spin(now);
       sim::AdvanceCycles(kCyclesPerMs);
       client.Process(now);
@@ -368,6 +372,8 @@ struct Rig {
   CyphalNode node;
   std::array<uint8_t, 16> unique_id{1U, 2U, 3U};
   unimoc::drive::DriveNode drive;
+  /// The e-bike control of the e-bike tests (attached with drive.SetLocalControl()).
+  unimoc::ebike::EbikeControl ebike{unimoc::hardware::GetEbikeIo()};
   std::array<std::byte, 600> rx{};
   std::array<std::byte, 600> tx{};
   uint64_t now{1'000'000U};
@@ -395,6 +401,9 @@ void Before(void* /*unused*/) {
   sim::Plant().SetShaftMode(unimoc::sim::ShaftMode::kImposedSpeed, AngularVelocity{});
   g_restarts = 0;
   g_settings_applied = 0;
+  sim::UseManualTime(true);
+  sim::SetPedal(AngularVelocity{}, Torque{});
+  sim::SilenceDisplay();
   // NOLINTNEXTLINE(cppcoreguidelines-owning-memory): placement new into static storage, destroyed in After().
   g_rig = new (g_storage.data()) Rig{};
 }
@@ -1072,6 +1081,110 @@ ZTEST(sim_cyphal_drive, test_bus_off_stops_the_cart_torque_and_is_counted) {
       unimoc::cyphal::CanBusStatus{.state = unimoc::cyphal::CanBusState::kErrorActive, .bus_off_count = 1U};
   rig.Run(5U);
   zexpect_equal(Integer(rig.Access(reg::kCanBusOffCount, Empty())), 1);
+}
+
+namespace {
+
+/// The e-bike on the factory motor with a magnet: level 3 gives 2 A of i_q for 20 Nm of pedal torque.
+void AttachEbike(Rig& rig, const MagneticFlux torque_constant) {
+  unimoc::ebike::EbikeParameters parameters;
+  parameters.assist.power_scale = 1.0e9_W;  // no exponential
+  parameters.assist.torque_deadband = 0.0_Nm;
+  parameters.assist.torque_ratio = (2.0_A * torque_constant) / 20.0_Nm;
+  parameters.assist.rise_time = 100.0_ms;
+  parameters.pedal.zero_offset = 0.0_Nm;
+  parameters.engage_hold = 500.0_ms;
+  parameters.rearm_pedal_stop = 500.0_ms;
+  rig.ebike.Configure(parameters);
+  rig.drive.SetLocalControl(&rig.ebike);
+}
+
+constexpr AngularVelocity kCadence = 6.0_rad_per_s;
+
+}  // namespace
+
+ZTEST(sim_cyphal_drive, test_ebike_engages_on_demand_and_the_plant_follows_the_pedals) {
+  Rig& rig = *g_rig;
+  const MagneticFlux kTorqueConstant = GiveTheMotorAMagnet(rig);
+  AttachEbike(rig, kTorqueConstant);
+
+  // A display at level 3 alone does not engage the drive; the pedals do.
+  sim::SetDisplay(3U, 25U);
+  rig.Run(300U);
+  zexpect_false(rig.drive.IsEngaged());
+  zexpect_true(sim::DisplayStatusCount() > 0U, "the display is answered");
+  zexpect_equal(sim::LastDisplayStatus()[0], 65U);
+
+  sim::SetPedal(kCadence, 20.0_Nm);
+  rig.Run(2500U);
+  zassert_true(rig.drive.IsEngaged());
+  zexpect_equal(kPowerStage.GetState(), PowerStageState::kEnabled);
+  zexpect_within(CurrentControlIsr::Instance().state.i_ref.q, 2.0_A, 0.1_A);
+  zexpect_within(PlantCurrent().q, 2.0_A, 0.5_A);
+  zexpect_equal(sim::LastDisplayStatus()[5], 0U, "no error");
+
+  // The pedals stop: the torque is gone at once, the drive is released after the engage hold.
+  sim::SetPedal(AngularVelocity{}, Torque{});
+  rig.Run(1500U);
+  zexpect_within(CurrentControlIsr::Instance().state.i_ref.q, 0.0_A, 1e-3_A);
+  rig.Run(2000U);
+  zexpect_false(rig.drive.IsEngaged());
+  zexpect_equal(kPowerStage.GetState(), PowerStageState::kDisabled);
+}
+
+ZTEST(sim_cyphal_drive, test_ebike_ignores_the_readiness_of_the_bus_and_obeys_standby) {
+  Rig& rig = *g_rig;
+  const MagneticFlux kTorqueConstant = GiveTheMotorAMagnet(rig);
+  AttachEbike(rig, kTorqueConstant);
+  rig.Hold(0.0F, 5.0F, 50U);  // ENGAGED on the bus, no pedals
+  zexpect_false(rig.drive.IsEngaged());
+
+  sim::SetDisplay(3U, 25U);
+  sim::SetPedal(kCadence, 20.0_Nm);
+  rig.Run(2500U);
+  zassert_true(rig.drive.IsEngaged());
+  // A service tool's STANDBY releases the drive, and it stays released while the rider keeps pedaling.
+  rig.Readiness(reg_udral_service_common_Readiness_0_1_STANDBY);
+  rig.Run(5U);
+  zexpect_false(rig.drive.IsEngaged());
+  rig.Run(2000U);
+  zexpect_false(rig.drive.IsEngaged());
+}
+
+ZTEST(sim_cyphal_drive, test_ebike_without_a_display_gives_no_assist) {
+  Rig& rig = *g_rig;
+  const MagneticFlux kTorqueConstant = GiveTheMotorAMagnet(rig);
+  AttachEbike(rig, kTorqueConstant);
+  sim::SetPedal(kCadence, 20.0_Nm);
+  rig.Run(3000U);
+  zexpect_false(rig.drive.IsEngaged());
+  zexpect_equal(sim::DisplayStatusCount(), 0U);
+}
+
+ZTEST(sim_cyphal_drive, test_ebike_trip_latches_until_the_pedals_stood_still) {
+  Rig& rig = *g_rig;
+  const MagneticFlux kTorqueConstant = GiveTheMotorAMagnet(rig);
+  AttachEbike(rig, kTorqueConstant);
+  sim::SetDisplay(3U, 25U);
+  sim::SetPedal(kCadence, 20.0_Nm);
+  rig.Run(2500U);
+  zassert_true(rig.drive.IsEngaged());
+
+  sim::SetPhaseCurrentOverride(80.0F, -40.0F, -40.0F);  // above the 60 A trip limit
+  rig.Run(20U);
+  sim::ClearPhaseCurrentOverride();
+  zexpect_false(rig.drive.IsEngaged());
+  // The rider keeps pedaling: the drive stays released, it does not engage in a loop.
+  rig.Run(3000U);
+  zexpect_false(rig.drive.IsEngaged());
+
+  // The pedals stand still for the re-arm time, then the rider starts again.
+  sim::SetPedal(AngularVelocity{}, Torque{});
+  rig.Run(1500U);
+  sim::SetPedal(kCadence, 20.0_Nm);
+  rig.Run(2500U);
+  zexpect_true(rig.drive.IsEngaged());
+  zexpect_false(CurrentControlIsr::Instance().state.overcurrent_tripped);
 }
 
 ZTEST_SUITE(sim_cyphal_drive, nullptr, nullptr, Before, After, nullptr);

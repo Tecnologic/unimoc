@@ -107,7 +107,7 @@ class EdgeUartDecoder {
   void SampleUntil(const uint32_t until) noexcept {
     while (in_frame_) {
       // Middle of bit k: start + (k + 0.5) * ticks per bit.
-      const uint32_t kSampleAt = start_ticks_ + (((2U * bit_) + 1U) * ticks_per_bit_) / 2U;
+      const uint32_t kSampleAt = start_ticks_ + ((((2U * bit_) + 1U) * ticks_per_bit_) / 2U);
       if (static_cast<int32_t>(until - kSampleAt) <= 0) {
         return;
       }

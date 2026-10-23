@@ -306,6 +306,7 @@ void DriveNode::Spin(const uint64_t now_us) noexcept {
   now_us_ = now_us;
   node_->Spin(now_us);  // dispatches the received messages and commands
   WatchBus();
+  SpinLocalControl(now_us);
 
   if (engage_requested_) {
     engage_requested_ = false;
@@ -343,6 +344,42 @@ void DriveNode::Spin(const uint64_t now_us) noexcept {
   UpdateStatus();
 }
 
+void DriveNode::SpinLocalControl(const uint64_t now_us) noexcept {
+  if (ebike_ == nullptr) {
+    return;
+  }
+  const auto& isr = CurrentControlIsr::Instance();
+  const current_control::OuterStatus kOuter = OuterLoop::Instance().Status();
+  const unit::Torque kTorque = torque_constant_ * MeasuredCurrent(isr).q;
+  ebike::EbikeVehicle vehicle;
+  vehicle.motor_speed = kOuter.speed;
+  vehicle.torque_min = kOuter.torque_min;
+  vehicle.torque_max = kOuter.torque_max;
+  vehicle.dc_link = isr.state.raw_vdc;
+  // Battery current from the mechanical power, as in the drive status.
+  vehicle.battery_current =
+      (isr.state.raw_vdc > unit::Voltage{}) ? (kTorque * kOuter.speed) / isr.state.raw_vdc : unit::Current{};
+  vehicle.motor_temperature = motor_->GetTemperatureMeasurements().motor.value_or(unit::Temperature{});
+  vehicle.engaged = engaged_;
+  vehicle.faulted = rearm_required_;
+
+  const ebike::EbikeOutput kOutput = ebike_->Update(now_us, vehicle);
+  ebike_engage_ = kOutput.engage;
+  ebike_torque_ = kOutput.torque;
+  if (kOutput.engage) {
+    // The e-bike's readiness: the readiness timeout stays fresh while the rider needs the drive.
+    last_readiness_us_ = now_us;
+    if (!engaged_ && !rearm_required_) {
+      engage_requested_ = true;
+    }
+  } else {
+    rearm_required_ = false;  // as a readiness other than ENGAGED: the next request may engage again
+    if (engaged_) {
+      Disengage("e-bike");
+    }
+  }
+}
+
 void DriveNode::SpinEngagement(const uint64_t now_us) noexcept {
   // The cart torque replaces the setpoints once a wheel command arrived; in
   // limp-home and while it ramps down, the readiness timeout waits.
@@ -361,6 +398,11 @@ void DriveNode::SpinEngagement(const uint64_t now_us) noexcept {
   if (engaged_ && kCart.mode != CartMode::kOff) {
     const unit::Current kCurrent =
         (torque_constant_ > unit::MagneticFlux{}) ? kCart.torque / torque_constant_ : unit::Current{};
+    SetCurrentSetpoint(unit::Current{}, kCurrent, now_us);
+  }
+  if (engaged_ && ebike_ != nullptr && ebike_engage_) {
+    const unit::Current kCurrent =
+        (torque_constant_ > unit::MagneticFlux{}) ? ebike_torque_ / torque_constant_ : unit::Current{};
     SetCurrentSetpoint(unit::Current{}, kCurrent, now_us);
   }
   if (engaged_ && setpoint_active_ && now_us - last_setpoint_us_ > command_timeout_us_) {
@@ -479,11 +521,17 @@ void DriveNode::OnReadiness(const cyphal::Transfer& transfer, const uint64_t now
   }
   last_readiness_us_ = now_us;
   if (readiness.value == reg_udral_service_common_Readiness_0_1_ENGAGED) {
+    if (ebike_ != nullptr) {
+      return;  // the e-bike control engages the drive
+    }
     if (!engaged_ && !rearm_required_) {
       engage_requested_ = true;  // engaged in Spin(), outside the dispatch
     }
   } else {
     rearm_required_ = false;
+    if (ebike_ != nullptr) {
+      ebike_->Inhibit();  // the bus takes the drive off the e-bike until the pedals stood still
+    }
     if (engaged_) {
       Disengage("readiness");
     } else if (readiness.value == reg_udral_service_common_Readiness_0_1_STANDBY) {

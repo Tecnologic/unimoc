@@ -51,8 +51,10 @@ struct EbikeParameters {
 struct EbikeVehicle {
   /// Mechanical speed of the rotor.
   unit::AngularVelocity motor_speed;
-  /// Largest shaft torque the drive applies forward now (motor and battery limits).
-  unit::Torque torque_limit;
+  /// Shaft torque window the drive can apply now (motor and battery limits), rotor frame: the most negative
+  /// and the most positive torque.
+  unit::Torque torque_min;
+  unit::Torque torque_max;
   /// DC link voltage (battery bars).
   unit::Voltage dc_link;
   /// Battery current, positive when discharging (display power).
@@ -112,6 +114,17 @@ class EbikeControl {
    * @return What the drive is to do.
    */
   EbikeOutput Update(uint64_t now_us, const EbikeVehicle& vehicle) noexcept;
+
+  /**
+   * @brief Takes the drive off the e-bike: a readiness other than ENGAGED on the bus (a service tool, a
+   * master).
+   *
+   * Latches like a fault: no engagement until the pedals stood still for the re-arm time.
+   */
+  void Inhibit() noexcept {
+    latched_ = true;
+    wanting_ = false;
+  }
 
   [[nodiscard]] const PedalObserver& Pedal() const noexcept { return pedal_; }
   [[nodiscard]] const AssistController& Assist() const noexcept { return assist_; }

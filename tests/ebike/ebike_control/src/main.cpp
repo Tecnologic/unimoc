@@ -82,7 +82,8 @@ class Rig {
     parameters.display_timeout = 1.0_s;
     parameters.pedal.zero_offset = 0.0_Nm;
     control_.Configure(parameters);
-    vehicle.torque_limit = 40.0_Nm;
+    vehicle.torque_min = -40.0_Nm;
+    vehicle.torque_max = 40.0_Nm;
     vehicle.dc_link = 38.0_V;
     vehicle.motor_temperature = 40.0_degC;
   }
@@ -182,7 +183,7 @@ ZTEST(ebike_control, test_assist_follows_the_pedals_at_the_display_level) {
 
 ZTEST(ebike_control, test_torque_limit_of_the_drive) {
   Rig rig;
-  rig.vehicle.torque_limit = 4.0_Nm;
+  rig.vehicle.torque_max = 4.0_Nm;
   Riding(rig);
   UNIMOC_EXPECT_NEAR(rig.output.torque, 4.0_Nm, 1e-3_Nm);
 }
@@ -231,6 +232,21 @@ ZTEST(ebike_control, test_a_fault_latches_until_the_pedals_stood_still) {
   UNIMOC_EXPECT_NEAR(rig.output.torque, 10.0_Nm, 0.5_Nm);
 }
 
+ZTEST(ebike_control, test_inhibit_takes_the_drive_off_until_the_pedals_stood_still) {
+  Rig rig;
+  Riding(rig);
+  zexpect_true(rig.output.engage);
+  rig.control().Inhibit();
+  rig.Step(3000);  // the rider keeps pedaling
+  zexpect_false(rig.output.engage);
+  UNIMOC_EXPECT_NEAR(rig.output.torque, 0.0_Nm, 1e-6_Nm);
+  rig.Pedal(0.0_rad_per_s, 0.0_Nm);
+  rig.Step(1500);
+  rig.Pedal(kCadence, 20.0_Nm);
+  rig.Step(1500);
+  zexpect_true(rig.output.engage);
+}
+
 ZTEST(ebike_control, test_a_lost_display_ends_the_assist) {
   Rig rig;
   Riding(rig);
@@ -268,6 +284,20 @@ ZTEST(ebike_control, test_reversed_drive_flips_the_sign) {
   rig.control().Configure(parameters);
   Riding(rig);
   UNIMOC_EXPECT_NEAR(rig.output.torque, -10.0_Nm, 0.3_Nm);
+}
+
+ZTEST(ebike_control, test_reversed_drive_is_limited_by_the_negative_torque_limit) {
+  Rig rig;
+  EbikeParameters parameters;
+  parameters.assist.power_scale = 1.0e9_W;
+  parameters.assist.torque_deadband = 0.0_Nm;
+  parameters.pedal.zero_offset = 0.0_Nm;
+  parameters.reversed = true;
+  rig.control().Configure(parameters);
+  rig.vehicle.torque_min = -3.0_Nm;
+  rig.vehicle.torque_max = 40.0_Nm;
+  Riding(rig);
+  UNIMOC_EXPECT_NEAR(rig.output.torque, -3.0_Nm, 1e-3_Nm);
 }
 
 ZTEST(ebike_control, test_every_request_is_answered_with_the_status_frame) {

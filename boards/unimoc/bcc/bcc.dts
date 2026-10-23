@@ -62,6 +62,26 @@
 	};
 
 	/*
+	 * E-bike inputs (docs/ebike_plan.md); the crank torque is a channel of foc0.
+	 *
+	 * DISP_RX (J32 pin 5, display TX to the MCU) is on PB15, which has no UART
+	 * receiver on the STM32G473: the edges are captured by TIM15 channel 2 and
+	 * decoded in software. DISP_TX (J32 pin 4) is PB10, USART3_TX. PB11, the
+	 * receive pin of USART3, is the second break input.
+	 */
+	ebike0: ebike {
+		compatible = "unimoc,ebike";
+		status = "okay";
+		/* J38 pin 2 PULSE_CRK_IN through 3k3, 2n2, with a 1k pull-up to 3V3. */
+		crank-pulse-gpios = <&gpioa 5 GPIO_ACTIVE_HIGH>;
+		display-rx-gpios = <&gpiob 15 GPIO_ACTIVE_HIGH>;
+		display-rx-timer = <&timers15>;
+		display-uart = <&usart3>;
+		pinctrl-0 = <&tim15_ch2_pb15>;
+		pinctrl-names = "default";
+	};
+
+	/*
 	 * Three-phase power stage.
 	 *
 	 * TIM8 generates centre-aligned PWM on CH1..CH3 (+ complementary
@@ -163,6 +183,19 @@
 
 /* Used by the foc0 driver: enables the timer and its IRQ vectors (NUM_IRQS). */
 &timers8 {
+	status = "okay";
+};
+
+/* Used by the ebike0 driver (display receive line capture). */
+&timers15 {
+	status = "okay";
+};
+
+/* Transmit line to the display; the receiver pin is not connected to the display. */
+&usart3 {
+	pinctrl-0 = <&usart3_tx_pb10>;
+	pinctrl-names = "default";
+	current-speed = <9600>;
 	status = "okay";
 };
 
