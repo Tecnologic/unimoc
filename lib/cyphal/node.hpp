@@ -182,8 +182,9 @@ struct Publisher {
  */
 class CyphalNode {
  public:
-  /// Largest number of register providers.
-  static constexpr std::size_t kMaxRegisterProviders = 4U;
+  /// Largest number of register providers (drive: settings, info, startup,
+  /// timing; the platform: one more).
+  static constexpr std::size_t kMaxRegisterProviders = 6U;
   /// Largest number of application subscriptions.
   static constexpr std::size_t kMaxListeners = 8U;
   /// Largest number of application publishers reported in the port list.

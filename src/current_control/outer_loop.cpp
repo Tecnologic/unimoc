@@ -32,20 +32,34 @@ void OuterLoop::Init(const settings::NvmSettings& settings, CurrentControlIsr& i
   Parameters parameters{};
   parameters.generation = ++generation_;
   parameters.pole_pairs = settings.pole_pairs;
-  parameters.dt = Time{static_cast<float>(kCyclesPerStep) * DtSlowFromPwmFrequency(settings.pwm_frequency)};
+  parameters.dt = DtSlowFromPwmFrequency(settings.pwm_frequency) * static_cast<float>(kCyclesPerStep);
   parameters.current_limit = settings.motor_i_max;
-  parameters.torque_constant = 1.5F * kPolePairs * settings.flux_pm.Value();
+  parameters.torque_constant = settings.flux_pm * (1.5F * kPolePairs);
+  parameters.dc_link = control::DcLinkLimit{.drive_current_max = settings.battery_drive_current_max,
+                                            .charge_current_max = settings.battery_charge_current_max,
+                                            .regen_derate_start = settings.dc_link_regen_derate_start,
+                                            .trip = settings.dc_link_trip};
   parameters.speed_min = settings.motor_omega_min / kPolePairs;
   parameters.speed_max = settings.motor_omega_max / kPolePairs;
-  parameters.speed_kp = settings.speed_kp;
-  parameters.speed_ki = settings.speed_ki;
-  parameters.speed_accel_limit = settings.speed_accel_limit;
-  parameters.position_kp = settings.pos_kp_pos;
-  parameters.position_speed_limit = settings.pos_speed_limit;
-  parameters.position_accel_limit = settings.pos_accel_limit;
-  parameters.position_tolerance = settings.pos_position_tolerance;
-  parameters.position_speed_tolerance = settings.pos_speed_tolerance;
+  parameters.gains = GainsFrom(settings);
   parameters_.Write(parameters);
+  SetGains(parameters.gains);  // live gains handed over before are older than these
+}
+
+OuterLoop::Gains OuterLoop::GainsFrom(const settings::NvmSettings& settings) noexcept {
+  return Gains{.speed_kp = settings.speed_kp,
+               .speed_ki = settings.speed_ki,
+               .speed_accel_limit = settings.speed_accel_limit,
+               .position_kp = settings.pos_kp_pos,
+               .position_speed_limit = settings.pos_speed_limit,
+               .position_accel_limit = settings.pos_accel_limit,
+               .position_tolerance = settings.pos_position_tolerance,
+               .position_speed_tolerance = settings.pos_speed_tolerance};
+}
+
+void OuterLoop::SetGains(const Gains& gains) noexcept {
+  gains_.Write(gains);
+  gains_generation_.store(gains_generation_.load(std::memory_order_relaxed) + 1U, std::memory_order_release);
 }
 
 // =============================================================================
@@ -76,6 +90,11 @@ void OuterLoop::Step() noexcept {
   const Parameters kParameters = parameters_.Read();
   if (kParameters.generation != active_.generation) {
     LoadParameters(kParameters);
+  }
+  const uint32_t kGainsGeneration = gains_generation_.load(std::memory_order_acquire);
+  if (kGainsGeneration != applied_gains_generation_) {
+    applied_gains_generation_ = kGainsGeneration;
+    ApplyGains(gains_.Read());
   }
   const ObserverState kObserver = observer_.Read();
   const OuterSetpoint kSetpoint = setpoint_.Read();
@@ -119,6 +138,12 @@ void OuterLoop::Step() noexcept {
     }
     was_active_ = true;
     mode_ = kSetpoint.mode;
+    // The speed controller stays inside the battery power window, so its
+    // integral does not wind up against the current limit below.
+    const control::DcLinkLimit::TorqueRange kTorqueRange =
+        active_.dc_link.AllowedTorque(kSpeed, isr_->state.raw_vdc);
+    speed_.torque_min = kTorqueRange.lower;
+    speed_.torque_max = kTorqueRange.upper;
     switch (mode_) {
       case cyphal::ControlMode::kTorque:
         current = kSetpoint.current;
@@ -138,7 +163,8 @@ void OuterLoop::Step() noexcept {
       }
     }
   }
-  current = LimitCurrent(current);
+  current =
+      active_.dc_link.Limit(LimitCurrent(current), active_.torque_constant, kSpeed, isr_->state.raw_vdc);
   isr_->SetCurrentRef(current);
 
   status.active = kSetpoint.active;
@@ -155,19 +181,24 @@ void OuterLoop::Step() noexcept {
 
 void OuterLoop::LoadParameters(const Parameters& parameters) noexcept {
   active_ = parameters;
-  speed_.kp = parameters.speed_kp;
-  speed_.ki = parameters.speed_ki;
-  speed_.accel_limit = parameters.speed_accel_limit;
-  speed_.torque_limit = Torque{parameters.current_limit.Value() * parameters.torque_constant};
-  position_.kp_pos = parameters.position_kp;
-  position_.speed_limit = parameters.position_speed_limit;
-  position_.accel_limit = parameters.position_accel_limit;
-  position_.position_tolerance = parameters.position_tolerance;
-  position_.speed_tolerance = parameters.position_speed_tolerance;
+  ApplyGains(parameters.gains);
+  speed_.torque_limit = parameters.torque_constant * parameters.current_limit;
   // The controller restarted with these settings: the observer angle starts
   // again at zero, so the position is counted anew from here.
   tracking_ = false;
   was_active_ = false;
+}
+
+void OuterLoop::ApplyGains(const Gains& gains) noexcept {
+  active_.gains = gains;
+  speed_.kp = gains.speed_kp;
+  speed_.ki = gains.speed_ki;
+  speed_.accel_limit = gains.speed_accel_limit;
+  position_.kp_pos = gains.position_kp;
+  position_.speed_limit = gains.position_speed_limit;
+  position_.accel_limit = gains.position_accel_limit;
+  position_.position_tolerance = gains.position_tolerance;
+  position_.speed_tolerance = gains.position_speed_tolerance;
 }
 
 void OuterLoop::Restart(const AngularVelocity speed) noexcept {
@@ -177,10 +208,10 @@ void OuterLoop::Restart(const AngularVelocity speed) noexcept {
 }
 
 system::Rotor<Current> OuterLoop::TorqueToCurrent(const Torque torque) const noexcept {
-  if (!(active_.torque_constant > 0.0F)) {
+  if (!(active_.torque_constant > MagneticFlux{})) {
     return {Current{}, Current{}};  // no flux: the motor makes no torque from i_q
   }
-  return {Current{}, Current{torque.Value() / active_.torque_constant}};
+  return {Current{}, torque / active_.torque_constant};
 }
 
 system::Rotor<Current> OuterLoop::LimitCurrent(const system::Rotor<Current> current) const noexcept {

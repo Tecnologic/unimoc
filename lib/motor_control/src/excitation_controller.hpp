@@ -161,10 +161,9 @@ struct ExcitationController {
     // PI loop
     const T kError = i_f_setpoint - i_f_meas.Value();
 
-    integrator = unit::Current{integrator.Value() + ki.Value() * kError * dt.Value()}.Clamp(i_f_min.Value(),
-                                                                                            i_f_max.Value());
+    integrator = unit::Current{integrator.Value() + ki.Value() * kError * dt.Value()}.Clamp(i_f_min, i_f_max);
 
-    i_f_ref = unit::Current{kp.Value() * kError + integrator.Value()}.Clamp(i_f_min.Value(), i_f_max.Value());
+    i_f_ref = unit::Current{kp.Value() * kError + integrator.Value()}.Clamp(i_f_min, i_f_max);
 
     return i_f_ref;
   }

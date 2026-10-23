@@ -57,6 +57,8 @@ void ForEachRegister(const Visitor& visit, Settings&... settings) {
   visit(reg::kMotorOmegaMin, settings.motor_omega_min...);
   visit(reg::kBatteryDriveIMax, settings.battery_drive_current_max...);
   visit(reg::kBatteryChargeIMax, settings.battery_charge_current_max...);
+  visit(reg::kBatteryRegenDerateVoltage, settings.dc_link_regen_derate_start...);
+  visit(reg::kBatteryTripVoltage, settings.dc_link_trip...);
   visit(reg::kPmsmFluxPm, settings.flux_pm...);
   visit(reg::kPmsmLD, settings.l_d...);
   visit(reg::kPmsmLQ, settings.l_q...);

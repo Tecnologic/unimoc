@@ -47,6 +47,18 @@ config UNIMOC_SETTINGS_ZMS
 	  zephyr_settings_storage.cpp). Needs the 'storage_partition' of the
 	  board devicetree; native_sim uses its flash simulator.
 
+config UNIMOC_HOT_PATH_TIMING
+	bool "Measure the execution times of the interrupts (M0)"
+	depends on UNIMOC_PLATFORM_BCC || UNIMOC_PLATFORM_SIM
+	help
+	  The platform measures the sample interrupt, the control cycle and
+	  the observer in cycles of its timestamp clock (BCC: DWT cycle
+	  counter, 170 MHz) and keeps min, mean and max
+	  (hardware/hot_path_timing.hpp). The drive reports them in the
+	  unimoc.timing.* registers. Adds a few loads and stores to every
+	  measured interrupt; off by default. native_sim counts the cycles,
+	  its times are 0 (simulated time stands still inside a cycle).
+
 config UNIMOC_TRACE_BUFFER_BYTES
 	int "cymon capture buffer [bytes]"
 	default 8192

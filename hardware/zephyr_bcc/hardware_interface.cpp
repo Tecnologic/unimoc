@@ -28,6 +28,7 @@
 #include "foc_stm32g4.hpp"
 #include "foc_stm32g4_dt.hpp"
 #include "hot_path_interface.hpp"
+#include "hot_path_timing.hpp"
 #include "zephyr_settings_storage.hpp"
 
 namespace unimoc::hardware {
@@ -60,6 +61,13 @@ const settings::SettingsProfile kSettingsProfile = [] {
   profile.capabilities.max_motor_current = 50.0_A;
   profile.capabilities.max_battery_drive_current = 50.0_A;
   profile.capabilities.max_battery_charge_current = 20.0_A;
+  // DC link: 48 V battery (13s, 54.6 V full). Regenerative braking derates
+  // from 55 V and the drive trips at 58 V. Assumption, not verified: the
+  // switches and capacitors of the BCC take 60 V with margin; check the
+  // ratings in the schematic before raising the capability.
+  profile.factory_settings.dc_link_regen_derate_start = 55.0_V;
+  profile.factory_settings.dc_link_trip = 58.0_V;
+  profile.capabilities.max_dc_link_voltage = 60.0_V;
   return profile;
 }();
 
@@ -152,13 +160,13 @@ bool Initialize(Frequency pwm_frequency, uint32_t adc_trigger_offset) noexcept {
 // The public vector has an exact zero-sequence component: the common-mode
 // error of the three sensors is removed and the last phase is reconstructed.
 system::ThreePhase<Current> PhaseCurrents(const foc_stm32g4::RawSamples& raw) noexcept {
-  const float kCurrentA = analog::CountsToCurrent(raw.ia);
-  const float kCurrentB = analog::CountsToCurrent(raw.ib);
-  const float kCurrentC = analog::CountsToCurrent(raw.ic);
-  const float kZeroSequence = (kCurrentA + kCurrentB + kCurrentC) / 3.0F;
-  const Current kCorrectedA{kCurrentA - kZeroSequence};
-  const Current kCorrectedB{kCurrentB - kZeroSequence};
-  return {kCorrectedA, kCorrectedB, Current{-kCorrectedA.Value() - kCorrectedB.Value()}};
+  const Current kCurrentA = analog::CountsToCurrent(raw.ia);
+  const Current kCurrentB = analog::CountsToCurrent(raw.ib);
+  const Current kCurrentC = analog::CountsToCurrent(raw.ic);
+  const Current kZeroSequence = (kCurrentA + kCurrentB + kCurrentC) / 3.0F;
+  const Current kCorrectedA = kCurrentA - kZeroSequence;
+  const Current kCorrectedB = kCurrentB - kZeroSequence;
+  return {kCorrectedA, kCorrectedB, -kCorrectedA - kCorrectedB};
 }
 
 system::ThreePhase<Current> GetPhaseCurrents() noexcept { return PhaseCurrents(foc_stm32g4::ReadRaw()); }
@@ -170,9 +178,9 @@ system::ThreePhase<Current> GetPhaseCurrents() noexcept { return PhaseCurrents(f
 // the zero-sequence error of all three sensors is removed.
 system::ThreePhase<Current> CycleSampleCurrents(const uint8_t sample,
                                                 const foc_stm32g4::RawCurrents& raw) noexcept {
-  const std::array<float, 3> kPhaseCurrent = {analog::CountsToCurrent(raw.a),
-                                              analog::CountsToCurrent(raw.b),
-                                              analog::CountsToCurrent(raw.c)};
+  const std::array<Current, 3> kPhaseCurrent = {analog::CountsToCurrent(raw.a),
+                                                analog::CountsToCurrent(raw.b),
+                                                analog::CountsToCurrent(raw.c)};
   const foc_stm32g4::PhaseTicks& ticks = foc_stm32g4::AppliedTicks(sample);
   const uint32_t kReload = foc_stm32g4::TimerAutoReload();
 
@@ -190,7 +198,7 @@ system::ThreePhase<Current> CycleSampleCurrents(const uint8_t sample,
     disturbed = ticks[edge] < g_guard_ticks;
   }
 
-  std::array<float, 3> out{};
+  std::array<Current, 3> out{};
   if (disturbed) {
     const uint8_t kOther1 = (edge + 1U) % 3U;
     const uint8_t kOther2 = (edge + 2U) % 3U;
@@ -198,29 +206,29 @@ system::ThreePhase<Current> CycleSampleCurrents(const uint8_t sample,
     out[kOther2] = kPhaseCurrent[kOther2];
     out[edge] = -kPhaseCurrent[kOther1] - kPhaseCurrent[kOther2];
   } else {
-    const float kZeroSequence = (kPhaseCurrent[0] + kPhaseCurrent[1] + kPhaseCurrent[2]) / 3.0F;
+    const Current kZeroSequence = (kPhaseCurrent[0] + kPhaseCurrent[1] + kPhaseCurrent[2]) / 3.0F;
     out[0] = kPhaseCurrent[0] - kZeroSequence;
     out[1] = kPhaseCurrent[1] - kZeroSequence;
     out[2] = -out[0] - out[1];
   }
-  return {Current{out[0]}, Current{out[1]}, Current{out[2]}};
+  return {out[0], out[1], out[2]};
 }
 
 system::ThreePhase<Voltage> GetPhaseVoltages() noexcept {
   const auto kRaw = foc_stm32g4::ReadRaw();
-  return {Voltage{analog::CountsToVoltage(kRaw.va)},
-          Voltage{analog::CountsToVoltage(kRaw.vb)},
-          Voltage{analog::CountsToVoltage(kRaw.vc)}};
+  return {analog::CountsToVoltage(kRaw.va),
+          analog::CountsToVoltage(kRaw.vb),
+          analog::CountsToVoltage(kRaw.vc)};
 }
 
 TemperatureMeasurements GetTemperatureMeasurements() noexcept {
   const auto kRaw = foc_stm32g4::ReadRaw();
   TemperatureMeasurements measurements{};
   if constexpr (kBridgeTemperatureAvailable) {
-    measurements.bridge = Temperature{analog::CountsToTemperature(kRaw.bridge_temperature)};
+    measurements.bridge = analog::CountsToTemperature(kRaw.bridge_temperature);
   }
   if constexpr (kMotorTemperatureAvailable) {
-    measurements.motor = Temperature{analog::CountsToTemperature(kRaw.motor_temperature)};
+    measurements.motor = analog::CountsToTemperature(kRaw.motor_temperature);
   }
   return measurements;
 }
@@ -231,8 +239,7 @@ uint32_t DutyToTicks(const Ratio duty, const float reload) noexcept {
 
 // The per-sample check compares raw counts in the sample interrupt.
 void SetOvercurrentLimit(const Current limit) noexcept {
-  const float kAmpsPerCount = analog::CountsToCurrent(static_cast<uint32_t>(analog::kCurrentZeroCounts + 1));
-  const float kCounts = limit.Value() / kAmpsPerCount;
+  const float kCounts = (limit / analog::kCurrentPerCount).Value();  // a Ratio: counts from zero
   if (!(kCounts < static_cast<float>(analog::kCurrentZeroCounts))) {
     foc_stm32g4::SetOvercurrentWindow(0U, 0xFFFU);  // beyond the measuring range: no check
     return;
@@ -255,6 +262,8 @@ uint32_t GetTimerClockFrequency() noexcept {
 
 }  // namespace
 
+uint32_t timing::DutyOverruns() noexcept { return foc_stm32g4::DutyOverruns(); }
+
 namespace hot_path {
 
 ControlCycleSamples GetControlCycleSamples() noexcept {
@@ -263,7 +272,7 @@ ControlCycleSamples GetControlCycleSamples() noexcept {
   for (uint8_t k = 0U; k < kHalfPeriodsPerCycle; ++k) {
     samples.phase_currents[k] = CycleSampleCurrents(k, raw.currents[k]);
   }
-  samples.dc_link = Voltage{analog::CountsToVoltage(raw.vdc)};
+  samples.dc_link = analog::CountsToVoltage(raw.vdc);
   samples.overcurrent = raw.overcurrent;
   samples.timestamp = raw.timestamp;
   return samples;
@@ -293,6 +302,7 @@ const PowerStageInterface kPowerStage{foc_stm32g4::PowerStageEnable,
                                       foc_stm32g4::GetPowerStageState};
 
 const std::array<HardwareInterface, kMotorCount> kMotors = {HardwareInterface(Initialize,
+                                                                              foc_stm32g4::Stop,
                                                                               GetPhaseCurrents,
                                                                               GetPhaseVoltages,
                                                                               GetTemperatureMeasurements,

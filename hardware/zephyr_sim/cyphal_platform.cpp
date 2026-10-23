@@ -32,7 +32,9 @@
 #include <numbers>
 #include <string_view>
 #include <tuple>
+#include "current_control_runtime.hpp"
 #include "cyphal/register_value.hpp"
+#include "power_stage_interface.hpp"
 #include "sim_cmdline.h"
 #include "sim_control.hpp"
 #include "slcan_media.hpp"
@@ -58,6 +60,7 @@ struct PlantInputs {
 };
 
 PlantInputs g_inputs;
+settings::NvmSettings g_applied_settings{};  ///< The settings the controller last started with.
 cyphal::Publisher g_plant_publisher{cyphal::kPubSimPlant, cyphal::Priority::kHigh, 0U};
 uint64_t g_plant_period_us = 0U;
 uint64_t g_next_plant_us = 0U;
@@ -82,9 +85,17 @@ enum class SimRegister : uint8_t {
   kFollowSettings,
   kPlantId,
   kPlantType,
+  kPaused,
+  kAdvance,
+  kCycleCount,
+  kCyclePeriodNs,
+  kReset,
 };
 
-constexpr std::array<std::string_view, 8> kNames{
+/// Most control cycles one write of `unimoc.sim.advance` runs (1 s of virtual time at 16 kHz).
+constexpr int64_t kMaxAdvanceCycles = 16000;
+
+constexpr std::array<std::string_view, 13> kNames{
     "unimoc.sim.shaft_mode",
     "unimoc.sim.imposed_speed",
     "unimoc.sim.load_torque",
@@ -93,7 +104,31 @@ constexpr std::array<std::string_view, 8> kNames{
     "unimoc.sim.plant_follows_settings",
     "uavcan.pub.sim_plant.id",
     "uavcan.pub.sim_plant.type",
+    "unimoc.sim.paused",
+    "unimoc.sim.advance",
+    "unimoc.sim.cycle_count",
+    "unimoc.sim.cycle_period_ns",
+    "unimoc.sim.reset",
 };
+
+/**
+ * @brief Back to the state after the start: plant at standstill, virtual time 0, controller restarted.
+ *
+ * The plant keeps its configuration and the register inputs (shaft mode,
+ * load, DC link). Refused while the power stage is enabled (engaged or a
+ * startup run). A paused simulation stays paused.
+ */
+bool ResetSimulation() noexcept {
+  if (kPowerStage.GetState() == PowerStageState::kEnabled) {
+    return false;
+  }
+  kMotors[0].Stop();  // no cycle while the platform and the controller restart
+  sim::Reset();
+  ApplyInputs();
+  return current_control::StartRuntime(g_applied_settings,
+                                       kMotors[0],
+                                       kSettings.GetSettingsProfile().capabilities.max_phase_current);
+}
 
 /// Registers of the simulated plant; not persistent, the plant starts from the defaults.
 class SimRegisters final : public cyphal::RegisterProvider {
@@ -130,6 +165,21 @@ class SimRegisters final : public cyphal::RegisterProvider {
       case SimRegister::kPlantType:
         cyphal::SetString(value, "unimoc.sim.Plant.0.1");
         return {false, false};
+      case SimRegister::kPaused:
+        cyphal::SetBit(value, sim::IsPaused());
+        break;
+      case SimRegister::kAdvance:
+        cyphal::SetNatural32(value, 0U);  // write only: the cycles to run
+        break;
+      case SimRegister::kCycleCount:
+        cyphal::SetNatural32(value, sim::CycleCount());
+        return {false, false};
+      case SimRegister::kCyclePeriodNs:
+        cyphal::SetNatural32(value, static_cast<uint32_t>(sim::CyclePeriodNs()));
+        return {false, false};
+      case SimRegister::kReset:
+        cyphal::SetNatural8(value, 0U);  // write 1: reset
+        break;
     }
     return {true, false};
   }
@@ -179,7 +229,26 @@ class SimRegisters final : public cyphal::RegisterProvider {
         return RegisterWriteResult::kAccepted;
       }
       case SimRegister::kPlantType:
+      case SimRegister::kCycleCount:
+      case SimRegister::kCyclePeriodNs:
         return RegisterWriteResult::kReadOnly;
+      case SimRegister::kPaused:
+        sim::SetPaused(kValue != 0.0F);
+        return RegisterWriteResult::kAccepted;
+      case SimRegister::kAdvance: {
+        // Runs the cycles before the response, in the Cyphal thread.
+        const auto kCycles = cyphal::GetInteger(value);
+        if (!sim::IsPaused() || !kCycles.has_value() || *kCycles < 0 || *kCycles > kMaxAdvanceCycles) {
+          return RegisterWriteResult::kOutOfRange;
+        }
+        sim::AdvanceCycles(static_cast<uint32_t>(*kCycles));
+        return RegisterWriteResult::kAccepted;
+      }
+      case SimRegister::kReset:
+        if (kValue != 1.0F || !ResetSimulation()) {
+          return RegisterWriteResult::kOutOfRange;
+        }
+        return RegisterWriteResult::kAccepted;
     }
     ApplyInputs();
     return RegisterWriteResult::kAccepted;
@@ -230,6 +299,7 @@ std::span<cyphal::CanMedia* const> CyphalPlatformInterfaces() noexcept { return 
 void CyphalPlatformStart(cyphal::CyphalNode& node, const settings::NvmSettings& settings) noexcept {
   (void)node.AddRegisterProvider(g_registers);
   (void)node.AddPublisher(g_plant_publisher);
+  g_applied_settings = settings;
   SetPlantRate(settings);
   ApplyInputs();
 }
@@ -286,6 +356,7 @@ void CyphalPlatformSpin(cyphal::CyphalNode& node, const uint64_t now_us) noexcep
 }
 
 void CyphalPlatformSettingsApplied(const settings::NvmSettings& settings) noexcept {
+  g_applied_settings = settings;
   SetPlantRate(settings);
   if (!g_inputs.follow_settings) {
     return;

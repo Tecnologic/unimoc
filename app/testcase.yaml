@@ -7,6 +7,14 @@ tests:
       - native_sim/native/64
       - bcc
     tags: unimoc app
+  # The M0 timing probes in the interrupts (CONFIG_UNIMOC_HOT_PATH_TIMING).
+  unimoc.app.build.timing:
+    build_only: true
+    platform_allow:
+      - bcc
+    extra_configs:
+      - CONFIG_UNIMOC_HOT_PATH_TIMING=y
+    tags: unimoc app
   # The simulation as a Cyphal node, tested from pycyphal over its slcan
   # pseudo terminal (tests/integration/cyphal_sim). Needs pycyphal, python-can
   # and pyserial (scripts/requirements-cyphal-tools.txt); skipped without them.

@@ -4,11 +4,36 @@ The overall direction (cart with four wheel drives, central vehicle dynamics
 controller, Cyphal/CAN-FD, STM32G4 logic board for the 4850 drive) is drafted
 in [docs/system_plan.md](docs/system_plan.md).
 
+### Decisions (2026-10-22, PR #26)
+
+1. DC-link voltages: regenerative braking derates from 55 V, the drive trips
+   at 58 V, the hardware capability is 60 V (BCC and sim). Accepted; check
+   the switch and capacitor ratings against the schematic during bring-up.
+2. The overvoltage trip switches all transistors off; above the
+   line-to-line back-EMF peak the motor still charges the DC link through
+   the body diodes. Known and accepted risk; a brake chopper is added in a
+   later hardware design.
+3. The cymon trigger may publish and subscribe one shared subject: the
+   design for triggering several targets at once.
+4. The unit types move to dimension exponents (SI base dimensions plus the
+   radian); see the P0 item under "Unit types".
+5. The battery charge limit comes from the register
+   `unimoc.battery.limits.charge_current` for now; a BMS may overrule it
+   over the bus later.
+6. The swing of the regenerative limit after a braking step with an imposed
+   shaft speed (sim, about 300 ms) is accepted until the hardware tests.
+7. The M0 timing probes stay off by default (`CONFIG_UNIMOC_HOT_PATH_TIMING`
+   only in the bring-up build).
+8. Live tuning stays conservative: a pending change that needs a restart
+   holds back live tuning until the disengage. The drive reports it with a
+   `uavcan.diagnostic.Record` ("settings wait for the disengage: <register>",
+   then "waiting settings applied") and the register `unimoc.settings.pending`.
+
 ### Cart system (see `docs/system_plan.md`)
 
  - [ ] CAN FD bus test (phase C2): BCC and G4 evaluation boards on a cart-length harness, 1/4 and 1/2 Mbit/s, bus load and latency at 250 and 500 Hz; choose the bit rate and the cycle rate.
  - [ ] Check `vcan` (CAN FD MTU) on WSL2 for the multi-node simulation. A single simulated node already works without it over the slcan pseudo terminals (classic CAN); several nodes on one bus need `vcan` (or Cyphal/UDP over the `native_sim` TAP driver; NSOS passes no multicast socket options in 4.4).
- - [ ] Regenerative braking in the drive: DC-link overvoltage limit and trip, regen limit from the battery state, reported to the VDC; tested in the sim (section 7.1).
+ - [ ] Regenerative braking in the drive: DC-link overvoltage limit and trip, regen limit from the battery state, reported to the VDC; tested in the sim (section 7.1). Done 2026-10-22: battery drive and charge current limits in the outer loop (`control::DcLinkLimit`, all modes), regenerative derating from `unimoc.battery.limits.regen_derate_voltage` to `trip_voltage` (decisions 1, 2, 5, 6), hard trip in the control cycle (`overvoltage_tripped`, `ClearTrips()`), ztests in `unimoc.lib.motor_control`, `sim_overcurrent` and `sim_cyphal_drive`; the speed controller takes the same power window as output bounds (`DcLinkLimit::AllowedTorque()`, `SpeedController::torque_min`/`torque_max`), so its integral does not wind up against it. Open: the charge limit from the BMS over the bus instead of the register, reporting to the VDC (cart DSDL), the estimated speed in the limit on a dyno (the observer's torque model expects the shaft to slow; settles within some 300 ms in the sim), the BCC voltage ratings from the schematic, a per-sample overvoltage check in the sample interrupt.
  - [ ] Requirements and part choice for the STM32G4 redesign of the hardware_4850 logic board (STM32G473RET6 or G474RET6, pin and ADC check, section 5.2).
  - [ ] Generalize `hardware/zephyr_bcc` to the G4 family so the 4850 logic board shares the hot path (board differences in the devicetree).
  - [ ] Split `app/` into `apps/drive/` and `apps/vdc/` (later `apps/pedal/` and `apps/bms/`) and add `lib/vehicle/`; update `AGENTS.md`, `README.md` and `docs/zephyr_workflow.md`. The VDC firmware lives in this repository (decided); the VDC MCU starts on a G4.
@@ -28,21 +53,21 @@ items that need the board are collected below and wait for hardware access.
 
 ### P0 - Without hardware (twister on `native_sim`, BCC build)
 
- - [ ] Settings apply on the BCC re-runs `foc_stm32g4::Initialize()` on running hardware (`DriveNode::ApplySettings()` -> `StartRuntime()`): ADC calibration with ADEN = 1 and a JSQR write while JADSTART = 1 are not allowed by the reference manual, so the init most likely fails ("settings rejected by the hardware") and the drive cannot engage after any register write until a reboot; `CurrentControlIsr::Init()` also rewrites the control state while the zero-latency interrupt runs. Add a restart path that stops the timer, the ADC sequences and the DMA (or reprograms only what changed, e.g. the PWM frequency) and quiesces the control cycle; build-test now, verify on the board with M8. Review 2026-10-22; effort M.
- - [ ] Reject settings with two ports on the same port-ID (`settings_store_internal::Validate()`): the transport keeps one subscription since 2026-10-22, but `DriveNode::OnMessage()` gives the message only to the first matching setpoint (torque before speed) and an equal pub/sub trigger ID is ambiguous. Effort S.
- - [ ] Publish the thread-side writes the zero-latency interrupt reads with a defined order: `CurrentControlIsr::ForceDuty()` (three duties, then the flag, plain members) and `SetOvercurrentWindow()` (low/high) can be seen half written for one cycle. A mailbox or an atomic flag after the data, as `i_ref_mailbox`. Effort S.
- - [ ] Connect the startup FSM (`HwStartup`) to Cyphal: the `unimoc.startup.*` registers of `cyphal_interface.hpp` (run, step, external measurements, results) in a register provider, the FSM stepped from the Cyphal thread; test on `native_sim`.
- - [ ] Speed and position setpoints over Cyphal (`uavcan.sub.speed_setpoint`, UDRAL servo); needs the control thread of M7.
+ - [x] Settings apply on running hardware: `StartRuntime()` calls `HardwareInterface::Stop()` before it rewrites the control state; on the BCC `foc_stm32g4::Stop()` disables the sample and observer interrupts, stops TIM8 and the duty DMA, stops the injected sequences (JADSTP) and disables the ADCs (ADDIS), and `Initialize()` calls it first (also after a failed init). ztest on `native_sim` (`sim_irq_cadence`), BCC build-tested; verify on the board with M8 (register write while disengaged, then engage).
+ - [x] Reject settings with two ports on the same port-ID (`settings_store_internal::HasPortIdCollision()` in `Validate()`): subscriptions and publications on distinct subject-IDs, cymon services on distinct service-IDs; the cymon trigger may publish and subscribe one shared subject (same type, a node does not receive its own transfers). ztest in `unimoc.lib.settings`.
+ - [x] Publish the thread-side writes the zero-latency interrupt reads with a defined order: `CurrentControlIsr::ForceDuty()` hands the duties over in a `Mailbox` before an atomic flag (release/acquire); `ReleaseForceDuty()` resets the PI before it clears the flag; the BCC overcurrent window (`SetOvercurrentWindow()`) is one packed atomic word. Not run on the board.
+ - [x] Connect the startup FSM (`HwStartup`) to Cyphal: `drive::StartupRegisters` (run, step, external measurements, results), the FSM stepped in `DriveNode::Spin()` in the Cyphal thread; ztests in `sim_cyphal_drive`. The pycyphal test is open (see Validation).
+ - [x] Speed and position setpoints over Cyphal (`uavcan.sub.speed_setpoint`, `position_setpoint`, UDRAL servo) through the control thread of M7: ztests in `sim_cyphal_drive`, pycyphal speed test against the running simulation.
  - [x] cymon traces over Cyphal ([docs/cymon_integration_plan.md](docs/cymon_integration_plan.md)): cymon-lib 0.2 linked, `cymon.*` services and trigger event, `Tick()` in the control cycle, plant truth on `native_sim`; the host tool is cymon (<https://github.com/Tecnologic/cymon>).
  - [ ] Measure the cost of the trace `Tick()` in the control cycle on the BCC (M0, target < 1 us); move it to the observer interrupt if it is too slow.
  - [ ] Firmware update over Cyphal: `ExecuteCommand BEGIN_SOFTWARE_UPDATE`, `uavcan.file.Read` into flash bank 2, bootloader swap; USB DFU as recovery.
- - [ ] Simulation-control commands over Cyphal for deterministic runs (reset, fixed-cycle advance, run-until; SIL P2); today the simulation runs in real time.
- - [ ] Live tuning while engaged: register writes reach the controller only by a runtime restart while disengaged (`docs/settings_plan.md`, open item 1).
- - [ ] Write the M0 instrumentation (DWT cycle counters around the sample ISR, control cycle and observer, min/mean/max, overrun counters, output through the log and Cyphal registers); build-tested only until the board is available.
+ - [ ] Simulation-control commands over Cyphal for deterministic runs (SIL P2): pause, fixed-cycle advance and reset done (`unimoc.sim.paused`, `.advance`, `.reset`, `.cycle_count`, `.cycle_period_ns`, pycyphal test); open: run-until, the drive's timeouts in virtual time.
+ - [x] Live tuning while engaged: the gains of the current, speed and position loops, the telemetry rate and the command timeout reach the running loops at once (`DriveNode::TuneLive()`, mailboxes into the control cycle and the control thread); other registers still wait for the disengage (`docs/settings_plan.md`, open item 1). ztest in `sim_cyphal_drive`.
+ - [x] Write the M0 instrumentation: `CONFIG_UNIMOC_HOT_PATH_TIMING` (off by default), `hardware::timing::Probe` (lock-free, writer the interrupt, reset at the next record), DWT cycles around the sample ISR of the boundary, the control cycle and the observer; min/mean/max, duty and observer overruns in the `unimoc.timing.*` registers. ztests on `native_sim` (counts only), BCC build scenario `unimoc.app.build.timing`; the numbers wait for the board (M0 on the board). No log output: the registers are read with yakut.
  - [ ] Check whether the hot path (sample ISR, control cycle, buffers) belongs in CCM SRAM on the G4 (`docs/hotpath_plan.md`, "Risks and Open Points"); decide with the M0 timing numbers.
  - [ ] Confirm the CAN-FD transceiver change for the BCC (the board has an SN65HVD230, classic CAN). A board decision, no board access needed.
- - [ ] CI housekeeping (review 2026-10-22): bump `actions/checkout`, `upload-artifact` and `download-artifact` in `ci-zephyr.yml` to their Node 24 releases (the runner warns and forces Node 24); `ci-docs.yml` requests Pages permissions but only uploads the Doxygen HTML, deploy it or drop the permissions. Effort XS.
- - [ ] One angle convention for the bus: the traces report the electrical angle in (-pi, pi], `unimoc.drive.Telemetry` in [0, 2 pi). Effort XS.
+ - [x] CI housekeeping (review 2026-10-22): `actions/checkout@v7`, `upload-artifact@v7` and `download-artifact@v8` (Node 24); `ci-docs.yml` only uploads the Doxygen HTML and no longer requests the Pages permissions.
+ - [x] One angle convention for the bus: the electrical angle is [0, 2 pi) in `unimoc.drive.Telemetry`, `unimoc.sim.Plant` and the traces (`observer::WrapAnglePositive()`, no libm, usable in the control cycle).
 
 ### Unit types throughout the code base (static checks of the physics)
 
@@ -58,21 +83,21 @@ today), so a formula without one falls back to raw floats and the compiler
 checks nothing. `units.hpp` is in the validated scope (`AGENTS.md`): the
 first three items change it and need the owner's go-ahead.
 
- - [ ] P0: Enforce the boundary in CI: a check (script in `check_format.sh` or a clang-tidy matcher) that counts `.Value()` and raw `unit::X{float}` construction per file outside an allowlist of boundary files (DSDL serialization, cymon float mirror, register encoding, HAL counts), fails when the count grows, and is ratcheted down as the items below land. Effort S.
- - [ ] P0: Math helpers in `units.hpp` so typed code needs no escape: `Abs`, `Min`/`Max`, `IsFinite`, `Sqrt` and `Hypot` of a squared quantity, `Sin`/`Cos` of an `Angle` returning `Ratio` (builtins, no libm in the hot path), angle wrap; remove `Clamp(Rep, Rep)`, which accepts unit-less bounds. ztest in `tests/lib/units`. Effort S-M.
- - [ ] P0 (decision): Replace the tags by dimension exponents (SI base dimensions plus the radian as its own dimension, so that rad/s and Hz stay distinct), keeping the public aliases (`Current`, `Voltage`, ...). Products and quotients are then derived by the compiler, including the controller gains and the observer coefficients that today have no type. The precondition for the items below to stay free of `.Value()`; zero runtime cost (same `float` layout). Effort L.
+ - [x] P0: Enforce the boundary in CI: `scripts/check_unit_escapes.py` (run by `check_format.sh`) counts `.Value()` and raw unit constructions per file against `scripts/unit_escapes_baseline.txt` (1214 in 73 files on 2026-10-22) and fails when a file grows; `--update` locks in a reduction. Boundary files keep their count in the baseline instead of a separate allowlist.
+ - [x] P0: Math helpers in `units.hpp` so typed code needs no escape: `Abs`, `Min`/`Max`, `IsFinite`, `Hypot` (no libm beyond `sqrtf`, an instruction with `-fno-math-errno`); `Clamp(Rep, Rep)` removed and its callers (`mtpa`, `excitation_controller`, `dead_time_compensation`, `field_weakening`) clamp with typed bounds. ztests in `tests/lib/units`. Sine and cosine of an `Angle` are `system::SinCos` (`sin_cos.hpp`), the angle wrap `observer::WrapAngle()`/`WrapAnglePositive()`. `Sqrt` of a squared quantity needs a squared type: it moves to the dimension-exponent item below.
+ - [ ] P0 (decided 2026-10-22): Replace the tags by dimension exponents (SI base dimensions plus the radian as its own dimension, so that rad/s and Hz stay distinct), keeping the public aliases (`Current`, `Voltage`, ...). Products and quotients are then derived by the compiler, including the controller gains and the observer coefficients that today have no type. The precondition for the items below to stay free of `.Value()`; zero runtime cost (same `float` layout). Effort L.
  - [ ] P1: Frames and transforms without unwrapping: `Stator`/`Rotor` rotation, Clarke/Park in `three_phase_system`, `hfi`, `dead_time_compensation`, `pmsm_flux_observer` (Unit x Ratio exists). Effort M.
  - [ ] P1: Typed controller gains: `kp`/`ki` of `current_controller` (V/A, V/(A s)), `speed_controller`, `position_controller`, `excitation_controller`; the integrators keep their output unit. Effort M.
  - [ ] P1: Observers in units: `mechanical_observer` (torque balance, `dt / J`), `asm_flux_observer` (27 escapes), `excitation_observer`, `field_weakening`, `mtpa`. Effort M.
- - [ ] P1: Application state in units: `CurrentControlState::dt_fast`/`dt_slow` (`Time`), `overcurrent_limit` (`Current`), `ForceDuty(float...)` (`Ratio`), `DriveNode::current_limit_` and `torque_constant_` and `OuterLoop::Parameters::torque_constant` (a torque-constant type, N m/A), `HwStartup` thresholds and results (offsets and noise in A, gains as `Ratio`; the `double` accumulators to `float` or a documented exception), `StartupRegisters::ext_current_`/`ext_vdc_`. Effort M.
- - [ ] P1: Hardware conversions typed at the source: `analog::CountsToCurrent`/`CountsToVoltage`/`CountsToTemperature` return units, the sim `Exceeds()` and the BCC `SetOvercurrentLimit()` compare units. Effort S.
- - [ ] P2: `settings_store_internal::Validate()` compares units with typed limits instead of `.Value()` (about 130 calls). Effort S.
- - [ ] P2: Typed test checks (`UNIMOC_EXPECT_NEAR` for units) and the tests migrated (about 520 `.Value()` calls); document the remaining boundaries (DSDL, cymon, registers) in `CONTEXT.md`. Effort M.
+ - [ ] P1: Application state in units (done 2026-10-22: `CurrentControlState::dt_fast`/`dt_slow` as `Time`, `overcurrent_limit` as `Current`, `ForceDuty(Ratio...)` with the startup duties as `Ratio`, `DriveNode::current_limit_` as `Current`, the torque constants of `DriveNode` and `OuterLoop` as `MagneticFlux` (N m/A = Wb, `Torque / MagneticFlux` gives the current); open:) `HwStartup` thresholds and results (offsets and noise in A, gains as `Ratio`; the `double` accumulators to `float` or a documented exception), `StartupRegisters::ext_current_`/`ext_vdc_`. Effort M.
+ - [x] P1: Hardware conversions typed at the source: `analog::CountsToCurrent`/`CountsToVoltage`/`CountsToTemperature`/`CountsToTorque` return units (compile-time checks in `analog_scaling.hpp`), the BCC phase-current reconstruction and `SetOvercurrentLimit()` (`kCurrentPerCount`) and the sim `Exceeds()` work in units.
+ - [x] P2: `settings_store_internal::Validate()` compares units with typed limits (`unit::IsFinite`, `ZeroOf()`, typed PWM frequencies): no `.Value()` left in `settings_store.hpp`.
+ - [ ] P2: Typed test checks (done 2026-10-22: `UNIMOC_EXPECT_FLOAT_EQ`/`UNIMOC_EXPECT_NEAR`/`UNIMOC_ASSERT_NEAR` take two values of one unit, a raw number against a unit does not compile; `dc_link_limit_test.cpp` migrated) and the tests migrated (about 520 `.Value()` calls); document the remaining boundaries (DSDL, cymon, registers) in `CONTEXT.md`. Effort M.
 
 ### P1 - Blocked on hardware access
 
  - [ ] M0 on the board: timing numbers for the sample ISR, control cycle and observer.
- - [ ] M8 first step with the outputs off: DMA burst, preload, start at ARR/2, parity detection and ADC alignment on the scope.
+ - [ ] M8 first step with the outputs off: DMA burst, preload, start at ARR/2, parity detection and ADC alignment on the scope. Include a settings restart (a register write while disengaged, then engage): `foc_stm32g4::Stop()` and the re-init are not run on the board yet.
  - [ ] Cyphal on the BCC: FDCAN3 bit timing at 1 Mbit/s with CAN FD frames through the SN65HVD230, the Rs pin, heartbeat, registers and the RTT log with a USB CAN FD adapter and yakut; plug-and-play with `yakut monitor --plug-and-play`.
  - [ ] Verify ZMS, the flash stall, the dual-bank option bit (DBANK, bank 2 free for Cyphal firmware updates) and the size of the settings partition on the BCC board (settings plan, "Not verified on hardware").
  - [ ] Configure the duty DMA from the devicetree (`dmas` of `foc0`, Zephyr DMA API at init) instead of the fixed DMA1 channel 1 / DMAMUX request 53, and enable its clock through `clock_control` instead of writing `RCC->AHB1ENR`. The zero-latency path keeps reading the channel counter directly. Do this after the M8 first step, so the fixed configuration is a verified reference.
@@ -97,7 +122,7 @@ first three items change it and need the owner's go-ahead.
  - [x] ~~Enable the USB CDC-ACM console~~ Superseded (2026-10-21): USB and the shell were dropped; the bench log is on RTT and on the bus. Link limited to the code partition (`CONFIG_USE_DT_CODE_PARTITION`).
  - [x] Cyphal over CAN-FD as the primary interface (2026-10-21): libcanard 4.0 + O1Heap + Nunavut DSDL pinned in `west.yml`; heartbeat, port list, GetInfo, register List/Access on the settings store (77 registers), ExecuteCommand (restart, store, factory reset, emergency stop), PnP v1, diagnostic records from the Zephyr log; drive application (readiness, current and torque setpoints with timeouts and limits, telemetry); shared between BCC (FDCAN3) and `native_sim` (SocketCAN plus slcan pseudo terminals, plant registers and plant trace). Tests `unimoc.lib.cyphal`, `unimoc.sim.cyphal_drive`; checked with yakut 0.14 against the simulation. Not run on the board.
  - [x] pycyphal integration tests of the running simulation (`tests/integration/cyphal_sim`, twister pytest harness, scenario `unimoc.app.cyphal_integration`): node services, registers, arming, setpoints, telemetry, diagnostics, simulation registers, store and restart.
- - [ ] Extend the pycyphal integration tests with every new bus feature (startup FSM registers, speed setpoints, multi-node runs on `vcan` once available in CI).
+ - [ ] Extend the pycyphal integration tests with every new bus feature (done: startup FSM registers, speed, position and servo setpoints, timing registers, simulation pause and advance; open: multi-node runs on `vcan` once available in CI).
  - [x] Fix the ExecuteCommand status codes in `cyphal_interface.hpp` (BAD_COMMAND and BAD_STATE were swapped against the specification) and remove the heartbeat serializer that packed health and mode into one byte.
  - [x] Review fixes (2026-10-22): a port subscribed twice no longer corrupts the libcanard subscription tree (`CanardTransport::Subscribe()`, ztest); `PowerStageEnable()` checks the break flag again after the release (BCC and sim, not run on the board); CI badge points at `ci-zephyr.yml`; CI uploads the BCC and `native_sim` firmware as artifacts and attaches them to a release for `v*` tags.
  - [x] `app/boards/native_sim.*` were never applied to the 64-bit build: renamed to `native_sim_native_64.*` (1 us tick, real time).
@@ -140,9 +165,9 @@ criteria.
 
  - [ ] Build a host simulator executable around the coordinator.
  - [x] Map standard Cyphal register operations to the settings operation boundary.
- - [ ] Route torque, speed, position, and excitation setpoints into the normal controller input path (torque and d/q current done; speed, position and excitation open).
+ - [ ] Route torque, speed, position, and excitation setpoints into the normal controller input path (torque, d/q current, speed, position and the UDRAL servo done; excitation open).
  - [ ] Publish telemetry and heartbeat with explicit virtual-time semantics (published in real time today; the telemetry carries the control-cycle count).
- - [ ] Add simulation-control commands for reset, fixed-cycle advance, run-until, snapshot, and clock status.
+ - [ ] Add simulation-control commands for reset, fixed-cycle advance, run-until, snapshot, and clock status (pause, fixed-cycle advance, reset and clock status done as `unimoc.sim.*` registers).
  - [ ] Add protocol and localhost end-to-end tests for single- and multi-node operation (single node done: `unimoc.app.cyphal_integration`).
 
 ### P3 - Create the Python command-and-control GUI

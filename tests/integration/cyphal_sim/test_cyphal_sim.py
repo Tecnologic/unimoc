@@ -22,6 +22,7 @@ from sim_client import (
     STANDBY,
     SimClient,
     natural8,
+    natural16,
     real,
 )
 import cymon
@@ -65,6 +66,11 @@ def test_registers_list_read_write_and_validation(sim: SimClient):
     assert sim.write("unimoc.motor.pole_pairs", natural8(7)) == 7
     assert sim.write("unimoc.does_not_exist", real(1.0)) is None  # unknown register: empty value
     assert sim.write("uavcan.pub.telemetry.type", real(1.0)) == "unimoc.drive.Telemetry.0.1"
+    # Two ports on one subject-ID are rejected; a free one is taken.
+    assert sim.write("uavcan.sub.torque_setpoint.id", natural16(106)) == 100  # readiness
+    assert sim.write("uavcan.pub.cymon_trigger.id", natural16(212)) == 65535  # telemetry
+    assert sim.write("uavcan.pub.cymon_trigger.id", natural16(300)) == 300
+    assert sim.write("uavcan.pub.cymon_trigger.id", natural16(65535)) == 65535
 
 
 def test_unknown_commands_are_rejected(sim: SimClient):
@@ -139,6 +145,81 @@ def test_imposed_speed_drives_the_plant(sim: SimClient):
     assert math.isfinite(advance)
 
 
+def test_speed_setpoint_runs_the_speed_loop(sim: SimClient):
+    # Pole pairs (7) and flux (5 mWb) from the tests above; Hall fusion and a speed PI.
+    assert sim.write("unimoc.observer.hall.enable", natural8(1)) == 1
+    assert sim.write("unimoc.observer.pmsm_flux.R_speed", real(1.0)) == pytest.approx(1.0)
+    assert sim.write("unimoc.control.speed.kp", real(0.01)) == pytest.approx(0.01)
+    assert sim.write("unimoc.control.speed.ki", real(40.0)) == pytest.approx(40.0)
+    assert sim.write("unimoc.sim.shaft_mode", natural8(0)) == 0  # free shaft
+    sim.hold(0.2, STANDBY)  # the settings apply while disengaged
+
+    sim.hold(1.5, ENGAGED, sim.speed_setpoint(30.0))
+    assert sim.latest(sim.telemetry, settle=0.0).engaged
+    assert sim.latest(sim.plant, settle=0.0).mechanical_speed == pytest.approx(30.0, abs=2.0)
+
+    # UDRAL servo: the velocity field selects the speed loop.
+    sim.hold(1.5, ENGAGED, sim.servo_setpoint(math.nan, -20.0, math.nan))
+    assert sim.latest(sim.plant, settle=0.0).mechanical_speed == pytest.approx(-20.0, abs=2.0)
+
+    # Position loop: a 3 rad move between two held positions.
+    sim.hold(1.5, ENGAGED, sim.position_setpoint(0.0))
+    start = sim.latest(sim.plant, settle=0.0).mechanical_angle
+    sim.hold(1.5, ENGAGED, sim.position_setpoint(3.0))
+    moved = sim.latest(sim.plant, settle=0.0).mechanical_angle - start
+    assert moved == pytest.approx(3.0, abs=0.1)
+
+    sim.hold(0.3, SLEEP)
+    assert sim.write("unimoc.sim.shaft_mode", natural8(1)) == 1  # locked again (imposed 0 rad/s)
+
+
+def test_timing_registers_without_the_probes(sim: SimClient):
+    # The application builds without CONFIG_UNIMOC_HOT_PATH_TIMING: the registers exist, nothing is counted.
+    assert sim.read("unimoc.timing.clock_hz") == 1_000_000_000
+    response = sim.access("unimoc.timing.control_cycle")
+    assert list(response.value.natural32.value) == [0, 0, 0, 0]
+    assert not response.mutable
+    assert len(sim.access("unimoc.timing.overruns").value.natural32.value) == 2
+    assert sim.write("unimoc.timing.reset", natural8(1)) == 0
+
+
+def test_dc_link_overvoltage_trips_the_drive(sim: SimClient):
+    sim.hold(0.2, STANDBY)
+    sim.hold(0.5, ENGAGED, sim.current_setpoint(0.0, 1.0))
+    assert sim.latest(sim.telemetry, settle=0.0).engaged
+    assert sim.write("unimoc.sim.dc_link_voltage", real(59.0)) == pytest.approx(59.0)  # trip at 58 V
+    sim.hold(0.3, ENGAGED, sim.current_setpoint(0.0, 1.0))
+    telemetry = sim.latest(sim.telemetry)
+    assert not telemetry.engaged
+    assert telemetry.power_stage == 2  # FAULT
+    assert "disengaged: DC-link overvoltage trip" in sim.records
+
+    assert sim.write("unimoc.sim.dc_link_voltage", real(48.0)) == pytest.approx(48.0)
+    sim.hold(0.3, STANDBY)  # acknowledges the trip
+    assert sim.latest(sim.telemetry).power_stage == 0  # DISABLED
+
+
+def test_settings_that_need_a_restart_are_reported_while_engaged(sim: SimClient):
+    sim.hold(0.2, STANDBY)
+    sim.hold(0.5, ENGAGED, sim.current_setpoint(0.0, 1.0))
+    assert sim.latest(sim.telemetry, settle=0.0).engaged
+    assert not sim.read("unimoc.settings.pending")
+
+    # A gain is applied at once; a limit waits for the disengage and says so.
+    assert sim.write("unimoc.control.current.kp_q", real(0.6)) == pytest.approx(0.6)
+    sim.hold(0.2, ENGAGED, sim.current_setpoint(0.0, 1.0))
+    assert not sim.read("unimoc.settings.pending")
+    assert sim.write("unimoc.motor.limits.i_max", real(19.0)) == pytest.approx(19.0)
+    sim.hold(0.2, ENGAGED, sim.current_setpoint(0.0, 1.0))
+    assert sim.read("unimoc.settings.pending")
+    assert "settings wait for the disengage: unimoc.motor.limits.i_max" in sim.records
+
+    sim.hold(0.3, SLEEP)
+    assert not sim.read("unimoc.settings.pending")
+    assert "waiting settings applied" in sim.records
+    assert sim.write("unimoc.motor.limits.i_max", real(20.0)) == pytest.approx(20.0)  # as before
+
+
 def test_trace_variables_ports_and_registers(sim: SimClient):
     variables = sim.trace_variables()
     names = [name for name, _unit in variables]
@@ -195,6 +276,63 @@ def test_trace_triggers_on_a_current_step(sim: SimClient):
     assert frames[40][0] == pytest.approx(4.0)
     settled = [frame[1] for frame in frames[-100:]]
     assert sum(settled) / len(settled) == pytest.approx(4.0, abs=0.5)
+
+
+def test_startup_aid_runs_steps_and_aborts(sim: SimClient):
+    sim.hold(0.2, SLEEP)
+    assert sim.read("unimoc.startup.step") == 0  # IDLE
+    assert sim.write("unimoc.startup.run", natural8(1)) == 1
+    assert sim.read("unimoc.startup.step") == 1  # PWM_DISABLE
+    assert sim.latest(sim.telemetry).power_stage == 1  # the FSM releases the outputs
+
+    # A step write takes effect at the next FSM run, after the response.
+    assert sim.write("unimoc.startup.step", natural8(1)) == 1
+    sim.wait(0.1)
+    assert sim.read("unimoc.startup.step") == 2  # ADC_OFFSET_CAL
+    assert sim.write("unimoc.startup.ext_vdc_V", real(48.0)) == pytest.approx(48.0)
+    results = sim.access("unimoc.startup.results").value.natural8.value
+    assert len(results) == 14 and results[1] == 1  # PWM_DISABLE passed
+
+    assert sim.write("unimoc.startup.run", natural8(0)) == 0  # abort
+    assert sim.read("unimoc.startup.step") == 13  # FAULT
+    assert sim.latest(sim.telemetry).power_stage == 0  # DISABLED
+
+
+def test_paused_simulation_advances_by_whole_cycles(sim: SimClient):
+    sim.hold(0.2, SLEEP)
+    assert sim.read("unimoc.sim.cycle_period_ns") == 62500  # 32 kHz PWM, four half periods
+    assert sim.write("unimoc.sim.paused", natural8(1))
+    start = sim.read("unimoc.sim.cycle_count")
+    sim.wait(0.2)
+    assert sim.read("unimoc.sim.cycle_count") == start  # virtual time stands still
+
+    sim.write("unimoc.sim.advance", natural16(1600))  # 0.1 s of virtual time, run before the response
+    assert sim.read("unimoc.sim.cycle_count") == start + 1600
+    sim.write("unimoc.sim.advance", natural16(20000))  # more than 1 s at once: refused
+    assert sim.read("unimoc.sim.cycle_count") == start + 1600
+
+    # Reset: virtual time 0, plant at standstill, still paused; then exactly 16 cycles.
+    assert sim.write("unimoc.sim.imposed_speed", real(10.0)) == pytest.approx(10.0)
+    sim.write("unimoc.sim.advance", natural16(160))
+    sim.write("unimoc.sim.reset", natural8(1))
+    assert sim.read("unimoc.sim.cycle_count") == 0
+    assert sim.read("unimoc.sim.paused")
+    sim.write("unimoc.sim.advance", natural16(16))
+    assert sim.read("unimoc.sim.cycle_count") == 16
+    assert sim.write("unimoc.sim.imposed_speed", real(0.0)) == 0
+
+    # A settings restart of the controller keeps the pause (the count restarts with it).
+    assert sim.write("unimoc.control.speed.kp", real(0.01)) == pytest.approx(0.01)
+    sim.hold(0.2, STANDBY)
+    restarted = sim.read("unimoc.sim.cycle_count")
+    sim.wait(0.2)
+    assert sim.read("unimoc.sim.cycle_count") == restarted
+
+    assert not sim.write("unimoc.sim.paused", natural8(0))
+    sim.wait(0.2)
+    assert sim.read("unimoc.sim.cycle_count") > restarted + 1000  # real time again
+    sim.write("unimoc.sim.advance", natural16(10))  # only while paused
+    assert not sim.read("unimoc.sim.paused")
 
 
 def test_store_and_restart_keep_the_settings(sim: SimClient, dut):

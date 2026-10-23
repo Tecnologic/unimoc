@@ -112,6 +112,23 @@ ZTEST(speed_controller, test_init_loads_the_settings) {
   UNIMOC_EXPECT_FLOAT_EQ(controller.integral.Value(), 0.0F);
 }
 
+ZTEST(speed_controller, test_additional_bounds_limit_the_output_and_stop_the_integral) {
+  SpeedController controller = MakeController();
+  controller.torque_min = Torque{-0.2F};  // e.g. the battery charge limit while braking
+  for (int i = 0; i < 100; ++i) {
+    (void)controller.Track(AngularVelocity{0.0F}, AngularVelocity{100.0F}, kDt);
+  }
+  UNIMOC_EXPECT_FLOAT_EQ(controller.output.Value(), -0.2F);
+  zexpect_true(controller.integral.Value() >= -0.2F,
+               "integral %f",
+               static_cast<double>(controller.integral.Value()));
+
+  // The bound released and the error gone: no stored windup drives the output.
+  controller.torque_min = Torque{-std::numeric_limits<float>::infinity()};
+  const Torque kOutput = controller.Track(AngularVelocity{100.0F}, AngularVelocity{100.0F}, kDt);
+  zexpect_true(kOutput.Value() >= -0.2F, "output %f", static_cast<double>(kOutput.Value()));
+}
+
 }  // namespace unimoc::control::test
 
 ZTEST_SUITE(speed_controller, nullptr, nullptr, nullptr, nullptr, nullptr);

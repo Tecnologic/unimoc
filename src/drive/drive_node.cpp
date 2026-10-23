@@ -25,12 +25,16 @@
 #include <unimoc/drive/Telemetry_0_1.h>
 #include <array>
 #include <cmath>
-#include <numbers>
 #include <optional>
+#include <string_view>
+#include <utility>
+#include "angle_wrap.hpp"
 #include "current_control_isr.hpp"
 #include "current_control_runtime.hpp"
 #include "cyphal/control_mode.hpp"
 #include "power_stage_interface.hpp"
+#include "settings_registers.hpp"
+#include "settings_store.hpp"
 #include "sin_cos.hpp"
 
 namespace unimoc::drive {
@@ -66,6 +70,65 @@ constexpr std::array<InfoRegister, 15> kInfoRegisters{{
     {cyphal::reg::kNodeUniqueId, ""},
 }};
 
+/**
+ * @brief Copies the registers that may change while engaged (live tuning).
+ *
+ * The gains of the current, speed and position loops, the telemetry rate
+ * and the command timeout: the running loops take them without a restart.
+ */
+void CopyTunable(const settings::NvmSettings& source, settings::NvmSettings& target) noexcept {
+  target.current_kp_d = source.current_kp_d;
+  target.current_ki_d = source.current_ki_d;
+  target.current_kp_q = source.current_kp_q;
+  target.current_ki_q = source.current_ki_q;
+  target.speed_kp = source.speed_kp;
+  target.speed_ki = source.speed_ki;
+  target.speed_accel_limit = source.speed_accel_limit;
+  target.pos_kp_pos = source.pos_kp_pos;
+  target.pos_speed_limit = source.pos_speed_limit;
+  target.pos_accel_limit = source.pos_accel_limit;
+  target.pos_position_tolerance = source.pos_position_tolerance;
+  target.pos_speed_tolerance = source.pos_speed_tolerance;
+  target.telemetry_rate = source.telemetry_rate;
+  target.command_timeout = source.command_timeout;
+}
+
+/// The first register in which @p live differs from @p applied outside the tunable ones; empty: none.
+[[nodiscard]] std::string_view FirstUntunableChange(const settings::NvmSettings& applied,
+                                                    const settings::NvmSettings& live) noexcept {
+  settings::NvmSettings untuned = live;
+  CopyTunable(applied, untuned);
+  std::string_view changed{};
+  settings::ForEachRegister(
+      [&changed](const std::string_view name, const auto& first, const auto& second) {
+        if (changed.empty() && !settings::settings_store_internal::SameEncoding(first, second)) {
+          changed = name;
+        }
+      },
+      applied,
+      std::as_const(untuned));
+  return changed;
+}
+
+/// @p prefix followed by @p detail in @p buffer, cut to its size.
+template <std::size_t kSize>
+[[nodiscard]] std::string_view Joined(const std::string_view prefix,
+                                      const std::string_view detail,
+                                      std::array<char, kSize>& buffer) noexcept {
+  std::size_t length = 0U;
+  for (const char kChar : prefix) {
+    if (length < kSize) {
+      buffer[length++] = kChar;
+    }
+  }
+  for (const char kChar : detail) {
+    if (length < kSize) {
+      buffer[length++] = kChar;
+    }
+  }
+  return std::string_view{buffer.data(), length};
+}
+
 [[nodiscard]] const uint8_t* InputBytes(std::span<const std::byte> payload) noexcept {
   return reinterpret_cast<const uint8_t*>(payload.data());
 }
@@ -78,15 +141,21 @@ constexpr std::array<InfoRegister, 15> kInfoRegisters{{
 
 // ----- DriveInfoRegisters ----------------------------------------------------
 
-std::size_t DriveInfoRegisters::Count() const noexcept { return kInfoRegisters.size(); }
+// The info registers, then `unimoc.settings.pending`.
+std::size_t DriveInfoRegisters::Count() const noexcept { return kInfoRegisters.size() + 1U; }
 
 std::string_view DriveInfoRegisters::Name(const std::size_t index) const noexcept {
+  if (index == kInfoRegisters.size()) {
+    return cyphal::reg::kSettingsPending;
+  }
   return index < kInfoRegisters.size() ? kInfoRegisters[index].name : std::string_view{};
 }
 
 cyphal::RegisterFlags DriveInfoRegisters::Read(const std::size_t index,
                                                cyphal::RegisterValue& value) const noexcept {
-  if (index >= kInfoRegisters.size()) {
+  if (index == kInfoRegisters.size()) {
+    cyphal::SetBit(value, *settings_pending_);
+  } else if (index >= kInfoRegisters.size()) {
     cyphal::SetEmpty(value);
   } else if (kInfoRegisters[index].type.empty()) {
     cyphal::SetUnstructured(value, unique_id_);
@@ -114,7 +183,7 @@ DriveNode::DriveNode(cyphal::CyphalNode& node,
       motor_{&motor},
       hooks_{hooks},
       settings_registers_{store},
-      info_registers_{unique_id},
+      info_registers_{unique_id, settings_waiting_},
       startup_{CurrentControlIsr::Instance(), store.GetOperations()},
       startup_registers_{startup_, engaged_} {}
 
@@ -131,11 +200,14 @@ bool DriveNode::Start(const uint64_t now_us) noexcept {
   telemetry_ = cyphal::Publisher{live.pub_telemetry_id, cyphal::Priority::kHigh, 0U};
   // The runtime was started by main() with these settings.
   applied_writes_ = settings_registers_.WriteCount();
+  checked_writes_ = applied_writes_;
+  applied_settings_ = live;
   LoadParameters(live);
 
   bool subscribed = node_->AddRegisterProvider(settings_registers_);
   subscribed = node_->AddRegisterProvider(info_registers_) && subscribed;
   subscribed = node_->AddRegisterProvider(startup_registers_) && subscribed;
+  subscribed = node_->AddRegisterProvider(timing_registers_) && subscribed;
   subscribed =
       node_->Subscribe(readiness_port_, reg_udral_service_common_Readiness_0_1_EXTENT_BYTES_, *this) &&
       subscribed;
@@ -183,9 +255,10 @@ void DriveNode::Spin(const uint64_t now_us) noexcept {
   if (engaged_) {
     if (now_us - last_readiness_us_ > command_timeout_us_) {
       Disengage("readiness timeout");
-    } else if (kPowerStage.GetState() != PowerStageState::kEnabled || isr.state.overcurrent_tripped) {
+    } else if (kPowerStage.GetState() != PowerStageState::kEnabled || isr.Tripped()) {
       rearm_required_ = true;
-      Disengage(isr.state.overcurrent_tripped ? "overcurrent trip" : "power stage fault");
+      const char* const kTrip = isr.TripName();
+      Disengage(kTrip != nullptr ? kTrip : "power stage fault");
     }
   }
   if (engaged_ && setpoint_active_ && now_us - last_setpoint_us_ > command_timeout_us_) {
@@ -196,6 +269,9 @@ void DriveNode::Spin(const uint64_t now_us) noexcept {
   setpoint.active = engaged_;
   OuterLoop::Instance().SetSetpoint(setpoint);
 
+  if (engaged_ && settings_registers_.WriteCount() != checked_writes_) {
+    TuneLive();
+  }
   if (!engaged_ && settings_registers_.WriteCount() != applied_writes_) {
     settings_pending_ = true;
   }
@@ -215,6 +291,7 @@ void DriveNode::Spin(const uint64_t now_us) noexcept {
     restart_requested_ = false;
     hooks_.restart();
   }
+  settings_waiting_ = settings_pending_ || settings_registers_.WriteCount() != applied_writes_;
   UpdateStatus();
 }
 
@@ -223,9 +300,9 @@ void DriveNode::LoadParameters(const settings::NvmSettings& settings) noexcept {
   telemetry_period_us_ = (settings.telemetry_rate.Value() > 0.0F)
                              ? static_cast<uint64_t>(1.0e6F / settings.telemetry_rate.Value())
                              : 0U;
-  current_limit_ = settings.motor_i_max.Value();
+  current_limit_ = settings.motor_i_max;
   // PMSM torque constant: T = 3/2 p psi_pm i_q.
-  torque_constant_ = 1.5F * static_cast<float>(settings.pole_pairs) * settings.flux_pm.Value();
+  torque_constant_ = settings.flux_pm * (1.5F * static_cast<float>(settings.pole_pairs));
 }
 
 void DriveNode::SpinStartup() noexcept {
@@ -252,9 +329,11 @@ bool DriveNode::ApplySettings() noexcept {
     return false;
   }
   applied_writes_ = settings_registers_.WriteCount();
+  checked_writes_ = applied_writes_;
   settings_pending_ = false;
   const settings::SettingsSnapshot kSnapshot = store_->GetSnapshot();
   const settings::NvmSettings& live = kSnapshot.Get();
+  applied_settings_ = live;
   LoadParameters(live);
 
   if (!current_control::StartRuntime(live, *motor_, store_->GetProfile().capabilities.max_phase_current)) {
@@ -264,7 +343,34 @@ bool DriveNode::ApplySettings() noexcept {
   if (hooks_.settings_applied != nullptr) {
     hooks_.settings_applied(live);
   }
+  if (waiting_announced_) {
+    waiting_announced_ = false;
+    (void)node_->Log(cyphal::Severity::kInfo, "waiting settings applied");
+  }
   return true;
+}
+
+void DriveNode::TuneLive() noexcept {
+  checked_writes_ = settings_registers_.WriteCount();
+  const settings::SettingsSnapshot kSnapshot = store_->GetSnapshot();
+  const settings::NvmSettings& live = kSnapshot.Get();
+  const std::string_view kUntunable = FirstUntunableChange(applied_settings_, live);
+  if (!kUntunable.empty()) {
+    settings_pending_ = true;  // a restart with all of them after the disengage
+    std::array<char, 112> text{};
+    (void)node_->Log(cyphal::Severity::kWarning,
+                     Joined("settings wait for the disengage: ", kUntunable, text));
+    waiting_announced_ = true;
+    return;
+  }
+  CurrentControlIsr::Instance().SetCurrentGains(current_control::CurrentGains{.kp_d = live.current_kp_d,
+                                                                              .ki_d = live.current_ki_d,
+                                                                              .kp_q = live.current_kp_q,
+                                                                              .ki_q = live.current_ki_q});
+  OuterLoop::Instance().SetGains(OuterLoop::GainsFrom(live));
+  LoadParameters(live);
+  applied_settings_ = live;
+  applied_writes_ = checked_writes_;
 }
 
 void DriveNode::OnMessage(const cyphal::Transfer& transfer, const uint64_t now_us) noexcept {
@@ -302,7 +408,7 @@ void DriveNode::OnReadiness(const cyphal::Transfer& transfer, const uint64_t now
     } else if (readiness.value == reg_udral_service_common_Readiness_0_1_STANDBY) {
       // STANDBY acknowledges a latched trip or fault without releasing the
       // outputs, so a flash save is possible again (the save gate needs kDisabled).
-      CurrentControlIsr::Instance().ClearOvercurrentTrip();
+      CurrentControlIsr::Instance().ClearTrips();
       kPowerStage.ClearFault();
     }
   }
@@ -314,17 +420,17 @@ void DriveNode::OnCurrentSetpoint(const cyphal::Transfer& transfer, const uint64
   if (unimoc_drive_CurrentSetpoint_0_1_deserialize_(&setpoint, InputBytes(transfer.payload), &size) < 0) {
     return;
   }
-  SetCurrentSetpoint(setpoint.i_d, setpoint.i_q, now_us);
+  SetCurrentSetpoint(unit::Current{setpoint.i_d}, unit::Current{setpoint.i_q}, now_us);
 }
 
 void DriveNode::OnTorqueSetpoint(const cyphal::Transfer& transfer, const uint64_t now_us) noexcept {
   uavcan_si_unit_torque_Scalar_1_0 torque{};
   std::size_t size = transfer.payload.size();
   if (uavcan_si_unit_torque_Scalar_1_0_deserialize_(&torque, InputBytes(transfer.payload), &size) < 0 ||
-      torque_constant_ <= 0.0F) {
+      torque_constant_ <= unit::MagneticFlux{}) {
     return;
   }
-  SetCurrentSetpoint(0.0F, torque.newton_meter / torque_constant_, now_us);
+  SetCurrentSetpoint(unit::Current{}, unit::Torque{torque.newton_meter} / torque_constant_, now_us);
 }
 
 void DriveNode::OnSpeedSetpoint(const cyphal::Transfer& transfer, const uint64_t now_us) noexcept {
@@ -374,24 +480,27 @@ void DriveNode::OnServoSetpoint(const cyphal::Transfer& transfer, const uint64_t
       SetSpeedSetpoint(kSpeed, now_us);
       break;
     case cyphal::ControlMode::kTorque:
-      if (torque_constant_ > 0.0F) {
-        SetCurrentSetpoint(0.0F, kTorque / torque_constant_, now_us);
+      if (torque_constant_ > unit::MagneticFlux{}) {
+        SetCurrentSetpoint(unit::Current{}, unit::Torque{kTorque} / torque_constant_, now_us);
       }
       break;
   }
 }
 
-void DriveNode::SetCurrentSetpoint(const float i_d, const float i_q, const uint64_t now_us) noexcept {
-  if (!std::isfinite(i_d) || !std::isfinite(i_q)) {
+void DriveNode::SetCurrentSetpoint(const unit::Current i_d,
+                                   const unit::Current i_q,
+                                   const uint64_t now_us) noexcept {
+  if (!unit::IsFinite(i_d) || !unit::IsFinite(i_q)) {
     return;
   }
   // Limit the current vector to i_max, keeping its direction.
-  const float kMagnitude = std::sqrt((i_d * i_d) + (i_q * i_q));
-  const float kScale =
-      (kMagnitude > current_limit_ && kMagnitude > 0.0F) ? current_limit_ / kMagnitude : 1.0F;
+  const unit::Current kMagnitude = unit::Hypot(i_d, i_q);
+  const unit::Ratio kScale = (kMagnitude > current_limit_ && kMagnitude > unit::Current{})
+                                 ? current_limit_ / kMagnitude
+                                 : unit::Ratio{1.0F};
   setpoint_ = OuterSetpoint{};
   setpoint_.mode = cyphal::ControlMode::kTorque;
-  setpoint_.current = {unit::Current{i_d * kScale}, unit::Current{i_q * kScale}};
+  setpoint_.current = {i_d * kScale, i_q * kScale};
   last_setpoint_us_ = now_us;
   setpoint_active_ = true;
 }
@@ -441,7 +550,7 @@ void DriveNode::Engage() noexcept {
   ClearSetpoint();
   OuterLoop::Instance().SetSetpoint(OuterSetpoint{});
   // ENGAGED is the explicit acknowledgement of a latched trip (as HwStartup::RequestRun()).
-  isr.ClearOvercurrentTrip();
+  isr.ClearTrips();
   kPowerStage.ClearFault();
   if (!kPowerStage.Enable()) {
     rearm_required_ = true;
@@ -461,15 +570,7 @@ void DriveNode::Disengage(const std::string_view reason) noexcept {
   if (engaged_) {
     engaged_ = false;
     std::array<char, 64> text{};
-    const std::string_view kPrefix{"disengaged: "};
-    std::size_t length = 0U;
-    for (const char kChar : kPrefix) {
-      text[length++] = kChar;
-    }
-    for (std::size_t i = 0U; i < reason.size() && length < text.size(); ++i) {
-      text[length++] = reason[i];
-    }
-    (void)node_->Log(cyphal::Severity::kNotice, std::string_view{text.data(), length});
+    (void)node_->Log(cyphal::Severity::kNotice, Joined("disengaged: ", reason, text));
   }
 }
 
@@ -531,9 +632,6 @@ void DriveNode::PublishTelemetry() noexcept {
   const unit::Angle kAngle = isr.mech_obs.theta;
   const system::SinCos<unit::Ratio> kSinCos(kAngle);
   const auto kCurrent = state.raw_phase_currents.ToStator().ToRotor(kSinCos);
-  constexpr float kTwoPi = 2.0F * std::numbers::pi_v<float>;
-  float angle = std::fmod(kAngle.Value(), kTwoPi);
-  angle = (angle < 0.0F) ? angle + kTwoPi : angle;
 
   unimoc_drive_Telemetry_0_1 telemetry{};
   telemetry.control_cycles = state.control_cycles;
@@ -543,7 +641,7 @@ void DriveNode::PublishTelemetry() noexcept {
   telemetry.i_q_ref = state.i_ref.q.Value();
   telemetry.u_d = state.u_dq_last.d.Value();
   telemetry.u_q = state.u_dq_last.q.Value();
-  telemetry.electrical_angle = angle;
+  telemetry.electrical_angle = observer::WrapAnglePositive(kAngle).Value();
   telemetry.electrical_speed = isr.mech_obs.omega.Value();
   telemetry.dc_link_voltage = state.raw_vdc.Value();
   telemetry.power_stage = static_cast<uint8_t>(kPowerStage.GetState());
@@ -563,7 +661,7 @@ void DriveNode::UpdateStatus() noexcept {
   cyphal::Health health = cyphal::Health::kNominal;
   if (emergency_stop_) {
     health = cyphal::Health::kCaution;
-  } else if (kState == PowerStageState::kFault || CurrentControlIsr::Instance().state.overcurrent_tripped) {
+  } else if (kState == PowerStageState::kFault || CurrentControlIsr::Instance().Tripped()) {
     health = cyphal::Health::kAdvisory;
   }
   node_->SetHealth(health);

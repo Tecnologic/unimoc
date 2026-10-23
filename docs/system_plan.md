@@ -349,7 +349,11 @@ path (`AGENTS.md`, zero-latency rules).
   DC link rises fast; the BSC040N08 are 80 V parts on a 48 V system. The
   chopper limits the voltage, and each drive still needs its own
   overvoltage limit in the current controller and a hard trip, verified on
-  the bench with the chopper disconnected.
+  the bench with the chopper disconnected. Implemented in the drive
+  (2026-10-22): regenerative derating from 55 V, trip at 58 V (BCC). The
+  trip switches all transistors off, so at high speed the motor still
+  charges the DC link through the body diodes; accepted as a known risk
+  until the brake chopper comes with a later hardware design.
 - **Low speed and standstill:** regeneration fades near zero speed and
   cannot hold the cart; holding torque at standstill costs battery energy.
   Parking needs the mechanical brake (or a parking brake).

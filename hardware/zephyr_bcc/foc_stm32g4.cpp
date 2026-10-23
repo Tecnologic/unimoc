@@ -25,11 +25,13 @@
 #include <zephyr/kernel.h>
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cstddef>
 #include "dead_time.hpp"
 #include "foc_stm32g4_dt.hpp"
 #include "hardware_interface_config.hpp"
 #include "hot_path_interface.hpp"
+#include "hot_path_timing.hpp"
 
 // Zephyr's pinctrl macro defines the pin table as a C array.
 // NOLINTBEGIN(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays,cppcoreguidelines-pro-bounds-array-to-pointer-decay)
@@ -74,6 +76,9 @@ constexpr uint32_t kCcr1WordOffset = offsetof(TIM_TypeDef, CCR1) / sizeof(uint32
 constexpr unsigned kObserverIrq = kTimerUpdateIrq;
 constexpr unsigned kObserverIrqPriority = 0U;  // highest normal (non zero-latency) priority
 
+// M0 execution times of the interrupts (hot_path_timing.hpp).
+constexpr bool kTiming = IS_ENABLED(CONFIG_UNIMOC_HOT_PATH_TIMING);
+
 // Break input (net PWM_BREAK): the external enable. High = released, low or open = break.
 const struct gpio_dt_spec kEnableInput = GPIO_DT_SPEC_GET_BY_IDX(DT_PATH(zephyr_user), break_gpios, 0);
 
@@ -95,13 +100,21 @@ static_assert(sizeof(g_dma_slots) == kDmaTransfers * sizeof(uint32_t), "slots ar
 // Sample interrupt state. Only the zero-latency context writes it.
 CycleRaw g_cycle{};
 uint8_t g_sample_index = 0U;
-uint32_t g_overcurrent_low = 0U;
-uint32_t g_overcurrent_high = 0xFFFU;
+
+// Overcurrent window, low limit in bits 0..15 and high limit in bits 16..31.
+// Written by the thread context (SetOvercurrentWindow()), read by the sample
+// interrupt: one word, so it never sees the limits of two windows.
+constexpr uint32_t PackWindow(const uint32_t low, const uint32_t high) noexcept {
+  return (low & 0xFFFFU) | ((high & 0xFFFFU) << 16U);
+}
+std::atomic<uint32_t> g_overcurrent_window{PackWindow(0U, 0xFFFU)};
+static_assert(std::atomic<uint32_t>::is_always_lock_free);
 
 // What was active while the samples of the current cycle were taken.
 TickPlan g_applied{};
 PhaseTicks g_last_entry{};  // entry 3 of the last plan
 bool g_control_at_peak = true;
+bool g_started = false;  // Initialize() has programmed the hardware, Stop() has not run since
 uint32_t g_duty_overruns = 0U;
 
 inline ADC_TypeDef* Adc(const AdcDescription& d) noexcept { return reinterpret_cast<ADC_TypeDef*>(d.base); }
@@ -175,14 +188,36 @@ bool InitAdc(const AdcDescription& description, const bool fast_interrupt) noexc
   return true;
 }
 
+// Stops the injected sequence and disables the ADC (RM0440: JADSTP only
+// while JADSTART = 1, ADDIS only while ADEN = 1 and no conversion runs).
+bool StopAdc(const AdcDescription& description) noexcept {
+  ADC_TypeDef* const kAdc = Adc(description);
+  if ((kAdc->CR & ADC_CR_JADSTART) != 0U) {
+    kAdc->CR |= ADC_CR_JADSTP;
+    if (!WaitWhile(kAdc->CR, ADC_CR_JADSTART, false)) {
+      return false;
+    }
+  }
+  kAdc->IER = 0U;
+  if ((kAdc->CR & ADC_CR_ADEN) != 0U) {
+    kAdc->CR |= ADC_CR_ADDIS;
+    if (!WaitWhile(kAdc->CR, ADC_CR_ADEN, false)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 // ----- Zero-latency interrupt service routine --------------------------------
 // No kernel calls, no logging. Direct ISRs return 0: never a reschedule.
 
-bool OutsideWindow(const uint32_t raw) noexcept {
-  return raw < g_overcurrent_low || raw > g_overcurrent_high;
+bool OutsideWindow(const uint32_t raw, const uint32_t window) noexcept {
+  return raw < (window & 0xFFFFU) || raw > (window >> 16U);
 }
 
 ISR_DIRECT_DECLARE(SampleIsr) {
+  // M0: from the first instruction, without the exception entry (12 cycles).
+  const uint32_t kEntry = kTiming ? DWT->CYCCNT : 0U;
   kAdcFast->ISR = ADC_ISR_JEOS;  // the sequence is complete, JDR1/JDR2 are valid
   const uint32_t kIa = kAdcFast->JDR1;
   const uint32_t kIb = kAdcB->JDR1;
@@ -190,7 +225,8 @@ ISR_DIRECT_DECLARE(SampleIsr) {
   const uint8_t kIndex = g_sample_index;
   g_cycle.currents[kIndex] =
       RawCurrents{static_cast<uint16_t>(kIa), static_cast<uint16_t>(kIb), static_cast<uint16_t>(kIc)};
-  if (OutsideWindow(kIa) || OutsideWindow(kIb) || OutsideWindow(kIc)) {
+  const uint32_t kWindow = g_overcurrent_window.load(std::memory_order_relaxed);
+  if (OutsideWindow(kIa, kWindow) || OutsideWindow(kIb, kWindow) || OutsideWindow(kIc, kWindow)) {
     kTim->EGR = TIM_EGR_BG;  // break: outputs off at once, BIF latched
     g_cycle.overcurrent = true;
   }
@@ -202,15 +238,32 @@ ISR_DIRECT_DECLARE(SampleIsr) {
   g_sample_index = 0U;
   g_cycle.vdc = kAdcVdc->JDR1;
   g_cycle.timestamp = DWT->CYCCNT;  // the control boundary, in the clock of the Hall events
-  ControlCycleHandler();
+  if constexpr (kTiming) {
+    const uint32_t kStart = DWT->CYCCNT;
+    ControlCycleHandler();
+    timing::ProbeOf(timing::Section::kControlCycle).Record(DWT->CYCCNT - kStart);
+  } else {
+    ControlCycleHandler();
+  }
   g_cycle.overcurrent = false;
   NVIC_SetPendingIRQ(static_cast<IRQn_Type>(kObserverIrq));
+  if constexpr (kTiming) {
+    timing::ProbeOf(timing::Section::kSampleIsr).Record(DWT->CYCCNT - kEntry);
+  }
   return 0;
 }
 
 // ----- Observer interrupt (normal priority) ---------------------------------
 
-void ObserverIsr(const void* /*unused*/) { ObserverHandler(); }
+void ObserverIsr(const void* /*unused*/) {
+  if constexpr (kTiming) {
+    const uint32_t kStart = DWT->CYCCNT;
+    ObserverHandler();
+    timing::ProbeOf(timing::Section::kObserver).Record(DWT->CYCCNT - kStart);
+  } else {
+    ObserverHandler();
+  }
+}
 
 void ApplyTriggerLead(const uint32_t ticks) noexcept {
   // At least one tick, at most a quarter period, so both triggers stay in
@@ -314,9 +367,13 @@ bool Initialize(const unit::Frequency pwm_frequency, const uint32_t adc_trigger_
     return false;
   }
 
+  // A restart (new settings): stop what the last Initialize() started, also
+  // when it failed half way.
+  Stop();
   if (pinctrl_apply_state(PINCTRL_DT_DEV_CONFIG_GET(UNIMOC_FOC), PINCTRL_STATE_DEFAULT) != 0) {
     return false;
   }
+  g_started = true;
   if (!InitTimer(kPwmHz, adc_trigger_offset)) {
     return false;
   }
@@ -357,6 +414,34 @@ bool Initialize(const unit::Frequency pwm_frequency, const uint32_t adc_trigger_
   kTim->DIER = TIM_DIER_UDE;  // after UG: the initial update must not start a burst
   kTim->CR1 |= TIM_CR1_CEN;
   return true;
+}
+
+void Stop() noexcept {
+  if (!g_started) {
+    return;
+  }
+  g_started = false;
+  // First the interrupts: no control cycle or observer runs from here on.
+  irq_disable(kFastIrq);
+  irq_disable(kObserverIrq);
+
+  kTim->BDTR &= ~TIM_BDTR_MOE;  // outputs off (the power stage is disabled already)
+  kTim->DIER = 0U;              // no more DMA requests
+  kTim->CR1 &= ~TIM_CR1_CEN;    // no more ADC triggers
+  kDma->CCR &= ~DMA_CCR_EN;
+
+  // An ADC that does not stop is left as it is; the calibration in the
+  // following Initialize() then fails and reports it.
+  (void)StopAdc(kAdcPhaseA);
+  (void)StopAdc(kAdcPhaseB);
+  (void)StopAdc(kAdcPhaseC);
+  (void)StopAdc(kAdcDcLink);
+  if (kBridgeTemperatureAvailable || kMotorTemperatureAvailable) {
+    (void)StopAdc(kAdcTemperature);
+  }
+
+  NVIC_ClearPendingIRQ(static_cast<IRQn_Type>(kFastIrq));
+  NVIC_ClearPendingIRQ(static_cast<IRQn_Type>(kObserverIrq));
 }
 
 bool PowerStageEnable() noexcept {
@@ -460,8 +545,7 @@ bool SampleAtPeak(const uint8_t sample) noexcept {
 }
 
 void SetOvercurrentWindow(const uint32_t low, const uint32_t high) noexcept {
-  g_overcurrent_low = low;
-  g_overcurrent_high = high;
+  g_overcurrent_window.store(PackWindow(low, high), std::memory_order_relaxed);
 }
 
 RawSamples ReadRaw() noexcept {

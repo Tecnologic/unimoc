@@ -15,6 +15,7 @@
  */
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdint>
@@ -51,49 +52,50 @@ enum class SettingsStatus : uint8_t {
 
 namespace settings_store_internal {
 
+/// The zero of a value's unit, for sign checks without Value().
+template <unit::UnitLike U>
+[[nodiscard]] constexpr U ZeroOf(const U& /*unused*/) noexcept {
+  return U{};
+}
+
 [[nodiscard]] inline bool IsFinite(const NvmSettings& settings) noexcept {
-  return std::isfinite(settings.stator_r.Value()) && std::isfinite(settings.stator_l.Value()) &&
-         std::isfinite(settings.motor_i_max.Value()) && std::isfinite(settings.motor_omega_max.Value()) &&
-         std::isfinite(settings.motor_omega_min.Value()) &&
-         std::isfinite(settings.battery_drive_current_max.Value()) &&
-         std::isfinite(settings.battery_charge_current_max.Value()) &&
-         std::isfinite(settings.flux_pm.Value()) && std::isfinite(settings.l_d.Value()) &&
-         std::isfinite(settings.l_q.Value()) && std::isfinite(settings.asm_r_r.Value()) &&
-         std::isfinite(settings.asm_r_s.Value()) && std::isfinite(settings.asm_l_s.Value()) &&
-         std::isfinite(settings.asm_l_r.Value()) && std::isfinite(settings.asm_l_m.Value()) &&
-         std::isfinite(settings.motor_j.Value()) && std::isfinite(settings.mech_obs_q) &&
-         std::isfinite(settings.mech_obs_r) && std::isfinite(settings.pmsm_flux_obs_c_d.Value()) &&
-         std::isfinite(settings.pmsm_flux_obs_c_q.Value()) && std::isfinite(settings.pmsm_flux_obs_r_speed) &&
-         std::isfinite(settings.hall_offset.Value()) && std::isfinite(settings.hall_r_edge) &&
-         std::isfinite(settings.hall_r_sector) && std::isfinite(settings.asm_obs_g_i.Value()) &&
-         std::isfinite(settings.asm_obs_g_flux.Value()) && std::isfinite(settings.asm_flux_kp.Value()) &&
-         std::isfinite(settings.asm_flux_ki.Value()) && std::isfinite(settings.asm_flux_i_d_min.Value()) &&
-         std::isfinite(settings.asm_flux_i_d_max.Value()) && std::isfinite(settings.fw_v_max.Value()) &&
-         std::isfinite(settings.fw_ki.Value()) && std::isfinite(settings.fw_i_d_min.Value()) &&
-         std::isfinite(settings.current_kp_d.Value()) && std::isfinite(settings.current_ki_d.Value()) &&
-         std::isfinite(settings.current_kp_q.Value()) && std::isfinite(settings.current_ki_q.Value()) &&
-         std::isfinite(settings.current_v_max.Value()) && std::isfinite(settings.svm_duty_min.Value()) &&
-         std::isfinite(settings.svm_duty_max.Value()) && std::isfinite(settings.dtc_dead_time.Value()) &&
-         std::isfinite(settings.dtc_f_pwm.Value()) && std::isfinite(settings.dtc_i_threshold.Value()) &&
-         std::isfinite(settings.hfi_v_inject.Value()) && std::isfinite(settings.hfi_error_gain.Value()) &&
-         std::isfinite(settings.excitation_l_m.Value()) && std::isfinite(settings.excitation_kp.Value()) &&
-         std::isfinite(settings.excitation_ki.Value()) &&
-         std::isfinite(settings.excitation_i_f_min.Value()) &&
-         std::isfinite(settings.excitation_i_f_max.Value()) &&
-         std::isfinite(settings.excitation_obs_tau.Value()) &&
-         std::isfinite(settings.excitation_obs_l_m.Value()) && std::isfinite(settings.speed_kp.Value()) &&
-         std::isfinite(settings.speed_ki.Value()) && std::isfinite(settings.speed_accel_limit.Value()) &&
-         std::isfinite(settings.pos_kp_pos.Value()) && std::isfinite(settings.pos_kp_speed.Value()) &&
-         std::isfinite(settings.pos_ki_speed.Value()) && std::isfinite(settings.pos_speed_limit.Value()) &&
-         std::isfinite(settings.pos_accel_limit.Value()) &&
-         std::isfinite(settings.pos_position_tolerance.Value()) &&
-         std::isfinite(settings.pos_speed_tolerance.Value()) &&
-         std::isfinite(settings.pos_homing_speed.Value()) && std::isfinite(settings.adc_offset_a.Value()) &&
-         std::isfinite(settings.adc_offset_b.Value()) && std::isfinite(settings.adc_gain_a.Value()) &&
-         std::isfinite(settings.adc_gain_b.Value()) && std::isfinite(settings.adc_gain_vdc.Value()) &&
-         std::isfinite(settings.phase_balance_a.Value()) && std::isfinite(settings.phase_balance_b.Value()) &&
-         std::isfinite(settings.phase_balance_c.Value()) && std::isfinite(settings.telemetry_rate.Value()) &&
-         std::isfinite(settings.command_timeout.Value());
+  return unit::IsFinite(settings.stator_r) && unit::IsFinite(settings.stator_l) &&
+         unit::IsFinite(settings.motor_i_max) && unit::IsFinite(settings.motor_omega_max) &&
+         unit::IsFinite(settings.motor_omega_min) && unit::IsFinite(settings.battery_drive_current_max) &&
+         unit::IsFinite(settings.battery_charge_current_max) && unit::IsFinite(settings.flux_pm) &&
+         unit::IsFinite(settings.l_d) && unit::IsFinite(settings.l_q) && unit::IsFinite(settings.asm_r_r) &&
+         unit::IsFinite(settings.asm_r_s) && unit::IsFinite(settings.asm_l_s) &&
+         unit::IsFinite(settings.asm_l_r) && unit::IsFinite(settings.asm_l_m) &&
+         unit::IsFinite(settings.motor_j) && std::isfinite(settings.mech_obs_q) &&
+         std::isfinite(settings.mech_obs_r) && unit::IsFinite(settings.pmsm_flux_obs_c_d) &&
+         unit::IsFinite(settings.pmsm_flux_obs_c_q) && std::isfinite(settings.pmsm_flux_obs_r_speed) &&
+         unit::IsFinite(settings.hall_offset) && std::isfinite(settings.hall_r_edge) &&
+         std::isfinite(settings.hall_r_sector) && unit::IsFinite(settings.asm_obs_g_i) &&
+         unit::IsFinite(settings.asm_obs_g_flux) && unit::IsFinite(settings.asm_flux_kp) &&
+         unit::IsFinite(settings.asm_flux_ki) && unit::IsFinite(settings.asm_flux_i_d_min) &&
+         unit::IsFinite(settings.asm_flux_i_d_max) && unit::IsFinite(settings.fw_v_max) &&
+         unit::IsFinite(settings.fw_ki) && unit::IsFinite(settings.fw_i_d_min) &&
+         unit::IsFinite(settings.current_kp_d) && unit::IsFinite(settings.current_ki_d) &&
+         unit::IsFinite(settings.current_kp_q) && unit::IsFinite(settings.current_ki_q) &&
+         unit::IsFinite(settings.current_v_max) && unit::IsFinite(settings.svm_duty_min) &&
+         unit::IsFinite(settings.svm_duty_max) && unit::IsFinite(settings.dtc_dead_time) &&
+         unit::IsFinite(settings.dtc_f_pwm) && unit::IsFinite(settings.dtc_i_threshold) &&
+         unit::IsFinite(settings.hfi_v_inject) && unit::IsFinite(settings.hfi_error_gain) &&
+         unit::IsFinite(settings.excitation_l_m) && unit::IsFinite(settings.excitation_kp) &&
+         unit::IsFinite(settings.excitation_ki) && unit::IsFinite(settings.excitation_i_f_min) &&
+         unit::IsFinite(settings.excitation_i_f_max) && unit::IsFinite(settings.excitation_obs_tau) &&
+         unit::IsFinite(settings.excitation_obs_l_m) && unit::IsFinite(settings.speed_kp) &&
+         unit::IsFinite(settings.speed_ki) && unit::IsFinite(settings.speed_accel_limit) &&
+         unit::IsFinite(settings.pos_kp_pos) && unit::IsFinite(settings.pos_kp_speed) &&
+         unit::IsFinite(settings.pos_ki_speed) && unit::IsFinite(settings.pos_speed_limit) &&
+         unit::IsFinite(settings.pos_accel_limit) && unit::IsFinite(settings.pos_position_tolerance) &&
+         unit::IsFinite(settings.pos_speed_tolerance) && unit::IsFinite(settings.pos_homing_speed) &&
+         unit::IsFinite(settings.adc_offset_a) && unit::IsFinite(settings.adc_offset_b) &&
+         unit::IsFinite(settings.adc_gain_a) && unit::IsFinite(settings.adc_gain_b) &&
+         unit::IsFinite(settings.adc_gain_vdc) && unit::IsFinite(settings.phase_balance_a) &&
+         unit::IsFinite(settings.phase_balance_b) && unit::IsFinite(settings.phase_balance_c) &&
+         unit::IsFinite(settings.telemetry_rate) && unit::IsFinite(settings.command_timeout) &&
+         unit::IsFinite(settings.dc_link_regen_derate_start) && unit::IsFinite(settings.dc_link_trip);
 }
 
 [[nodiscard]] inline bool IsValidEnumValues(const NvmSettings& settings) noexcept {
@@ -103,23 +105,30 @@ namespace settings_store_internal {
   const bool kValidControlMode = settings.control_mode == cyphal::ControlMode::kTorque ||
                                  settings.control_mode == cyphal::ControlMode::kSpeed ||
                                  settings.control_mode == cyphal::ControlMode::kPosition;
-  const float kPwmFrequencyHz = settings.pwm_frequency.Value();
-  const bool kValidPwmFrequency = kPwmFrequencyHz == 16000.0F || kPwmFrequencyHz == 20000.0F ||
-                                  kPwmFrequencyHz == 24000.0F || kPwmFrequencyHz == 28000.0F ||
-                                  kPwmFrequencyHz == 32000.0F;
+  constexpr std::array<unit::Frequency, 5> kPwmFrequencies{unit::Frequency{16000.0F},
+                                                           unit::Frequency{20000.0F},
+                                                           unit::Frequency{24000.0F},
+                                                           unit::Frequency{28000.0F},
+                                                           unit::Frequency{32000.0F}};
+  const bool kValidPwmFrequency =
+      std::find(kPwmFrequencies.begin(), kPwmFrequencies.end(), settings.pwm_frequency) !=
+      kPwmFrequencies.end();
   return kValidMotorType && kValidControlMode && kValidPwmFrequency && settings.excitation_mode <= 1U &&
          settings.hall_enable <= 1U;
 }
 
 [[nodiscard]] inline bool IsValidProfile(const SettingsProfile& profile) noexcept {
   const auto& limits = profile.capabilities;
-  return IsFinite(profile.factory_settings) && std::isfinite(limits.max_phase_current.Value()) &&
-         std::isfinite(limits.max_motor_current.Value()) &&
-         std::isfinite(limits.max_battery_drive_current.Value()) &&
-         std::isfinite(limits.max_battery_charge_current.Value()) &&
-         limits.max_phase_current.Value() > 0.0F && limits.max_motor_current.Value() > 0.0F &&
-         limits.max_motor_current.Value() <= limits.max_phase_current.Value() &&
-         limits.max_battery_drive_current.Value() > 0.0F && limits.max_battery_charge_current.Value() >= 0.0F;
+  return IsFinite(profile.factory_settings) && unit::IsFinite(limits.max_phase_current) &&
+         unit::IsFinite(limits.max_motor_current) && unit::IsFinite(limits.max_battery_drive_current) &&
+         unit::IsFinite(limits.max_battery_charge_current) &&
+         limits.max_phase_current > ZeroOf(limits.max_phase_current) &&
+         limits.max_motor_current > ZeroOf(limits.max_motor_current) &&
+         limits.max_motor_current <= limits.max_phase_current &&
+         limits.max_battery_drive_current > ZeroOf(limits.max_battery_drive_current) &&
+         limits.max_battery_charge_current >= ZeroOf(limits.max_battery_charge_current) &&
+         unit::IsFinite(limits.max_dc_link_voltage) &&
+         limits.max_dc_link_voltage > ZeroOf(limits.max_dc_link_voltage);
 }
 
 /// Largest Cyphal subject-ID.
@@ -129,6 +138,51 @@ inline constexpr unit::Frequency kMaxTelemetryRate{1000.0F};
 /// Longest readiness and setpoint timeout.
 inline constexpr unit::Time kMaxCommandTimeout{10.0F};
 
+/// True when two enabled ports in @p port_ids share one port-ID.
+template <std::size_t kCount>
+[[nodiscard]] constexpr bool HasDuplicatePort(const std::array<uint16_t, kCount>& port_ids) noexcept {
+  for (std::size_t i = 0U; i < kCount; ++i) {
+    for (std::size_t j = i + 1U; j < kCount; ++j) {
+      if (port_ids[i] != cyphal::kUnsetPortId && port_ids[i] == port_ids[j]) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+/**
+ * @brief True when two enabled ports of the drive would share one port-ID.
+ *
+ * The drive dispatches a received message by its subject-ID, so two
+ * subscriptions on one subject would give the message to the first match
+ * only, and a publication on a subscribed subject mixes two data types on
+ * one subject. Subject-IDs and service-IDs are separate spaces. The one
+ * allowed overlap is the cymon trigger: publishing and subscribing the same
+ * `cymon.TriggerEvent` subject lets every node of a bus trigger the others
+ * (a node does not receive its own transfers).
+ */
+[[nodiscard]] inline bool HasPortIdCollision(const NvmSettings& settings) noexcept {
+  const std::array<uint16_t, 7U> kSubjects{settings.sub_readiness_id,
+                                           settings.sub_current_setpoint_id,
+                                           settings.sub_torque_setpoint_id,
+                                           settings.sub_speed_setpoint_id,
+                                           settings.sub_position_setpoint_id,
+                                           settings.sub_servo_setpoint_id,
+                                           settings.pub_telemetry_id};
+  const std::array<uint16_t, 5U> kServices{settings.srv_cymon_variables_id,
+                                           settings.srv_cymon_buffer_info_id,
+                                           settings.srv_cymon_setup_id,
+                                           settings.srv_cymon_arm_id,
+                                           settings.srv_cymon_read_id};
+  const auto kOnSubject = [&kSubjects](const uint16_t port_id) {
+    return port_id != cyphal::kUnsetPortId &&
+           std::find(kSubjects.begin(), kSubjects.end(), port_id) != kSubjects.end();
+  };
+  return HasDuplicatePort(kSubjects) || HasDuplicatePort(kServices) ||
+         kOnSubject(settings.pub_cymon_trigger_id) || kOnSubject(settings.sub_cymon_trigger_id);
+}
+
 [[nodiscard]] inline SettingsStatus Validate(const NvmSettings& settings,
                                              const HardwareCapabilities& limits) noexcept {
   if (!IsFinite(settings) || !IsValidEnumValues(settings) || settings.node_id > 127U ||
@@ -136,47 +190,57 @@ inline constexpr unit::Time kMaxCommandTimeout{10.0F};
     return SettingsStatus::kInvalidSettings;
   }
 
-  if (settings.motor_i_max.Value() < 0.0F ||
-      settings.motor_i_max.Value() > limits.max_motor_current.Value() ||
-      settings.battery_drive_current_max.Value() < 0.0F ||
-      settings.battery_drive_current_max.Value() > limits.max_battery_drive_current.Value() ||
-      settings.battery_charge_current_max.Value() < 0.0F ||
-      settings.battery_charge_current_max.Value() > limits.max_battery_charge_current.Value() ||
-      settings.motor_omega_min.Value() > 0.0F || settings.motor_omega_max.Value() < 0.0F) {
+  if (settings.motor_i_max < ZeroOf(settings.motor_i_max) ||
+      settings.motor_i_max > limits.max_motor_current ||
+      settings.battery_drive_current_max < ZeroOf(settings.battery_drive_current_max) ||
+      settings.battery_drive_current_max > limits.max_battery_drive_current ||
+      settings.battery_charge_current_max < ZeroOf(settings.battery_charge_current_max) ||
+      settings.battery_charge_current_max > limits.max_battery_charge_current ||
+      settings.motor_omega_min > ZeroOf(settings.motor_omega_min) ||
+      settings.motor_omega_max < ZeroOf(settings.motor_omega_max) ||
+      settings.dc_link_regen_derate_start <= ZeroOf(settings.dc_link_regen_derate_start) ||
+      settings.dc_link_trip <= settings.dc_link_regen_derate_start ||
+      settings.dc_link_trip > limits.max_dc_link_voltage) {
     return SettingsStatus::kOutOfRange;
   }
 
-  if (settings.stator_r.Value() <= 0.0F || settings.stator_l.Value() <= 0.0F ||
-      settings.flux_pm.Value() < 0.0F || settings.l_d.Value() <= 0.0F || settings.l_q.Value() <= 0.0F ||
-      settings.asm_r_r.Value() <= 0.0F || settings.asm_r_s.Value() <= 0.0F ||
-      settings.asm_l_s.Value() <= 0.0F || settings.asm_l_r.Value() <= 0.0F ||
-      settings.asm_l_m.Value() <= 0.0F || settings.motor_j.Value() <= 0.0F ||
-      settings.asm_flux_i_d_min.Value() < 0.0F ||
-      settings.asm_flux_i_d_max.Value() < settings.asm_flux_i_d_min.Value() ||
-      settings.excitation_i_f_min.Value() < 0.0F ||
-      settings.excitation_i_f_max.Value() < settings.excitation_i_f_min.Value() ||
-      settings.dtc_dead_time.Value() < 0.0F || settings.dtc_f_pwm.Value() <= 0.0F ||
-      settings.excitation_obs_tau.Value() <= 0.0F || settings.pos_position_tolerance.Value() < 0.0F ||
-      settings.pos_speed_tolerance.Value() < 0.0F) {
+  if (settings.stator_r <= ZeroOf(settings.stator_r) || settings.stator_l <= ZeroOf(settings.stator_l) ||
+      settings.flux_pm < ZeroOf(settings.flux_pm) || settings.l_d <= ZeroOf(settings.l_d) ||
+      settings.l_q <= ZeroOf(settings.l_q) || settings.asm_r_r <= ZeroOf(settings.asm_r_r) ||
+      settings.asm_r_s <= ZeroOf(settings.asm_r_s) || settings.asm_l_s <= ZeroOf(settings.asm_l_s) ||
+      settings.asm_l_r <= ZeroOf(settings.asm_l_r) || settings.asm_l_m <= ZeroOf(settings.asm_l_m) ||
+      settings.motor_j <= ZeroOf(settings.motor_j) ||
+      settings.asm_flux_i_d_min < ZeroOf(settings.asm_flux_i_d_min) ||
+      settings.asm_flux_i_d_max < settings.asm_flux_i_d_min ||
+      settings.excitation_i_f_min < ZeroOf(settings.excitation_i_f_min) ||
+      settings.excitation_i_f_max < settings.excitation_i_f_min ||
+      settings.dtc_dead_time < ZeroOf(settings.dtc_dead_time) ||
+      settings.dtc_f_pwm <= ZeroOf(settings.dtc_f_pwm) ||
+      settings.excitation_obs_tau <= ZeroOf(settings.excitation_obs_tau) ||
+      settings.pos_position_tolerance < ZeroOf(settings.pos_position_tolerance) ||
+      settings.pos_speed_tolerance < ZeroOf(settings.pos_speed_tolerance)) {
     return SettingsStatus::kOutOfRange;
   }
 
   // Noise variances are positive; gains, weights and limits are not negative.
   if (settings.mech_obs_r <= 0.0F || settings.pmsm_flux_obs_r_speed < 0.0F || settings.hall_r_edge <= 0.0F ||
-      settings.hall_r_sector <= 0.0F || settings.speed_kp.Value() < 0.0F ||
-      settings.speed_ki.Value() < 0.0F || settings.speed_accel_limit.Value() < 0.0F) {
+      settings.hall_r_sector <= 0.0F || settings.speed_kp < ZeroOf(settings.speed_kp) ||
+      settings.speed_ki < ZeroOf(settings.speed_ki) ||
+      settings.speed_accel_limit < ZeroOf(settings.speed_accel_limit)) {
     return SettingsStatus::kOutOfRange;
   }
 
   const auto kIsRatio = [](const unit::Ratio value) {
-    return value.Value() >= 0.0F && value.Value() <= 1.0F;
+    return value >= unit::Ratio{0.0F} && value <= unit::Ratio{1.0F};
   };
-  if (settings.fw_v_max.Value() < 0.0F || !kIsRatio(settings.current_v_max) ||
+  if (settings.fw_v_max < ZeroOf(settings.fw_v_max) || !kIsRatio(settings.current_v_max) ||
       !kIsRatio(settings.svm_duty_min) || !kIsRatio(settings.svm_duty_max) ||
-      settings.svm_duty_min > settings.svm_duty_max || settings.adc_gain_a.Value() <= 0.0F ||
-      settings.adc_gain_b.Value() <= 0.0F || settings.adc_gain_vdc.Value() <= 0.0F ||
-      settings.phase_balance_a.Value() <= 0.0F || settings.phase_balance_b.Value() <= 0.0F ||
-      settings.phase_balance_c.Value() <= 0.0F) {
+      settings.svm_duty_min > settings.svm_duty_max || settings.adc_gain_a <= ZeroOf(settings.adc_gain_a) ||
+      settings.adc_gain_b <= ZeroOf(settings.adc_gain_b) ||
+      settings.adc_gain_vdc <= ZeroOf(settings.adc_gain_vdc) ||
+      settings.phase_balance_a <= ZeroOf(settings.phase_balance_a) ||
+      settings.phase_balance_b <= ZeroOf(settings.phase_balance_b) ||
+      settings.phase_balance_c <= ZeroOf(settings.phase_balance_c)) {
     return SettingsStatus::kOutOfRange;
   }
 
@@ -187,8 +251,9 @@ inline constexpr unit::Time kMaxCommandTimeout{10.0F};
   if (!kIsSubjectId(settings.sub_readiness_id) || !kIsSubjectId(settings.sub_current_setpoint_id) ||
       !kIsSubjectId(settings.sub_torque_setpoint_id) || !kIsSubjectId(settings.sub_speed_setpoint_id) ||
       !kIsSubjectId(settings.sub_position_setpoint_id) || !kIsSubjectId(settings.sub_servo_setpoint_id) ||
-      !kIsSubjectId(settings.pub_telemetry_id) || settings.telemetry_rate.Value() < 0.0F ||
-      settings.telemetry_rate > kMaxTelemetryRate || settings.command_timeout.Value() <= 0.0F ||
+      !kIsSubjectId(settings.pub_telemetry_id) || settings.telemetry_rate < ZeroOf(settings.telemetry_rate) ||
+      settings.telemetry_rate > kMaxTelemetryRate ||
+      settings.command_timeout <= ZeroOf(settings.command_timeout) ||
       settings.command_timeout > kMaxCommandTimeout) {
     return SettingsStatus::kOutOfRange;
   }
@@ -202,6 +267,10 @@ inline constexpr unit::Time kMaxCommandTimeout{10.0F};
       !kIsServiceId(settings.srv_cymon_read_id) || !kIsSubjectId(settings.pub_cymon_trigger_id) ||
       !kIsSubjectId(settings.sub_cymon_trigger_id)) {
     return SettingsStatus::kOutOfRange;
+  }
+
+  if (HasPortIdCollision(settings)) {
+    return SettingsStatus::kInvalidSettings;
   }
 
   return SettingsStatus::kSuccess;

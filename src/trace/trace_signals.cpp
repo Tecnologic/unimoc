@@ -18,6 +18,7 @@
 #include <array>
 #include <atomic>
 #include <optional>
+#include "angle_wrap.hpp"
 #include "current_control_isr.hpp"
 
 namespace unimoc::trace {
@@ -97,7 +98,7 @@ void OnControlCycle(const current_control::CurrentControlIsr& isr) noexcept {
   signals.i_q_ref = state.i_ref.q.Value();
   signals.u_d = state.u_dq_last.d.Value();
   signals.u_q = state.u_dq_last.q.Value();
-  signals.electrical_angle = isr.mech_obs.theta.Value();
+  signals.electrical_angle = observer::WrapAnglePositive(isr.mech_obs.theta).Value();
   signals.electrical_speed = isr.mech_obs.omega.Value();
   signals.dc_link_voltage = state.raw_vdc.Value();
   signals.i_a = state.raw_phase_currents.a.Value();

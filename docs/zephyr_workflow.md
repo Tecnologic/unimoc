@@ -99,7 +99,11 @@ wakes on each received frame and at least every millisecond and runs the node
 and the drive application (`src/drive/drive_node.cpp`). It reaches the
 control cycle only through `CurrentControlIsr::SetCurrentRef()`, reads its
 state for the telemetry and restarts the runtime (`StartRuntime()`) with new
-settings while the power stage is disabled.
+settings while the power stage is disabled. A restart first stops the cycle
+source (`HardwareInterface::Stop()`; BCC: both interrupts off, TIM8 and the
+duty DMA stopped, the injected sequences stopped and the ADCs disabled), so
+the control state is not rewritten under the running interrupts and the ADC
+calibration and `JSQR` writes of `Initialize()` meet the reference manual.
 
 | | BCC | native_sim |
 |---|---|---|
@@ -154,7 +158,7 @@ the hardware layer, which trips the stage at the sample. The control cycle
 again before any control computation. Over the limit it calls
 `kPowerStage.Trip()`, latches
 `state.overcurrent_tripped` and holds the duties at 50 % until
-`ClearOvercurrentTrip()`. `HwStartup::RequestRun()` is the explicit
+`ClearTrips()`. `HwStartup::RequestRun()` is the explicit
 acknowledgement: it clears a latched break and the trip, then calls
 `Enable()`; without the external enable the run is not started and the FSM
 stays IDLE. While a run is active `RunOnce()` leaves for FAULT as soon as the

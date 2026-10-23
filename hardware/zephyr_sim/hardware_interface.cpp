@@ -39,6 +39,7 @@
 #include <limits>
 #include <optional>
 #include "hot_path_interface.hpp"
+#include "hot_path_timing.hpp"
 #include "motor_simulation.hpp"
 #include "power_stage_interface.hpp"
 #include "sim_control.hpp"
@@ -72,6 +73,9 @@ const settings::SettingsProfile kSettingsProfile = [] {
   profile.capabilities.max_motor_current = 50.0_A;
   profile.capabilities.max_battery_drive_current = 50.0_A;
   profile.capabilities.max_battery_charge_current = 20.0_A;
+  profile.factory_settings.dc_link_regen_derate_start = 55.0_V;  // as the BCC
+  profile.factory_settings.dc_link_trip = 58.0_V;
+  profile.capabilities.max_dc_link_voltage = 60.0_V;
   return profile;
 }();
 
@@ -128,6 +132,7 @@ PowerStageState GetPowerStageState() noexcept {
 
 using Duties = system::ThreePhase<Ratio>;
 constexpr Duties kNeutral{0.5_ratio, 0.5_ratio, 0.5_ratio};
+constexpr bool kTiming = IS_ENABLED(CONFIG_UNIMOC_HOT_PATH_TIMING);
 
 ::unimoc::sim::MotorSimulation g_plant;
 sim::PlantTrace g_plant_trace;
@@ -139,7 +144,7 @@ ControlCycleSamples g_samples{};  // samples of the cycle that just ended
 DutyPlan g_plan{};                // written by the control cycle
 Duties g_carry = kNeutral;        // entry 3 of the last plan: first half period of the next cycle
 std::array<Duties, kHalfPeriodsPerCycle> g_applied{kNeutral, kNeutral, kNeutral, kNeutral};
-float g_overcurrent_limit = std::numeric_limits<float>::infinity();
+Current g_overcurrent_limit{std::numeric_limits<float>::infinity()};
 bool g_current_override = false;
 system::ThreePhase<Current> g_override_currents{};
 uint32_t g_cycle_count = 0U;
@@ -151,6 +156,7 @@ uint64_t g_half_period_ns = 0U;
 
 struct k_timer g_cycle_timer;
 bool g_free_running = false;
+bool g_paused = false;       // SetPaused(): Initialize() leaves the timer stopped
 uint64_t g_cycle_ns = 0U;    // exact cycle period
 uint64_t g_elapsed_ns = 0U;  // ideal time of the last expiry since the start
 uint64_t g_elapsed_us = 0U;  // the same, rounded down to the 1 us kernel tick
@@ -184,9 +190,8 @@ void RestartHallCapture() noexcept {
 }
 
 bool Exceeds(const system::ThreePhase<Current>& currents) noexcept {
-  const float kLimit = g_overcurrent_limit;
-  return std::abs(currents.a.Value()) > kLimit || std::abs(currents.b.Value()) > kLimit ||
-         std::abs(currents.c.Value()) > kLimit;
+  const Current kLimit = g_overcurrent_limit;
+  return Abs(currents.a) > kLimit || Abs(currents.b) > kLimit || Abs(currents.c) > kLimit;
 }
 
 /// Copies the plant truth for the traces; the next control cycle samples it with its own state.
@@ -209,8 +214,20 @@ void RunCycle() noexcept {
   if (!g_initialized) {
     return;
   }
-  ControlCycleHandler();
-  ObserverHandler();
+  if constexpr (kTiming) {
+    // Simulated time stands still inside a cycle: the times are 0, the counts are real.
+    const uint32_t kStart = k_cycle_get_32();
+    ControlCycleHandler();
+    const uint32_t kControlEnd = k_cycle_get_32();
+    ObserverHandler();
+    const uint32_t kObserverEnd = k_cycle_get_32();
+    timing::ProbeOf(timing::Section::kControlCycle).Record(kControlEnd - kStart);
+    timing::ProbeOf(timing::Section::kSampleIsr).Record(kControlEnd - kStart);
+    timing::ProbeOf(timing::Section::kObserver).Record(kObserverEnd - kControlEnd);
+  } else {
+    ControlCycleHandler();
+    ObserverHandler();
+  }
 
   const uint64_t kStartNs = static_cast<uint64_t>(g_cycle_count) * g_cycle_ns;
   ControlCycleSamples next{};
@@ -299,8 +316,17 @@ bool Initialize(Frequency pwm_frequency, uint32_t /*unused*/) noexcept {
   ResetCycleState();
   RestartHallCapture();
 
-  StartTimer();
+  if (!g_paused) {
+    StartTimer();
+  }
   return true;
+}
+
+// The cycle timer runs the control cycle and the observer: stopped, neither runs.
+void Stop() noexcept {
+  if (g_initialized) {
+    StopTimer();
+  }
 }
 
 system::ThreePhase<Current> GetPhaseCurrents() noexcept { return MeasuredCurrents(); }
@@ -309,7 +335,7 @@ system::ThreePhase<Voltage> GetPhaseVoltages() noexcept { return g_plant.Output(
 
 TemperatureMeasurements GetTemperatureMeasurements() noexcept { return {}; }
 
-void SetOvercurrentLimit(const Current limit) noexcept { g_overcurrent_limit = limit.Value(); }
+void SetOvercurrentLimit(const Current limit) noexcept { g_overcurrent_limit = limit; }
 
 void SetAdcTriggerOffset(uint32_t /*unused*/) noexcept {}
 
@@ -319,6 +345,9 @@ uint32_t GetTimerClockFrequency() noexcept { return 170'000'000U; }
 bool PopHallEvent(observer::HallEvent& event) noexcept { return g_hall_events.Pop(event); }
 
 }  // namespace
+
+// The simulation applies every plan in time.
+uint32_t timing::DutyOverruns() noexcept { return 0U; }
 
 namespace hot_path {
 
@@ -375,6 +404,15 @@ void SetFreeRunning(const bool running) noexcept {
   }
 }
 
+void SetPaused(const bool paused) noexcept {
+  g_paused = paused;
+  SetFreeRunning(!paused && g_initialized);
+}
+
+bool IsPaused() noexcept { return g_paused; }
+
+uint64_t CyclePeriodNs() noexcept { return g_cycle_ns; }
+
 void StepCycle() noexcept {
   const unsigned int kIrqKey = irq_lock();
   RunCycle();
@@ -422,6 +460,7 @@ const PowerStageInterface kPowerStage{PowerStageEnable,
 const HardwareSettingsInterface kSettings{kSettingsProfile, kSettingsStorage, ZephyrSettingsStorage::Lock()};
 
 const std::array<HardwareInterface, kMotorCount> kMotors = {HardwareInterface(Initialize,
+                                                                              Stop,
                                                                               GetPhaseCurrents,
                                                                               GetPhaseVoltages,
                                                                               GetTemperatureMeasurements,

@@ -120,15 +120,22 @@ validation; a rejected write answers with the unchanged value.
 (`BAD_STATE` when the gate refuses), 65532 (FACTORY_RESET) resets and saves.
 The shell command planned here was dropped with the shell. The Cyphal ports
 (`uavcan.sub.*.id`, `uavcan.pub.telemetry.id`), the telemetry rate and the
-command timeout are persistent registers too. GetInfo takes the hardware and
+command timeout are persistent registers too. `Validate()` rejects two
+enabled ports on one subject-ID or two services on one service-ID
+(`HasPortIdCollision()`); the publication and subscription of the cymon
+trigger may share one subject. GetInfo takes the hardware and
 software versions from the firmware (`hardware_interface_config.hpp`,
 `app/VERSION`), not from the settings.
 
 ## Open items
 
 1. Register writes that change the controller are applied by restarting the
-   runtime while the drive is disengaged; live tuning while engaged (gains
-   without a restart) is open.
+   runtime while the drive is disengaged. Done 2026-10-22: live tuning while
+   engaged for the gains (`DriveNode::TuneLive()`: current PI gains through
+   `CurrentControlIsr::SetCurrentGains()`, speed and position gains through
+   `OuterLoop::SetGains()`, telemetry rate, command timeout); every other
+   register still waits for the disengage, reported by a diagnostic record
+   and `unimoc.settings.pending`.
 
 Done: holding off `PowerStage::Enable()` during a save and serializing the
 store (see "Concurrency").

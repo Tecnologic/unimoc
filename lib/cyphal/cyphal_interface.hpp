@@ -384,6 +384,14 @@ inline constexpr const char* kBatteryDriveIMax = "unimoc.battery.limits.drive_cu
 /// Type: real32[1] (read/write, persistent)
 inline constexpr const char* kBatteryChargeIMax = "unimoc.battery.limits.charge_current";
 
+/// DC-link voltage above which regenerative braking is derated [V].
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kBatteryRegenDerateVoltage = "unimoc.battery.limits.regen_derate_voltage";
+
+/// DC-link voltage at which the drive trips the power stage [V].
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kBatteryTripVoltage = "unimoc.battery.limits.trip_voltage";
+
 // --- PWM frequency ---
 
 /// PWM switching frequency selection: 16/20/24/28/32 kHz.
@@ -458,6 +466,36 @@ inline constexpr const char* kStartupAdcOffsetA = "unimoc.startup.adc_offset_a";
 /// Measured phase-B current-sense zero offset [A].
 /// Type: real32[1] (read-only after ADC_OFFSET_CAL step)
 inline constexpr const char* kStartupAdcOffsetB = "unimoc.startup.adc_offset_b";
+
+// =========================================================================
+// Execution times of the interrupts (M0, CONFIG_UNIMOC_HOT_PATH_TIMING)
+// =========================================================================
+
+/// Whole sample interrupt of a control boundary, including the control cycle:
+/// min, mean, max [timestamp-clock cycles] and the number of records.
+/// Type: natural32[4] (read-only)
+inline constexpr const char* kTimingSampleIsr = "unimoc.timing.sample_isr";
+
+/// The control cycle alone: min, mean, max [cycles], records.
+/// Type: natural32[4] (read-only)
+inline constexpr const char* kTimingControlCycle = "unimoc.timing.control_cycle";
+
+/// The observer alone: min, mean, max [cycles], records.
+/// Type: natural32[4] (read-only)
+inline constexpr const char* kTimingObserver = "unimoc.timing.observer";
+
+/// Duty plans applied late and control cycles that started while the
+/// observer still ran, since start.
+/// Type: natural32[2] (read-only)
+inline constexpr const char* kTimingOverruns = "unimoc.timing.overruns";
+
+/// Frequency of the timestamp clock the times count in [Hz].
+/// Type: natural32[1] (read-only)
+inline constexpr const char* kTimingClockHz = "unimoc.timing.clock_hz";
+
+/// Write 1: start new statistics (the overrun counters keep counting).
+/// Type: natural8[1] (read 0, write 1)
+inline constexpr const char* kTimingReset = "unimoc.timing.reset";
 
 // --- Phase current balance correction ---
 
@@ -589,6 +627,11 @@ inline constexpr const char* kSubCymonTriggerType = "uavcan.sub.cymon_trigger.ty
 
 /// Hardware unique-ID of the node (MCU UID). Type: unstructured (read-only)
 inline constexpr const char* kNodeUniqueId = "uavcan.node.unique_id";
+
+/// True while register writes wait for a restart of the controller (they
+/// need the drive disengaged; gains while engaged are applied at once).
+/// Type: bit[1] (read-only)
+inline constexpr const char* kSettingsPending = "unimoc.settings.pending";
 
 }  // namespace reg
 

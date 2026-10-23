@@ -119,6 +119,7 @@ class HardwareSystemInterface {
 class HardwareInterface {
  public:
   using InitializeCallback = bool (*)(unit::Frequency, uint32_t) noexcept;
+  using StopCallback = void (*)() noexcept;
   using GetPhaseCurrentsCallback = system::ThreePhase<unit::Current> (*)() noexcept;
   using GetPhaseVoltagesCallback = system::ThreePhase<unit::Voltage> (*)() noexcept;
   using GetTemperatureMeasurementsCallback = TemperatureMeasurements (*)() noexcept;
@@ -131,6 +132,7 @@ class HardwareInterface {
    * @brief Constructs a motor hardware interface.
    * @param initialize Initializes the hardware for the requested PWM frequency
    *                   and ADC trigger offset and starts the interrupts.
+   * @param stop Stops the interrupts and the cycle source (see Stop()).
    * @param get_phase_currents Reads the three phase currents.
    * @param get_phase_voltages Reads the three phase voltages.
    * @param get_temperature_measurements Reads optional temperature channels.
@@ -140,6 +142,7 @@ class HardwareInterface {
    * @param pop_hall_event Takes the oldest captured change of the Hall code.
    */
   HardwareInterface(InitializeCallback initialize,
+                    StopCallback stop,
                     GetPhaseCurrentsCallback get_phase_currents,
                     GetPhaseVoltagesCallback get_phase_voltages,
                     GetTemperatureMeasurementsCallback get_temperature_measurements,
@@ -148,6 +151,7 @@ class HardwareInterface {
                     GetTimerClockFrequencyCallback get_timer_clock_frequency,
                     PopHallEventCallback pop_hall_event)
       : initialize_(initialize),
+        stop_(stop),
         get_phase_currents_(get_phase_currents),
         get_phase_voltages_(get_phase_voltages),
         get_temperature_measurements_(get_temperature_measurements),
@@ -169,6 +173,16 @@ class HardwareInterface {
   [[nodiscard]] bool Initialize(unit::Frequency pwm_frequency, uint32_t adc_trigger_offset) const noexcept {
     return initialize_(pwm_frequency, adc_trigger_offset);
   }
+
+  /**
+   * @brief Stops the cycle source before a new Initialize().
+   *
+   * Afterwards neither ControlCycleHandler() nor ObserverHandler() runs and
+   * the hardware is in a state Initialize() may reprogram (BCC: interrupts
+   * off, timer, duty DMA and ADC sequences stopped, ADCs disabled). The power
+   * stage must be disabled. Does nothing before the first Initialize().
+   */
+  void Stop() const noexcept { stop_(); }
 
   /**
    * @brief Reads the three phase currents.
@@ -231,6 +245,7 @@ class HardwareInterface {
 
  private:
   InitializeCallback initialize_;
+  StopCallback stop_;
   GetPhaseCurrentsCallback get_phase_currents_;
   GetPhaseVoltagesCallback get_phase_voltages_;
   GetTemperatureMeasurementsCallback get_temperature_measurements_;

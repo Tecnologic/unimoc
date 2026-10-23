@@ -71,7 +71,7 @@ float AngleError() {
   const auto& plant = sim::Plant().Output();
   const auto& isr = CurrentControlIsr::Instance();
   const Angle kTrue =
-      plant.electrical_angle.AngleInRevolution() - plant.electrical_speed * Time{3.0F * isr.state.dt_fast};
+      plant.electrical_angle.AngleInRevolution() - plant.electrical_speed * (isr.state.dt_fast * 3.0F);
   return WrapAngle(isr.mech_obs.theta - kTrue).Value();
 }
 

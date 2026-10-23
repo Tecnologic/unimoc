@@ -29,7 +29,9 @@ namespace unimoc::current_control {
  *
  * Shared by the application and the native_sim scenarios, so that both run
  * the same start sequence. Calling it again restarts the controller from its
- * initial state with new settings.
+ * initial state with new settings: the hardware is stopped first, so the
+ * control state is not rewritten under the running interrupts. The power
+ * stage must be disabled.
  *
  * @param settings Motor and controller settings.
  * @param motor Hardware access of the motor.
@@ -41,6 +43,8 @@ namespace unimoc::current_control {
                                        const unit::Current overcurrent_limit) noexcept {
   auto& current_control = CurrentControlIsr::Instance();
   auto& slow_update = SlowUpdate::Instance();
+  // A restart: no control cycle or observer may run while their state is rewritten.
+  motor.Stop();
   current_control.Init(settings, motor, motor.GetTimerClockFrequency());
   slow_update.Init(settings, current_control, motor);
   OuterLoop::Instance().Init(settings, current_control);

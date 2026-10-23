@@ -134,6 +134,17 @@ struct NvmSettings {
   /// Register: `unimoc.battery.limits.charge_current`
   unit::Current battery_charge_current_max{5.0_A};
 
+  /// DC-link voltage above which regenerative braking is derated [V]; the
+  /// charge limit falls linearly to zero at `dc_link_trip`. Above the voltage
+  /// of a full battery (13s: 54.6 V).
+  /// Register: `unimoc.battery.limits.regen_derate_voltage`
+  unit::Voltage dc_link_regen_derate_start{55.0_V};
+
+  /// DC-link voltage at which the control cycle trips the power stage [V].
+  /// Hard upper bound: hardware profile's maximum DC-link voltage.
+  /// Register: `unimoc.battery.limits.trip_voltage`
+  unit::Voltage dc_link_trip{58.0_V};
+
   // =========================================================================
   // PMSM / EESM parameters
   // =========================================================================

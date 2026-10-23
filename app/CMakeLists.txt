@@ -31,6 +31,7 @@ target_sources(unimoc_core PRIVATE
   ${UNIMOC_ROOT}/src/drive/drive_node.cpp
   ${UNIMOC_ROOT}/src/drive/settings_register_provider.cpp
   ${UNIMOC_ROOT}/src/drive/startup_registers.cpp
+  ${UNIMOC_ROOT}/src/drive/timing_registers.cpp
   ${UNIMOC_ROOT}/src/trace/trace_node.cpp
   ${UNIMOC_ROOT}/src/trace/trace_signals.cpp)
 target_include_directories(unimoc_core PUBLIC

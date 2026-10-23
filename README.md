@@ -157,8 +157,9 @@ interfaces and the simulation registers are platform specific.
 > The BCC builds with the node on FDCAN3 but has not run on the board; its
 > SN65HVD230 is a classic CAN transceiver, so CAN FD frames run at 1 Mbit/s
 > without bit rate switch (`boards/unimoc/bcc/bcc.dts`).  Not implemented
-> yet: firmware update over Cyphal, the speed and position setpoints and the
-> startup FSM registers (`unimoc.startup.*`).  The cymon traces run on both
+> yet: firmware update over Cyphal.  Speed, position and UDRAL servo
+> setpoints run the outer loop in the control thread; the startup FSM runs
+> over the `unimoc.startup.*` registers.  The cymon traces run on both
 > platforms; their cost in the control cycle is not yet measured on the board.
 
 ### Stack
@@ -199,7 +200,14 @@ under the same name; `yakut rl <node>` lists them.  Units and floats are
 validated against the hardware capabilities and changes the RAM settings
 only; a rejected write answers with the unchanged value.  The drive applies
 new settings to the controller while it is disengaged (at the latest when it
-engages).  `ExecuteCommand STORE_PERSISTENT_STATES` (65530) saves them to
+engages).  While engaged, the gains of the current, speed and position loops
+(`unimoc.control.current.*`, `unimoc.control.speed.*`, the position gains,
+limits and tolerances), the telemetry rate and the command timeout take
+effect at once without a restart (live tuning); any other change waits for
+the disengage and also holds back live tuning until then.  Such a write is
+reported with a `uavcan.diagnostic.Record` warning ("settings wait for the
+disengage: <register>", then "waiting settings applied"), and the read-only
+`unimoc.settings.pending` (bit) reads 1 while changes wait.  `ExecuteCommand STORE_PERSISTENT_STATES` (65530) saves them to
 flash, refused (`BAD_STATE`) while the power stage is enabled.
 
 ### Ports of the drive
@@ -209,6 +217,9 @@ flash, refused (`BAD_STATE`) while the power stage is enabled.
 | `uavcan.sub.readiness.id` | 106 | `reg.udral.service.common.Readiness.0.1` | `ENGAGED` (3) releases the power stage, `SLEEP`/`STANDBY` disable it |
 | `uavcan.sub.current_setpoint.id` | 107 | `unimoc.drive.CurrentSetpoint.0.1` | d/q current setpoint [A] |
 | `uavcan.sub.torque_setpoint.id` | 100 | `uavcan.si.unit.torque.Scalar.1.0` | Torque [N m], converted to i_q with 3/2 p ψ_PM |
+| `uavcan.sub.speed_setpoint.id` | 101 | `uavcan.si.unit.angular_velocity.Scalar.1.0` | Mechanical speed [rad/s], speed loop of the control thread, limited to the motor speed range |
+| `uavcan.sub.position_setpoint.id` | 102 | `uavcan.si.unit.angle.Scalar.1.0` | Mechanical position [rad] from home (the estimate at start) |
+| `uavcan.sub.servo_setpoint.id` | 108 | `reg.udral.physics.dynamics.rotation.Planar.0.1` | UDRAL servo: the commanded (non-NaN) field selects position, speed or torque |
 | `uavcan.pub.telemetry.id` | 212 | `unimoc.drive.Telemetry.0.1` | Current controller trace at `unimoc.telemetry.rate` (20 Hz) |
 | `uavcan.pub.sim_plant.id` (sim only) | 213 | `unimoc.sim.Plant.0.1` | Plant truth: phase currents, shaft angle and speed, torque, Hall code |
 | `uavcan.srv.cymon_variables.id` | 120 | `cymon.GetVariableList.0.1` | Trace variables: index -> name and unit |
@@ -219,11 +230,30 @@ flash, refused (`BAD_STATE`) while the power stage is enabled.
 | `uavcan.pub.cymon_trigger.id` | 65535 | `cymon.TriggerEvent.0.1` | Published when a capture triggers (disabled by default) |
 | `uavcan.sub.cymon_trigger.id` | 65535 | `cymon.TriggerEvent.0.1` | Triggers the armed capture on another node's event (disabled by default) |
 
-Each port has a read-only `.type` register.  Readiness and setpoints must be
+Each port has a read-only `.type` register.  Two enabled ports may not share
+a subject-ID (or two services a service-ID): such a write is rejected, so to
+swap two IDs, disable one port (65535) first.  The cymon trigger is the
+exception: publishing and subscribing one shared trigger subject lets every
+node of a bus trigger the others.  Readiness and setpoints must be
 refreshed within `unimoc.control.command_timeout` (0.5 s): a missing
 readiness disengages the drive, a missing setpoint falls back to zero
-current.  The current vector is limited to `unimoc.motor.limits.i_max`.  An
-overcurrent trip or a power stage fault while engaged disengages the drive;
+current.  The current vector is limited to `unimoc.motor.limits.i_max`.
+
+The battery current is limited as well, in every mode: the drive estimates
+it from the mechanical power of the q current (k_t i_q ω / V_dc, losses
+ignored) and scales i_q to `unimoc.battery.limits.drive_current` when
+motoring and to `unimoc.battery.limits.charge_current` when braking.  The
+charge limit falls linearly from `unimoc.battery.limits.regen_derate_voltage`
+(55 V) to zero at `unimoc.battery.limits.trip_voltage` (58 V, at most the
+hardware's 60 V), where the control cycle trips the power stage.  The trip
+switches all transistors off: above the line-to-line back-EMF peak the
+motor still feeds the DC link through the body diodes, so the trip level
+must stay above the battery voltage and the chopper of the BMS (section 7.1
+of `docs/system_plan.md`) has to hold the DC link; that chopper comes with
+a later hardware design (an accepted risk until then).  The BCC voltages
+are accepted values, to be checked against its schematic during bring-up.
+
+An overcurrent or overvoltage trip or a power stage fault while engaged disengages the drive;
 it engages again only after a readiness other than `ENGAGED` (re-arm).
 `STANDBY` while disengaged acknowledges a latched trip or fault without
 releasing the outputs; the settings can only be stored without one.
@@ -251,11 +281,34 @@ function pointer); the services run in the Cyphal thread
 
 | IDs | Variables |
 |---|---|
-| 0..11 | `i_d`, `i_q`, `i_d_ref`, `i_q_ref` [A], `u_d`, `u_q` [V], `electrical_angle` [rad], `electrical_speed` [rad/s] (observer, one cycle late), `dc_link_voltage` [V], `i_a`, `i_b`, `i_c` [A] (newest sample) |
+| 0..11 | `i_d`, `i_q`, `i_d_ref`, `i_q_ref` [A], `u_d`, `u_q` [V], `electrical_angle` [rad, 0 to 2 pi], `electrical_speed` [rad/s] (observer, one cycle late), `dc_link_voltage` [V], `i_a`, `i_b`, `i_c` [A] (newest sample) |
 | 12.. (sim only) | Plant truth: `sim.i_a`..`sim.i_c`, `sim.i_d`, `sim.i_q`, `sim.electrical_angle`, `sim.electrical_speed`, `sim.mechanical_speed`, `sim.torque` |
 
 The sample period is a whole multiple of the control cycle; a capture of
 8 channels by 256 frames takes about 0.4 s of bus time at 1 Mbit/s.
+
+### Interrupt timing (M0)
+
+With `CONFIG_UNIMOC_HOT_PATH_TIMING=y` the platform measures the sample
+interrupt of each control boundary (including the control cycle), the control
+cycle alone and the observer in cycles of the DWT counter (170 MHz on the
+BCC; `hardware/hot_path_timing.hpp`).  Read-only registers:
+
+| Register | Type | Content |
+|---|---|---|
+| `unimoc.timing.sample_isr`, `.control_cycle`, `.observer` | natural32[4] | min, mean, max [cycles], number of records |
+| `unimoc.timing.overruns` | natural32[2] | duty plans applied late, control cycles that started while the observer still ran |
+| `unimoc.timing.clock_hz` | natural32[1] | the timestamp clock |
+| `unimoc.timing.reset` | natural8[1] | write 1: new statistics |
+
+```sh
+west build -b bcc unimoc/app -d unimoc/app/build/bcc -- -DCONFIG_UNIMOC_HOT_PATH_TIMING=y
+yakut call 10 uavcan.register.access '{name: {name: unimoc.timing.control_cycle}}'
+```
+
+The times start at the first instruction of the handler (the 12 cycles of
+the exception entry are not included).  On `native_sim` the counts are real,
+the times are 0: simulated time stands still inside a cycle.
 
 ```sh
 cymon serve -i socketcan:vcan0 --dsdl unimoc/dsdl/unimoc --open      # simulation
@@ -307,6 +360,18 @@ speed), `unimoc.sim.imposed_speed` [rad/s], `unimoc.sim.load_torque` [N m],
 `unimoc.sim.dc_link_voltage` [V], `unimoc.sim.external_enable`, and
 `unimoc.sim.plant_follows_settings` (the plant takes the motor parameters of
 the settings when they are applied).
+
+Deterministic runs: `unimoc.sim.paused` (bit) stops the cycle timer, also
+across a settings restart of the controller; then a write of
+`unimoc.sim.advance` (natural32, at most 16000 = 1 s) runs that many control
+cycles before the response.  `unimoc.sim.cycle_count` and
+`unimoc.sim.cycle_period_ns` (62500 at 32 kHz PWM) give the virtual time; the
+count restarts with the controller.  A write of 1 to `unimoc.sim.reset`
+(refused while the power stage is enabled) puts the plant back to
+standstill, the virtual time to 0 and restarts the controller with the
+applied settings; register inputs and a pause stay.  The drive's readiness and setpoint
+timeouts still run in real time, so keep publishing the readiness while
+paused.
 
 The rotor angle of the controller comes from its observer only (the Hall
 fusion is milestone M5/M6 of `docs/hotpath_plan.md`); at standstill the
@@ -376,9 +441,9 @@ to raise those capabilities.
 
 ## Hardware Bring-Up Guide
 
-> **Status:** not runnable yet.  The Cyphal node runs, but the startup FSM is
-> not connected to it: the `unimoc.startup.*` registers below do not exist yet
-> (`TODO.md`).  The steps describe the target behavior.  Log lines go to the
+> **Status:** runs on `native_sim` (ztest `unimoc.sim.cyphal_drive` and the
+> pycyphal integration test); not yet run on the board.  The FSM is driven by
+> the `unimoc.startup.*` registers and stepped in the Cyphal thread.  Log lines go to the
 > Zephyr log on SEGGER RTT and as `uavcan.diagnostic.Record` on the bus.
 
 `HwStartup` is a step-by-step bring-up wizard for commissioning a new UNIMOC

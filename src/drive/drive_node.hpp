@@ -26,6 +26,7 @@
 #include "settings_register_provider.hpp"
 #include "settings_store.hpp"
 #include "startup_registers.hpp"
+#include "timing_registers.hpp"
 
 namespace unimoc::drive {
 
@@ -43,8 +44,12 @@ struct DriveHooks {
  */
 class DriveInfoRegisters final : public cyphal::RegisterProvider {
  public:
-  /// @param unique_id Unique-ID reported by `uavcan.node.unique_id`; must outlive the provider.
-  explicit DriveInfoRegisters(std::span<const uint8_t> unique_id) noexcept : unique_id_{unique_id} {}
+  /**
+   * @param unique_id Unique-ID reported by `uavcan.node.unique_id`; must outlive the provider.
+   * @param settings_pending Reported by `unimoc.settings.pending`; must outlive the provider.
+   */
+  DriveInfoRegisters(std::span<const uint8_t> unique_id, const bool& settings_pending) noexcept
+      : unique_id_{unique_id}, settings_pending_{&settings_pending} {}
 
   [[nodiscard]] std::size_t Count() const noexcept override;
   [[nodiscard]] std::string_view Name(std::size_t index) const noexcept override;
@@ -55,6 +60,7 @@ class DriveInfoRegisters final : public cyphal::RegisterProvider {
 
  private:
   std::span<const uint8_t> unique_id_;
+  const bool* settings_pending_;
 };
 
 /**
@@ -154,7 +160,7 @@ class DriveNode final : public cyphal::MessageListener,
   void OnSpeedSetpoint(const cyphal::Transfer& transfer, uint64_t now_us) noexcept;
   void OnPositionSetpoint(const cyphal::Transfer& transfer, uint64_t now_us) noexcept;
   void OnServoSetpoint(const cyphal::Transfer& transfer, uint64_t now_us) noexcept;
-  void SetCurrentSetpoint(float i_d, float i_q, uint64_t now_us) noexcept;
+  void SetCurrentSetpoint(unit::Current i_d, unit::Current i_q, uint64_t now_us) noexcept;
   void SetSpeedSetpoint(float speed, uint64_t now_us) noexcept;
   void SetPositionSetpoint(float position, uint64_t now_us) noexcept;
   /// Back to zero current in torque mode (no setpoint).
@@ -167,6 +173,8 @@ class DriveNode final : public cyphal::MessageListener,
   void LoadParameters(const settings::NvmSettings& settings) noexcept;
   /// Restarts the controller with the live settings; refused while the outputs are released.
   [[nodiscard]] bool ApplySettings() noexcept;
+  /// While engaged: hands changed gains to the running loops; other changes wait for the disengage.
+  void TuneLive() noexcept;
   void PublishTelemetry() noexcept;
   void UpdateStatus() noexcept;
 
@@ -178,6 +186,7 @@ class DriveNode final : public cyphal::MessageListener,
   DriveInfoRegisters info_registers_;
   startup::HwStartup startup_;
   StartupRegisters startup_registers_;
+  TimingRegisters timing_registers_{};
   bool startup_active_{false};
 
   // Settings captured at start or at the last apply.
@@ -189,10 +198,14 @@ class DriveNode final : public cyphal::MessageListener,
   uint16_t servo_setpoint_port_{cyphal::kUnsetPortId};
   uint64_t command_timeout_us_{500'000U};
   uint64_t telemetry_period_us_{0U};
-  float current_limit_{0.0F};
-  float torque_constant_{0.0F};
+  unit::Current current_limit_;
+  unit::MagneticFlux torque_constant_;  ///< PMSM 3/2 p psi_pm [N m/A = Wb]
   uint32_t applied_writes_{0U};
+  uint32_t checked_writes_{0U};             ///< Register writes looked at for live tuning.
+  settings::NvmSettings applied_settings_;  ///< What the controller runs with.
   bool settings_pending_{false};
+  bool settings_waiting_{false};   ///< Writes not applied yet (`unimoc.settings.pending`).
+  bool waiting_announced_{false};  ///< A record said that settings wait for the disengage.
 
   cyphal::Publisher telemetry_{};
   uint64_t next_telemetry_us_{0U};

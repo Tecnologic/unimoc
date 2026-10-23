@@ -116,8 +116,12 @@ void EraseAllRegisters() {
 
 int g_restarts = 0;
 void CountRestart() noexcept { ++g_restarts; }
+int g_settings_applied = 0;  // controller restarts with new settings
+void CountSettingsApplied(const unimoc::settings::NvmSettings& /*unused*/) noexcept { ++g_settings_applied; }
 
 /// The drive (store, node, DriveNode) and a client on one CAN FD bus.
+// Members in the order of their construction dependencies, not by size.
+// NOLINTNEXTLINE(clang-analyzer-optin.performance.Padding): see above.
 struct Rig {
   Rig()
       : store{MakeStore()},
@@ -131,7 +135,7 @@ struct Rig {
         drive{node,
               store,
               unimoc::hardware::kMotors[0],
-              unimoc::drive::DriveHooks{CountRestart, nullptr},
+              unimoc::drive::DriveHooks{CountRestart, CountSettingsApplied},
               unique_id} {
     zassert_equal(store.Load(), SettingsStatus::kFactoryDefaults);
     const auto kSnapshot = store.GetSnapshot();
@@ -327,11 +331,12 @@ void Before(void* /*unused*/) {
   sim::SetExternalEnable(true);
   sim::ClearPhaseCurrentOverride();
   kPowerStage.ClearFault();
-  CurrentControlIsr::Instance().ClearOvercurrentTrip();
+  CurrentControlIsr::Instance().ClearTrips();
   EraseAllRegisters();
   // Locked rotor: the current loop works on a standing plant.
   sim::Plant().SetShaftMode(unimoc::sim::ShaftMode::kImposedSpeed, AngularVelocity{});
   g_restarts = 0;
+  g_settings_applied = 0;
   // NOLINTNEXTLINE(cppcoreguidelines-owning-memory): placement new into static storage, destroyed in After().
   g_rig = new (g_storage.data()) Rig{};
 }
@@ -659,6 +664,91 @@ ZTEST(sim_cyphal_drive, test_servo_setpoint_selects_the_mode) {
   zexpect_within(CurrentControlIsr::Instance().state.i_ref.q.Value(), 1.0F, 1e-3F);
 }
 
+ZTEST(sim_cyphal_drive, test_regenerative_braking_is_limited_by_the_charge_current_and_the_dc_link) {
+  Rig& rig = *g_rig;
+  ConfigureSpeedControl(rig);  // torque constant 3/2 * 7 * 5 mWb = 0.0525 N m/A
+  (void)rig.Access(reg::kBatteryChargeIMax, Real(0.5F));
+  zassert_equal(rig.store.GetSnapshot().Get().battery_charge_current_max.Value(), 0.5F);
+  rig.Run(2U);  // applied while disengaged
+  // A dyno: the shaft turns at 50 rad/s whatever the torque.
+  sim::Plant().SetShaftMode(unimoc::sim::ShaftMode::kImposedSpeed, AngularVelocity{50.0F});
+  constexpr float kTorqueConstant = 1.5F * 7.0F * 5e-3F;
+
+  // Motoring: 20 A make 52.5 W, far below the drive limit.
+  rig.Hold(0.0F, 20.0F, 500U);
+  zassert_true(rig.drive.IsEngaged());
+  zexpect_within(OuterLoop::Instance().Status().current_reference.q.Value(), 20.0F, 1e-3F);
+
+  // Braking: at most 0.5 A * 48 V = 24 W into the battery. The observer
+  // expects the braking torque to slow the shaft, which the dyno does not:
+  // its speed estimate (and with it the limit) settles within some 300 ms.
+  rig.Hold(0.0F, -20.0F, 500U);
+  auto status = OuterLoop::Instance().Status();
+  zexpect_within(status.speed.Value(),
+                 50.0F,
+                 1.0F,
+                 "estimated speed %f",
+                 static_cast<double>(status.speed.Value()));
+  zexpect_within(status.current_reference.q.Value(),
+                 -24.0F / (kTorqueConstant * status.speed.Value()),
+                 1e-3F,
+                 "i_q %f",
+                 static_cast<double>(status.current_reference.q.Value()));
+  const float kChargePower = -kTorqueConstant * PlantCurrent().q.Value() * PlantSpeed();
+  zexpect_within(kChargePower,
+                 24.0F,
+                 2.0F,
+                 "mechanical braking power %f W",
+                 static_cast<double>(kChargePower));
+
+  // At 56.5 V (derating from 55 V to the 58 V trip) half of the 0.5 A remains.
+  sim::Plant().SetDcLinkVoltage(Voltage{56.5F});
+  rig.Hold(0.0F, -20.0F, 500U);
+  status = OuterLoop::Instance().Status();
+  zexpect_within(status.current_reference.q.Value(),
+                 -(0.25F * 56.5F) / (kTorqueConstant * status.speed.Value()),
+                 1e-3F,
+                 "i_q %f",
+                 static_cast<double>(status.current_reference.q.Value()));
+  zexpect_true(rig.drive.IsEngaged());
+
+  // From the trip level the control cycle trips the power stage and the drive disengages.
+  sim::Plant().SetDcLinkVoltage(Voltage{58.5F});
+  rig.Hold(0.0F, -20.0F, 20U);
+  zexpect_false(rig.drive.IsEngaged());
+  zexpect_true(CurrentControlIsr::Instance().state.overvoltage_tripped);
+  zexpect_equal(kPowerStage.GetState(), PowerStageState::kFault);
+}
+
+ZTEST(sim_cyphal_drive, test_gains_are_tuned_live_while_engaged) {
+  Rig& rig = *g_rig;
+  rig.Hold(0.0F, 2.0F, 50U);
+  zassert_true(rig.drive.IsEngaged());
+  const int kApplied = g_settings_applied;
+
+  // Gains reach the running loops at once, without a restart.
+  (void)rig.Access(reg::kCurrentKpQ, Real(0.7F));
+  (void)rig.Access(reg::kSpeedKp, Real(0.03F));
+  rig.Hold(0.0F, 2.0F, 5U);
+  zexpect_true(rig.drive.IsEngaged());
+  zexpect_within(CurrentControlIsr::Instance().cc.kp_q.Value(), 0.7F, 1e-6F);
+  zexpect_equal(g_settings_applied, kApplied, "restarted for a gain");
+  zexpect_equal(Integer(rig.Access(reg::kSettingsPending, Empty())), 0);
+
+  // A motor parameter needs a restart: it waits for the disengage, the gain stays.
+  (void)rig.Access(reg::kMotorPolePairs, Natural8(5U));
+  rig.Hold(0.0F, 2.0F, 5U);
+  zexpect_true(rig.drive.IsEngaged());
+  zexpect_equal(g_settings_applied, kApplied);
+  zexpect_equal(Integer(rig.Access(reg::kSettingsPending, Empty())), 1);
+  zexpect_equal(Integer(rig.Access(reg::kSettingsPending, Natural8(0U))), 1, "read only");
+  rig.Readiness(reg_udral_service_common_Readiness_0_1_SLEEP);
+  rig.Run(2U);
+  zexpect_equal(g_settings_applied, kApplied + 1);
+  zexpect_equal(Integer(rig.Access(reg::kSettingsPending, Empty())), 0);
+  zexpect_within(CurrentControlIsr::Instance().cc.kp_q.Value(), 0.7F, 1e-6F);
+}
+
 ZTEST(sim_cyphal_drive, test_speed_setpoint_is_limited_to_the_motor_speed) {
   Rig& rig = *g_rig;
   ConfigureSpeedControl(rig);
@@ -736,6 +826,41 @@ ZTEST(sim_cyphal_drive, test_emergency_stop_aborts_a_startup_run) {
   zexpect_equal(rig.Command(cmd::kCommandEmergencyStop), cmd::kStatusSuccess);
   zexpect_equal(Integer(rig.Access(reg::kStartupStep, Empty())), 13);  // FAULT
   zexpect_equal(kPowerStage.GetState(), PowerStageState::kDisabled);
+}
+
+ZTEST(sim_cyphal_drive, test_timing_registers_count_the_interrupts_and_reset) {
+  Rig& rig = *g_rig;
+  rig.Run(2U);
+  const auto kStats = [&rig](const char* name) {
+    auto value = rig.Access(name, Empty());
+    zassert_true(uavcan_register_Value_1_0_is_natural32_(&value));
+    zassert_equal(value.natural32.value.count, 4U);
+    return value.natural32.value;
+  };
+  const auto kBefore = kStats(reg::kTimingControlCycle);
+  zexpect_true(kBefore.elements[3] > 0U, "records");
+  zexpect_true(kBefore.elements[0] <= kBefore.elements[1] && kBefore.elements[1] <= kBefore.elements[2]);
+  zexpect_true(kStats(reg::kTimingObserver).elements[3] > 0U);
+  zexpect_true(kStats(reg::kTimingSampleIsr).elements[3] > 0U);
+  zexpect_equal(Integer(rig.Access(reg::kTimingClockHz, Empty())), 1'000'000'000);
+
+  auto overruns = rig.Access(reg::kTimingOverruns, Empty());
+  zassert_true(uavcan_register_Value_1_0_is_natural32_(&overruns));
+  zexpect_equal(overruns.natural32.value.count, 2U);
+  zexpect_equal(overruns.natural32.value.elements[0], 0U);  // the simulation applies every plan
+
+  // Read only; the reset starts new statistics at the next record.
+  zexpect_equal(Integer(rig.Access(reg::kTimingControlCycle, Natural8(1U))), 0);
+  zexpect_equal(Integer(rig.Access(reg::kTimingReset, Natural8(2U))), 0);  // only 1
+  const uint32_t kBeforeReset = kStats(reg::kTimingControlCycle).elements[3];
+  zexpect_equal(Integer(rig.Access(reg::kTimingReset, Natural8(1U))), 0);
+  rig.Run(1U);
+  const uint32_t kAfter = kStats(reg::kTimingControlCycle).elements[3];
+  // Each access advances the simulation by a few cycles.
+  zexpect_true(kAfter >= kCyclesPerMs && kAfter < kBeforeReset,
+               "records %u, before the reset %u",
+               kAfter,
+               kBeforeReset);
 }
 
 ZTEST_SUITE(sim_cyphal_drive, nullptr, nullptr, Before, After, nullptr);
