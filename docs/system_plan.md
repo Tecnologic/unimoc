@@ -266,9 +266,11 @@ it; the firmware is portable between both.
 The DSDL namespace is `dsdl/unimoc/` (2026-10-21: `unimoc.drive.CurrentSetpoint`,
 `unimoc.drive.Telemetry`, `unimoc.sim.Plant`, port-IDs as registers with
 defaults in `lib/cyphal/cyphal_interface.hpp`). The cart messages are
-defined in `dsdl/unimoc/cart/` (2026-10-23, version 0.1, not used by a node
-yet). Every message fits in one CAN FD frame; a ztest in `unimoc.lib.cyphal`
-checks it for every type of the namespace.
+defined in `dsdl/unimoc/cart/` (2026-10-23, version 0.1). The drive
+subscribes the wheel command, the pedal state and the battery status and
+publishes the drive status (README, "Cart wheel drive"); the VDC, the pedal
+unit and the BMS do not exist yet. Every message fits in one CAN FD frame; a
+ztest in `unimoc.lib.cyphal` checks it for every type of the namespace.
 
 | Message | Type | From → to | Rate | Payload | Content |
 |---|---|---|---|---|---|
@@ -407,6 +409,31 @@ The pedal unit only publishes measurements. Each drive decides on its own:
 
 The fallback logic runs in a Zephyr thread of the drive, never in the hot
 path (`AGENTS.md`, zero-latency rules).
+
+Implemented in the drive (2026-10-23, `src/drive/cart_control.*`, tested in
+the simulation, not on hardware):
+
+- **VDC timeout:** limp-home after `unimoc.cart.timeout` without a wheel
+  command, while the pedal state is fresh. Each drive applies the pedal
+  torque to its own wheel (the same torque on all wheels when all drives
+  have the same `unimoc.cart.limp_home_torque`). The readiness timeout waits
+  during limp-home, so the drive stays engaged without the VDC; the cart
+  timeout must not exceed the command timeout (settings validation).
+- **VDC comes back:** a fresh wheel command takes over again only at
+  standstill (`unimoc.cart.standstill_speed`).
+- **VDC and pedal unit lost:** the torque ramps to zero, then the readiness
+  timeout disengages the drive.
+- **Bus-off:** every cart input counts as lost at once (the torque ramps to
+  zero, no limp-home on old pedal states). The controller rejoins the bus
+  by itself (no `CONFIG_CAN_MANUAL_RECOVERY_MODE`); the drive counts it in
+  `unimoc.can.bus_off_count` and logs the return.
+- **BMS lost:** the battery limits of the settings apply again; the BMS
+  limits are scaled by `unimoc.cart.battery_share` for the drives of one
+  battery. With the contactor open or precharging the drive takes no
+  battery current; an announced opening (`CONTACTOR_OPENING`) keeps the
+  published limits, which the BMS ramps down itself.
+- Open: the VDC reaction to a lost drive, and the limp-home with a
+  direction selector (the drive pedal only drives forward).
 
 ### 7.1 Consequences of pure regenerative braking
 

@@ -166,10 +166,10 @@ interfaces and the simulation registers are platform specific.
 
 | Layer | Where | Content |
 |---|---|---|
-| DSDL | `dsdl/unimoc/`, `lib/cymon/dsdl/cymon/` + OpenCyphal public types | Vendor types `unimoc.drive.CurrentSetpoint.0.1`, `unimoc.drive.Telemetry.0.1`, `unimoc.sim.Plant.0.1`, the trace types `cymon.*.0.1`; Nunavut generates the C serialization at configure time |
+| DSDL | `dsdl/unimoc/`, `lib/cymon/dsdl/cymon/` + OpenCyphal public types | Vendor types `unimoc.drive.CurrentSetpoint.0.1`, `unimoc.drive.Telemetry.0.1`, `unimoc.sim.Plant.0.1`, the cart types `unimoc.cart.*.0.1`, the trace types `cymon.*.0.1`; Nunavut generates the C serialization at configure time |
 | Transport | `lib/cyphal/canard_transport.*` | libcanard 4.0 with an O1Heap arena, one TX queue per CAN interface (redundant interfaces, mixed MTU) |
 | Node | `lib/cyphal/node.*` | Heartbeat, `uavcan.node.port.List`, GetInfo, `uavcan.register.List/Access`, ExecuteCommand, plug-and-play (`uavcan.pnp.NodeIDAllocationData.1.0`), `uavcan.diagnostic.Record`, application services on register-assigned IDs (`AddServer()`) |
-| Drive application | `src/drive/` | Settings registers, arming, setpoints, telemetry, commands |
+| Drive application | `src/drive/` | Settings registers, arming, setpoints, telemetry, commands, the cart wheel drive (`cart_control.*`) |
 | Traces | `src/trace/`, `lib/cymon/` (cymon-lib 0.2) | cymon services, float mirror of the control state sampled in the control cycle |
 | Zephyr glue | `hardware/zephyr_common/` | Cyphal thread, CAN interface on the chosen `zephyr,canbus`, log backend to `uavcan.diagnostic.Record` |
 | Platform | `hardware/zephyr_bcc/`, `hardware/zephyr_sim/` | BCC: transceiver pin. Sim: slcan pseudo terminals, plant registers and plant trace |
@@ -221,6 +221,10 @@ flash, refused (`BAD_STATE`) while the power stage is enabled.
 | `uavcan.sub.position_setpoint.id` | 102 | `uavcan.si.unit.angle.Scalar.1.0` | Mechanical position [rad] from home (the estimate at start) |
 | `uavcan.sub.servo_setpoint.id` | 108 | `reg.udral.physics.dynamics.rotation.Planar.0.1` | UDRAL servo: the commanded (non-NaN) field selects position, speed or torque |
 | `uavcan.pub.telemetry.id` | 212 | `unimoc.drive.Telemetry.0.1` | Current controller trace at `unimoc.telemetry.rate` (20 Hz) |
+| `uavcan.sub.wheel_command.id` | 110 | `unimoc.cart.WheelCommand.0.1` | Cart: torque per wheel from the VDC; the drive takes `unimoc.cart.wheel` |
+| `uavcan.sub.pedal_state.id` | 111 | `unimoc.cart.PedalState.0.1` | Cart: pedals for limp-home mode |
+| `uavcan.sub.battery_status.id` | 112 | `unimoc.cart.BatteryStatus.0.1` | Cart: current limits of the BMS, replace `unimoc.battery.limits.*` while fresh |
+| `uavcan.pub.drive_status.id` | 214 | `unimoc.cart.DriveStatus.0.1` | Cart: wheel speed, torque, drive and brake torque limits, DC link, flags at `unimoc.cart.status_rate` (50 Hz) |
 | `uavcan.pub.sim_plant.id` (sim only) | 213 | `unimoc.sim.Plant.0.1` | Plant truth: phase currents, shaft angle and speed, torque, Hall code |
 | `uavcan.srv.cymon_variables.id` | 120 | `cymon.GetVariableList.0.1` | Trace variables: index -> name and unit |
 | `uavcan.srv.cymon_buffer_info.id` | 121 | `cymon.GetBufferInfo.0.1` | Capture limits and the tick period (62.5 us) |
@@ -254,6 +258,39 @@ accepted risk); the new 4850 hardware gets a fourth half bridge that
 drives a brake resistor with a PMSM or the excitation winding of an EESM
 (section 5.2.1).  The BCC voltages
 are accepted values, to be checked against its schematic during bring-up.
+
+### Cart wheel drive
+
+The cart messages (`dsdl/unimoc/cart/`, section 6.2 of
+`docs/system_plan.md`) make the drive one wheel of the cart:
+
+- **Wheel command.** The first wheel command after the engage makes the
+  drive a cart drive until it disengages: the torque of its wheel
+  (`unimoc.cart.wheel`, 0 front left to 3 rear right; `unimoc.cart.reversed`
+  for a mirrored wheel) replaces the other setpoints and applies on
+  reception, limited like a torque setpoint.  Arming stays with the readiness.
+- **Limp-home.** Without a wheel command for `unimoc.cart.timeout` (0.1 s,
+  at most the command timeout) the torque comes from the pedal state:
+  brake pedal first, against the motion and fading out below
+  `unimoc.cart.standstill_speed` (1 rad/s), drive pedal forward only, both
+  up to `unimoc.cart.limp_home_torque` (5 N m) and ramped at
+  `unimoc.cart.torque_ramp` (50 N m/s).  The readiness timeout waits during
+  limp-home.  Without the pedals too the torque ramps to zero and then the
+  readiness timeout disengages.  A fresh wheel command takes over again
+  only at standstill.
+- **Battery limits.** A fresh battery status replaces
+  `unimoc.battery.limits.drive_current` and `.charge_current` by the BMS
+  limits times `unimoc.cart.battery_share` (the drives of one battery share
+  them); with the contactor open or precharging the drive takes no battery
+  current.  Without the BMS the registers apply again.
+- **Drive status.** Wheel speed and torque estimate in the cart frame, the
+  torque the drive can apply now with and against the motion (motor
+  current limit and battery power window), DC-link voltage and estimated
+  battery current, temperatures in K (NaN when not measured), the power
+  stage, engaged, limp-home, regen derated and trip flags.
+- **Bus-off.** The CAN controller leaves bus-off on its own; the drive
+  drops every cart input at once (the torque ramps to zero), counts it in
+  `unimoc.can.bus_off_count` and logs the return to the bus.
 
 An overcurrent or overvoltage trip or a power stage fault while engaged disengages the drive;
 it engages again only after a readiness other than `ENGAGED` (re-arm).

@@ -172,8 +172,9 @@ current_control::BatteryLimits CartControl::Battery(const uint64_t now_us) const
   const bool kConnected =
       battery_.contactor == Contactor::kClosed || battery_.contactor == Contactor::kOpening;
   if (!kConnected) {
-    return current_control::BatteryLimits{
-        .valid = true, .drive_current = Current{}, .charge_current = Current{}};  // no battery current at all
+    return current_control::BatteryLimits{.valid = true,
+                                          .drive_current = Current{},
+                                          .charge_current = Current{}};  // no battery current at all
   }
   return current_control::BatteryLimits{.valid = true,
                                         .drive_current = unit::Max(battery_.discharge_limit, Current{}) *

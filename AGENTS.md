@@ -76,7 +76,9 @@ Read `README.md` for the supported motor types and public features, and
 - `tests/` contains all tests, as ztest suites run by twister:
   `tests/lib/<library>/` covers `lib/<library>`, `tests/sim/<name>/` runs the
   application core against the `native_sim` platform and the motor plant
-  (cycle cadence, overcurrent, closed loop, the Cyphal drive). `tests/common/`
+  (cycle cadence, overcurrent, closed loop, the Cyphal drive),
+  `tests/drive/<name>/` tests parts of `src/drive/` alone (the cart control).
+  `tests/common/`
   holds the shared float checks and the in-memory CAN bus of the Cyphal
   tests. `tests/integration/cyphal_sim/` are pytest integration tests: twister
   starts the real application on `native_sim` (scenario
