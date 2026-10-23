@@ -577,6 +577,77 @@ inline constexpr const char* kTelemetryRate = "unimoc.telemetry.rate";
 /// Type: real32[1] (read/write, persistent)
 inline constexpr const char* kCommandTimeout = "unimoc.control.command_timeout";
 
+// ---- Cart (docs/system_plan.md, sections 6.2 and 7) ----
+
+/// Wheel command of the vehicle dynamics controller (VDC).
+/// Data type: unimoc.cart.WheelCommand.0.1
+/// Type: natural16[1] (read/write, persistent)
+inline constexpr const char* kSubWheelCommandId = "uavcan.sub.wheel_command.id";
+/// Type name of the wheel command subscription. Type: string (read-only)
+inline constexpr const char* kSubWheelCommandType = "uavcan.sub.wheel_command.type";
+
+/// Pedals of the pedal unit, used in limp-home mode.
+/// Data type: unimoc.cart.PedalState.0.1
+/// Type: natural16[1] (read/write, persistent)
+inline constexpr const char* kSubPedalStateId = "uavcan.sub.pedal_state.id";
+/// Type name of the pedal state subscription. Type: string (read-only)
+inline constexpr const char* kSubPedalStateType = "uavcan.sub.pedal_state.type";
+
+/// Battery state and current limits of the BMS.
+/// Data type: unimoc.cart.BatteryStatus.0.1
+/// Type: natural16[1] (read/write, persistent)
+inline constexpr const char* kSubBatteryStatusId = "uavcan.sub.battery_status.id";
+/// Type name of the battery status subscription. Type: string (read-only)
+inline constexpr const char* kSubBatteryStatusType = "uavcan.sub.battery_status.type";
+
+/// State of the drive for the VDC.
+/// Data type: unimoc.cart.DriveStatus.0.1
+/// Type: natural16[1] (read/write, persistent)
+inline constexpr const char* kPubDriveStatusId = "uavcan.pub.drive_status.id";
+/// Type name of the drive status publication. Type: string (read-only)
+inline constexpr const char* kPubDriveStatusType = "uavcan.pub.drive_status.type";
+
+/// Wheel of this drive: 0 front left, 1 front right, 2 rear left, 3 rear right.
+/// Type: natural8[1] (read/write, persistent)
+inline constexpr const char* kCartWheel = "unimoc.cart.wheel";
+
+/// 1: positive rotor torque drives the cart backward (wheel mounted mirrored).
+/// Type: natural8[1] (read/write, persistent)
+inline constexpr const char* kCartReversed = "unimoc.cart.reversed";
+
+/// Time without a wheel command, pedal state or battery status after which
+/// the drive stops using it [s]; at most unimoc.control.command_timeout.
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kCartTimeout = "unimoc.cart.timeout";
+
+/// Publication rate of the drive status [Hz]; 0 stops it.
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kCartStatusRate = "unimoc.cart.status_rate";
+
+/// Rate at which the cart torque changes when the source changes (limp-home,
+/// stop) [N m/s].
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kCartTorqueRamp = "unimoc.cart.torque_ramp";
+
+/// Wheel torque of a fully pressed pedal in limp-home mode [N m].
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kCartLimpHomeTorque = "unimoc.cart.limp_home_torque";
+
+/// Wheel speed below which the cart counts as standing still [rad/s]: the
+/// limp-home brake fades out below it, and the drive returns from limp-home
+/// to the VDC only below it.
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kCartStandstillSpeed = "unimoc.cart.standstill_speed";
+
+/// Share of the BMS current limits this drive may use (0 to 1); the drives
+/// of one battery share its limits.
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kCartBatteryShare = "unimoc.cart.battery_share";
+
+/// Bus-off events of the CAN interfaces since start.
+/// Type: natural32[1] (read-only)
+inline constexpr const char* kCanBusOffCount = "unimoc.can.bus_off_count";
+
 // ---- Traces (cymon, docs/cymon_integration_plan.md) ----
 //
 // The cymon services have no fixed port-IDs. The host tool finds them through
@@ -703,6 +774,21 @@ inline constexpr uint16_t kSubServoSetpoint = 108U;
 /// Register: `uavcan.sub.homing_trigger.id`
 inline constexpr uint16_t kSubHomingTrigger = 105U;
 
+/// Wheel command of the vehicle dynamics controller.
+/// Data type: unimoc.cart.WheelCommand.0.1
+/// Register: `uavcan.sub.wheel_command.id`
+inline constexpr uint16_t kSubWheelCommand = 110U;
+
+/// Pedals of the pedal unit (limp-home mode).
+/// Data type: unimoc.cart.PedalState.0.1
+/// Register: `uavcan.sub.pedal_state.id`
+inline constexpr uint16_t kSubPedalState = 111U;
+
+/// Battery state and current limits of the BMS.
+/// Data type: unimoc.cart.BatteryStatus.0.1
+/// Register: `uavcan.sub.battery_status.id`
+inline constexpr uint16_t kSubBatteryStatus = 112U;
+
 /// @}
 
 /// @defgroup pub_ports Publisher (output) subjects — telemetry from UNIMOC
@@ -792,6 +878,11 @@ inline constexpr uint16_t kPubTelemetry = 212U;
 /// Data type: unimoc.sim.Plant.0.1
 /// Register: `uavcan.pub.sim_plant.id` (native_sim only, not persistent)
 inline constexpr uint16_t kPubSimPlant = 213U;
+
+/// State of the drive for the vehicle dynamics controller.
+/// Data type: unimoc.cart.DriveStatus.0.1
+/// Register: `uavcan.pub.drive_status.id`
+inline constexpr uint16_t kPubDriveStatus = 214U;
 
 /// @}
 

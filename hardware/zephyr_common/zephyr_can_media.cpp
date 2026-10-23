@@ -49,6 +49,7 @@ int ZephyrCanMedia::Init(const struct device* const device,
   if (result < 0) {
     return result;
   }
+  can_set_state_change_callback(device, OnStateChange, this);
   result = can_start(device);
   return (result == -EALREADY) ? 0 : result;
 }
@@ -66,6 +67,38 @@ void ZephyrCanMedia::OnFrame(const struct device* /*device*/,
   if (self->wake_ != nullptr) {
     k_sem_give(self->wake_);
   }
+}
+
+void ZephyrCanMedia::OnStateChange(const struct device* /*device*/,
+                                   const enum can_state state,
+                                   struct can_bus_err_cnt /*error_count*/,
+                                   void* const user_data) {
+  auto* self = static_cast<ZephyrCanMedia*>(user_data);
+  cyphal::CanBusState bus_state = cyphal::CanBusState::kErrorActive;
+  switch (state) {
+    case CAN_STATE_ERROR_WARNING:
+      bus_state = cyphal::CanBusState::kErrorWarning;
+      break;
+    case CAN_STATE_ERROR_PASSIVE:
+      bus_state = cyphal::CanBusState::kErrorPassive;
+      break;
+    case CAN_STATE_BUS_OFF:
+      bus_state = cyphal::CanBusState::kBusOff;
+      self->bus_off_count_.fetch_add(1U, std::memory_order_relaxed);
+      break;
+    default:  // error active; stopped only before can_start()
+      break;
+  }
+  self->bus_state_.store(static_cast<uint8_t>(bus_state), std::memory_order_release);
+  if (self->wake_ != nullptr) {
+    k_sem_give(self->wake_);
+  }
+}
+
+cyphal::CanBusStatus ZephyrCanMedia::BusStatus() const noexcept {
+  return cyphal::CanBusStatus{.state = static_cast<cyphal::CanBusState>(
+                                  bus_state_.load(std::memory_order_acquire)),
+                              .bus_off_count = bus_off_count_.load(std::memory_order_relaxed)};
 }
 
 bool ZephyrCanMedia::Push(const cyphal::CanFrame& frame) noexcept {

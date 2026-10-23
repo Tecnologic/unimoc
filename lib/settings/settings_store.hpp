@@ -95,7 +95,10 @@ template <unit::UnitLike U>
          unit::IsFinite(settings.adc_gain_vdc) && unit::IsFinite(settings.phase_balance_a) &&
          unit::IsFinite(settings.phase_balance_b) && unit::IsFinite(settings.phase_balance_c) &&
          unit::IsFinite(settings.telemetry_rate) && unit::IsFinite(settings.command_timeout) &&
-         unit::IsFinite(settings.dc_link_regen_derate_start) && unit::IsFinite(settings.dc_link_trip);
+         unit::IsFinite(settings.dc_link_regen_derate_start) && unit::IsFinite(settings.dc_link_trip) &&
+         unit::IsFinite(settings.cart_timeout) && unit::IsFinite(settings.cart_status_rate) &&
+         unit::IsFinite(settings.cart_torque_ramp) && unit::IsFinite(settings.cart_limp_home_torque) &&
+         unit::IsFinite(settings.cart_standstill_speed) && unit::IsFinite(settings.cart_battery_share);
 }
 
 [[nodiscard]] inline bool IsValidEnumValues(const NvmSettings& settings) noexcept {
@@ -114,7 +117,7 @@ template <unit::UnitLike U>
       std::find(kPwmFrequencies.begin(), kPwmFrequencies.end(), settings.pwm_frequency) !=
       kPwmFrequencies.end();
   return kValidMotorType && kValidControlMode && kValidPwmFrequency && settings.excitation_mode <= 1U &&
-         settings.hall_enable <= 1U;
+         settings.hall_enable <= 1U && settings.cart_wheel <= 3U && settings.cart_reversed <= 1U;
 }
 
 [[nodiscard]] inline bool IsValidProfile(const SettingsProfile& profile) noexcept {
@@ -163,13 +166,17 @@ template <std::size_t kCount>
  * (a node does not receive its own transfers).
  */
 [[nodiscard]] inline bool HasPortIdCollision(const NvmSettings& settings) noexcept {
-  const std::array<uint16_t, 7U> kSubjects{settings.sub_readiness_id,
-                                           settings.sub_current_setpoint_id,
-                                           settings.sub_torque_setpoint_id,
-                                           settings.sub_speed_setpoint_id,
-                                           settings.sub_position_setpoint_id,
-                                           settings.sub_servo_setpoint_id,
-                                           settings.pub_telemetry_id};
+  const std::array<uint16_t, 11U> kSubjects{settings.sub_readiness_id,
+                                            settings.sub_current_setpoint_id,
+                                            settings.sub_torque_setpoint_id,
+                                            settings.sub_speed_setpoint_id,
+                                            settings.sub_position_setpoint_id,
+                                            settings.sub_servo_setpoint_id,
+                                            settings.pub_telemetry_id,
+                                            settings.sub_wheel_command_id,
+                                            settings.sub_pedal_state_id,
+                                            settings.sub_battery_status_id,
+                                            settings.pub_drive_status_id};
   const std::array<uint16_t, 5U> kServices{settings.srv_cymon_variables_id,
                                            settings.srv_cymon_buffer_info_id,
                                            settings.srv_cymon_setup_id,
@@ -255,6 +262,20 @@ template <std::size_t kCount>
       settings.telemetry_rate > kMaxTelemetryRate ||
       settings.command_timeout <= ZeroOf(settings.command_timeout) ||
       settings.command_timeout > kMaxCommandTimeout) {
+    return SettingsStatus::kOutOfRange;
+  }
+
+  // Cart: limp-home must start before the readiness times out.
+  if (!kIsSubjectId(settings.sub_wheel_command_id) || !kIsSubjectId(settings.sub_pedal_state_id) ||
+      !kIsSubjectId(settings.sub_battery_status_id) || !kIsSubjectId(settings.pub_drive_status_id) ||
+      settings.cart_timeout <= ZeroOf(settings.cart_timeout) ||
+      settings.cart_timeout > settings.command_timeout ||
+      settings.cart_status_rate < ZeroOf(settings.cart_status_rate) ||
+      settings.cart_status_rate > kMaxTelemetryRate ||
+      settings.cart_torque_ramp <= ZeroOf(settings.cart_torque_ramp) ||
+      settings.cart_limp_home_torque < ZeroOf(settings.cart_limp_home_torque) ||
+      settings.cart_standstill_speed < ZeroOf(settings.cart_standstill_speed) ||
+      !kIsRatio(settings.cart_battery_share)) {
     return SettingsStatus::kOutOfRange;
   }
 

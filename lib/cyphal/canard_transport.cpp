@@ -202,6 +202,19 @@ uint8_t CanardTransport::LocalNodeId() const noexcept {
   return (canard_.node_id <= kNodeIdMax) ? canard_.node_id : kNodeIdUnset;
 }
 
+CanBusStatus CanardTransport::BusStatus() const noexcept {
+  CanBusStatus status{.state = CanBusState::kBusOff, .bus_off_count = 0U};
+  for (std::size_t i = 0U; i < interface_count_; ++i) {
+    const CanBusStatus kInterface = interfaces_[i]->BusStatus();
+    status.state = std::min(status.state, kInterface.state);
+    status.bus_off_count += kInterface.bus_off_count;
+  }
+  if (interface_count_ == 0U) {
+    status.state = CanBusState::kErrorActive;
+  }
+  return status;
+}
+
 void CanardTransport::Process(const uint64_t now_us) noexcept {
   now_us_ = now_us;
   for (std::size_t i = 0U; i < interface_count_; ++i) {

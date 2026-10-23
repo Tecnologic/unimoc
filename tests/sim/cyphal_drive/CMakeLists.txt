@@ -17,6 +17,7 @@ target_sources(app PRIVATE
   ${UNIMOC_ROOT}/src/current_control/current_control_isr.cpp
   ${UNIMOC_ROOT}/src/current_control/slow_update.cpp
   ${UNIMOC_ROOT}/src/current_control/outer_loop.cpp
+  ${UNIMOC_ROOT}/src/drive/cart_control.cpp
   ${UNIMOC_ROOT}/src/drive/drive_node.cpp
   ${UNIMOC_ROOT}/src/drive/settings_register_provider.cpp
   ${UNIMOC_ROOT}/src/drive/startup_registers.cpp

@@ -39,6 +39,7 @@ class CanTestMedia final : public cyphal::CanMedia {
 
   [[nodiscard]] std::size_t Mtu() const noexcept override { return mtu_; }
   [[nodiscard]] bool Push(const cyphal::CanFrame& frame) noexcept override;
+  [[nodiscard]] cyphal::CanBusStatus BusStatus() const noexcept override { return bus_status; }
   [[nodiscard]] bool Pop(cyphal::CanFrame& frame) noexcept override {
     if (count_ == 0U) {
       return false;
@@ -49,9 +50,9 @@ class CanTestMedia final : public cyphal::CanMedia {
     return true;
   }
 
-  /// Delivers a frame to this medium's receive queue.
+  /// Delivers a frame to this medium's receive queue; dropped while the medium is bus-off.
   void Deliver(const cyphal::CanFrame& frame) noexcept {
-    if (count_ < kQueueSize) {
+    if (count_ < kQueueSize && bus_status.state != cyphal::CanBusState::kBusOff) {
       queue_[(head_ + count_) % kQueueSize] = frame;
       ++count_;
     }
@@ -64,6 +65,8 @@ class CanTestMedia final : public cyphal::CanMedia {
   std::size_t sent{0U};
   /// Largest frame size sent through this medium.
   std::size_t largest_sent{0U};
+  /// Reported by BusStatus(); kBusOff also stops sending and receiving.
+  cyphal::CanBusStatus bus_status{};
   // NOLINTEND(cppcoreguidelines-non-private-member-variables-in-classes)
 
  private:
@@ -103,7 +106,7 @@ inline CanTestMedia::CanTestMedia(CanTestBus& bus, const std::size_t mtu) noexce
 }
 
 inline bool CanTestMedia::Push(const cyphal::CanFrame& frame) noexcept {
-  if (!accept_tx) {
+  if (!accept_tx || bus_status.state == cyphal::CanBusState::kBusOff) {
     return false;
   }
   ++sent;

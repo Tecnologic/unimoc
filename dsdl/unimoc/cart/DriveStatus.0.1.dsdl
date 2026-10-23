@@ -17,13 +17,15 @@ float16 estimated_torque
 # Torque estimate at the wheel [N m].
 
 float16 drive_torque_limit
-# Largest forward torque the drive can apply now [N m], >= 0: the motor and
-# battery drive limits at the present speed and DC-link voltage.
+# Largest torque the drive can apply now in the direction of motion [N m],
+# >= 0 (at standstill: forward): the motor current limit and the battery
+# drive limit at the present speed and DC-link voltage.
 
 float16 brake_torque_limit
-# Largest braking torque the drive can apply now [N m], >= 0: the regenerative
-# limit from the battery charge limit and the DC-link overvoltage derating.
-# Falls towards zero near standstill, where regeneration fades.
+# Largest torque the drive can apply now against the direction of motion
+# [N m], >= 0 (at standstill: backward): the motor current limit and the
+# regenerative limit from the battery charge limit and the DC-link
+# overvoltage derating.
 
 float16 dc_link_voltage
 # Measured DC-link voltage [V].

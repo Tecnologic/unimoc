@@ -19,6 +19,7 @@
 #include <cstdint>
 #include <span>
 #include <string_view>
+#include "cart_control.hpp"
 #include "cyphal/node.hpp"
 #include "hardware_interface.hpp"
 #include "hw_startup.hpp"
@@ -39,17 +40,20 @@ struct DriveHooks {
 };
 
 /**
- * @brief Read-only registers of the drive: the data type names of its ports
- *        and the hardware unique-ID.
+ * @brief Read-only registers of the drive: the data type names of its ports,
+ *        the hardware unique-ID, the pending settings and the bus-off count.
  */
 class DriveInfoRegisters final : public cyphal::RegisterProvider {
  public:
   /**
    * @param unique_id Unique-ID reported by `uavcan.node.unique_id`; must outlive the provider.
    * @param settings_pending Reported by `unimoc.settings.pending`; must outlive the provider.
+   * @param bus_off_count Reported by `unimoc.can.bus_off_count`; must outlive the provider.
    */
-  DriveInfoRegisters(std::span<const uint8_t> unique_id, const bool& settings_pending) noexcept
-      : unique_id_{unique_id}, settings_pending_{&settings_pending} {}
+  DriveInfoRegisters(std::span<const uint8_t> unique_id,
+                     const bool& settings_pending,
+                     const uint32_t& bus_off_count) noexcept
+      : unique_id_{unique_id}, settings_pending_{&settings_pending}, bus_off_count_{&bus_off_count} {}
 
   [[nodiscard]] std::size_t Count() const noexcept override;
   [[nodiscard]] std::string_view Name(std::size_t index) const noexcept override;
@@ -61,6 +65,7 @@ class DriveInfoRegisters final : public cyphal::RegisterProvider {
  private:
   std::span<const uint8_t> unique_id_;
   const bool* settings_pending_;
+  const uint32_t* bus_off_count_;
 };
 
 /**
@@ -81,6 +86,11 @@ class DriveInfoRegisters final : public cyphal::RegisterProvider {
  * | `uavcan.sub.servo_setpoint.id` | reg.udral.physics.dynamics.rotation.Planar.0.1 | UDRAL servo: the
  *   first finite of position, velocity, (acceleration), torque selects the mode |
  * | `uavcan.pub.telemetry.id` | unimoc.drive.Telemetry.0.1 | controller trace at `unimoc.telemetry.rate` |
+ * | `uavcan.sub.wheel_command.id` | unimoc.cart.WheelCommand.0.1 | torque of this drive's wheel (cart) |
+ * | `uavcan.sub.pedal_state.id` | unimoc.cart.PedalState.0.1 | pedals for limp-home mode (cart) |
+ * | `uavcan.sub.battery_status.id` | unimoc.cart.BatteryStatus.0.1 | battery current limits of the BMS |
+ * | `uavcan.pub.drive_status.id` | unimoc.cart.DriveStatus.0.1 | state for the VDC at
+ * `unimoc.cart.status_rate` |
  *
  * The ports of the traces (`uavcan.srv.cymon_*`, `uavcan.*.cymon_trigger`)
  * are served by trace::TraceNode; this class only reports their `.type`
@@ -99,6 +109,15 @@ class DriveInfoRegisters final : public cyphal::RegisterProvider {
  * readiness other than ENGAGED (an explicit re-arm). STANDBY while
  * disengaged acknowledges a latched trip or fault without releasing the
  * outputs (a still missing external enable latches it again).
+ *
+ * Cart (CartControl, docs/system_plan.md, section 7): the first wheel
+ * command after the engage makes the drive a cart wheel drive; its torque
+ * then replaces the other setpoints until the disengage. Without the wheel
+ * command the drive goes to limp-home on the pedals, and the readiness
+ * timeout waits while it is in limp-home or still ramping its torque down.
+ * The battery status of the BMS replaces the battery limits of the settings
+ * while it is fresh. A bus-off counts as the loss of every input at once;
+ * the controller rejoins the bus on its own and the drive logs it.
  *
  * The hardware startup aid (startup::HwStartup) runs in this thread through
  * the `unimoc.startup.*` registers (StartupRegisters). It owns the outputs
@@ -160,6 +179,11 @@ class DriveNode final : public cyphal::MessageListener,
   void OnSpeedSetpoint(const cyphal::Transfer& transfer, uint64_t now_us) noexcept;
   void OnPositionSetpoint(const cyphal::Transfer& transfer, uint64_t now_us) noexcept;
   void OnServoSetpoint(const cyphal::Transfer& transfer, uint64_t now_us) noexcept;
+  void OnWheelCommand(const cyphal::Transfer& transfer, uint64_t now_us) noexcept;
+  void OnPedalState(const cyphal::Transfer& transfer, uint64_t now_us) noexcept;
+  void OnBatteryStatus(const cyphal::Transfer& transfer, uint64_t now_us) noexcept;
+  /// Follows the bus state; a bus-off drops the cart inputs.
+  void WatchBus() noexcept;
   void SetCurrentSetpoint(unit::Current i_d, unit::Current i_q, uint64_t now_us) noexcept;
   void SetSpeedSetpoint(float speed, uint64_t now_us) noexcept;
   void SetPositionSetpoint(float position, uint64_t now_us) noexcept;
@@ -176,6 +200,7 @@ class DriveNode final : public cyphal::MessageListener,
   /// While engaged: hands changed gains to the running loops; other changes wait for the disengage.
   void TuneLive() noexcept;
   void PublishTelemetry() noexcept;
+  void PublishDriveStatus() noexcept;
   void UpdateStatus() noexcept;
 
   cyphal::CyphalNode* node_;
@@ -196,8 +221,13 @@ class DriveNode final : public cyphal::MessageListener,
   uint16_t speed_setpoint_port_{cyphal::kUnsetPortId};
   uint16_t position_setpoint_port_{cyphal::kUnsetPortId};
   uint16_t servo_setpoint_port_{cyphal::kUnsetPortId};
+  uint16_t wheel_command_port_{cyphal::kUnsetPortId};
+  uint16_t pedal_state_port_{cyphal::kUnsetPortId};
+  uint16_t battery_status_port_{cyphal::kUnsetPortId};
   uint64_t command_timeout_us_{500'000U};
   uint64_t telemetry_period_us_{0U};
+  uint64_t drive_status_period_us_{0U};
+  uint8_t cart_wheel_{0U};
   unit::Current current_limit_;
   unit::MagneticFlux torque_constant_;  ///< PMSM 3/2 p psi_pm [N m/A = Wb]
   uint32_t applied_writes_{0U};
@@ -209,6 +239,13 @@ class DriveNode final : public cyphal::MessageListener,
 
   cyphal::Publisher telemetry_{};
   uint64_t next_telemetry_us_{0U};
+  cyphal::Publisher drive_status_{};
+  uint64_t next_drive_status_us_{0U};
+
+  CartControl cart_{};
+  CartMode cart_mode_{CartMode::kOff};
+  bool bus_lost_{false};        ///< Bus-off seen and not yet back on the bus.
+  uint32_t bus_off_count_{0U};  ///< `unimoc.can.bus_off_count`.
 
   bool engaged_{false};
   bool rearm_required_{false};

@@ -18,6 +18,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <span>
+#include "can_media.hpp"
 
 namespace unimoc::cyphal {
 
@@ -147,6 +148,14 @@ class Transport {
    * @param now_us Monotonic time [us]; deadlines and timeouts use it.
    */
   virtual void Process(uint64_t now_us) noexcept = 0;
+
+  /**
+   * @brief Bus state of the transport.
+   *
+   * Cyphal/CAN reports its CAN interfaces; a transport without fault
+   * confinement reports kErrorActive.
+   */
+  [[nodiscard]] virtual CanBusStatus BusStatus() const noexcept { return CanBusStatus{}; }
 };
 
 }  // namespace unimoc::cyphal

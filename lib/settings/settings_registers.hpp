@@ -142,6 +142,18 @@ void ForEachRegister(const Visitor& visit, Settings&... settings) {
   visit(reg::kSubCymonTriggerId, settings.sub_cymon_trigger_id...);
   visit(reg::kTelemetryRate, settings.telemetry_rate...);
   visit(reg::kCommandTimeout, settings.command_timeout...);
+  visit(reg::kSubWheelCommandId, settings.sub_wheel_command_id...);
+  visit(reg::kSubPedalStateId, settings.sub_pedal_state_id...);
+  visit(reg::kSubBatteryStatusId, settings.sub_battery_status_id...);
+  visit(reg::kPubDriveStatusId, settings.pub_drive_status_id...);
+  visit(reg::kCartWheel, settings.cart_wheel...);
+  visit(reg::kCartReversed, settings.cart_reversed...);
+  visit(reg::kCartTimeout, settings.cart_timeout...);
+  visit(reg::kCartStatusRate, settings.cart_status_rate...);
+  visit(reg::kCartTorqueRamp, settings.cart_torque_ramp...);
+  visit(reg::kCartLimpHomeTorque, settings.cart_limp_home_torque...);
+  visit(reg::kCartStandstillSpeed, settings.cart_standstill_speed...);
+  visit(reg::kCartBatteryShare, settings.cart_battery_share...);
 }
 
 namespace settings_registers_internal {
