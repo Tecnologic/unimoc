@@ -1,7 +1,8 @@
 # Plan: Pedal Assist on the Battery Case Controller
 
-Status: 2026-10-23, draft. Steps 1 and 2 are implemented and tested on the host
-(`lib/ebike/`, `tests/lib/ebike/`). Nothing is verified on the BCC hardware.
+Status: 2026-10-23, draft. Steps 1 to 4 are implemented and tested under twister on
+`native_sim` (`lib/ebike/`, `tests/lib/ebike/`). Nothing is verified on the BCC
+hardware or on a real KT-LCD8.
 
 ## 1. Goal
 
@@ -66,22 +67,56 @@ voltage. The offset of the individual sensor is trimmed by the observer.
   30 s after 1 s of standstill. The value can be stored and restored
   (`SetZeroOffset`); storing it as a setting is pending.
 
-## 5. Assist law (next step)
+## 5. Assist law (`lib/ebike/src/assist_controller.hpp`)
 
-- Low speed: motor torque follows the pedal torque times the level gain.
-- Higher speed: motor power follows the pedal power; the torque is that power
-  divided by the motor speed. Smooth crossover between both.
-- Gain: `g_base(level) * exp(P_pedal / P_scale)`, clamped.
-- Limits: display speed and current limits, the battery and drive limits, a
-  torque ramp and a deadband. The assist ends a few hundred milliseconds after
-  the pedaling stops.
-- Open: `P_scale`, the crossover speed, the level table.
+With the pedal torque after a deadband, the cadence and the pedal power
+`P_p = torque * cadence`:
 
-## 6. Steps
+- Assist ratio `g = min(g_level * exp(P_p / P_scale), g_max)`, with a base
+  ratio per display level (level 0 is off).
+- Motor torque `g * torque * rho`, `rho = min(rho_max, cadence / motor_speed)`.
+  At low speed the motor torque follows the pedal torque (`rho_max`, "torque
+  ratio"); above the crossover speed `cadence / rho_max` the motor power equals
+  `g` times the pedal power. The two regimes join without a step.
+- Fades out over a speed range below the display's speed limit, limited to
+  the torque limit (display current limit and drive limits), ramps slowly up
+  (0.5 s to the limit) and quickly down (0.15 s).
+- Zero without pedaling, below the minimum cadence, at level 0, and without a
+  valid speed or torque limit.
+
+The defaults are a starting point (level gains 0, 0.3, 0.6, 1.0, 1.5, 2.0;
+`P_scale` 300 W; maximum ratio 4; torque ratio 0.5; deadband 2 Nm), none is
+tuned. They become settings (registers) with the integration. Open: the
+conversion of the display's speed limit and the torque limit to the motor
+shaft, which needs the wheel circumference and the gearing.
+
+## 6. Display protocol (`lib/ebike/src/kunteng_protocol.hpp`)
+
+The Kunteng protocol of the KT-LCD3/5/8 family, implemented from its frame
+layout (the EBiCS firmware was read as a reference, nothing was copied).
+
+- Display to controller, 13 bytes about every 100 ms: assist level, light,
+  wheel size code, speed limit, motor characteristic, power assist mode, current
+  limit code. End bytes `0x32` or `0x37`, then `0x0E`. Checksum: xor of all bytes
+  except byte 5, xored with a constant (10 for most displays; the decoder adopts
+  another constant after two frames in a row show it).
+- Controller to display, 12 bytes as the answer to each valid request: battery
+  bars, nominal voltage, wheel period (the display derives the speed with its
+  own wheel size, so the wheel size setting of the display and the
+  controller's circumference have to match), error code, mode bits, battery
+  current in quarter amps, motor temperature minus 15.
+- `DisplayDecoder` finds frames in the UART byte stream with a sliding 13-byte
+  window, so it needs no DMA length tricks and resynchronizes by itself.
+
+Unverified against a real KT-LCD8: the temperature offset, the wheel size
+code mapping (kept raw), and the checksum constant of this display.
+
+## 7. Steps
 
 1. Torque scaling and zero offset. **Done** (scaling fixed, offset trim in the observer).
 2. `PedalObserver` with tests. **Done.**
-3. Assist law with tests.
-4. Kunteng frame parser and encoder with tests.
-5. BCC drivers (cadence interrupt, display UART, devicetree nodes) and the
-   setpoint hook-up; fake inputs for `native_sim`.
+3. Assist law with tests. **Done.**
+4. Kunteng frame codec with tests. **Done.**
+5. BCC drivers (cadence interrupt, display UART, devicetree nodes), the
+   setpoint hook-up, the register set for the parameters above, and fake inputs
+   for `native_sim`. **Open.**
