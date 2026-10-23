@@ -101,9 +101,9 @@ ZTEST_F(sim_overcurrent, test_sample_check_trips_at_once_and_freezes_loop) {
   RunCycles(1);  // the control cycle with these samples latches the trip
   zassert_true(CurrentControlIsr::Instance().state.overcurrent_tripped);
   for (const auto& duties : CurrentControlIsr::Instance().state.duty_plan.duties) {
-    zassert_within(duties.a.Value(), 0.5F, 1e-6F);
-    zassert_within(duties.b.Value(), 0.5F, 1e-6F);
-    zassert_within(duties.c.Value(), 0.5F, 1e-6F);
+    zassert_within(duties.a, 0.5_ratio, 1e-6_ratio);
+    zassert_within(duties.b, 0.5_ratio, 1e-6_ratio);
+    zassert_within(duties.c, 0.5_ratio, 1e-6_ratio);
   }
 
   // The latched fault survives the current going away.
@@ -114,21 +114,21 @@ ZTEST_F(sim_overcurrent, test_sample_check_trips_at_once_and_freezes_loop) {
 
 ZTEST_F(sim_overcurrent, test_forced_duties_replace_the_loop_until_released) {
   CurrentControlIsr& isr = CurrentControlIsr::Instance();
-  const float kDutyMax = isr.svm.duty_max.Value();
+  const Ratio kDutyMax = isr.svm.duty_max;
   isr.ForceDuty(0.25_ratio, 0.5_ratio, 2.0_ratio);  // phase C clamped to the SVM limit
   RunCycles(1);
   for (const auto& duties : isr.state.duty_plan.duties) {
-    zassert_within(duties.a.Value(), 0.25F, 1e-6F);
-    zassert_within(duties.b.Value(), 0.5F, 1e-6F);
-    zassert_within(duties.c.Value(), kDutyMax, 1e-6F);
+    zassert_within(duties.a, 0.25_ratio, 1e-6_ratio);
+    zassert_within(duties.b, 0.5_ratio, 1e-6_ratio);
+    zassert_within(duties.c, kDutyMax, 1e-6_ratio);
   }
 
   // Released, the loop runs again: zero current and reference give neutral duties.
   isr.ReleaseForceDuty();
   RunCycles(2);
   for (const auto& duties : isr.state.duty_plan.duties) {
-    zassert_within(duties.a.Value(), 0.5F, 1e-3F);
-    zassert_within(duties.c.Value(), 0.5F, 1e-3F);
+    zassert_within(duties.a, 0.5_ratio, 1e-3_ratio);
+    zassert_within(duties.c, 0.5_ratio, 1e-3_ratio);
   }
 }
 
@@ -146,7 +146,7 @@ ZTEST_F(sim_overcurrent, test_dc_link_overvoltage_trips_and_freezes_the_loop) {
   zassert_true(isr.Tripped());
   zassert_equal(kPowerStage.GetState(), PowerStageState::kFault);
   for (const auto& duties : isr.state.duty_plan.duties) {
-    zassert_within(duties.a.Value(), 0.5F, 1e-6F);
+    zassert_within(duties.a, 0.5_ratio, 1e-6_ratio);
   }
 
   sim::Plant().SetDcLinkVoltage(48.0_V);

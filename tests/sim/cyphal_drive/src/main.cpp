@@ -325,7 +325,7 @@ void Before(void* /*unused*/) {
   zassert_equal(sim::Plant().Configure(unimoc::hardware::kSettings.GetSettingsProfile().factory_settings),
                 unimoc::sim::Status::kOk);
   sim::Plant().SetInput(unimoc::sim::SimulationInput{});
-  sim::Plant().SetDcLinkVoltage(Voltage{48.0F});
+  sim::Plant().SetDcLinkVoltage(48.0_V);
   sim::ClearHallCodeOverride();
   sim::SetFreeRunning(false);
   sim::SetExternalEnable(true);
@@ -386,8 +386,8 @@ void ConfigureSpeedControl(Rig& rig) {
   sim::Plant().SetShaftMode(unimoc::sim::ShaftMode::kFree);
 }
 
-float PlantSpeed() { return sim::Plant().Output().mechanical_speed.Value(); }
-float PlantAngle() { return sim::Plant().Output().mechanical_angle.AbsoluteAngle().Value(); }
+AngularVelocity PlantSpeed() { return sim::Plant().Output().mechanical_speed; }
+Angle PlantAngle() { return sim::Plant().Output().mechanical_angle.AbsoluteAngle(); }
 
 /// Pole pairs of ConfigureSpeedControl().
 constexpr float kSpeedControlPolePairs = 7.0F;
@@ -396,13 +396,11 @@ constexpr float kSpeedControlPolePairs = 7.0F;
 /// position from the estimate at its start, which the Hall sector places only
 /// within half a sector (30 degrees electrical) of the shaft; the edges
 /// correct the angle estimate later, but not the home. Valid at standstill.
-float TrueHome() {
-  const float kEstimateError =
+Angle TrueHome() {
+  const Angle kEstimateError =
       unimoc::observer::WrapAngle(sim::Plant().Output().electrical_angle.AngleInRevolution() -
-                                  CurrentControlIsr::Instance().mech_obs.theta)
-          .Value();
-  return PlantAngle() - OuterLoop::Instance().Status().position.Value() -
-         (kEstimateError / kSpeedControlPolePairs);
+                                  CurrentControlIsr::Instance().mech_obs.theta);
+  return PlantAngle() - OuterLoop::Instance().Status().position - (kEstimateError / kSpeedControlPolePairs);
 }
 
 }  // namespace
@@ -413,12 +411,8 @@ ZTEST(sim_cyphal_drive, test_engage_and_current_setpoint_reach_the_plant) {
   rig.Hold(0.0F, 10.0F, 30U);
   zassert_true(rig.drive.IsEngaged());
   zexpect_equal(kPowerStage.GetState(), PowerStageState::kEnabled);
-  zexpect_within(CurrentControlIsr::Instance().state.i_ref.q.Value(), 10.0F, 1e-3F);
-  zexpect_within(PlantCurrent().q.Value(),
-                 10.0F,
-                 0.5F,
-                 "i_q = %f",
-                 static_cast<double>(PlantCurrent().q.Value()));
+  zexpect_within(CurrentControlIsr::Instance().state.i_ref.q, 10.0_A, 1e-3_A);
+  zexpect_within(PlantCurrent().q, 10.0_A, 0.5_A, "i_q = %f", static_cast<double>(PlantCurrent().q.Value()));
 
   unimoc_drive_Telemetry_0_1 telemetry{};
   zassert_true(rig.Telemetry(telemetry));
@@ -441,7 +435,7 @@ ZTEST(sim_cyphal_drive, test_readiness_and_setpoint_timeouts) {
     rig.Run(100U);
   }
   zexpect_true(rig.drive.IsEngaged());
-  zexpect_equal(CurrentControlIsr::Instance().state.i_ref.q.Value(), 0.0F);
+  zexpect_equal(CurrentControlIsr::Instance().state.i_ref.q, 0.0_A);
 
   // No readiness for longer than the command timeout (0.5 s): disengaged.
   rig.Run(600U);
@@ -452,25 +446,25 @@ ZTEST(sim_cyphal_drive, test_readiness_and_setpoint_timeouts) {
 ZTEST(sim_cyphal_drive, test_sleep_disengages_and_setpoints_are_limited) {
   Rig& rig = *g_rig;
   rig.Hold(30.0F, 40.0F, 20U);  // |i| = 50 A, at the factory limit of 50 A
-  zexpect_within(CurrentControlIsr::Instance().state.i_ref.d.Value(), 30.0F, 1e-3F);
+  zexpect_within(CurrentControlIsr::Instance().state.i_ref.d, 30.0_A, 1e-3_A);
   rig.Hold(300.0F, 400.0F, 10U);  // scaled to 50 A, direction kept
-  zexpect_within(CurrentControlIsr::Instance().state.i_ref.d.Value(), 30.0F, 1e-3F);
-  zexpect_within(CurrentControlIsr::Instance().state.i_ref.q.Value(), 40.0F, 1e-3F);
+  zexpect_within(CurrentControlIsr::Instance().state.i_ref.d, 30.0_A, 1e-3_A);
+  zexpect_within(CurrentControlIsr::Instance().state.i_ref.q, 40.0_A, 1e-3_A);
 
   rig.Readiness(reg_udral_service_common_Readiness_0_1_SLEEP);
   rig.Run(5U);
   zexpect_false(rig.drive.IsEngaged());
-  zexpect_equal(CurrentControlIsr::Instance().state.i_ref.q.Value(), 0.0F);
+  zexpect_equal(CurrentControlIsr::Instance().state.i_ref.q, 0.0_A);
 }
 
 ZTEST(sim_cyphal_drive, test_torque_setpoint_uses_the_torque_constant) {
   Rig& rig = *g_rig;
   (void)rig.Access(reg::kPmsmFluxPm, Real(5e-3F));  // the factory profile has no flux
   const auto kSnapshot = rig.store.GetSnapshot();
-  const float kTorqueConstant =
-      1.5F * static_cast<float>(kSnapshot.Get().pole_pairs) * kSnapshot.Get().flux_pm.Value();
-  zassert_true(kTorqueConstant > 0.0F);
-  uavcan_si_unit_torque_Scalar_1_0 torque{2.0F * kTorqueConstant};
+  const MagneticFlux kTorqueConstant =
+      1.5F * static_cast<float>(kSnapshot.Get().pole_pairs) * kSnapshot.Get().flux_pm;
+  zassert_true(kTorqueConstant > MagneticFlux{});
+  uavcan_si_unit_torque_Scalar_1_0 torque{(2.0_A * kTorqueConstant).Value()};  // DSDL payload
   for (unsigned elapsed = 0U; elapsed < 20U; elapsed += 10U) {
     rig.Readiness(reg_udral_service_common_Readiness_0_1_ENGAGED);
     std::size_t size = rig.tx.size();
@@ -478,7 +472,7 @@ ZTEST(sim_cyphal_drive, test_torque_setpoint_uses_the_torque_constant) {
     rig.Publish(unimoc::cyphal::kSubTorqueSetpoint, std::span<const std::byte>{rig.tx.data(), size});
     rig.Run(10U);
   }
-  zexpect_within(CurrentControlIsr::Instance().state.i_ref.q.Value(), 2.0F, 1e-3F);
+  zexpect_within(CurrentControlIsr::Instance().state.i_ref.q, 2.0_A, 1e-3_A);
 }
 
 ZTEST(sim_cyphal_drive, test_trip_disengages_and_needs_a_rearm) {
@@ -529,7 +523,7 @@ ZTEST(sim_cyphal_drive, test_registers_change_live_settings_within_limits) {
 
   // The new limit applies to the next setpoint.
   rig.Hold(0.0F, 40.0F, 20U);
-  zexpect_within(CurrentControlIsr::Instance().state.i_ref.q.Value(), 20.0F, 1e-3F);
+  zexpect_within(CurrentControlIsr::Instance().state.i_ref.q, 20.0_A, 1e-3_A);
 
   value = rig.Access(reg::kNodeId, Empty());
   zexpect_true(uavcan_register_Value_1_0_is_natural16_(&value));
@@ -545,10 +539,10 @@ ZTEST(sim_cyphal_drive, test_registers_change_live_settings_within_limits) {
 ZTEST(sim_cyphal_drive, test_controller_restarts_with_new_settings_while_disengaged) {
   Rig& rig = *g_rig;
   auto& isr = CurrentControlIsr::Instance();
-  const float kKp = isr.cc.kp_q.Value();
-  (void)rig.Access(reg::kCurrentKpQ, Real(kKp * 2.0F));
+  const VoltagePerCurrent kKp = isr.cc.kp_q;
+  (void)rig.Access(reg::kCurrentKpQ, Real((kKp * 2.0F).Value()));  // register payload: plain number
   rig.Run(2U);
-  zexpect_within(isr.cc.kp_q.Value(), kKp * 2.0F, 1e-6F);
+  zexpect_within(isr.cc.kp_q, kKp * 2.0F, 1e-6_V_per_A);
 }
 
 ZTEST(sim_cyphal_drive, test_store_is_refused_while_engaged_and_persists_otherwise) {
@@ -598,10 +592,14 @@ ZTEST(sim_cyphal_drive, test_speed_setpoint_runs_the_speed_loop) {
   ConfigureSpeedControl(rig);
   rig.HoldWith([&] { rig.Speed(30.0F); }, 500U);
   zassert_true(rig.drive.IsEngaged());
-  zexpect_within(PlantSpeed(), 30.0F, 1.0F, "speed %f", static_cast<double>(PlantSpeed()));
+  zexpect_within(PlantSpeed(),
+                 30.0_rad_per_s,
+                 1.0_rad_per_s,
+                 "speed %f",
+                 static_cast<double>(PlantSpeed().Value()));
   const auto kStatus = OuterLoop::Instance().Status();
   zexpect_equal(kStatus.mode, unimoc::cyphal::ControlMode::kSpeed);
-  zexpect_within(kStatus.speed.Value(), 30.0F, 1.0F);
+  zexpect_within(kStatus.speed, 30.0_rad_per_s, 1.0_rad_per_s);
 
   unimoc_drive_Telemetry_0_1 telemetry{};
   zassert_true(rig.Telemetry(telemetry));
@@ -613,27 +611,27 @@ ZTEST(sim_cyphal_drive, test_speed_setpoint_runs_the_speed_loop) {
     rig.Run(100U);
   }
   zexpect_true(rig.drive.IsEngaged());
-  zexpect_equal(CurrentControlIsr::Instance().state.i_ref.q.Value(), 0.0F);
+  zexpect_equal(CurrentControlIsr::Instance().state.i_ref.q, 0.0_A);
   zexpect_equal(OuterLoop::Instance().Status().mode, unimoc::cyphal::ControlMode::kTorque);
 }
 
 ZTEST(sim_cyphal_drive, test_position_setpoint_moves_the_shaft) {
   Rig& rig = *g_rig;
   ConfigureSpeedControl(rig);
-  const float kStart = PlantAngle();
+  const Angle kStart = PlantAngle();
   rig.HoldWith([&] { rig.Position(3.0F); }, 1500U);
-  const float kHome = TrueHome();
-  constexpr float kHalfSector = std::numbers::pi_v<float> / 6.0F / kSpeedControlPolePairs;
+  const Angle kHome = TrueHome();
+  constexpr Angle kHalfSector = (std::numbers::pi_v<float> / 6.0F / kSpeedControlPolePairs) * 1.0_rad;
   zexpect_within(kHome,
                  kStart,
-                 kHalfSector + 0.005F,
+                 kHalfSector + 0.005_rad,
                  "home %f rad from the start",
-                 static_cast<double>(kHome - kStart));
+                 static_cast<double>((kHome - kStart).Value()));
   zexpect_within(PlantAngle() - kHome,
-                 3.0F,
-                 0.05F,
+                 3.0_rad,
+                 0.05_rad,
                  "moved %f rad",
-                 static_cast<double>(PlantAngle() - kHome));
+                 static_cast<double>((PlantAngle() - kHome).Value()));
   const auto kStatus = OuterLoop::Instance().Status();
   zexpect_true(kStatus.in_position,
                "estimate %f rad, %f rad/s",
@@ -648,7 +646,11 @@ ZTEST(sim_cyphal_drive, test_servo_setpoint_selects_the_mode) {
   // Velocity first (the torque after it is a profile limit and ignored).
   rig.HoldWith([&] { rig.Servo(kNan, -20.0F, 0.5F); }, 500U);
   zexpect_equal(OuterLoop::Instance().Status().mode, unimoc::cyphal::ControlMode::kSpeed);
-  zexpect_within(PlantSpeed(), -20.0F, 1.0F, "speed %f", static_cast<double>(PlantSpeed()));
+  zexpect_within(PlantSpeed(),
+                 -20.0_rad_per_s,
+                 1.0_rad_per_s,
+                 "speed %f",
+                 static_cast<double>(PlantSpeed().Value()));
 
   // Position wins over velocity.
   rig.HoldWith([&] { rig.Servo(0.0F, 5.0F, kNan); }, 100U);
@@ -657,63 +659,63 @@ ZTEST(sim_cyphal_drive, test_servo_setpoint_selects_the_mode) {
   // Torque only: torque mode through the torque constant (3/2 * 7 * 5 mWb).
   rig.HoldWith([&] { rig.Servo(kNan, kNan, 0.0525F); }, 50U);
   zexpect_equal(OuterLoop::Instance().Status().mode, unimoc::cyphal::ControlMode::kTorque);
-  zexpect_within(CurrentControlIsr::Instance().state.i_ref.q.Value(), 1.0F, 1e-3F);
+  zexpect_within(CurrentControlIsr::Instance().state.i_ref.q, 1.0_A, 1e-3_A);
 
   // Nothing finite: ignored, the last setpoint stays.
   rig.HoldWith([&] { rig.Servo(kNan, kNan, kNan); }, 50U);
-  zexpect_within(CurrentControlIsr::Instance().state.i_ref.q.Value(), 1.0F, 1e-3F);
+  zexpect_within(CurrentControlIsr::Instance().state.i_ref.q, 1.0_A, 1e-3_A);
 }
 
 ZTEST(sim_cyphal_drive, test_regenerative_braking_is_limited_by_the_charge_current_and_the_dc_link) {
   Rig& rig = *g_rig;
   ConfigureSpeedControl(rig);  // torque constant 3/2 * 7 * 5 mWb = 0.0525 N m/A
   (void)rig.Access(reg::kBatteryChargeIMax, Real(0.5F));
-  zassert_equal(rig.store.GetSnapshot().Get().battery_charge_current_max.Value(), 0.5F);
+  zassert_equal(rig.store.GetSnapshot().Get().battery_charge_current_max, 0.5_A);
   rig.Run(2U);  // applied while disengaged
   // A dyno: the shaft turns at 50 rad/s whatever the torque.
-  sim::Plant().SetShaftMode(unimoc::sim::ShaftMode::kImposedSpeed, AngularVelocity{50.0F});
-  constexpr float kTorqueConstant = 1.5F * 7.0F * 5e-3F;
+  sim::Plant().SetShaftMode(unimoc::sim::ShaftMode::kImposedSpeed, 50.0_rad_per_s);
+  constexpr MagneticFlux kTorqueConstant = 1.5F * 7.0F * 5e-3_Wb;
 
   // Motoring: 20 A make 52.5 W, far below the drive limit.
   rig.Hold(0.0F, 20.0F, 500U);
   zassert_true(rig.drive.IsEngaged());
-  zexpect_within(OuterLoop::Instance().Status().current_reference.q.Value(), 20.0F, 1e-3F);
+  zexpect_within(OuterLoop::Instance().Status().current_reference.q, 20.0_A, 1e-3_A);
 
   // Braking: at most 0.5 A * 48 V = 24 W into the battery. The observer
   // expects the braking torque to slow the shaft, which the dyno does not:
   // its speed estimate (and with it the limit) settles within some 300 ms.
   rig.Hold(0.0F, -20.0F, 500U);
   auto status = OuterLoop::Instance().Status();
-  zexpect_within(status.speed.Value(),
-                 50.0F,
-                 1.0F,
+  zexpect_within(status.speed,
+                 50.0_rad_per_s,
+                 1.0_rad_per_s,
                  "estimated speed %f",
                  static_cast<double>(status.speed.Value()));
-  zexpect_within(status.current_reference.q.Value(),
-                 -24.0F / (kTorqueConstant * status.speed.Value()),
-                 1e-3F,
+  zexpect_within(status.current_reference.q,
+                 -24.0_W / (kTorqueConstant * status.speed),
+                 1e-3_A,
                  "i_q %f",
                  static_cast<double>(status.current_reference.q.Value()));
-  const float kChargePower = -kTorqueConstant * PlantCurrent().q.Value() * PlantSpeed();
+  const Power kChargePower = (-kTorqueConstant * PlantCurrent().q) * PlantSpeed();
   zexpect_within(kChargePower,
-                 24.0F,
-                 2.0F,
+                 24.0_W,
+                 2.0_W,
                  "mechanical braking power %f W",
-                 static_cast<double>(kChargePower));
+                 static_cast<double>(kChargePower.Value()));
 
   // At 56.5 V (derating from 55 V to the 58 V trip) half of the 0.5 A remains.
-  sim::Plant().SetDcLinkVoltage(Voltage{56.5F});
+  sim::Plant().SetDcLinkVoltage(56.5_V);
   rig.Hold(0.0F, -20.0F, 500U);
   status = OuterLoop::Instance().Status();
-  zexpect_within(status.current_reference.q.Value(),
-                 -(0.25F * 56.5F) / (kTorqueConstant * status.speed.Value()),
-                 1e-3F,
+  zexpect_within(status.current_reference.q,
+                 -(0.25_A * 56.5_V) / (kTorqueConstant * status.speed),
+                 1e-3_A,
                  "i_q %f",
                  static_cast<double>(status.current_reference.q.Value()));
   zexpect_true(rig.drive.IsEngaged());
 
   // From the trip level the control cycle trips the power stage and the drive disengages.
-  sim::Plant().SetDcLinkVoltage(Voltage{58.5F});
+  sim::Plant().SetDcLinkVoltage(58.5_V);
   rig.Hold(0.0F, -20.0F, 20U);
   zexpect_false(rig.drive.IsEngaged());
   zexpect_true(CurrentControlIsr::Instance().state.overvoltage_tripped);
@@ -731,7 +733,7 @@ ZTEST(sim_cyphal_drive, test_gains_are_tuned_live_while_engaged) {
   (void)rig.Access(reg::kSpeedKp, Real(0.03F));
   rig.Hold(0.0F, 2.0F, 5U);
   zexpect_true(rig.drive.IsEngaged());
-  zexpect_within(CurrentControlIsr::Instance().cc.kp_q.Value(), 0.7F, 1e-6F);
+  zexpect_within(CurrentControlIsr::Instance().cc.kp_q, 0.7_V_per_A, 1e-6_V_per_A);
   zexpect_equal(g_settings_applied, kApplied, "restarted for a gain");
   zexpect_equal(Integer(rig.Access(reg::kSettingsPending, Empty())), 0);
 
@@ -746,7 +748,7 @@ ZTEST(sim_cyphal_drive, test_gains_are_tuned_live_while_engaged) {
   rig.Run(2U);
   zexpect_equal(g_settings_applied, kApplied + 1);
   zexpect_equal(Integer(rig.Access(reg::kSettingsPending, Empty())), 0);
-  zexpect_within(CurrentControlIsr::Instance().cc.kp_q.Value(), 0.7F, 1e-6F);
+  zexpect_within(CurrentControlIsr::Instance().cc.kp_q, 0.7_V_per_A, 1e-6_V_per_A);
 }
 
 ZTEST(sim_cyphal_drive, test_speed_setpoint_is_limited_to_the_motor_speed) {
@@ -755,7 +757,11 @@ ZTEST(sim_cyphal_drive, test_speed_setpoint_is_limited_to_the_motor_speed) {
   (void)rig.Access(reg::kMotorOmegaMax, Real(7.0F * 20.0F));  // electrical: 20 rad/s mechanical
   rig.Run(2U);
   rig.HoldWith([&] { rig.Speed(50.0F); }, 600U);
-  zexpect_within(PlantSpeed(), 20.0F, 1.0F, "speed %f", static_cast<double>(PlantSpeed()));
+  zexpect_within(PlantSpeed(),
+                 20.0_rad_per_s,
+                 1.0_rad_per_s,
+                 "speed %f",
+                 static_cast<double>(PlantSpeed().Value()));
 }
 
 ZTEST(sim_cyphal_drive, test_startup_registers_run_step_and_abort) {

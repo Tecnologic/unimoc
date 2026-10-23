@@ -55,16 +55,16 @@ constexpr void SetHomeAdapter(void* ctx) { static_cast<unimoc::observer::Positio
 // --- At rest, zero setpoint → zero output
 ZTEST(position_controller, test_zero_setpoint_zero_output) {
   auto c = MakeDefault();
-  const float kOut = c.Update(Angle{}, AngularVelocity{}, 100_us).Value();
-  UNIMOC_EXPECT_FLOAT_EQ(kOut, 0.0F);
+  const AngularVelocity kOut = c.Update(Angle{}, AngularVelocity{}, 100_us);
+  UNIMOC_EXPECT_FLOAT_EQ(kOut, 0.0_rad_per_s);
 }
 
 // --- Positive position error drives positive omega_ref
 ZTEST(position_controller, test_positive_error_drives_positive_output) {
   auto c = MakeDefault();
   c.pos_ref_rad = 1.0_rad;
-  const float kOut = c.Update(Angle{}, AngularVelocity{}, 100_us).Value();
-  zexpect_true((kOut) > (0.0F));
+  const AngularVelocity kOut = c.Update(Angle{}, AngularVelocity{}, 100_us);
+  zexpect_true(kOut > 0.0_rad_per_s);
 }
 
 ZTEST(position_controller, test_large_jump_uses_trapezoid_planning) {
@@ -82,7 +82,7 @@ ZTEST(position_controller, test_output_clamped_to_speed_limit) {
   for (int i = 0; i < 1000; ++i) {
     c.Update(Angle{}, AngularVelocity{}, 1_ms);
   }
-  zexpect_true((std::abs(c.omega_ref.Value())) <= (c.speed_limit.Value()));
+  zexpect_true(Abs(c.omega_ref) <= c.speed_limit);
 }
 
 // --- in_position flag set when close to target
@@ -106,8 +106,8 @@ ZTEST(position_controller, test_homing_searching_outputs_homing_speed) {
   auto c = MakeDefault();
   c.StartHoming();
   zexpect_equal(c.homing_state, HomingState::kSearching);
-  const float kOut = c.Update(Angle{}, AngularVelocity{}, 100_us).Value();
-  UNIMOC_EXPECT_FLOAT_EQ(kOut, c.homing_speed.Value());
+  const AngularVelocity kOut = c.Update(Angle{}, AngularVelocity{}, 100_us);
+  UNIMOC_EXPECT_FLOAT_EQ(kOut, c.homing_speed);
 }
 
 // --- Homing: TriggerZeroing advances to ZEROING then DONE
@@ -147,7 +147,7 @@ ZTEST(position_controller, test_fault_transition_and_zero_output) {
   c.StartHoming();
   c.Fault();
   zexpect_equal(c.homing_state, HomingState::kFault);
-  UNIMOC_EXPECT_FLOAT_EQ(c.omega_ref.Value(), 0.0F);
+  UNIMOC_EXPECT_FLOAT_EQ(c.omega_ref, 0.0_rad_per_s);
 }
 
 // --- Reset() returns to IDLE
@@ -157,46 +157,47 @@ ZTEST(position_controller, test_reset_returns_to_idle) {
   c.Fault();
   c.Reset();
   zexpect_equal(c.homing_state, HomingState::kIdle);
-  UNIMOC_EXPECT_FLOAT_EQ(c.speed_integrator.Value(), 0.0F);
-  UNIMOC_EXPECT_FLOAT_EQ(c.omega_ref.Value(), 0.0F);
+  UNIMOC_EXPECT_FLOAT_EQ(c.speed_integrator, 0.0_rad_per_s);
+  UNIMOC_EXPECT_FLOAT_EQ(c.omega_ref, 0.0_rad_per_s);
 }
 
 // --- Closed-loop convergence: shaft reaches target
 ZTEST(position_controller, test_converges_to_setpoint) {
   auto c = MakeDefault();
-  float pos = 0.0F;
-  float vel = 0.0F;
+  Angle pos;
+  AngularVelocity vel;
+  constexpr Time kStep{1e-4F};
 
   c.pos_ref_rad = 2.0_rad;  // 2 rad target
 
   for (int i = 0; i < 50000; ++i) {
-    const float kOmegaCmd = c.Update(Angle{pos}, AngularVelocity{vel}, 100_us).Value();
+    const AngularVelocity kOmegaCmd = c.Update(pos, vel, 100_us);
     // Simple first-order motor model
     vel += 0.01F * (kOmegaCmd - vel);
-    pos += vel * 1e-4F;
+    pos += vel * kStep;
   }
-  UNIMOC_EXPECT_NEAR(pos, 2.0F, 0.1F);
+  UNIMOC_EXPECT_NEAR(pos, 2.0_rad, 0.1_rad);
 }
 
 // --- The position loop alone: P gain, acceleration and speed limit, in-position flag
 ZTEST(position_controller, test_speed_demand_is_the_limited_position_loop) {
   auto c = MakeDefault();
-  c.pos_ref_rad = Angle{0.2F};
+  c.pos_ref_rad = 0.2_rad;
   // 0.2 rad error * 10 = 2 rad/s, but the acceleration limit allows 500 * 1 ms = 0.5 rad/s.
-  UNIMOC_EXPECT_NEAR(c.SpeedDemand(Angle{}, AngularVelocity{}, 1_ms).Value(), 0.5F, 1e-5F);
-  UNIMOC_EXPECT_NEAR(c.SpeedDemand(Angle{}, AngularVelocity{}, 1_ms).Value(), 1.0F, 1e-5F);
+  UNIMOC_EXPECT_NEAR(c.SpeedDemand(Angle{}, AngularVelocity{}, 1_ms), 0.5_rad_per_s, 1e-5_rad_per_s);
+  UNIMOC_EXPECT_NEAR(c.SpeedDemand(Angle{}, AngularVelocity{}, 1_ms), 1.0_rad_per_s, 1e-5_rad_per_s);
   for (int i = 0; i < 10; ++i) {
     (void)c.SpeedDemand(Angle{}, AngularVelocity{}, 1_ms);
   }
-  UNIMOC_EXPECT_NEAR(c.SpeedDemand(Angle{}, AngularVelocity{}, 1_ms).Value(), 2.0F, 1e-5F);
+  UNIMOC_EXPECT_NEAR(c.SpeedDemand(Angle{}, AngularVelocity{}, 1_ms), 2.0_rad_per_s, 1e-5_rad_per_s);
   zexpect_false(c.in_position);
 
   // Far away: the speed limit, independent of the measured speed (no speed loop here).
-  c.pos_ref_rad = Angle{0.4F};
+  c.pos_ref_rad = 0.4_rad;
   for (int i = 0; i < 200; ++i) {
-    (void)c.SpeedDemand(Angle{0.35F}, AngularVelocity{40.0F}, 1_ms);
+    (void)c.SpeedDemand(0.35_rad, 40.0_rad_per_s, 1_ms);
   }
-  UNIMOC_EXPECT_NEAR(c.SpeedDemand(Angle{0.395F}, AngularVelocity{0.1F}, 1_ms).Value(), 0.05F, 1e-4F);
+  UNIMOC_EXPECT_NEAR(c.SpeedDemand(0.395_rad, 0.1_rad_per_s, 1_ms), 0.05_rad_per_s, 1e-4_rad_per_s);
   zexpect_true(c.in_position);
 }
 

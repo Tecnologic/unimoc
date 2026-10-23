@@ -80,7 +80,7 @@ ZTEST(control_observer_units, test_asm_and_hfi_apis_accept_physical_units) {
                       system::Stator<unit::Current>{0.0_A, 0.0_A},
                       10_us,
                       mechanical_observer);
-  zexpect_true(std::isfinite(asm_observer.flux_magnitude.Value()));
+  zexpect_true(IsFinite(asm_observer.flux_magnitude));
   for (int step = 0; step < 100; ++step) {
     asm_observer.Update(system::Stator<unit::Voltage>{1.0_V, 0.5_V},
                         system::Stator<unit::Current>{0.2_A, 0.1_A},
@@ -95,12 +95,12 @@ ZTEST(control_observer_units, test_asm_and_hfi_apis_accept_physical_units) {
 
   control::AsmFluxController asm_controller;
   const unit::Current kCurrentReference = asm_controller.Update(0.05_Wb, 0.01_Wb, 1.0_A, 100_us);
-  zexpect_true((kCurrentReference.Value()) >= (asm_controller.i_d_min.Value()));
+  zexpect_true(kCurrentReference >= asm_controller.i_d_min);
 
   observer::Hfi<float> hfi;
   hfi.v_inject = 2.0_V;
   const auto kInjection = hfi.GetInjectionVoltage(0.0_ratio, 1.0_ratio);
-  UNIMOC_EXPECT_FLOAT_EQ(kInjection.alpha.Value(), 2.0F);
+  UNIMOC_EXPECT_FLOAT_EQ(kInjection.alpha, 2.0_V);
   hfi.Update(system::Stator<unit::Current>{0.0F, 0.0F}, 0.0_ratio, 1.0_ratio, 10_us, mechanical_observer);
 }
 
@@ -124,30 +124,30 @@ ZTEST(control_observer_units, test_algorithms_load_initial_settings_from_nvm) {
 
   observer::MechanicalObserver<float> mechanical_observer;
   mechanical_observer.Init(settings);
-  UNIMOC_EXPECT_FLOAT_EQ(mechanical_observer.psi.Value(), 0.012F);
-  UNIMOC_EXPECT_FLOAT_EQ(mechanical_observer.L_d.Value(), 0.002F);
-  UNIMOC_EXPECT_FLOAT_EQ(mechanical_observer.L_q.Value(), 0.003F);
-  UNIMOC_EXPECT_FLOAT_EQ(mechanical_observer.J.Value(), 0.004F);
-  UNIMOC_EXPECT_FLOAT_EQ(mechanical_observer.omega_max.Value(), 123.0F);
-  UNIMOC_EXPECT_FLOAT_EQ(mechanical_observer.omega_min.Value(), -45.0F);
+  UNIMOC_EXPECT_FLOAT_EQ(mechanical_observer.psi, 0.012_Wb);
+  UNIMOC_EXPECT_FLOAT_EQ(mechanical_observer.L_d, 0.002_H);
+  UNIMOC_EXPECT_FLOAT_EQ(mechanical_observer.L_q, 0.003_H);
+  UNIMOC_EXPECT_FLOAT_EQ(mechanical_observer.J, 0.004_kg_m2);
+  UNIMOC_EXPECT_FLOAT_EQ(mechanical_observer.omega_max, 123.0_rad_per_s);
+  UNIMOC_EXPECT_FLOAT_EQ(mechanical_observer.omega_min, -45.0_rad_per_s);
   UNIMOC_EXPECT_FLOAT_EQ(mechanical_observer.Q, 0.005F);
   UNIMOC_EXPECT_FLOAT_EQ(mechanical_observer.R, 0.006F);
 
   control::DeadTimeCompensation<float> dead_time_compensation;
   dead_time_compensation.Init(settings);
-  UNIMOC_EXPECT_FLOAT_EQ(dead_time_compensation.dead_time.Value(), 0.000002F);
-  UNIMOC_EXPECT_FLOAT_EQ(dead_time_compensation.f_pwm.Value(), 25000.0F);
-  UNIMOC_EXPECT_FLOAT_EQ(dead_time_compensation.i_threshold.Value(), 0.7F);
+  UNIMOC_EXPECT_FLOAT_EQ(dead_time_compensation.dead_time, 0.000002_s);
+  UNIMOC_EXPECT_FLOAT_EQ(dead_time_compensation.f_pwm, 25000.0_Hz);
+  UNIMOC_EXPECT_FLOAT_EQ(dead_time_compensation.i_threshold, 0.7_A);
 
   observer::Hfi<float> hfi;
   hfi.Init(settings);
-  UNIMOC_EXPECT_FLOAT_EQ(hfi.v_inject.Value(), 2.5F);
-  UNIMOC_EXPECT_FLOAT_EQ(hfi.error_gain.Value(), 3.0F);
+  UNIMOC_EXPECT_FLOAT_EQ(hfi.v_inject, 2.5_V);
+  UNIMOC_EXPECT_FLOAT_EQ(hfi.error_gain, 3.0_rad_per_A);
 
   control::Svm svm;
   svm.Init(settings);
-  UNIMOC_EXPECT_FLOAT_EQ(svm.duty_min.Value(), 0.1F);
-  UNIMOC_EXPECT_FLOAT_EQ(svm.duty_max.Value(), 0.9F);
+  UNIMOC_EXPECT_FLOAT_EQ(svm.duty_min, 0.1_ratio);
+  UNIMOC_EXPECT_FLOAT_EQ(svm.duty_max, 0.9_ratio);
 }
 
 }  // namespace unimoc::test

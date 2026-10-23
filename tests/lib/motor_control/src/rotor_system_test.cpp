@@ -22,6 +22,7 @@
 using Rotor = unimoc::system::Rotor<unimoc::unit::Ratio>;
 using Stator = unimoc::system::Stator<unimoc::unit::Ratio>;
 using RotorAngle = unimoc::system::RotorAngle;
+using namespace unimoc::unit;
 
 ZTEST(rotor_system, test_to_stator_at_zero_angle) {
   const Rotor kRotor{1.0F, 2.0F};
@@ -29,8 +30,8 @@ ZTEST(rotor_system, test_to_stator_at_zero_angle) {
 
   const auto kStator = kRotor.ToStator(kAngle);
 
-  UNIMOC_EXPECT_NEAR(kStator.alpha.Value(), 1.0F, 1.0e-5F);
-  UNIMOC_EXPECT_NEAR(kStator.beta.Value(), 2.0F, 1.0e-5F);
+  UNIMOC_EXPECT_NEAR(kStator.alpha, 1.0_ratio, 1.0e-5_ratio);
+  UNIMOC_EXPECT_NEAR(kStator.beta, 2.0_ratio, 1.0e-5_ratio);
 }
 
 ZTEST(rotor_system, test_to_stator_at_quarter_turn) {
@@ -39,16 +40,14 @@ ZTEST(rotor_system, test_to_stator_at_quarter_turn) {
 
   const auto kStator = kRotor.ToStator(kAngle);
 
-  UNIMOC_EXPECT_NEAR(kStator.alpha.Value(), -2.0F, 1.0e-5F);
-  UNIMOC_EXPECT_NEAR(kStator.beta.Value(), 1.0F, 1.0e-5F);
+  UNIMOC_EXPECT_NEAR(kStator.alpha, -2.0_ratio, 1.0e-5_ratio);
+  UNIMOC_EXPECT_NEAR(kStator.beta, 1.0_ratio, 1.0e-5_ratio);
 }
 
 ZTEST(rotor_system, test_length_squared_avoids_square_root) {
-  using unimoc::unit::operator""_A;
   constexpr unimoc::system::Rotor kRotor{3.0_A, 4.0_A};
 
-  static_assert(std::same_as<decltype(kRotor.LengthSquared()),
-                             decltype(unimoc::unit::Current{} * unimoc::unit::Current{})>);
+  static_assert(std::same_as<decltype(kRotor.LengthSquared()), decltype(Current{} * Current{})>);
   static_assert(kRotor.LengthSquared() == 5.0_A * 5.0_A);
   UNIMOC_EXPECT_FLOAT_EQ(kRotor.LengthSquared(), 5.0_A * 5.0_A);
 }

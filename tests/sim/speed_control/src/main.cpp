@@ -51,64 +51,63 @@ unimoc::settings::NvmSettings MotorSettings(const unimoc::settings::NvmSettings&
   constexpr float kWc = 2.0F * kPi * 500.0F;
   constexpr float kSpeedWc = 2.0F * kPi * 30.0F;
   settings.pole_pairs = kPolePairs;
-  settings.stator_r = Resistance{0.05F};
-  settings.l_d = Inductance{100e-6F};
-  settings.l_q = Inductance{100e-6F};
-  settings.flux_pm = MagneticFlux{5e-3F};
-  settings.motor_j = Inertia{1e-4F};
+  settings.stator_r = 0.05_Ohm;
+  settings.l_d = 100e-6_H;
+  settings.l_q = 100e-6_H;
+  settings.flux_pm = 5e-3_Wb;
+  settings.motor_j = 1e-4_kg_m2;
   settings.current_kp_d = VoltagePerCurrent{100e-6F * kWc};
   settings.current_kp_q = VoltagePerCurrent{100e-6F * kWc};
   settings.current_ki_d = VoltagePerCurrentTime{0.05F * kWc};
   settings.current_ki_q = VoltagePerCurrentTime{0.05F * kWc};
-  settings.dtc_dead_time = Time{0.0F};
+  settings.dtc_dead_time = 0.0_s;
   settings.hall_enable = 1U;
   settings.pmsm_flux_obs_r_speed = 1.0F;
   settings.speed_kp = TorquePerAngularVelocity{1e-4F * kSpeedWc};
   settings.speed_ki = InverseTime{kSpeedWc / 4.0F};
-  settings.speed_accel_limit = AngularAcceleration{2000.0F};
-  settings.motor_i_max = Current{20.0F};
-  settings.pos_kp_pos = AngularVelocityPerAngle{20.0F};
-  settings.pos_speed_limit = AngularVelocity{40.0F};
-  settings.pos_accel_limit = AngularAcceleration{1000.0F};
-  settings.pos_position_tolerance = Angle{0.02F};
-  settings.pos_speed_tolerance = AngularVelocity{1.0F};
+  settings.speed_accel_limit = 2000.0_rad_per_s2;
+  settings.motor_i_max = 20.0_A;
+  settings.pos_kp_pos = 20.0_rad_per_s_per_rad;
+  settings.pos_speed_limit = 40.0_rad_per_s;
+  settings.pos_accel_limit = 1000.0_rad_per_s2;
+  settings.pos_position_tolerance = 0.02_rad;
+  settings.pos_speed_tolerance = 1.0_rad_per_s;
   return settings;
 }
 
-float MechanicalSpeed() { return sim::Plant().Output().mechanical_speed.Value(); }
-float MechanicalAngle() { return sim::Plant().Output().mechanical_angle.AbsoluteAngle().Value(); }
+AngularVelocity MechanicalSpeed() { return sim::Plant().Output().mechanical_speed; }
+Angle MechanicalAngle() { return sim::Plant().Output().mechanical_angle.AbsoluteAngle(); }
 
 /// Half a Hall sector in mechanical angle: the uncertainty of the angle at standstill.
-constexpr float kHalfSector = kPi / 6.0F / static_cast<float>(kPolePairs);
+constexpr Angle kHalfSector = (kPi / 6.0F / static_cast<float>(kPolePairs)) * 1.0_rad;
 
 /// True shaft angle of the drive's home (position zero). The drive counts the
 /// position from the estimate at its start, which the Hall sector places only
 /// within half a sector of the shaft; the edges correct the angle estimate
 /// later, but not the home. Valid at standstill.
-float TrueHome() {
+Angle TrueHome() {
   const auto& plant = sim::Plant().Output();
-  const float kEstimateError = unimoc::observer::WrapAngle(plant.electrical_angle.AngleInRevolution() -
-                                                           CurrentControlIsr::Instance().mech_obs.theta)
-                                   .Value();
-  return MechanicalAngle() - OuterLoop::Instance().Status().position.Value() -
+  const Angle kEstimateError = unimoc::observer::WrapAngle(plant.electrical_angle.AngleInRevolution() -
+                                                           CurrentControlIsr::Instance().mech_obs.theta);
+  return MechanicalAngle() - OuterLoop::Instance().Status().position -
          (kEstimateError / static_cast<float>(kPolePairs));
 }
 
 void RunMs(const unsigned milliseconds) { sim::AdvanceCycles(milliseconds * kCyclesPerMs); }
 
-OuterSetpoint Speed(const float speed) {
+OuterSetpoint Speed(const AngularVelocity speed) {
   OuterSetpoint setpoint{};
   setpoint.active = true;
   setpoint.mode = ControlMode::kSpeed;
-  setpoint.speed = AngularVelocity{speed};
+  setpoint.speed = speed;
   return setpoint;
 }
 
-OuterSetpoint Position(const float position) {
+OuterSetpoint Position(const Angle position) {
   OuterSetpoint setpoint{};
   setpoint.active = true;
   setpoint.mode = ControlMode::kPosition;
-  setpoint.position = Angle{position};
+  setpoint.position = position;
   return setpoint;
 }
 
@@ -146,7 +145,7 @@ void Start(const unimoc::settings::NvmSettings& settings) {
   sim::Plant().SetShaftMode(unimoc::sim::ShaftMode::kFree);
   sim::Plant().SetInput(unimoc::sim::SimulationInput{});
   sim::Reset();
-  zassert_true(unimoc::current_control::StartRuntime(settings, unimoc::hardware::kMotors[0], Current{60.0F}));
+  zassert_true(unimoc::current_control::StartRuntime(settings, unimoc::hardware::kMotors[0], 60.0_A));
   sim::SetFreeRunning(false);
   kPowerStage.ClearFault();
   zassert_true(kPowerStage.Enable());
@@ -170,100 +169,115 @@ ZTEST_F(sim_speed_control, test_inactive_setpoint_commands_zero_current) {
   const auto kStatus = OuterLoop::Instance().Status();
   zexpect_true(kStatus.steps >= 10U * kCyclesPerMs / OuterLoop::kCyclesPerStep - 1U);
   zexpect_false(kStatus.active);
-  zexpect_equal(CurrentControlIsr::Instance().state.i_ref.q.Value(), 0.0F);
-  zexpect_within(MechanicalSpeed(), 0.0F, 0.1F);
+  zexpect_equal(CurrentControlIsr::Instance().state.i_ref.q, 0.0_A);
+  zexpect_within(MechanicalSpeed(), 0.0_rad_per_s, 0.1_rad_per_s);
 }
 
 ZTEST_F(sim_speed_control, test_speed_step_reaches_the_setpoint) {
-  OuterLoop::Instance().SetSetpoint(Speed(30.0F));
+  OuterLoop::Instance().SetSetpoint(Speed(30.0_rad_per_s));
   RunMs(400U);
-  zexpect_within(MechanicalSpeed(), 30.0F, 0.6F, "speed %f", static_cast<double>(MechanicalSpeed()));
+  zexpect_within(MechanicalSpeed(),
+                 30.0_rad_per_s,
+                 0.6_rad_per_s,
+                 "speed %f",
+                 static_cast<double>(MechanicalSpeed().Value()));
   const auto kStatus = OuterLoop::Instance().Status();
   zexpect_true(kStatus.active);
   zexpect_equal(kStatus.mode, ControlMode::kSpeed);
-  zexpect_within(kStatus.speed.Value(), 30.0F, 0.6F);
+  zexpect_within(kStatus.speed, 30.0_rad_per_s, 0.6_rad_per_s);
 
   // And back through zero to the reverse direction.
-  OuterLoop::Instance().SetSetpoint(Speed(-20.0F));
+  OuterLoop::Instance().SetSetpoint(Speed(-20.0_rad_per_s));
   RunMs(400U);
-  zexpect_within(MechanicalSpeed(), -20.0F, 0.6F, "speed %f", static_cast<double>(MechanicalSpeed()));
+  zexpect_within(MechanicalSpeed(),
+                 -20.0_rad_per_s,
+                 0.6_rad_per_s,
+                 "speed %f",
+                 static_cast<double>(MechanicalSpeed().Value()));
   zexpect_false(CurrentControlIsr::Instance().state.overcurrent_tripped);
 }
 
 ZTEST_F(sim_speed_control, test_load_torque_is_rejected) {
-  OuterLoop::Instance().SetSetpoint(Speed(25.0F));
+  OuterLoop::Instance().SetSetpoint(Speed(25.0_rad_per_s));
   RunMs(300U);
-  sim::Plant().SetInput(unimoc::sim::SimulationInput{Torque{0.2F}, Voltage{}});
+  sim::Plant().SetInput(unimoc::sim::SimulationInput{0.2_Nm, Voltage{}});
   RunMs(500U);
-  zexpect_within(MechanicalSpeed(), 25.0F, 0.6F, "speed %f", static_cast<double>(MechanicalSpeed()));
+  zexpect_within(MechanicalSpeed(),
+                 25.0_rad_per_s,
+                 0.6_rad_per_s,
+                 "speed %f",
+                 static_cast<double>(MechanicalSpeed().Value()));
   // 0.2 N m at 3/2 * 7 * 5 mWb = 52.5 mN m/A: about 3.8 A of q current.
-  zexpect_within(OuterLoop::Instance().Status().current_reference.q.Value(), 0.2F / 0.0525F, 0.4F);
+  zexpect_within(OuterLoop::Instance().Status().current_reference.q, (0.2F / 0.0525F) * 1.0_A, 0.4_A);
 }
 
 ZTEST_F(sim_speed_control, test_current_limit_takes_effect) {
   auto settings = fixture->settings;
-  settings.motor_i_max = Current{5.0F};
+  settings.motor_i_max = 5.0_A;
   settings.speed_accel_limit = AngularAcceleration{};  // a step: the controller saturates
   Start(settings);
-  OuterLoop::Instance().SetSetpoint(Speed(200.0F));
-  float largest = 0.0F;
+  OuterLoop::Instance().SetSetpoint(Speed(200.0_rad_per_s));
+  Current largest;
   for (unsigned ms = 0U; ms < 50U; ++ms) {
     RunMs(1U);
     const auto& reference = CurrentControlIsr::Instance().state.i_ref;
-    largest = std::max(largest, std::hypot(reference.d.Value(), reference.q.Value()));
+    largest = Max(largest, reference.Length());
   }
-  zexpect_true(largest <= 5.0F + 1e-4F, "largest reference %f A", static_cast<double>(largest));
-  zexpect_within(largest, 5.0F, 1e-3F);
+  zexpect_true(largest <= 5.0_A + 1e-4_A, "largest reference %f A", static_cast<double>(largest.Value()));
+  zexpect_within(largest, 5.0_A, 1e-3_A);
   // Limited torque: 5 A * 52.5 mN m/A on 1e-4 kg m^2 is 2625 rad/s^2, so 50 ms reach at most 131 rad/s.
-  zexpect_true(MechanicalSpeed() > 50.0F && MechanicalSpeed() < 135.0F,
+  zexpect_true(MechanicalSpeed() > 50.0_rad_per_s && MechanicalSpeed() < 135.0_rad_per_s,
                "speed %f",
-               static_cast<double>(MechanicalSpeed()));
+               static_cast<double>(MechanicalSpeed().Value()));
 }
 
 ZTEST_F(sim_speed_control, test_position_step_settles_in_position) {
-  const float kStart = MechanicalAngle();
-  OuterLoop::Instance().SetSetpoint(Position(2.0F));
+  const Angle kStart = MechanicalAngle();
+  OuterLoop::Instance().SetSetpoint(Position(2.0_rad));
   RunMs(1000U);
-  const float kHome = TrueHome();
+  const Angle kHome = TrueHome();
   zexpect_within(kHome,
                  kStart,
-                 kHalfSector + 0.005F,
+                 kHalfSector + 0.005_rad,
                  "home %f rad from the start",
-                 static_cast<double>(kHome - kStart));
+                 static_cast<double>((kHome - kStart).Value()));
   zexpect_within(MechanicalAngle() - kHome,
-                 2.0F,
-                 0.03F,
+                 2.0_rad,
+                 0.03_rad,
                  "moved %f rad",
-                 static_cast<double>(MechanicalAngle() - kHome));
+                 static_cast<double>((MechanicalAngle() - kHome).Value()));
   const auto kStatus = OuterLoop::Instance().Status();
   zexpect_equal(kStatus.mode, ControlMode::kPosition);
-  zexpect_within(kStatus.position.Value(), 2.0F, 0.03F);
+  zexpect_within(kStatus.position, 2.0_rad, 0.03_rad);
   zexpect_true(kStatus.in_position);
 
-  OuterLoop::Instance().SetSetpoint(Position(-1.0F));
+  OuterLoop::Instance().SetSetpoint(Position(-1.0_rad));
   RunMs(1000U);
   zexpect_within(MechanicalAngle() - kHome,
-                 -1.0F,
-                 0.03F,
+                 -1.0_rad,
+                 0.03_rad,
                  "moved %f rad, estimate %f rad",
-                 static_cast<double>(MechanicalAngle() - kHome),
+                 static_cast<double>((MechanicalAngle() - kHome).Value()),
                  static_cast<double>(OuterLoop::Instance().Status().position.Value()));
 }
 
 ZTEST_F(sim_speed_control, test_position_speed_stays_below_the_limit) {
-  OuterLoop::Instance().SetSetpoint(Position(20.0F));
-  float fastest = 0.0F;
-  float fastest_demand = 0.0F;
+  OuterLoop::Instance().SetSetpoint(Position(20.0_rad));
+  AngularVelocity fastest;
+  AngularVelocity fastest_demand;
   for (unsigned ms = 0U; ms < 300U; ++ms) {
     RunMs(1U);
-    fastest = std::max(fastest, std::abs(MechanicalSpeed()));
-    fastest_demand =
-        std::max(fastest_demand, std::abs(OuterLoop::Instance().Status().speed_reference.Value()));
+    fastest = Max(fastest, Abs(MechanicalSpeed()));
+    fastest_demand = Max(fastest_demand, Abs(OuterLoop::Instance().Status().speed_reference));
   }
   // The position loop demands at most the 40 rad/s limit; the shaft follows
   // with the overshoot of the speed loop.
-  zexpect_true(fastest_demand <= 40.0F + 1e-3F, "demand %f", static_cast<double>(fastest_demand));
-  zexpect_true(fastest > 35.0F && fastest < 1.35F * 40.0F, "fastest %f", static_cast<double>(fastest));
+  zexpect_true(fastest_demand <= 40.0_rad_per_s + 1e-3_rad_per_s,
+               "demand %f",
+               static_cast<double>(fastest_demand.Value()));
+  zexpect_true(fastest > 35.0_rad_per_s && fastest < 1.35F * 40.0_rad_per_s,
+               "fastest %f",
+               static_cast<double>(fastest.Value()));
 }
 
 ZTEST_SUITE(sim_speed_control, nullptr, Setup, Before, After, nullptr);

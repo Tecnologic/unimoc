@@ -74,7 +74,7 @@ ZTEST(settings_store, test_snapshot_exposes_only_const_settings) {
 ZTEST(settings_store, test_empty_storage_uses_factory_defaults_and_writes_nothing) {
   Fixture ctx;
   zexpect_equal(ctx.store.Load(), SettingsStatus::kFactoryDefaults);
-  zexpect_equal(ctx.store.GetSnapshot().Get().motor_i_max.Value(), 30.0F);
+  zexpect_equal(ctx.store.GetSnapshot().Get().motor_i_max, 30.0_A);
   zexpect_equal(ctx.backend.Writes(), 0U);
   zexpect_equal(ctx.backend.Erases(), 0U);
   zexpect_equal(ctx.backend.Count(), 0U);
@@ -86,7 +86,7 @@ ZTEST(settings_store, test_live_update_changes_ram_only) {
   auto operations = ctx.store.GetOperations();
 
   zexpect_equal(operations.SetMotorCurrentLimit(20.0_A), SettingsStatus::kSuccess);
-  zexpect_equal(ctx.store.GetSnapshot().Get().motor_i_max.Value(), 20.0F);
+  zexpect_equal(ctx.store.GetSnapshot().Get().motor_i_max, 20.0_A);
   zexpect_equal(operations.UnsavedCount(), 1U);
   zexpect_equal(ctx.backend.Writes(), 0U);
   zexpect_equal(ctx.backend.Count(), 0U);
@@ -134,12 +134,12 @@ ZTEST(settings_store, test_saved_registers_load_over_the_factory_profile) {
   zexpect_equal(reloaded.Load(), SettingsStatus::kSuccess);
   const auto kSnapshot = reloaded.GetSnapshot();
   const NvmSettings& loaded = kSnapshot.Get();
-  zexpect_equal(loaded.motor_i_max.Value(), 20.0F);
-  zexpect_equal(loaded.stator_r.Value(), 0.23_Ohm .Value());
-  zexpect_equal(loaded.pwm_frequency.Value(), 32000.0F);
+  zexpect_equal(loaded.motor_i_max, 20.0_A);
+  zexpect_equal(loaded.stator_r, 0.23_Ohm);
+  zexpect_equal(loaded.pwm_frequency, 32000.0_Hz);
   zexpect_equal(loaded.motor_type, system::MotorType::kAsm);
   zexpect_equal(loaded.pole_pairs, 7U);
-  zexpect_equal(loaded.battery_drive_current_max.Value(), 12.0F);  // not stored: factory
+  zexpect_equal(loaded.battery_drive_current_max, 12.0_A);  // not stored: factory
   zexpect_equal(reloaded.GetOperations().UnsavedCount(), 0U);
 }
 
@@ -165,7 +165,7 @@ ZTEST(settings_store, test_reset_to_factory_is_live_and_erases_on_save) {
   zassert_equal(operations.SaveToFlash(), SettingsStatus::kSuccess);
 
   zexpect_equal(operations.ResetToFactoryDefaults(), SettingsStatus::kSuccess);
-  zexpect_equal(ctx.store.GetSnapshot().Get().motor_i_max.Value(), 30.0F);
+  zexpect_equal(ctx.store.GetSnapshot().Get().motor_i_max, 30.0_A);
   zexpect_true(ctx.backend.Contains(reg::kMotorIMax));  // flash is untouched until saved
   zexpect_equal(operations.UnsavedCount(), 1U);
 
@@ -183,7 +183,7 @@ ZTEST(settings_store, test_save_is_refused_while_the_gate_is_closed) {
   zexpect_equal(operations.SaveToFlash(), SettingsStatus::kPersistBlocked);
   zexpect_equal(ctx.backend.Writes(), 0U);
   zexpect_equal(operations.UnsavedCount(), 1U);
-  zexpect_equal(ctx.store.GetSnapshot().Get().motor_i_max.Value(), 20.0F);  // live tuning still works
+  zexpect_equal(ctx.store.GetSnapshot().Get().motor_i_max, 20.0_A);  // live tuning still works
 
   g_save_allowed = true;
   zexpect_equal(operations.SaveToFlash(), SettingsStatus::kSuccess);
@@ -206,7 +206,7 @@ ZTEST(settings_store, test_capability_violation_leaves_settings_unchanged) {
   auto operations = ctx.store.GetOperations();
 
   zexpect_equal(operations.SetMotorCurrentLimit(31.0_A), SettingsStatus::kOutOfRange);
-  zexpect_equal(ctx.store.GetSnapshot().Get().motor_i_max.Value(), 30.0F);
+  zexpect_equal(ctx.store.GetSnapshot().Get().motor_i_max, 30.0_A);
   zexpect_equal(operations.UnsavedCount(), 0U);
 }
 
@@ -224,7 +224,7 @@ ZTEST(settings_store, test_dc_link_voltages_are_ordered_and_within_the_capabilit
   zexpect_equal(kSet(56.0_V, 56.0_V), SettingsStatus::kOutOfRange);  // no derating range
   zexpect_equal(kSet(50.0_V, 61.0_V), SettingsStatus::kOutOfRange);  // above the 60 V capability
   zexpect_equal(kSet(0.0_V, 56.0_V), SettingsStatus::kOutOfRange);
-  zexpect_equal(ctx.store.GetSnapshot().Get().dc_link_trip.Value(), 56.0F);
+  zexpect_equal(ctx.store.GetSnapshot().Get().dc_link_trip, 56.0_V);
 }
 
 ZTEST(settings_store, test_two_ports_on_one_port_id_are_rejected) {
@@ -279,7 +279,7 @@ ZTEST(settings_store, test_write_failure_keeps_the_register_unsaved_and_a_retry_
   ctx.backend.FailWrites(true);
   zexpect_equal(operations.SaveToFlash(), SettingsStatus::kStorageError);
   zexpect_equal(operations.UnsavedCount(), 1U);
-  zexpect_equal(ctx.store.GetSnapshot().Get().motor_i_max.Value(), 20.0F);
+  zexpect_equal(ctx.store.GetSnapshot().Get().motor_i_max, 20.0_A);
 
   ctx.backend.FailWrites(false);
   zexpect_equal(operations.SaveToFlash(), SettingsStatus::kSuccess);
@@ -314,7 +314,7 @@ ZTEST(settings_store, test_undecodable_entry_falls_back_to_factory_and_a_save_re
   ctx.backend.Put(reg::kMotorIMax, kBadSize);
 
   zexpect_equal(ctx.store.Load(), SettingsStatus::kInvalidImage);
-  zexpect_equal(ctx.store.GetSnapshot().Get().motor_i_max.Value(), 30.0F);
+  zexpect_equal(ctx.store.GetSnapshot().Get().motor_i_max, 30.0_A);
 
   zexpect_equal(ctx.store.GetOperations().SaveToFlash(), SettingsStatus::kSuccess);
   zexpect_false(ctx.backend.Contains(reg::kMotorIMax));
@@ -328,7 +328,7 @@ ZTEST(settings_store, test_stored_value_beyond_the_capability_is_rejected) {
   ctx.backend.Put(reg::kMotorIMax, std::span<const std::byte>{kBytes.data(), size});
 
   zexpect_equal(ctx.store.Load(), SettingsStatus::kOutOfRange);
-  zexpect_equal(ctx.store.GetSnapshot().Get().motor_i_max.Value(), 30.0F);
+  zexpect_equal(ctx.store.GetSnapshot().Get().motor_i_max, 30.0_A);
 }
 
 ZTEST(settings_store, test_unknown_keys_are_ignored) {
@@ -342,7 +342,7 @@ ZTEST(settings_store, test_unavailable_storage_is_reported) {
   Fixture ctx;
   ctx.backend.SetUnavailable(true);
   zexpect_equal(ctx.store.Load(), SettingsStatus::kStorageUnavailable);
-  zexpect_equal(ctx.store.GetSnapshot().Get().motor_i_max.Value(), 30.0F);
+  zexpect_equal(ctx.store.GetSnapshot().Get().motor_i_max, 30.0_A);
 }
 
 ZTEST(settings_store, test_empty_node_name_is_stored_not_deleted) {

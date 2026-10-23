@@ -26,9 +26,9 @@ ZTEST(svm, test_zero_voltage_produces_centered_duties) {
 
   const auto kDuties = kSvm.Calculate(Stator{0.0F, 0.0F}.ToThreePhase());
 
-  UNIMOC_EXPECT_FLOAT_EQ(kDuties.a.Value(), 0.5F);
-  UNIMOC_EXPECT_FLOAT_EQ(kDuties.b.Value(), 0.5F);
-  UNIMOC_EXPECT_FLOAT_EQ(kDuties.c.Value(), 0.5F);
+  UNIMOC_EXPECT_FLOAT_EQ(kDuties.a, 0.5_ratio);
+  UNIMOC_EXPECT_FLOAT_EQ(kDuties.b, 0.5_ratio);
+  UNIMOC_EXPECT_FLOAT_EQ(kDuties.c, 0.5_ratio);
 }
 
 ZTEST(svm, test_alpha_voltage_uses_centered_zero_sequence) {
@@ -36,10 +36,10 @@ ZTEST(svm, test_alpha_voltage_uses_centered_zero_sequence) {
 
   const auto kDuties = kSvm.Calculate(Stator{0.2F, 0.0F}.ToThreePhase());
 
-  UNIMOC_EXPECT_NEAR(kDuties.a.Value(), 0.65F, 1.0e-6F);
-  UNIMOC_EXPECT_NEAR(kDuties.b.Value(), 0.35F, 1.0e-6F);
-  UNIMOC_EXPECT_NEAR(kDuties.c.Value(), 0.35F, 1.0e-6F);
-  UNIMOC_EXPECT_NEAR(kDuties.a.Value() + kDuties.c.Value(), 1.0F, 1.0e-6F);
+  UNIMOC_EXPECT_NEAR(kDuties.a, 0.65_ratio, 1.0e-6_ratio);
+  UNIMOC_EXPECT_NEAR(kDuties.b, 0.35_ratio, 1.0e-6_ratio);
+  UNIMOC_EXPECT_NEAR(kDuties.c, 0.35_ratio, 1.0e-6_ratio);
+  UNIMOC_EXPECT_NEAR(kDuties.a + kDuties.c, 1.0_ratio, 1.0e-6_ratio);
 }
 
 ZTEST(svm, test_duties_are_clamped_to_configured_range) {
@@ -52,9 +52,9 @@ ZTEST(svm, test_duties_are_clamped_to_configured_range) {
 
   const auto kDuties = svm.Calculate(Stator{1.0F, 0.0F}.ToThreePhase());
 
-  UNIMOC_EXPECT_FLOAT_EQ(kDuties.a.Value(), 0.8F);
-  UNIMOC_EXPECT_FLOAT_EQ(kDuties.b.Value(), 0.2F);
-  UNIMOC_EXPECT_FLOAT_EQ(kDuties.c.Value(), 0.2F);
+  UNIMOC_EXPECT_FLOAT_EQ(kDuties.a, 0.8_ratio);
+  UNIMOC_EXPECT_FLOAT_EQ(kDuties.b, 0.2_ratio);
+  UNIMOC_EXPECT_FLOAT_EQ(kDuties.c, 0.2_ratio);
 }
 ZTEST(svm, test_voltage_overload_normalises_by_dc_link_voltage) {
   const Svm kSvm;
@@ -62,9 +62,9 @@ ZTEST(svm, test_voltage_overload_normalises_by_dc_link_voltage) {
 
   const auto kDuties = kSvm.CalculateWithDeadTimeCompensation(kVoltage, 50.0_V, Stator{0.0F, 0.0F});
 
-  UNIMOC_EXPECT_NEAR(kDuties.a.Value(), 0.65F, 1.0e-6F);
-  UNIMOC_EXPECT_NEAR(kDuties.b.Value(), 0.35F, 1.0e-6F);
-  UNIMOC_EXPECT_NEAR(kDuties.c.Value(), 0.35F, 1.0e-6F);
+  UNIMOC_EXPECT_NEAR(kDuties.a, 0.65_ratio, 1.0e-6_ratio);
+  UNIMOC_EXPECT_NEAR(kDuties.b, 0.35_ratio, 1.0e-6_ratio);
+  UNIMOC_EXPECT_NEAR(kDuties.c, 0.35_ratio, 1.0e-6_ratio);
 }
 
 ZTEST(svm, test_voltage_overload_adds_dead_time_compensation) {
@@ -73,9 +73,9 @@ ZTEST(svm, test_voltage_overload_adds_dead_time_compensation) {
 
   const auto kDuties = kSvm.CalculateWithDeadTimeCompensation(kVoltage, 50.0_V, Stator{0.1F, 0.0F});
 
-  UNIMOC_EXPECT_NEAR(kDuties.a.Value(), 0.575F, 1.0e-6F);
-  UNIMOC_EXPECT_NEAR(kDuties.b.Value(), 0.425F, 1.0e-6F);
-  UNIMOC_EXPECT_NEAR(kDuties.c.Value(), 0.425F, 1.0e-6F);
+  UNIMOC_EXPECT_NEAR(kDuties.a, 0.575_ratio, 1.0e-6_ratio);
+  UNIMOC_EXPECT_NEAR(kDuties.b, 0.425_ratio, 1.0e-6_ratio);
+  UNIMOC_EXPECT_NEAR(kDuties.c, 0.425_ratio, 1.0e-6_ratio);
 }
 
 ZTEST(svm, test_voltage_overload_guards_against_zero_dc_link_voltage) {
@@ -84,7 +84,7 @@ ZTEST(svm, test_voltage_overload_guards_against_zero_dc_link_voltage) {
 
   const auto kDuties = kSvm.CalculateWithDeadTimeCompensation(kVoltage, 0.0_V, Stator{0.0F, 0.0F});
 
-  UNIMOC_EXPECT_NEAR(kDuties.a.Value(), 0.65F, 1.0e-6F);
+  UNIMOC_EXPECT_NEAR(kDuties.a, 0.65_ratio, 1.0e-6_ratio);
 }
 
 ZTEST(svm, test_precomputed_inverse_matches_voltage_overload) {
@@ -97,9 +97,9 @@ ZTEST(svm, test_precomputed_inverse_matches_voltage_overload) {
   const auto kPrecomputed = kSvm.CalculateWithInverseDcLinkVoltage(kVoltage, kInverse, kDeadTime);
 
   UNIMOC_EXPECT_FLOAT_EQ(kInverse, 1.0F / 48.0_V);
-  UNIMOC_EXPECT_FLOAT_EQ(kPrecomputed.a.Value(), kDirect.a.Value());
-  UNIMOC_EXPECT_FLOAT_EQ(kPrecomputed.b.Value(), kDirect.b.Value());
-  UNIMOC_EXPECT_FLOAT_EQ(kPrecomputed.c.Value(), kDirect.c.Value());
+  UNIMOC_EXPECT_FLOAT_EQ(kPrecomputed.a, kDirect.a);
+  UNIMOC_EXPECT_FLOAT_EQ(kPrecomputed.b, kDirect.b);
+  UNIMOC_EXPECT_FLOAT_EQ(kPrecomputed.c, kDirect.c);
 }
 
 ZTEST(svm, test_inverse_dc_link_voltage_guards_against_zero) {

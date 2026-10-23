@@ -55,9 +55,9 @@ NvmSettings TestSettings() {
 /// Converts a stator voltage into centred phase duties.
 ThreePhase<Ratio> Duties(const Stator<Voltage>& voltage, Voltage dc_link) {
   const ThreePhase<Voltage> kPhase = voltage.ToThreePhase();
-  return {Ratio{0.5F} + (kPhase.a / dc_link),
-          Ratio{0.5F} + (kPhase.b / dc_link),
-          Ratio{0.5F} + (kPhase.c / dc_link)};
+  return {0.5_ratio + (kPhase.a / dc_link),
+          0.5_ratio + (kPhase.b / dc_link),
+          0.5_ratio + (kPhase.c / dc_link)};
 }
 
 /// Advances the simulation with the held duties; returns false when a step fails.
@@ -174,7 +174,7 @@ ZTEST(motor_simulation, test_centred_duties_apply_no_voltage) {
   const auto& output = simulation.Output();
   zexpect_equal(output.phase_currents, ThreePhase<Current>{});
   zexpect_equal(output.phase_voltages, ThreePhase<Voltage>{});
-  UNIMOC_EXPECT_FLOAT_EQ(output.mechanical_speed.Value(), 0.0F);
+  UNIMOC_EXPECT_FLOAT_EQ(output.mechanical_speed, 0.0_rad_per_s);
 }
 
 ZTEST(motor_simulation, test_locked_rotor_phase_current_follows_ohms_law) {
@@ -183,21 +183,21 @@ ZTEST(motor_simulation, test_locked_rotor_phase_current_follows_ohms_law) {
   simulation.SetShaftMode(ShaftMode::kImposedSpeed, AngularVelocity{});
   simulation.SetBridgeEnabled(true);
   // 1 V along phase A: duty difference of 1.5 V / 48 V between phase A and B/C.
-  simulation.SetPhaseDuties(Duties(Stator<Voltage>(1.0_V, 0.0_V), Voltage{48.0F}));
+  simulation.SetPhaseDuties(Duties(Stator<Voltage>(1.0_V, 0.0_V), 48.0_V));
   zassert_true(RunSteps(simulation, 2000));
   const auto& output = simulation.Output();
-  UNIMOC_EXPECT_NEAR(output.phase_voltages.a.Value(), 1.0F, 1.0e-5F);
-  UNIMOC_EXPECT_NEAR(output.phase_currents.a.Value(), 10.0F, 1.0e-2F);
-  UNIMOC_EXPECT_NEAR(output.phase_currents.b.Value(), -5.0F, 1.0e-2F);
-  UNIMOC_EXPECT_NEAR(output.phase_currents.c.Value(), -5.0F, 1.0e-2F);
-  UNIMOC_EXPECT_FLOAT_EQ(output.mechanical_speed.Value(), 0.0F);
+  UNIMOC_EXPECT_NEAR(output.phase_voltages.a, 1.0_V, 1.0e-5_V);
+  UNIMOC_EXPECT_NEAR(output.phase_currents.a, 10.0_A, 1.0e-2_A);
+  UNIMOC_EXPECT_NEAR(output.phase_currents.b, -5.0_A, 1.0e-2_A);
+  UNIMOC_EXPECT_NEAR(output.phase_currents.c, -5.0_A, 1.0e-2_A);
+  UNIMOC_EXPECT_FLOAT_EQ(output.mechanical_speed, 0.0_rad_per_s);
 }
 
 ZTEST(motor_simulation, test_bridge_off_disconnects_the_stator) {
   MotorSimulation simulation;
   zassert_equal(simulation.Configure(TestSettings()), Status::kOk);
   simulation.SetShaftMode(ShaftMode::kImposedSpeed, 100.0_rad_per_s);
-  simulation.SetPhaseDuties({Ratio{1.0F}, Ratio{0.0F}, Ratio{0.0F}});
+  simulation.SetPhaseDuties({1.0_ratio, 0.0_ratio, 0.0_ratio});
   zassert_true(RunSteps(simulation, 100));
   zexpect_equal(simulation.Output().phase_currents, ThreePhase<Current>{});
   zexpect_equal(simulation.Output().phase_voltages, ThreePhase<Voltage>{});
@@ -211,8 +211,8 @@ ZTEST(motor_simulation, test_commutated_q_voltage_spins_forward_with_hall_sequen
   const std::vector<std::uint8_t> kCodes = RecordHallCodes(simulation, Rotor<Voltage>(0.0_V, 2.0_V), 400);
 
   const auto& output = simulation.Output();
-  zexpect_true((output.mechanical_speed.Value()) > (10.0F));
-  UNIMOC_EXPECT_NEAR(output.electrical_speed.Value(), output.mechanical_speed.Value() * 4.0F, 1.0e-3F);
+  zexpect_true(output.mechanical_speed > 10.0_rad_per_s);
+  UNIMOC_EXPECT_NEAR(output.electrical_speed, output.mechanical_speed * 4.0F, 1.0e-3_rad_per_s);
 
   zexpect_true((kCodes.size()) > (6U));
   zexpect_true(IsForwardHallSequence(kCodes));
@@ -224,8 +224,8 @@ ZTEST(motor_simulation, test_no_load_speed_settles_at_back_emf_balance) {
   simulation.SetBridgeEnabled(true);
   // Without friction or load the q current decays to zero at omega_e = v_q / psi.
   zassert_true(RunCommutated(simulation, Rotor<Voltage>(0.0_V, 2.0_V), 40'000));
-  UNIMOC_EXPECT_NEAR(simulation.Output().electrical_speed.Value(), 200.0F, 1.0F);
-  UNIMOC_EXPECT_NEAR(simulation.Output().rotor_current.q.Value(), 0.0F, 0.1F);
+  UNIMOC_EXPECT_NEAR(simulation.Output().electrical_speed, 200.0_rad_per_s, 1.0_rad_per_s);
+  UNIMOC_EXPECT_NEAR(simulation.Output().rotor_current.q, 0.0_A, 0.1_A);
 }
 
 ZTEST(motor_simulation, test_load_torque_is_balanced_by_q_current) {
@@ -236,8 +236,8 @@ ZTEST(motor_simulation, test_load_torque_is_balanced_by_q_current) {
   zassert_true(RunCommutated(simulation, Rotor<Voltage>(0.0_V, 2.0_V), 40'000));
 
   // T = 3/2 p psi i_q -> i_q = 0.06 / (1.5 * 4 * 0.01) = 1 A
-  UNIMOC_EXPECT_NEAR(simulation.Output().rotor_current.q.Value(), 1.0F, 0.02F);
-  UNIMOC_EXPECT_NEAR(simulation.Output().electromagnetic_torque.Value(), 0.06F, 1.0e-3F);
+  UNIMOC_EXPECT_NEAR(simulation.Output().rotor_current.q, 1.0_A, 0.02_A);
+  UNIMOC_EXPECT_NEAR(simulation.Output().electromagnetic_torque, 0.06_Nm, 1.0e-3_Nm);
 }
 
 ZTEST(motor_simulation, test_phase_currents_sum_to_zero) {
@@ -246,7 +246,7 @@ ZTEST(motor_simulation, test_phase_currents_sum_to_zero) {
   simulation.SetBridgeEnabled(true);
   zassert_true(RunCommutated(simulation, Rotor<Voltage>(-0.5_V, 2.0_V), 2000));
   const auto& currents = simulation.Output().phase_currents;
-  UNIMOC_EXPECT_NEAR((currents.a + currents.b + currents.c).Value(), 0.0F, 1.0e-4F);
+  UNIMOC_EXPECT_NEAR((currents.a + currents.b + currents.c), 0.0_A, 1.0e-4_A);
 }
 
 ZTEST(motor_simulation, test_set_mechanical_state_moves_without_hall_edge) {
@@ -254,9 +254,7 @@ ZTEST(motor_simulation, test_set_mechanical_state_moves_without_hall_edge) {
   zassert_equal(simulation.Configure(TestSettings()), Status::kOk);
   // 100 deg electrical = 25 deg mechanical with four pole pairs.
   simulation.SetMechanicalState(RotorAngle::FromAngle(25.0_deg), AngularVelocity{});
-  UNIMOC_EXPECT_NEAR(simulation.Output().electrical_angle.AngleInRevolution().Value(),
-                     (100.0_deg).Value(),
-                     1.0e-5F);
+  UNIMOC_EXPECT_NEAR(simulation.Output().electrical_angle.AngleInRevolution(), (100.0_deg), 1.0e-5_rad);
   zexpect_equal(simulation.Output().hall.code, 1U);
   zexpect_false(simulation.Output().hall.edge);
 }
@@ -286,7 +284,7 @@ ZTEST(motor_simulation, test_reset_returns_to_standstill) {
   const auto& output = simulation.Output();
   zexpect_equal(output.phase_currents, ThreePhase<Current>{});
   zexpect_equal(output.mechanical_angle, RotorAngle{});
-  UNIMOC_EXPECT_FLOAT_EQ(output.mechanical_speed.Value(), 0.0F);
+  UNIMOC_EXPECT_FLOAT_EQ(output.mechanical_speed, 0.0_rad_per_s);
   zexpect_equal(output.hall.code, 5U);
 }
 

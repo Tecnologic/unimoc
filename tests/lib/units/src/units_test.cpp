@@ -120,67 +120,67 @@ ZTEST(units, test_sqrt_halves_the_dimension) {
 }
 
 ZTEST(units, test_back_emf_is_speed_times_flux) {
-  UNIMOC_EXPECT_FLOAT_EQ((100.0_rad_per_s * MagneticFlux{20.0_mWb}).Value(), 2.0F);
-  UNIMOC_EXPECT_FLOAT_EQ((MagneticFlux{0.02F} * 100.0_rad_per_s).Value(), 2.0F);
+  UNIMOC_EXPECT_FLOAT_EQ((100.0_rad_per_s * MagneticFlux{20.0_mWb}), 2.0_V);
+  UNIMOC_EXPECT_FLOAT_EQ((0.02_Wb * 100.0_rad_per_s), 2.0_V);
 }
 
 ZTEST(units, test_flux_over_inductance_is_current) {
-  UNIMOC_EXPECT_FLOAT_EQ((MagneticFlux{0.01F} / Inductance{0.2_mH}).Value(), 50.0F);
+  UNIMOC_EXPECT_FLOAT_EQ((0.01_Wb / Inductance{0.2_mH}), 50.0_A);
 }
 
 ZTEST(units, test_resistance_times_time_is_inductance) {
-  UNIMOC_EXPECT_FLOAT_EQ((0.5_Ohm * 2.0_s).Value(), 1.0F);
-  UNIMOC_EXPECT_FLOAT_EQ((2.0_s * 0.5_Ohm).Value(), 1.0F);
+  UNIMOC_EXPECT_FLOAT_EQ((0.5_Ohm * 2.0_s), 1.0_H);
+  UNIMOC_EXPECT_FLOAT_EQ((2.0_s * 0.5_Ohm), 1.0_H);
 }
 
 ZTEST(units, test_flux_times_current_is_torque) {
-  UNIMOC_EXPECT_FLOAT_EQ((MagneticFlux{0.01F} * 20.0_A).Value(), 0.2F);
-  UNIMOC_EXPECT_FLOAT_EQ((20.0_A * MagneticFlux{0.01F}).Value(), 0.2F);
+  UNIMOC_EXPECT_FLOAT_EQ((0.01_Wb * 20.0_A), 0.2_Nm);
+  UNIMOC_EXPECT_FLOAT_EQ((20.0_A * 0.01_Wb), 0.2_Nm);
 }
 
 ZTEST(units, test_torque_and_inertia_give_angular_acceleration) {
-  UNIMOC_EXPECT_FLOAT_EQ((0.1_Nm / 1.0e-3_kg_m2).Value(), 100.0F);
-  UNIMOC_EXPECT_FLOAT_EQ((1.0e-3_kg_m2 * 100.0_rad_per_s2).Value(), 0.1F);
-  UNIMOC_EXPECT_FLOAT_EQ((100.0_rad_per_s2 * 1.0e-3_kg_m2).Value(), 0.1F);
+  UNIMOC_EXPECT_FLOAT_EQ((0.1_Nm / 1.0e-3_kg_m2), 100.0_rad_per_s2);
+  UNIMOC_EXPECT_FLOAT_EQ((1.0e-3_kg_m2 * 100.0_rad_per_s2), 0.1_Nm);
+  UNIMOC_EXPECT_FLOAT_EQ((100.0_rad_per_s2 * 1.0e-3_kg_m2), 0.1_Nm);
 }
 
 ZTEST(units, test_viscous_damping_times_speed_is_torque) {
-  UNIMOC_EXPECT_FLOAT_EQ((1.0e-3_Nm_s_per_rad * 50.0_rad_per_s).Value(), 0.05F);
-  UNIMOC_EXPECT_FLOAT_EQ((50.0_rad_per_s * 2_Nm_s_per_rad).Value(), 100.0F);
+  UNIMOC_EXPECT_FLOAT_EQ((1.0e-3_Nm_s_per_rad * 50.0_rad_per_s), 0.05_Nm);
+  UNIMOC_EXPECT_FLOAT_EQ((50.0_rad_per_s * 2_Nm_s_per_rad), 100.0_Nm);
 }
 
 // Typed math: the result keeps the unit, so no Value() escape is needed.
 static_assert(std::same_as<decltype(Abs(Current{})), Current>);
 static_assert(std::same_as<decltype(Min(Voltage{}, Voltage{})), Voltage>);
 static_assert(std::same_as<decltype(Hypot(Current{}, Current{})), Current>);
-static_assert(Abs(Current{-2.0F}) == Current{2.0F});
-static_assert(Max(Voltage{-1.0F}, Voltage{3.0F}) == Voltage{3.0F});
-static_assert(Min(Voltage{-1.0F}, Voltage{3.0F}) == Voltage{-1.0F});
+static_assert(Abs(-2.0_A) == 2.0_A);
+static_assert(Max(-1.0_V, 3.0_V) == 3.0_V);
+static_assert(Min(-1.0_V, 3.0_V) == -1.0_V);
 // Clamp takes bounds of the same unit only.
 template <typename U>
 concept ClampsWithScalars = requires(U value) { value.Clamp(0.0F, 1.0F); };
 static_assert(!ClampsWithScalars<Current>);
 
 ZTEST(units, test_abs_min_max_keep_the_unit) {
-  UNIMOC_EXPECT_FLOAT_EQ(Abs(Current{-3.5F}).Value(), 3.5F);
-  UNIMOC_EXPECT_FLOAT_EQ(Abs(Current{3.5F}).Value(), 3.5F);
-  UNIMOC_EXPECT_FLOAT_EQ(Min(Current{1.0F}, Current{-2.0F}).Value(), -2.0F);
-  UNIMOC_EXPECT_FLOAT_EQ(Max(Current{1.0F}, Current{-2.0F}).Value(), 1.0F);
+  UNIMOC_EXPECT_FLOAT_EQ(Abs(-3.5_A), 3.5_A);
+  UNIMOC_EXPECT_FLOAT_EQ(Abs(3.5_A), 3.5_A);
+  UNIMOC_EXPECT_FLOAT_EQ(Min(1.0_A, -2.0_A), -2.0_A);
+  UNIMOC_EXPECT_FLOAT_EQ(Max(1.0_A, -2.0_A), 1.0_A);
 }
 
 ZTEST(units, test_is_finite_rejects_nan_and_infinity) {
-  zexpect_true(IsFinite(Voltage{48.0F}));
+  zexpect_true(IsFinite(48.0_V));
   zexpect_false(IsFinite(Voltage{std::numeric_limits<float>::quiet_NaN()}));
   zexpect_false(IsFinite(Voltage{std::numeric_limits<float>::infinity()}));
 }
 
 ZTEST(units, test_torque_over_torque_constant_is_current) {
-  UNIMOC_EXPECT_FLOAT_EQ((Torque{0.6F} / MagneticFlux{0.03F}).Value(), 20.0F);
+  UNIMOC_EXPECT_FLOAT_EQ((0.6_Nm / 0.03_Wb), 20.0_A);
 }
 
 ZTEST(units, test_hypot_is_the_vector_magnitude) {
-  UNIMOC_EXPECT_FLOAT_EQ(Hypot(Current{3.0F}, Current{-4.0F}).Value(), 5.0F);
-  UNIMOC_EXPECT_FLOAT_EQ(Hypot(Current{}, Current{}).Value(), 0.0F);
+  UNIMOC_EXPECT_FLOAT_EQ(Hypot(3.0_A, -4.0_A), 5.0_A);
+  UNIMOC_EXPECT_FLOAT_EQ(Hypot(Current{}, Current{}), 0.0_A);
 }
 
 ZTEST(units, test_float_checks_take_values_of_one_unit) {

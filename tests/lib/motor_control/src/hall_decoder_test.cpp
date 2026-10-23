@@ -37,20 +37,20 @@ constexpr std::array<uint8_t, 6> kForwardCodes = {5U, 1U, 3U, 2U, 6U, 4U};
 }  // namespace
 
 ZTEST(hall_decoder, test_wrap_angle_maps_to_one_revolution) {
-  UNIMOC_EXPECT_NEAR(WrapAngle(Angle{3.0F * kPi}).Value(), kPi, 1e-5F);
-  UNIMOC_EXPECT_NEAR(WrapAngle(Angle{-kPi}).Value(), kPi, 1e-6F);
-  UNIMOC_EXPECT_NEAR(WrapAngle(Angle{-3.5F * kPi}).Value(), 0.5F * kPi, 1e-5F);
-  UNIMOC_EXPECT_FLOAT_EQ(WrapAngle(Angle{0.25F}).Value(), 0.25F);
+  UNIMOC_EXPECT_NEAR(WrapAngle(Angle{3.0F * kPi}), kPi * 1.0_rad, 1e-5_rad);
+  UNIMOC_EXPECT_NEAR(WrapAngle(Angle{-kPi}), kPi * 1.0_rad, 1e-6_rad);
+  UNIMOC_EXPECT_NEAR(WrapAngle(Angle{-3.5F * kPi}), (0.5F * kPi) * 1.0_rad, 1e-5_rad);
+  UNIMOC_EXPECT_FLOAT_EQ(WrapAngle(0.25_rad), 0.25_rad);
 }
 
 ZTEST(hall_decoder, test_wrap_angle_positive_maps_to_zero_to_two_pi) {
-  UNIMOC_EXPECT_NEAR(WrapAnglePositive(Angle{-0.5F * kPi}).Value(), 1.5F * kPi, 1e-5F);
-  UNIMOC_EXPECT_NEAR(WrapAnglePositive(Angle{5.0F * kPi}).Value(), kPi, 1e-5F);
-  UNIMOC_EXPECT_FLOAT_EQ(WrapAnglePositive(Angle{2.0F * kPi}).Value(), 0.0F);
-  UNIMOC_EXPECT_FLOAT_EQ(WrapAnglePositive(Angle{0.25F}).Value(), 0.25F);
+  UNIMOC_EXPECT_NEAR(WrapAnglePositive(Angle{-0.5F * kPi}), (1.5F * kPi) * 1.0_rad, 1e-5_rad);
+  UNIMOC_EXPECT_NEAR(WrapAnglePositive(Angle{5.0F * kPi}), kPi * 1.0_rad, 1e-5_rad);
+  UNIMOC_EXPECT_FLOAT_EQ(WrapAnglePositive(Angle{2.0F * kPi}), 0.0_rad);
+  UNIMOC_EXPECT_FLOAT_EQ(WrapAnglePositive(0.25_rad), 0.25_rad);
   // Rounds to 2 pi when added; the result stays below 2 pi.
-  zexpect_true(WrapAnglePositive(Angle{-1e-9F}).Value() < 2.0F * kPi);
-  zexpect_true(WrapAnglePositive(Angle{-1e-9F}).Value() >= 0.0F);
+  zexpect_true(WrapAnglePositive(-1e-9_rad) < 2.0F * kPi * 1.0_rad);
+  zexpect_true(WrapAnglePositive(-1e-9_rad) >= 0.0_rad);
 }
 
 ZTEST(hall_decoder, test_codes_map_to_sectors_and_invalid_codes_are_rejected) {
@@ -72,10 +72,10 @@ ZTEST(hall_decoder, test_edges_lie_on_the_sector_boundary_in_both_directions) {
     const auto kForward = kDecoder.EdgeAngle(kFrom, kTo);
     const auto kBackward = kDecoder.EdgeAngle(kTo, kFrom);
     zassert_true(kForward.has_value() && kBackward.has_value());
-    const float kExpected =
-        WrapAngle(Angle{(10.0F + 60.0F * static_cast<float>(sector + 1U)) * kDegree}).Value();
-    UNIMOC_EXPECT_NEAR(kForward->Value(), kExpected, 1e-5F);
-    UNIMOC_EXPECT_NEAR(kBackward->Value(), kExpected, 1e-5F);
+    const Angle kExpected =
+        WrapAngle(((10.0F + 60.0F * static_cast<float>(sector + 1U)) * kDegree) * 1.0_rad);
+    UNIMOC_EXPECT_NEAR(*kForward, kExpected, 1e-5_rad);
+    UNIMOC_EXPECT_NEAR(*kBackward, kExpected, 1e-5_rad);
   }
 }
 
@@ -90,14 +90,20 @@ ZTEST(hall_decoder, test_skipped_sectors_and_invalid_codes_give_no_edge) {
 
 ZTEST(hall_decoder, test_sector_innovation_pulls_to_the_nearest_boundary) {
   const HallDecoder kDecoder{};  // sector 0 is [0, 60) degrees
-  UNIMOC_EXPECT_NEAR(kDecoder.SectorInnovation(0U, Angle{70.0F * kDegree}).Value(), -10.0F * kDegree, 1e-5F);
-  UNIMOC_EXPECT_NEAR(kDecoder.SectorInnovation(0U, Angle{-20.0F * kDegree}).Value(), 20.0F * kDegree, 1e-5F);
-  UNIMOC_EXPECT_FLOAT_EQ(kDecoder.SectorInnovation(0U, Angle{30.0F * kDegree}).Value(), 0.0F);
+  UNIMOC_EXPECT_NEAR(kDecoder.SectorInnovation(0U, Angle{70.0F * kDegree}),
+                     (-10.0F * kDegree) * 1.0_rad,
+                     1e-5_rad);
+  UNIMOC_EXPECT_NEAR(kDecoder.SectorInnovation(0U, Angle{-20.0F * kDegree}),
+                     (20.0F * kDegree) * 1.0_rad,
+                     1e-5_rad);
+  UNIMOC_EXPECT_FLOAT_EQ(kDecoder.SectorInnovation(0U, Angle{30.0F * kDegree}), 0.0_rad);
   // Across the +-pi seam: sector 3 is [180, 240) degrees.
-  UNIMOC_EXPECT_NEAR(kDecoder.SectorInnovation(3U, Angle{170.0F * kDegree}).Value(), 10.0F * kDegree, 1e-5F);
-  UNIMOC_EXPECT_NEAR(kDecoder.SectorInnovation(3U, Angle{-110.0F * kDegree}).Value(),
-                     -10.0F * kDegree,
-                     1e-5F);
+  UNIMOC_EXPECT_NEAR(kDecoder.SectorInnovation(3U, Angle{170.0F * kDegree}),
+                     (10.0F * kDegree) * 1.0_rad,
+                     1e-5_rad);
+  UNIMOC_EXPECT_NEAR(kDecoder.SectorInnovation(3U, Angle{-110.0F * kDegree}),
+                     (-10.0F * kDegree) * 1.0_rad,
+                     1e-5_rad);
 }
 
 ZTEST(hall_decoder, test_event_queue_keeps_order_and_counts_overflows) {
