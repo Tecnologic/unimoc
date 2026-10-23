@@ -196,8 +196,14 @@ struct AsmFluxObserver {
     // --- Compute flux magnitude and angle ---
     flux_magnitude = unit::Hypot(psi_r_alpha, psi_r_beta);
     flux_angle = unit::Angle{std::atan2(psi_r_beta.Value(), psi_r_alpha.Value())};
-    sin_flux = unit::Ratio{std::sin(flux_angle.Value())};
-    cos_flux = unit::Ratio{std::cos(flux_angle.Value())};
+    // sin and cos of the flux angle straight from the flux vector, no trigonometry.
+    if (flux_magnitude > unit::MagneticFlux{}) {
+      sin_flux = psi_r_beta / flux_magnitude;
+      cos_flux = psi_r_alpha / flux_magnitude;
+    } else {
+      sin_flux = 0.0_ratio;
+      cos_flux = 1.0_ratio;
+    }
 
     // --- Feed flux angle into MechanicalObserver PLL ---
     //

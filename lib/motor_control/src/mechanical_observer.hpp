@@ -24,6 +24,7 @@
 #include "angle_wrap.hpp"
 #include "nvm_settings.hpp"
 #include "rotor_system.hpp"
+#include "sin_cos.hpp"
 
 /**
  * @namespace unimoc::observer observer algorithms namespace
@@ -231,8 +232,7 @@ struct MechanicalObserver {
     theta += omega * dt;
     theta = observer::WrapAngle(theta);
 
-    sin_theta = unit::Ratio{std::sin(theta.Value())};
-    cos_theta = unit::Ratio{std::cos(theta.Value())};
+    UpdateSinCos();
   }
 
   /**
@@ -337,13 +337,23 @@ struct MechanicalObserver {
     k = {};
     s = static_cast<T>(0);
 
-    sin_theta = unit::Ratio{std::sin(theta.Value())};
-    cos_theta = unit::Ratio{std::cos(theta.Value())};
+    UpdateSinCos();
   }
 
  private:
   /// Range of the speed estimate relative to the speed limits.
   static constexpr T kSpeedGuard = static_cast<T>(2);
+
+  /// Sine and cosine of θ̂ from the table provider of RotorAngle (no libm, max error 1.4e-7).
+  /// A non-finite θ̂ restarts at 0, as ClampSpeed() does for ω̂: the table index of NaN is undefined.
+  constexpr void UpdateSinCos() noexcept {
+    if (!unit::IsFinite(theta)) {
+      theta = unit::Angle{};
+    }
+    const system::SinCos<unit::Ratio> kSinCos{theta};
+    sin_theta = kSinCos.sin;
+    cos_theta = kSinCos.cos;
+  }
 
   /// Clamps the speed estimate to twice the speed limits and recovers from NaN/Inf.
   constexpr void ClampSpeed() noexcept {
@@ -387,8 +397,7 @@ struct MechanicalObserver {
 
     theta = observer::WrapAngle(theta);
 
-    sin_theta = unit::Ratio{std::sin(theta.Value())};
-    cos_theta = unit::Ratio{std::cos(theta.Value())};
+    UpdateSinCos();
   }
 };
 

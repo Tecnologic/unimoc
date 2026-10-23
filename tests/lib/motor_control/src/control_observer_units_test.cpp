@@ -81,6 +81,17 @@ ZTEST(control_observer_units, test_asm_and_hfi_apis_accept_physical_units) {
                       10_us,
                       mechanical_observer);
   zexpect_true(std::isfinite(asm_observer.flux_magnitude.Value()));
+  for (int step = 0; step < 100; ++step) {
+    asm_observer.Update(system::Stator<unit::Voltage>{1.0_V, 0.5_V},
+                        system::Stator<unit::Current>{0.2_A, 0.1_A},
+                        10_us,
+                        mechanical_observer);
+  }
+  // sin/cos of the flux angle come from the flux vector and agree with the angle.
+  zexpect_true(asm_observer.flux_magnitude > unit::MagneticFlux{});
+  const system::SinCos<unit::Ratio> kFluxSinCos{asm_observer.flux_angle};
+  UNIMOC_EXPECT_NEAR(asm_observer.sin_flux, kFluxSinCos.sin, 1e-5_ratio);
+  UNIMOC_EXPECT_NEAR(asm_observer.cos_flux, kFluxSinCos.cos, 1e-5_ratio);
 
   control::AsmFluxController asm_controller;
   const unit::Current kCurrentReference = asm_controller.Update(0.05_Wb, 0.01_Wb, 1.0_A, 100_us);

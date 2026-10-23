@@ -17,6 +17,7 @@
 #include "mechanical_observer.hpp"
 #include <zephyr/ztest.h>
 #include <cmath>
+#include <limits>
 #include <numbers>
 #include "angle_wrap.hpp"
 #include "pmsm_flux_observer.hpp"
@@ -141,6 +142,37 @@ ZTEST(mechanical_observer, test_pmsm_flux_error_is_an_angle_or_nothing) {
     zassert_true(kError.has_value());
     UNIMOC_EXPECT_NEAR(kError->Value(), 0.1F, 1e-3F);
   }
+}
+
+ZTEST(mechanical_observer, test_sin_cos_come_from_the_table_provider) {
+  MechanicalObserver<float> obs = MakeObserver();
+  constexpr Ratio kTolerance{1e-6F};
+
+  obs.Reset(30.0_deg);
+  UNIMOC_EXPECT_NEAR(obs.sin_theta, 0.5_ratio, kTolerance);
+  UNIMOC_EXPECT_NEAR(obs.cos_theta, 0.8660254_ratio, kTolerance);
+
+  obs.Reset(-135.0_deg);
+  UNIMOC_EXPECT_NEAR(obs.sin_theta, -0.70710678_ratio, kTolerance);
+  UNIMOC_EXPECT_NEAR(obs.cos_theta, -0.70710678_ratio, kTolerance);
+
+  // After a prediction the pair belongs to the new angle estimate.
+  obs.Reset(0.0_rad, 1000.0_rad_per_s);
+  obs.Predict(kNoCurrent, kDt);
+  const system::SinCos<Ratio> kExpected{obs.theta};
+  UNIMOC_EXPECT_NEAR(obs.sin_theta, kExpected.sin, kTolerance);
+  UNIMOC_EXPECT_NEAR(obs.cos_theta, kExpected.cos, kTolerance);
+  UNIMOC_EXPECT_NEAR((obs.sin_theta * obs.sin_theta) + (obs.cos_theta * obs.cos_theta),
+                     1.0_ratio,
+                     kTolerance);
+}
+
+ZTEST(mechanical_observer, test_non_finite_angle_restarts_at_zero) {
+  MechanicalObserver<float> obs = MakeObserver();
+  obs.Reset(Angle{} * std::numeric_limits<float>::quiet_NaN());
+  UNIMOC_EXPECT_FLOAT_EQ(obs.theta, 0.0_rad);
+  UNIMOC_EXPECT_FLOAT_EQ(obs.sin_theta, 0.0_ratio);
+  UNIMOC_EXPECT_FLOAT_EQ(obs.cos_theta, 1.0_ratio);
 }
 
 }  // namespace unimoc::observer::test
