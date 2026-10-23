@@ -151,24 +151,17 @@ struct Stator {
    * @brief Returns the Euclidean length of the stator vector.
    * @return The vector length in the component unit.
    */
-  [[nodiscard]] constexpr T Length() const noexcept {
-    return T{std::sqrt((alpha.Value() * alpha.Value()) + (beta.Value() * beta.Value()))};
-  }
+  [[nodiscard]] constexpr T Length() const noexcept { return unit::Hypot(alpha, beta); }
 
   /**
    * @brief Returns the squared Euclidean length of the stator vector.
-   * @return The squared length in the component representation type.
+   * @return The squared length in the squared component unit (e.g. A^2).
    *
    * @note Prefer this for limit and threshold-based derating comparisons. It
    * avoids the multi-cycle floating-point square-root instruction; compare it
-   * with a limit squared. The result has squared component units, so it is
-   * returned as the representation rather than as `T`.
+   * with a limit squared (`limit * limit`).
    */
-  [[nodiscard]] constexpr Representation LengthSquared() const noexcept {
-    const Representation kAlphaValue = alpha.Value();
-    const Representation kBetaValue = beta.Value();
-    return (kAlphaValue * kAlphaValue) + (kBetaValue * kBetaValue);
-  }
+  [[nodiscard]] constexpr auto LengthSquared() const noexcept { return (alpha * alpha) + (beta * beta); }
 
   /**
    * @brief Applies the Park transform to a stator vector.
@@ -176,11 +169,10 @@ struct Stator {
    * @return The vector in the rotating d/q reference frame.
    */
   [[nodiscard]] constexpr Rotor<T> ToRotor(const RotorAngle& angle) const noexcept {
-    const Representation kSin = angle.Sin().Value();
-    const Representation kCos = angle.Cos().Value();
+    const unit::Ratio kSin = angle.Sin();
+    const unit::Ratio kCos = angle.Cos();
 
-    return Rotor<T>(T{(alpha.Value() * kCos) + (beta.Value() * kSin)},
-                    T{(beta.Value() * kCos) - (alpha.Value() * kSin)});
+    return Rotor<T>((alpha * kCos) + (beta * kSin), (beta * kCos) - (alpha * kSin));
   }
 
   /**
@@ -189,11 +181,8 @@ struct Stator {
    * @return The vector in the rotating d/q reference frame.
    */
   [[nodiscard]] constexpr Rotor<T> ToRotor(const SinCos<unit::Ratio>& sin_cos) const noexcept {
-    const Representation kSin = sin_cos.sin.Value();
-    const Representation kCos = sin_cos.cos.Value();
-
-    return Rotor<T>(T{(alpha.Value() * kCos) + (beta.Value() * kSin)},
-                    T{(beta.Value() * kCos) - (alpha.Value() * kSin)});
+    return Rotor<T>((alpha * sin_cos.cos) + (beta * sin_cos.sin),
+                    (beta * sin_cos.cos) - (alpha * sin_cos.sin));
   }
 };
 

@@ -16,7 +16,6 @@
 #pragma once
 
 #include <algorithm>
-#include <cmath>
 #include <concepts>
 #include "units.hpp"
 
@@ -98,9 +97,9 @@ struct ExcitationObserver {
    */
   constexpr void Update(const unit::Current i_f_meas, const unit::Time dt) noexcept {
     // First-order low-pass: i_f_hat += (dt / tau) * (i_f_meas - i_f_hat)
-    if (tau.Value() > 1.0e-12F) {
-      const T kAlpha = dt.Value() / tau.Value();
-      i_f_hat = unit::Current{i_f_hat.Value() + kAlpha * (i_f_meas.Value() - i_f_hat.Value())};
+    if (tau > 1.0e-12_s) {
+      const unit::Ratio kAlpha = dt / tau;
+      i_f_hat += kAlpha * (i_f_meas - i_f_hat);
     } else {
       // Zero time constant — pass through immediately
       i_f_hat = i_f_meas;

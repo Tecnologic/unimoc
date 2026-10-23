@@ -32,8 +32,8 @@ using Obs = ExcitationObserver<float>;
 // --- Default-constructed observer has zero outputs
 ZTEST(excitation_observer, test_default_state_is_zero) {
   Obs observer;
-  UNIMOC_EXPECT_FLOAT_EQ(observer.i_f_hat.Value(), 0.0F);
-  UNIMOC_EXPECT_FLOAT_EQ(observer.psi_f_hat.Value(), 0.0F);
+  UNIMOC_EXPECT_FLOAT_EQ(observer.i_f_hat, 0.0_A);
+  UNIMOC_EXPECT_FLOAT_EQ(observer.psi_f_hat, 0.0_Wb);
 }
 
 // --- Single step moves toward measurement
@@ -42,8 +42,8 @@ ZTEST(excitation_observer, test_single_step_converges_direction) {
   observer.tau = 5.0_ms;
   observer.L_m = 47.0_mH;
   observer.Update(10.0_A, 100_us);  // dt = 0.1 ms
-  zexpect_true((observer.i_f_hat.Value()) > (0.0F));
-  zexpect_true((observer.i_f_hat.Value()) < (10.0F));
+  zexpect_true(observer.i_f_hat > 0.0_A);
+  zexpect_true(observer.i_f_hat < 10.0_A);
 }
 
 // --- After many steps the output converges to the measurement
@@ -54,8 +54,8 @@ ZTEST(excitation_observer, test_converges_after_many_steps) {
   for (int i = 0; i < 10000; ++i) {
     observer.Update(8.0_A, 10_us);  // total time >> tau
   }
-  UNIMOC_EXPECT_NEAR(observer.i_f_hat.Value(), 8.0F, 1.0e-3F);
-  UNIMOC_EXPECT_NEAR(observer.psi_f_hat.Value(), 8.0F * 47e-3F, 1.0e-4F);
+  UNIMOC_EXPECT_NEAR(observer.i_f_hat, 8.0_A, 1.0e-3_A);
+  UNIMOC_EXPECT_NEAR(observer.psi_f_hat, (8.0F * 47e-3F) * 1.0_Wb, 1.0e-4_Wb);
 }
 
 // --- psi_f_hat = L_m * i_f_hat at every step
@@ -65,7 +65,7 @@ ZTEST(excitation_observer, test_psi_equals_lm_times_i) {
   observer.L_m = 50.0_mH;
   for (int i = 0; i < 20; ++i) {
     observer.Update(5.0_A, 100_us);
-    UNIMOC_EXPECT_NEAR(observer.psi_f_hat.Value(), observer.L_m.Value() * observer.i_f_hat.Value(), 1.0e-7F);
+    UNIMOC_EXPECT_NEAR(observer.psi_f_hat, observer.L_m * observer.i_f_hat, 1.0e-7_Wb);
   }
 }
 
@@ -75,7 +75,7 @@ ZTEST(excitation_observer, test_zero_tau_pass_through) {
   observer.tau = unimoc::unit::Time{};
   observer.L_m = 47.0_mH;
   observer.Update(7.5_A, 100_us);
-  UNIMOC_EXPECT_FLOAT_EQ(observer.i_f_hat.Value(), 7.5F);
+  UNIMOC_EXPECT_FLOAT_EQ(observer.i_f_hat, 7.5_A);
 }
 
 // --- reset() with init value
@@ -87,8 +87,8 @@ ZTEST(excitation_observer, test_reset_with_init_value) {
     observer.Update(5.0_A, 100_us);
   }
   observer.Reset(3.0_A);
-  UNIMOC_EXPECT_FLOAT_EQ(observer.i_f_hat.Value(), 3.0F);
-  UNIMOC_EXPECT_NEAR(observer.psi_f_hat.Value(), 3.0F * 47.0e-3F, 1.0e-7F);
+  UNIMOC_EXPECT_FLOAT_EQ(observer.i_f_hat, 3.0_A);
+  UNIMOC_EXPECT_NEAR(observer.psi_f_hat, (3.0F * 47.0e-3F) * 1.0_Wb, 1.0e-7_Wb);
 }
 
 }  // namespace unimoc::observer::test

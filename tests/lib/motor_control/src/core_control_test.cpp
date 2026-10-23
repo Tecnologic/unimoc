@@ -38,8 +38,8 @@ ZTEST(dead_time_compensation, test_reconstructs_and_transforms_phase_signs) {
 
   const auto kResult = compensation.Calculate(CurrentStator{1.0F, 0.0F});
 
-  UNIMOC_EXPECT_NEAR(kResult.alpha.Value(), 0.02F, 1.0e-6F);
-  UNIMOC_EXPECT_NEAR(kResult.beta.Value(), 0.0F, 1.0e-6F);
+  UNIMOC_EXPECT_NEAR(kResult.alpha, 0.02_ratio, 1.0e-6_ratio);
+  UNIMOC_EXPECT_NEAR(kResult.beta, 0.0_ratio, 1.0e-6_ratio);
 }
 
 ZTEST(dead_time_compensation, test_soft_sign_interpolates_and_saturates) {
@@ -51,8 +51,8 @@ ZTEST(dead_time_compensation, test_soft_sign_interpolates_and_saturates) {
   const auto kInterpolated = compensation.Calculate(CurrentStator{0.5F, 0.0F});
   const auto kSaturated = compensation.Calculate(CurrentStator{2.0F, 0.0F});
 
-  UNIMOC_EXPECT_NEAR(kInterpolated.alpha.Value(), 0.01F, 1.0e-6F);
-  UNIMOC_EXPECT_NEAR(kSaturated.alpha.Value(), 0.0266667F, 1.0e-6F);
+  UNIMOC_EXPECT_NEAR(kInterpolated.alpha, 0.01_ratio, 1.0e-6_ratio);
+  UNIMOC_EXPECT_NEAR(kSaturated.alpha, 0.0266667_ratio, 1.0e-6_ratio);
 }
 
 ZTEST(mtpa, test_zero_saliency_returns_zero) {
@@ -61,7 +61,7 @@ ZTEST(mtpa, test_zero_saliency_returns_zero) {
   mtpa.L_d = 1.0_mH;
   mtpa.L_q = 1.0_mH;
 
-  UNIMOC_EXPECT_FLOAT_EQ(mtpa.Calculate(2.0_A).Value(), 0.0F);
+  UNIMOC_EXPECT_FLOAT_EQ(mtpa.Calculate(2.0_A), 0.0_A);
 }
 
 ZTEST(mtpa, test_calculates_and_limits_daxis_current) {
@@ -69,12 +69,12 @@ ZTEST(mtpa, test_calculates_and_limits_daxis_current) {
   mtpa.flux_pm = 0.0_Wb;
   mtpa.L_d = 2.0_mH;
   mtpa.L_q = 1.0_mH;
-  UNIMOC_EXPECT_FLOAT_EQ(mtpa.Calculate(2.0_A).Value(), -1.0F);
+  UNIMOC_EXPECT_FLOAT_EQ(mtpa.Calculate(2.0_A), -1.0_A);
 
   mtpa.flux_pm = 0.01_Wb;
   mtpa.L_d = 1.0_mH;
   mtpa.L_q = 2.0_mH;
-  UNIMOC_EXPECT_FLOAT_EQ(mtpa.Calculate(1.0_A).Value(), -1.0F);
+  UNIMOC_EXPECT_FLOAT_EQ(mtpa.Calculate(1.0_A), -1.0_A);
 }
 
 ZTEST(field_weakening, test_integrates_only_negative_voltage_headroom) {
@@ -83,22 +83,19 @@ ZTEST(field_weakening, test_integrates_only_negative_voltage_headroom) {
   field_weakening.ki = 10.0_A_per_V_s;
   field_weakening.i_d_min = -0.5_A;
 
-  UNIMOC_EXPECT_FLOAT_EQ(field_weakening
-                             .Update(unimoc::system::Stator<unimoc::unit::Voltage>{0.5_V, 0.0_V}, 0.1_s)
-                             .Value(),
-                         0.0F);
-  UNIMOC_EXPECT_NEAR(field_weakening
-                         .Update(unimoc::system::Stator<unimoc::unit::Voltage>{1.0_V, 0.0_V}, 0.1_s)
-                         .Value(),
-                     -0.1F,
-                     1.0e-6F);
-  UNIMOC_EXPECT_FLOAT_EQ(field_weakening
-                             .Update(unimoc::system::Stator<unimoc::unit::Voltage>{10.0_V, 0.0_V}, 1.0_s)
-                             .Value(),
-                         -0.5F);
+  UNIMOC_EXPECT_FLOAT_EQ(field_weakening.Update(unimoc::system::Stator<unimoc::unit::Voltage>{0.5_V, 0.0_V},
+                                                0.1_s),
+                         0.0_A);
+  UNIMOC_EXPECT_NEAR(field_weakening.Update(unimoc::system::Stator<unimoc::unit::Voltage>{1.0_V, 0.0_V},
+                                            0.1_s),
+                     -0.1_A,
+                     1.0e-6_A);
+  UNIMOC_EXPECT_FLOAT_EQ(field_weakening.Update(unimoc::system::Stator<unimoc::unit::Voltage>{10.0_V, 0.0_V},
+                                                1.0_s),
+                         -0.5_A);
 
   field_weakening.Reset();
-  UNIMOC_EXPECT_FLOAT_EQ(field_weakening.i_d_fw.Value(), 0.0F);
+  UNIMOC_EXPECT_FLOAT_EQ(field_weakening.i_d_fw, 0.0_A);
 }
 
 ZTEST(current_controller, test_unsaturated_pi_step_updates_integrator) {
@@ -110,9 +107,9 @@ ZTEST(current_controller, test_unsaturated_pi_step_updates_integrator) {
   const VoltageRotor kOutput =
       controller.Update(CurrentRotor{1.0F, 0.0F}, CurrentRotor{0.0F, 0.0F}, 0.0_rad_per_s, 0.1_s, 10.0_V);
 
-  UNIMOC_EXPECT_FLOAT_EQ(kOutput.d.Value(), 2.0F);
-  UNIMOC_EXPECT_FLOAT_EQ(kOutput.q.Value(), 0.0F);
-  UNIMOC_EXPECT_FLOAT_EQ(controller.integrator_d.Value(), 1.0F);
+  UNIMOC_EXPECT_FLOAT_EQ(kOutput.d, 2.0_V);
+  UNIMOC_EXPECT_FLOAT_EQ(kOutput.q, 0.0_V);
+  UNIMOC_EXPECT_FLOAT_EQ(controller.integrator_d, 1.0_V);
 }
 
 ZTEST(current_controller, test_circular_limit_scales_both_axes) {
@@ -127,11 +124,8 @@ ZTEST(current_controller, test_circular_limit_scales_both_axes) {
 
   const VoltageRotor kOutput =
       controller.Update(CurrentRotor{1.0F, 1.0F}, CurrentRotor{0.0F, 0.0F}, 0.0_rad_per_s, 0.1_s, 10.0_V);
-  const float kMagnitude =
-      std::sqrt(kOutput.d.Value() * kOutput.d.Value() + kOutput.q.Value() * kOutput.q.Value());
-
-  UNIMOC_EXPECT_NEAR(kMagnitude, 1.0F, 1.0e-6F);
-  UNIMOC_EXPECT_NEAR(kOutput.d.Value(), kOutput.q.Value(), 1.0e-6F);
+  UNIMOC_EXPECT_NEAR(kOutput.Length(), 1.0_V, 1.0e-6_V);
+  UNIMOC_EXPECT_NEAR(kOutput.d, kOutput.q, 1.0e-6_V);
 }
 
 ZTEST_SUITE(dead_time_compensation, nullptr, nullptr, nullptr, nullptr, nullptr);

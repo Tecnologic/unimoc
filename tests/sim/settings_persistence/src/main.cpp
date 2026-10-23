@@ -107,7 +107,7 @@ ZTEST(sim_settings_persistence, test_saved_registers_survive_a_new_store) {
   const NvmSettings& loaded = kSnapshot.Get();
   zexpect_equal(loaded.pole_pairs, 7U);
   zexpect_equal(loaded.node_id, 42U);
-  zexpect_equal(loaded.stator_r.Value(), 0.07F);
+  zexpect_equal(loaded.stator_r, 0.07_Ohm);
   zexpect_equal(loaded.identity.GetName(), std::string_view{"zms.node"});
 }
 
@@ -185,8 +185,8 @@ ZTEST(sim_settings_persistence, test_undecodable_entry_is_reported_and_healed) {
 
   auto store = MakeStore();
   zexpect_equal(store.Load(), SettingsStatus::kInvalidImage);
-  zexpect_equal(store.GetSnapshot().Get().motor_i_max.Value(),
-                unimoc::hardware::kSettings.GetSettingsProfile().factory_settings.motor_i_max.Value());
+  zexpect_equal(store.GetSnapshot().Get().motor_i_max,
+                unimoc::hardware::kSettings.GetSettingsProfile().factory_settings.motor_i_max);
 
   zexpect_equal(store.GetOperations().SaveToFlash(), SettingsStatus::kSuccess);
   zexpect_equal(StoredEntries(), 0U);

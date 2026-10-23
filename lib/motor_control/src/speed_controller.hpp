@@ -103,7 +103,7 @@ struct SpeedController {
   constexpr unit::Torque Update(const unit::AngularVelocity setpoint,
                                 const unit::AngularVelocity measured,
                                 const unit::Time dt) noexcept {
-    if (!std::isfinite(setpoint.Value())) {
+    if (!unit::IsFinite(setpoint)) {
       return Track(setpoint, measured, dt);
     }
     if (accel_limit > unit::AngularAcceleration{}) {
@@ -127,7 +127,7 @@ struct SpeedController {
   constexpr unit::Torque Track(const unit::AngularVelocity speed_reference,
                                const unit::AngularVelocity measured,
                                const unit::Time dt) noexcept {
-    if (!std::isfinite(speed_reference.Value()) || !std::isfinite(measured.Value())) {
+    if (!unit::IsFinite(speed_reference) || !unit::IsFinite(measured)) {
       Reset(reference);  // keep the last finite reference, drop the output
       return output;
     }
@@ -139,7 +139,7 @@ struct SpeedController {
     const unit::Torque kUpper = unit::Min(kLimit, torque_max);
     const unit::AngularVelocity kError = reference - measured;
     const unit::Torque kProportional = kp * kError;
-    const unit::Torque kIntegral = integral + kProportional * unit::Ratio{ki.Value() * dt.Value()};
+    const unit::Torque kIntegral = integral + (kProportional * (ki * dt));
     const unit::Torque kUnlimited = kProportional + kIntegral;
     const bool kWindsUp = (kUnlimited > kUpper && kError > unit::AngularVelocity{}) ||
                           (kUnlimited < kLower && kError < unit::AngularVelocity{});

@@ -32,8 +32,8 @@ ZTEST(stator_system, test_to_rotor_at_zero_angle) {
 
   const auto kRotor = kStator.ToRotor(kAngle);
 
-  UNIMOC_EXPECT_NEAR(kRotor.d.Value(), 1.0F, 1.0e-5F);
-  UNIMOC_EXPECT_NEAR(kRotor.q.Value(), 2.0F, 1.0e-5F);
+  UNIMOC_EXPECT_NEAR(kRotor.d, 1.0_ratio, 1.0e-5_ratio);
+  UNIMOC_EXPECT_NEAR(kRotor.q, 2.0_ratio, 1.0e-5_ratio);
 }
 
 ZTEST(stator_system, test_to_rotor_at_quarter_turn) {
@@ -42,8 +42,8 @@ ZTEST(stator_system, test_to_rotor_at_quarter_turn) {
 
   const auto kRotor = kStator.ToRotor(kAngle);
 
-  UNIMOC_EXPECT_NEAR(kRotor.d.Value(), 2.0F, 1.0e-5F);
-  UNIMOC_EXPECT_NEAR(kRotor.q.Value(), -1.0F, 1.0e-5F);
+  UNIMOC_EXPECT_NEAR(kRotor.d, 2.0_ratio, 1.0e-5_ratio);
+  UNIMOC_EXPECT_NEAR(kRotor.q, -1.0_ratio, 1.0e-5_ratio);
 }
 
 ZTEST(stator_system, test_park_and_inverse_park_round_trip) {
@@ -53,25 +53,25 @@ ZTEST(stator_system, test_park_and_inverse_park_round_trip) {
   const Rotor kRotor = kOriginal.ToRotor(kAngle);
   const Stator kRestored = kRotor.ToStator(kAngle);
 
-  UNIMOC_EXPECT_NEAR(kRestored.alpha.Value(), kOriginal.alpha.Value(), 1.0e-5F);
-  UNIMOC_EXPECT_NEAR(kRestored.beta.Value(), kOriginal.beta.Value(), 1.0e-5F);
+  UNIMOC_EXPECT_NEAR(kRestored.alpha, kOriginal.alpha, 1.0e-5_ratio);
+  UNIMOC_EXPECT_NEAR(kRestored.beta, kOriginal.beta, 1.0e-5_ratio);
 }
 
 ZTEST(stator_system, test_park_transform_is_constexpr) {
   constexpr Stator kStator{1.0F, 2.0F};
   constexpr Rotor kRotor = kStator.ToRotor(RotorAngle{});
 
-  static_assert(kRotor.d.Value() == 1.0F);
-  static_assert(kRotor.q.Value() == 2.0F);
-  UNIMOC_EXPECT_FLOAT_EQ(kRotor.d.Value(), 1.0F);
+  static_assert(kRotor.d == 1.0_ratio);
+  static_assert(kRotor.q == 2.0_ratio);
+  UNIMOC_EXPECT_FLOAT_EQ(kRotor.d, 1.0_ratio);
 }
 
 ZTEST(stator_system, test_length_squared_avoids_square_root) {
-  constexpr Stator kStator{3.0F, 4.0F};
+  constexpr unimoc::system::Stator kStator{3.0_A, 4.0_A};
 
-  static_assert(std::same_as<decltype(kStator.LengthSquared()), float>);
-  static_assert(kStator.LengthSquared() == 25.0F);
-  UNIMOC_EXPECT_FLOAT_EQ(kStator.LengthSquared(), 25.0F);
+  static_assert(std::same_as<decltype(kStator.LengthSquared()), decltype(Current{} * Current{})>);
+  static_assert(kStator.LengthSquared() == 5.0_A * 5.0_A);
+  UNIMOC_EXPECT_FLOAT_EQ(kStator.LengthSquared(), 5.0_A * 5.0_A);
 }
 
 ZTEST(stator_system, test_clarke_and_park_preserve_the_unit_type) {
@@ -80,7 +80,7 @@ ZTEST(stator_system, test_clarke_and_park_preserve_the_unit_type) {
   const unimoc::system::Stator<unimoc::unit::Current> kStator = kPhase.ToStator();
   const unimoc::system::Rotor<unimoc::unit::Current> kRotor = kStator.ToRotor(RotorAngle{});
 
-  UNIMOC_EXPECT_NEAR(kRotor.d.Value(), 1.0F, 1.0e-5F);
+  UNIMOC_EXPECT_NEAR(kRotor.d, 1.0_A, 1.0e-5_A);
 }
 
 ZTEST(stator_system, test_inverse_clarke_preserves_the_unit_type) {
@@ -88,9 +88,9 @@ ZTEST(stator_system, test_inverse_clarke_preserves_the_unit_type) {
 
   const auto kPhase = kStator.ToThreePhase();
 
-  UNIMOC_EXPECT_NEAR(kPhase.a.Value(), 1.0F, 1.0e-5F);
-  UNIMOC_EXPECT_NEAR(kPhase.b.Value(), -0.5F, 1.0e-5F);
-  UNIMOC_EXPECT_NEAR(kPhase.c.Value(), -0.5F, 1.0e-5F);
+  UNIMOC_EXPECT_NEAR(kPhase.a, 1.0_A, 1.0e-5_A);
+  UNIMOC_EXPECT_NEAR(kPhase.b, -0.5_A, 1.0e-5_A);
+  UNIMOC_EXPECT_NEAR(kPhase.c, -0.5_A, 1.0e-5_A);
 }
 
 ZTEST_SUITE(stator_system, nullptr, nullptr, nullptr, nullptr, nullptr);

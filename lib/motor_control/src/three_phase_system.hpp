@@ -113,9 +113,10 @@ struct ThreePhase {
     constexpr auto kSqrt3By2 = static_cast<Representation>(0.86602540378443864676);
     constexpr auto kTwoByThree = static_cast<Representation>(2.0 / 3.0);
 
-    return Stator<T>(kTwoByThree * (a.Value() - (static_cast<Representation>(0.5) * b.Value()) -
-                                    (static_cast<Representation>(0.5) * c.Value())),
-                     kTwoByThree * ((kSqrt3By2 * b.Value()) - (kSqrt3By2 * c.Value())));
+    constexpr auto kHalf = static_cast<Representation>(0.5);
+
+    return Stator<T>(kTwoByThree * (a - (kHalf * b) - (kHalf * c)),
+                     kTwoByThree * ((kSqrt3By2 * b) - (kSqrt3By2 * c)));
   }
 };
 

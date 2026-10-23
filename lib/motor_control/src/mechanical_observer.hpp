@@ -24,6 +24,7 @@
 #include "angle_wrap.hpp"
 #include "nvm_settings.hpp"
 #include "rotor_system.hpp"
+#include "sin_cos.hpp"
 
 /**
  * @namespace unimoc::observer observer algorithms namespace
@@ -217,24 +218,21 @@ struct MechanicalObserver {
    * @param dt    Control period.
    */
   constexpr void Predict(const system::Rotor<unit::Current>& i_dq, const unit::Time dt) noexcept {
-    const T kTsj = dt.Value() / J.Value();
+    const auto kTsj = dt / J;
     const T kPolePairs = static_cast<T>(pole_pairs);
 
     // Shaft torque: T_e = (3/2) · p · [ψ_PM · i_q + (L_d − L_q) · i_d · i_q]
-    m_el = unit::Torque{
-        static_cast<T>(1.5) * kPolePairs *
-        (psi.Value() * i_dq.q.Value() + (L_d.Value() - L_q.Value()) * i_dq.d.Value() * i_dq.q.Value())};
+    m_el = static_cast<T>(1.5) * kPolePairs * ((psi * i_dq.q) + ((L_d - L_q) * i_dq.d * i_dq.q));
 
     // Integrate the electrical angular velocity
-    omega += unit::AngularVelocity{kTsj * (kPolePairs * m_el.Value() - m_l.Value())};
+    omega += kTsj * ((kPolePairs * m_el) - m_l);
     ClampSpeed();
 
     // Integrate angle
-    theta += unit::Angle{omega.Value() * dt.Value()};
+    theta += omega * dt;
     theta = observer::WrapAngle(theta);
 
-    sin_theta = unit::Ratio{std::sin(theta.Value())};
-    cos_theta = unit::Ratio{std::cos(theta.Value())};
+    UpdateSinCos();
   }
 
   /**
@@ -339,13 +337,23 @@ struct MechanicalObserver {
     k = {};
     s = static_cast<T>(0);
 
-    sin_theta = unit::Ratio{std::sin(theta.Value())};
-    cos_theta = unit::Ratio{std::cos(theta.Value())};
+    UpdateSinCos();
   }
 
  private:
   /// Range of the speed estimate relative to the speed limits.
   static constexpr T kSpeedGuard = static_cast<T>(2);
+
+  /// Sine and cosine of θ̂ from the table provider of RotorAngle (no libm, max error 1.4e-7).
+  /// A non-finite θ̂ restarts at 0, as ClampSpeed() does for ω̂: the table index of NaN is undefined.
+  constexpr void UpdateSinCos() noexcept {
+    if (!unit::IsFinite(theta)) {
+      theta = unit::Angle{};
+    }
+    const system::SinCos<unit::Ratio> kSinCos{theta};
+    sin_theta = kSinCos.sin;
+    cos_theta = kSinCos.cos;
+  }
 
   /// Clamps the speed estimate to twice the speed limits and recovers from NaN/Inf.
   constexpr void ClampSpeed() noexcept {
@@ -356,7 +364,7 @@ struct MechanicalObserver {
     } else if (omega < kLower) {
       omega = kLower;
     }
-    if (!std::isfinite(omega.Value())) {
+    if (!unit::IsFinite(omega)) {
       omega = unit::AngularVelocity{};
     }
   }
@@ -389,8 +397,7 @@ struct MechanicalObserver {
 
     theta = observer::WrapAngle(theta);
 
-    sin_theta = unit::Ratio{std::sin(theta.Value())};
-    cos_theta = unit::Ratio{std::cos(theta.Value())};
+    UpdateSinCos();
   }
 };
 

@@ -67,11 +67,11 @@ ZTEST(pmsm_model, test_validate_rejects_invalid_parameters) {
   zexpect_equal(PmsmModel(parameters).Validate(), Status::kInvalidResistance);
 
   parameters = TestParameters();
-  parameters.l_q = Inductance{-1.0e-3F};
+  parameters.l_q = -1.0e-3_H;
   zexpect_equal(PmsmModel(parameters).Validate(), Status::kInvalidInductance);
 
   parameters = TestParameters();
-  parameters.flux_pm = MagneticFlux{-0.1F};
+  parameters.flux_pm = -0.1_Wb;
   zexpect_equal(PmsmModel(parameters).Validate(), Status::kInvalidFlux);
 }
 
@@ -81,8 +81,8 @@ ZTEST(pmsm_model, test_locked_rotor_settles_at_ohmic_current) {
   // Ten time constants of the slower q axis (3 ms).
   RunSteps(model, Rotor<Voltage>(1.0_V, -0.5_V), kAngle, AngularVelocity{}, 1200);
 
-  UNIMOC_EXPECT_NEAR(model.Output().rotor_current.d.Value(), 10.0F, 1.0e-2F);
-  UNIMOC_EXPECT_NEAR(model.Output().rotor_current.q.Value(), -5.0F, 1.0e-2F);
+  UNIMOC_EXPECT_NEAR(model.Output().rotor_current.d, 10.0_A, 1.0e-2_A);
+  UNIMOC_EXPECT_NEAR(model.Output().rotor_current.q, -5.0_A, 1.0e-2_A);
 }
 
 ZTEST(pmsm_model, test_step_response_follows_electrical_time_constant) {
@@ -91,8 +91,8 @@ ZTEST(pmsm_model, test_step_response_follows_electrical_time_constant) {
   RunSteps(model, Rotor<Voltage>(1.0_V, 0.0_V), RotorAngle{}, AngularVelocity{}, 80);
 
   // 1 - e^-1 of the final 10 A; the implicit step lags slightly.
-  UNIMOC_EXPECT_NEAR(model.Output().rotor_current.d.Value(), 6.32F, 0.05F);
-  UNIMOC_EXPECT_FLOAT_EQ(model.Output().rotor_current.q.Value(), 0.0F);
+  UNIMOC_EXPECT_NEAR(model.Output().rotor_current.d, 6.32_A, 0.05_A);
+  UNIMOC_EXPECT_FLOAT_EQ(model.Output().rotor_current.q, 0.0_A);
 }
 
 ZTEST(pmsm_model, test_steady_state_operating_point_is_stationary) {
@@ -109,8 +109,8 @@ ZTEST(pmsm_model, test_steady_state_operating_point_is_stationary) {
                       (kOmega * ((kParameters.l_d * kCurrent.d) + kParameters.flux_pm));
   RunSteps(model, Rotor<Voltage>(kVd, kVq), RotorAngle::FromAngle(-2.0_rad), kOmega, 400);
 
-  UNIMOC_EXPECT_NEAR(model.Output().rotor_current.d.Value(), kCurrent.d.Value(), 0.05F);
-  UNIMOC_EXPECT_NEAR(model.Output().rotor_current.q.Value(), kCurrent.q.Value(), 0.05F);
+  UNIMOC_EXPECT_NEAR(model.Output().rotor_current.d, kCurrent.d, 0.05_A);
+  UNIMOC_EXPECT_NEAR(model.Output().rotor_current.q, kCurrent.q, 0.05_A);
 }
 
 ZTEST(pmsm_model, test_torque_includes_magnet_and_reluctance_parts) {
@@ -118,33 +118,31 @@ ZTEST(pmsm_model, test_torque_includes_magnet_and_reluctance_parts) {
   model.SetCurrent(Rotor<Current>(-10.0_A, 20.0_A));
 
   // 3/2 * 4 * (0.01 + (0.2e-3 - 0.3e-3) * -10) * 20 = 1.32 Nm
-  UNIMOC_EXPECT_NEAR(model.Output().torque.Value(), 1.32F, 1.0e-5F);
+  UNIMOC_EXPECT_NEAR(model.Output().torque, 1.32_Nm, 1.0e-5_Nm);
 }
 
 ZTEST(pmsm_model, test_open_stator_forces_zero_current) {
   PmsmModel model(TestParameters());
   model.SetCurrent(Rotor<Current>(3.0_A, 4.0_A));
-  model.Step(ElectricalInput{Stator<Voltage>(5.0_V, 5.0_V),
-                             RotorAngle{},
-                             AngularVelocity{500.0F},
-                             false,
-                             Voltage{}},
+  model.Step(ElectricalInput{Stator<Voltage>(5.0_V, 5.0_V), RotorAngle{}, 500.0_rad_per_s, false, Voltage{}},
              kDt);
 
   zexpect_equal(model.Output().rotor_current, Rotor<Current>{});
-  UNIMOC_EXPECT_FLOAT_EQ(model.Output().torque.Value(), 0.0F);
+  UNIMOC_EXPECT_FLOAT_EQ(model.Output().torque, 0.0_Nm);
 }
 
 ZTEST(pmsm_model, test_short_circuit_current_matches_steady_state_solution) {
   PmsmModel model(TestParameters());
-  RunSteps(model, Rotor<Voltage>{}, RotorAngle{}, AngularVelocity{5000.0F}, 4000);
+  RunSteps(model, Rotor<Voltage>{}, RotorAngle{}, 5000.0_rad_per_s, 4000);
 
   // i_d = -w^2 L_q psi / (R^2 + w^2 L_d L_q), i_q = -w R psi / (R^2 + w^2 L_d L_q)
   constexpr float kDenominator = (0.1F * 0.1F) + (5000.0F * 5000.0F * 0.2e-3F * 0.3e-3F);
-  UNIMOC_EXPECT_NEAR(model.Output().rotor_current.d.Value(),
-                     -(5000.0F * 5000.0F * 0.3e-3F * 0.01F) / kDenominator,
-                     0.05F);
-  UNIMOC_EXPECT_NEAR(model.Output().rotor_current.q.Value(), -(5000.0F * 0.1F * 0.01F) / kDenominator, 0.05F);
+  UNIMOC_EXPECT_NEAR(model.Output().rotor_current.d,
+                     (-(5000.0F * 5000.0F * 0.3e-3F * 0.01F) / kDenominator) * 1.0_A,
+                     0.05_A);
+  UNIMOC_EXPECT_NEAR(model.Output().rotor_current.q,
+                     (-(5000.0F * 0.1F * 0.01F) / kDenominator) * 1.0_A,
+                     0.05_A);
 }
 
 ZTEST_SUITE(pmsm_model, nullptr, nullptr, nullptr, nullptr, nullptr);

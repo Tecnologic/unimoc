@@ -46,6 +46,9 @@ using namespace unit;
  *   sum of 1.5 when the reference exceeds the linear range.
  */
 struct Svm {
+  /// Reciprocal voltage [1/V], the unit of InverseDcLinkVoltage().
+  using InverseVoltage = decltype(1.0F / unit::Voltage{});
+
   /// Minimum duty cycle (keeps time for ADC sampling and dead-time headroom).
   unit::Ratio duty_min{0.05_ratio};
   /// Maximum duty cycle (symmetric headroom on the upper side).
@@ -103,8 +106,8 @@ struct Svm {
    * @param dc_link_voltage DC-link voltage; values below 1 V are treated as 1 V to avoid division by zero.
    * @return 1 / V_dc [1/V].
    */
-  [[nodiscard]] static constexpr float InverseDcLinkVoltage(unit::Voltage dc_link_voltage) noexcept {
-    return 1.0F / std::max(dc_link_voltage.Value(), 1.0F);
+  [[nodiscard]] static constexpr InverseVoltage InverseDcLinkVoltage(unit::Voltage dc_link_voltage) noexcept {
+    return 1.0F / unit::Max(dc_link_voltage, 1.0_V);
   }
 
   /**
@@ -136,12 +139,12 @@ struct Svm {
    */
   [[nodiscard]] constexpr system::ThreePhase<unit::Ratio> CalculateWithInverseDcLinkVoltage(
       const system::Stator<unit::Voltage>& voltage,
-      const float inverse_dc_link_voltage,
+      const InverseVoltage inverse_dc_link_voltage,
       const system::Stator<unit::Ratio>& dead_time_ratio) const noexcept {
-    const system::Stator<unit::Ratio> kVoltageRatio{(voltage.alpha.Value() * inverse_dc_link_voltage) +
-                                                        dead_time_ratio.alpha.Value(),
-                                                    (voltage.beta.Value() * inverse_dc_link_voltage) +
-                                                        dead_time_ratio.beta.Value()};
+    const system::Stator<unit::Ratio> kVoltageRatio{(voltage.alpha * inverse_dc_link_voltage) +
+                                                        dead_time_ratio.alpha,
+                                                    (voltage.beta * inverse_dc_link_voltage) +
+                                                        dead_time_ratio.beta};
 
     return Calculate(kVoltageRatio.ToThreePhase());
   }

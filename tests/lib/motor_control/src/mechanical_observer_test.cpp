@@ -17,6 +17,7 @@
 #include "mechanical_observer.hpp"
 #include <zephyr/ztest.h>
 #include <cmath>
+#include <limits>
 #include <numbers>
 #include "angle_wrap.hpp"
 #include "pmsm_flux_observer.hpp"
@@ -34,9 +35,9 @@ const system::Rotor<Current> kNoCurrent{Current{}, Current{}};
 
 MechanicalObserver<float> MakeObserver() {
   settings::NvmSettings settings{};
-  settings.motor_j = Inertia{1e-3F};
-  settings.motor_omega_max = AngularVelocity{10000.0F};
-  settings.motor_omega_min = AngularVelocity{-10000.0F};
+  settings.motor_j = 1e-3_kg_m2;
+  settings.motor_omega_max = 10000.0_rad_per_s;
+  settings.motor_omega_min = -10000.0_rad_per_s;
   settings.mech_obs_q = 1e-5F;
   settings.mech_obs_r = 1e-4F;
   MechanicalObserver<float> observer;
@@ -57,23 +58,23 @@ ZTEST(mechanical_observer, test_inject_equals_prediction_plus_update) {
     split.UpdateAngle(kError, split.R);
     split.Predict(kNoCurrent, kDt);
   }
-  UNIMOC_EXPECT_FLOAT_EQ(split.theta.Value(), combined.theta.Value());
-  UNIMOC_EXPECT_FLOAT_EQ(split.omega.Value(), combined.omega.Value());
-  UNIMOC_EXPECT_FLOAT_EQ(split.m_l.Value(), combined.m_l.Value());
+  UNIMOC_EXPECT_FLOAT_EQ(split.theta, combined.theta);
+  UNIMOC_EXPECT_FLOAT_EQ(split.omega, combined.omega);
+  UNIMOC_EXPECT_FLOAT_EQ(split.m_l, combined.m_l);
   UNIMOC_EXPECT_FLOAT_EQ(split.p[1][1], combined.p[1][1]);
 }
 
 ZTEST(mechanical_observer, test_innovation_is_wrapped) {
   MechanicalObserver<float> observer = MakeObserver();
-  observer.Reset(Angle{3.1F});
+  observer.Reset(3.1_rad);
   for (int i = 0; i < 20; ++i) {
     observer.PredictCovariance(kDt);
   }
   // Measured -3.1 rad is 0.083 rad ahead of 3.1 rad, not 6.2 rad behind.
-  observer.UpdateAngle(Angle{-3.1F} - observer.theta, observer.R);
-  const float kStep = WrapAngle(observer.theta - Angle{3.1F}).Value();
-  zexpect_true(kStep > 0.0F && kStep < 0.09F, "step %f", static_cast<double>(kStep));
-  zexpect_true(observer.theta.Value() <= kPi && observer.theta.Value() > -kPi);
+  observer.UpdateAngle(-3.1_rad - observer.theta, observer.R);
+  const Angle kStep = WrapAngle(observer.theta - 3.1_rad);
+  zexpect_true(kStep > 0.0_rad && kStep < 0.09_rad, "step %f", static_cast<double>(kStep.Value()));
+  zexpect_true(observer.theta <= kPi * 1.0_rad && observer.theta > -kPi * 1.0_rad);
 }
 
 ZTEST(mechanical_observer, test_measurement_noise_sets_the_weight) {
@@ -83,39 +84,39 @@ ZTEST(mechanical_observer, test_measurement_noise_sets_the_weight) {
     precise.PredictCovariance(kDt);
     noisy.PredictCovariance(kDt);
   }
-  precise.UpdateAngle(Angle{0.1F}, 1e-5F);
-  noisy.UpdateAngle(Angle{0.1F}, 1e-1F);
-  zexpect_true(precise.theta.Value() > 10.0F * noisy.theta.Value());
-  zexpect_true(noisy.theta.Value() > 0.0F);
+  precise.UpdateAngle(0.1_rad, 1e-5F);
+  noisy.UpdateAngle(0.1_rad, 1e-1F);
+  zexpect_true(precise.theta > 10.0F * noisy.theta);
+  zexpect_true(noisy.theta > 0.0_rad);
   // A second, independent measurement in the same cycle refines the estimate further.
-  const float kAfterOne = precise.theta.Value();
-  precise.UpdateAngle(Angle{0.1F} - precise.theta, 1e-5F);
-  zexpect_true(precise.theta.Value() > kAfterOne && precise.theta.Value() <= 0.1F + 1e-6F);
+  const Angle kAfterOne = precise.theta;
+  precise.UpdateAngle(0.1_rad - precise.theta, 1e-5F);
+  zexpect_true(precise.theta > kAfterOne && precise.theta <= 0.1_rad + 1e-6_rad);
 }
 
 ZTEST(mechanical_observer, test_tracks_a_synthetic_speed_ramp) {
   // Angle measurements of a rotor that accelerates at 2000 rad/s^2 (electrical)
   // from 50 rad/s: the speed and the load-torque state follow the ramp.
   MechanicalObserver<float> observer = MakeObserver();
-  constexpr float kAcceleration = 2000.0F;
-  float speed = 50.0F;
-  float angle = 0.0F;
+  constexpr AngularAcceleration kAcceleration = 2000.0_rad_per_s2;
+  AngularVelocity speed = 50.0_rad_per_s;
+  Angle angle;
   for (int i = 0; i < 8000; ++i) {  // 0.5 s
     observer.PredictCovariance(kDt);
-    observer.UpdateAngle(WrapAngle(Angle{angle} - observer.theta), 1e-4F);
+    observer.UpdateAngle(WrapAngle(angle - observer.theta), 1e-4F);
     observer.Predict(kNoCurrent, kDt);
-    angle = WrapAngle(Angle{angle + speed * kDt.Value()}).Value();
-    speed += kAcceleration * kDt.Value();
+    angle = WrapAngle(angle + (speed * kDt));
+    speed += kAcceleration * kDt;
   }
-  UNIMOC_EXPECT_NEAR(observer.omega.Value(), speed, 0.02F * speed);
-  UNIMOC_EXPECT_NEAR(WrapAngle(observer.theta - Angle{angle}).Value(), 0.0F, 0.02F);
+  UNIMOC_EXPECT_NEAR(observer.omega, speed, 0.02F * speed);
+  UNIMOC_EXPECT_NEAR(WrapAngle(observer.theta - angle), 0.0_rad, 0.02_rad);
 }
 
 ZTEST(mechanical_observer, test_pmsm_flux_error_is_an_angle_or_nothing) {
   settings::NvmSettings settings{};
-  settings.stator_r = Resistance{0.05F};
-  settings.l_d = Inductance{100e-6F};
-  settings.l_q = Inductance{100e-6F};
+  settings.stator_r = 0.05_Ohm;
+  settings.l_d = 100e-6_H;
+  settings.l_q = 100e-6_H;
   MechanicalObserver<float> observer = MakeObserver();
   PmsmFluxObserver<float> flux;
   flux.Init(settings);
@@ -141,6 +142,37 @@ ZTEST(mechanical_observer, test_pmsm_flux_error_is_an_angle_or_nothing) {
     zassert_true(kError.has_value());
     UNIMOC_EXPECT_NEAR(kError->Value(), 0.1F, 1e-3F);
   }
+}
+
+ZTEST(mechanical_observer, test_sin_cos_come_from_the_table_provider) {
+  MechanicalObserver<float> obs = MakeObserver();
+  constexpr Ratio kTolerance{1e-6F};
+
+  obs.Reset(30.0_deg);
+  UNIMOC_EXPECT_NEAR(obs.sin_theta, 0.5_ratio, kTolerance);
+  UNIMOC_EXPECT_NEAR(obs.cos_theta, 0.8660254_ratio, kTolerance);
+
+  obs.Reset(-135.0_deg);
+  UNIMOC_EXPECT_NEAR(obs.sin_theta, -0.70710678_ratio, kTolerance);
+  UNIMOC_EXPECT_NEAR(obs.cos_theta, -0.70710678_ratio, kTolerance);
+
+  // After a prediction the pair belongs to the new angle estimate.
+  obs.Reset(0.0_rad, 1000.0_rad_per_s);
+  obs.Predict(kNoCurrent, kDt);
+  const system::SinCos<Ratio> kExpected{obs.theta};
+  UNIMOC_EXPECT_NEAR(obs.sin_theta, kExpected.sin, kTolerance);
+  UNIMOC_EXPECT_NEAR(obs.cos_theta, kExpected.cos, kTolerance);
+  UNIMOC_EXPECT_NEAR((obs.sin_theta * obs.sin_theta) + (obs.cos_theta * obs.cos_theta),
+                     1.0_ratio,
+                     kTolerance);
+}
+
+ZTEST(mechanical_observer, test_non_finite_angle_restarts_at_zero) {
+  MechanicalObserver<float> obs = MakeObserver();
+  obs.Reset(Angle{} * std::numeric_limits<float>::quiet_NaN());
+  UNIMOC_EXPECT_FLOAT_EQ(obs.theta, 0.0_rad);
+  UNIMOC_EXPECT_FLOAT_EQ(obs.sin_theta, 0.0_ratio);
+  UNIMOC_EXPECT_FLOAT_EQ(obs.cos_theta, 1.0_ratio);
 }
 
 }  // namespace unimoc::observer::test

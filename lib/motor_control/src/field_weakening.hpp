@@ -15,7 +15,6 @@
  */
 #pragma once
 
-#include <cmath>
 #include <concepts>
 #include "stator_system.hpp"
 #include "units.hpp"
@@ -80,13 +79,11 @@ struct FieldWeakening {
   /// @return     Field-weakening i_d correction [A] (≤ 0).
    */
   constexpr unit::Current Update(const system::Stator<unit::Voltage>& v_s, const unit::Time dt) noexcept {
-    const T kVAlpha = static_cast<T>(v_s.alpha.Value());
-    const T kVBeta = static_cast<T>(v_s.beta.Value());
-    const unit::Voltage kVMag{std::sqrt(kVAlpha * kVAlpha + kVBeta * kVBeta)};
-    const T kError = v_max.Value() - kVMag.Value();
+    const unit::Voltage kVMag = unit::Hypot(v_s.alpha, v_s.beta);
+    const unit::Voltage kError = v_max - kVMag;
 
     // Integrate voltage headroom error into i_d correction
-    i_d_fw = unit::Current{i_d_fw.Value() + ki.Value() * kError * dt.Value()};
+    i_d_fw += ki * kError * dt;
 
     // Clamp: i_d_fw must remain in [i_d_min, 0]
     i_d_fw = i_d_fw.Clamp(i_d_min, unit::Current{});

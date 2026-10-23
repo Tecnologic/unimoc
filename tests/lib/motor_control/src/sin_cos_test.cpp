@@ -48,10 +48,10 @@ static_assert(SinCosProvider<TestProvider>);
 
 ZTEST(portable_sin_cos_provider, test_generates_zero_angle) {
   constexpr auto kResult = PortableSinCosProvider::Calculate(0);
-  static_assert(kResult.sin.Value() == 0.0F);
-  static_assert(kResult.cos.Value() == 1.0F);
-  UNIMOC_EXPECT_FLOAT_EQ(kResult.sin.Value(), 0.0F);
-  UNIMOC_EXPECT_FLOAT_EQ(kResult.cos.Value(), 1.0F);
+  static_assert(kResult.sin == 0.0_ratio);
+  static_assert(kResult.cos == 1.0_ratio);
+  UNIMOC_EXPECT_FLOAT_EQ(kResult.sin, 0.0_ratio);
+  UNIMOC_EXPECT_FLOAT_EQ(kResult.cos, 1.0_ratio);
 }
 
 ZTEST(portable_sin_cos_provider, test_matches_standard_library) {
@@ -61,14 +61,14 @@ ZTEST(portable_sin_cos_provider, test_matches_standard_library) {
         -kPi + ((kTwoPi * static_cast<float>(sample_index)) / static_cast<float>(kSamples));
     const auto kResult = PortableSinCosProvider::Calculate(Angle{kExpected});
 
-    UNIMOC_EXPECT_NEAR(kResult.sin.Value(),
-                       std::sin(kExpected),
-                       2.0e-5F,
+    UNIMOC_EXPECT_NEAR(kResult.sin,
+                       (std::sin(kExpected)) * 1.0_ratio,
+                       2.0e-5_ratio,
                        "sample=%d",
                        static_cast<int>(sample_index));
-    UNIMOC_EXPECT_NEAR(kResult.cos.Value(),
-                       std::cos(kExpected),
-                       2.0e-5F,
+    UNIMOC_EXPECT_NEAR(kResult.cos,
+                       (std::cos(kExpected)) * 1.0_ratio,
+                       2.0e-5_ratio,
                        "sample=%d",
                        static_cast<int>(sample_index));
   }
@@ -78,18 +78,18 @@ ZTEST(portable_sin_cos_provider, test_angle_value_uses_portable_provider) {
   const unimoc::system::SinCos<unimoc::unit::Ratio> kResult{0.5_rad};
   const auto kExpected = PortableSinCosProvider::Calculate(0.5_rad);
 
-  UNIMOC_EXPECT_FLOAT_EQ(kResult.sin.Value(), kExpected.sin.Value());
-  UNIMOC_EXPECT_FLOAT_EQ(kResult.cos.Value(), kExpected.cos.Value());
+  UNIMOC_EXPECT_FLOAT_EQ(kResult.sin, kExpected.sin);
+  UNIMOC_EXPECT_FLOAT_EQ(kResult.cos, kExpected.cos);
 }
 
 ZTEST(sin_cos_provider, test_generate_sin_cos_uses_provider_contract) {
   constexpr TestProvider kProvider;
   constexpr auto kResult = GenerateSinCos(kProvider, 123);
 
-  static_assert(kResult.sin.Value() == 0.25F);
-  static_assert(kResult.cos.Value() == 0.75F);
-  UNIMOC_EXPECT_FLOAT_EQ(kResult.sin.Value(), 0.25F);
-  UNIMOC_EXPECT_FLOAT_EQ(kResult.cos.Value(), 0.75F);
+  static_assert(kResult.sin == 0.25_ratio);
+  static_assert(kResult.cos == 0.75_ratio);
+  UNIMOC_EXPECT_FLOAT_EQ(kResult.sin, 0.25_ratio);
+  UNIMOC_EXPECT_FLOAT_EQ(kResult.cos, 0.75_ratio);
 }
 
 ZTEST_SUITE(portable_sin_cos_provider, nullptr, nullptr, nullptr, nullptr, nullptr);

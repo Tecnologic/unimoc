@@ -15,7 +15,6 @@
  */
 #pragma once
 
-#include <cmath>
 #include <concepts>
 #include "rotor_system.hpp"
 
@@ -180,30 +179,30 @@ struct CurrentController {
                                                 const unit::Time dt,
                                                 const unit::Voltage v_dc) noexcept {
     // --- Current errors ---
-    const T kED = i_ref.d.Value() - i_meas.d.Value();
-    const T kEQ = i_ref.q.Value() - i_meas.q.Value();
+    const unit::Current kED = i_ref.d - i_meas.d;
+    const unit::Current kEQ = i_ref.q - i_meas.q;
 
     // --- Cross-coupling feedforward ---
     //   v_ff_d = −ω · L_q · i_q
     //   v_ff_q = +ω · (L_d · i_d + ψ_PM)
-    const T kVFfD = -omega.Value() * L_q.Value() * i_meas.q.Value();
-    const T kVFfQ = omega.Value() * (L_d.Value() * i_meas.d.Value() + psi.Value());
+    const unit::Voltage kVFfD = -(omega * (L_q * i_meas.q));
+    const unit::Voltage kVFfQ = omega * ((L_d * i_meas.d) + psi);
 
     // --- Total output before limiting (PI + feedforward) ---
-    const T kUDRaw = kp_d.Value() * kED + integrator_d.Value() + kVFfD;
-    const T kUQRaw = kp_q.Value() * kEQ + integrator_q.Value() + kVFfQ;
+    const unit::Voltage kUDRaw = (kp_d * kED) + integrator_d + kVFfD;
+    const unit::Voltage kUQRaw = (kp_q * kEQ) + integrator_q + kVFfQ;
 
     // --- Circular voltage-vector limiting ---
     // The limit is expressed in volts: v_limit = v_max [fraction] * v_dc [V].
     // The total output (PI + feedforward) is always hard-clamped to the
     // voltage circle, even when the feedforward terms alone push it over.
-    const T kVLimit = v_max.Value() * v_dc.Value();
-    const T kMagSq = kUDRaw * kUDRaw + kUQRaw * kUQRaw;
-    T u_d = kUDRaw;
-    T u_q = kUQRaw;
+    const unit::Voltage kVLimit = v_max * v_dc;
+    const auto kMagSq = (kUDRaw * kUDRaw) + (kUQRaw * kUQRaw);
+    unit::Voltage u_d = kUDRaw;
+    unit::Voltage u_q = kUQRaw;
 
     if (kMagSq > kVLimit * kVLimit) {
-      const T kScale = kVLimit / std::sqrt(kMagSq);
+      const unit::Ratio kScale = kVLimit / unit::Sqrt(kMagSq);
       u_d = kUDRaw * kScale;
       u_q = kUQRaw * kScale;
     }
@@ -216,10 +215,8 @@ struct CurrentController {
     // and when the feedforward terms alone drive the total output into
     // saturation — unlike a simple freeze which only detects total
     // saturation and cannot distinguish the two cases.
-    integrator_d = unit::Voltage{integrator_d.Value() +
-                                 (ki_d.Value() * kED + kb_d.Value() * (u_d - kUDRaw)) * dt.Value()};
-    integrator_q = unit::Voltage{integrator_q.Value() +
-                                 (ki_q.Value() * kEQ + kb_q.Value() * (u_q - kUQRaw)) * dt.Value()};
+    integrator_d += ((ki_d * kED) + (kb_d * (u_d - kUDRaw))) * dt;
+    integrator_q += ((ki_q * kEQ) + (kb_q * (u_q - kUQRaw))) * dt;
 
     return system::Rotor<unit::Voltage>{u_d, u_q};
   }

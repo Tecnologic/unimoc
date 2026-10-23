@@ -129,24 +129,17 @@ struct Rotor {
    * @brief Returns the Euclidean length of the rotor vector.
    * @return The vector length in the component unit.
    */
-  [[nodiscard]] constexpr T Length() const noexcept {
-    return T{std::sqrt((d.Value() * d.Value()) + (q.Value() * q.Value()))};
-  }
+  [[nodiscard]] constexpr T Length() const noexcept { return unit::Hypot(d, q); }
 
   /**
    * @brief Returns the squared Euclidean length of the rotor vector.
-   * @return The squared length in the component representation type.
+   * @return The squared length in the squared component unit (e.g. A^2).
    *
    * @note Prefer this for limit and threshold-based derating comparisons. It
    * avoids the multi-cycle floating-point square-root instruction; compare it
-   * with a limit squared. The result has squared component units, so it is
-   * returned as the representation rather than as `T`.
+   * with a limit squared (`limit * limit`).
    */
-  [[nodiscard]] constexpr Representation LengthSquared() const noexcept {
-    const Representation kDValue = d.Value();
-    const Representation kQValue = q.Value();
-    return (kDValue * kDValue) + (kQValue * kQValue);
-  }
+  [[nodiscard]] constexpr auto LengthSquared() const noexcept { return (d * d) + (q * q); }
 
   /**
    * @brief Applies the inverse Park transform to a rotor vector.
@@ -154,10 +147,10 @@ struct Rotor {
    * @return The vector in the stationary alpha/beta reference frame.
    */
   [[nodiscard]] constexpr Stator<T> ToStator(const RotorAngle& angle) const noexcept {
-    const Representation kSin = angle.Sin().Value();
-    const Representation kCos = angle.Cos().Value();
+    const unit::Ratio kSin = angle.Sin();
+    const unit::Ratio kCos = angle.Cos();
 
-    return Stator<T>(T{(d.Value() * kCos) - (q.Value() * kSin)}, T{(d.Value() * kSin) + (q.Value() * kCos)});
+    return Stator<T>((d * kCos) - (q * kSin), (d * kSin) + (q * kCos));
   }
 
   /**
@@ -166,10 +159,7 @@ struct Rotor {
    * @return The vector in the stationary alpha/beta reference frame.
    */
   [[nodiscard]] constexpr Stator<T> ToStator(const SinCos<unit::Ratio>& sin_cos) const noexcept {
-    const Representation kSin = sin_cos.sin.Value();
-    const Representation kCos = sin_cos.cos.Value();
-
-    return Stator<T>(T{(d.Value() * kCos) - (q.Value() * kSin)}, T{(d.Value() * kSin) + (q.Value() * kCos)});
+    return Stator<T>((d * sin_cos.cos) - (q * sin_cos.sin), (d * sin_cos.sin) + (q * sin_cos.cos));
   }
 };
 
