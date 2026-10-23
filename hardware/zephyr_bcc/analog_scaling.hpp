@@ -35,7 +35,8 @@ inline constexpr int32_t kCurrentZeroCounts = 2048;
 inline constexpr float kShuntResistance = 0.0005F;  ///< [Ohm]
 inline constexpr float kCurrentAmplifierGain = 50.0F;
 inline constexpr float kVoltageDividerRatio = (33.0F + 1.0F) / 1.0F;  ///< 33k / 1k
-inline constexpr float kTorqueSensitivity = 70.0F;                    ///< E-Rider T9 [V/Nm]
+inline constexpr float kTorqueScale = 70.0F;                          ///< E-Rider T9N [Nm/V]
+inline constexpr float kTorqueRestVoltage = 1.5F;                     ///< E-Rider T9N output at zero load [V]
 
 [[nodiscard]] constexpr float CountsToVolts(const float counts) noexcept {
   return counts * kVoltageReference / kAdcResolution;
@@ -59,13 +60,25 @@ inline constexpr unit::Current kCurrentPerCount =
   return unit::Voltage{CountsToVolts(static_cast<float>(raw)) * kVoltageDividerRatio};
 }
 
-/// Crank torque without offset compensation.
+/// Crank torque from the sensor voltage above its nominal rest voltage. The offset of the individual
+/// sensor remains; the pedal observer (lib/ebike) trims it.
 [[nodiscard]] constexpr unit::Torque CountsToTorque(const uint32_t raw) noexcept {
-  return unit::Torque{CountsToVolts(static_cast<float>(raw)) / kTorqueSensitivity};
+  return unit::Torque{(CountsToVolts(static_cast<float>(raw)) - kTorqueRestVoltage) * kTorqueScale};
 }
 
 static_assert(CountsToCurrent(static_cast<uint32_t>(kCurrentZeroCounts)) == unit::Current{});
 static_assert(kCurrentPerCount > unit::Current{});
+
+// E-Rider T9N: 1.5 V at rest, 70 Nm/V, so 2.0 V is 35 Nm. The output range ends at 3.5 V, above VDDA: the
+// converter saturates at (3.3 V - 1.5 V) * 70 Nm/V = 126 Nm.
+namespace detail {
+using unit::operator""_Nm;
+constexpr uint32_t kRestCounts =
+    static_cast<uint32_t>(kTorqueRestVoltage / kVoltageReference * kAdcResolution);
+constexpr uint32_t kTwoVoltCounts = static_cast<uint32_t>(2.0F / kVoltageReference * kAdcResolution);
+static_assert(CountsToTorque(kRestCounts) < 0.1_Nm && CountsToTorque(kRestCounts) > -0.1_Nm);
+static_assert(CountsToTorque(kTwoVoltCounts) > 34.0_Nm && CountsToTorque(kTwoVoltCounts) < 36.0_Nm);
+}  // namespace detail
 
 namespace detail {
 
