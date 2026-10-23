@@ -191,6 +191,8 @@ class DriveNode final : public cyphal::MessageListener,
   void ClearSetpoint() noexcept;
   /// Runs the startup FSM and restarts the controller after it ends.
   void SpinStartup() noexcept;
+  /// Cart torque, readiness and fault checks, setpoint timeout, battery limits.
+  void SpinEngagement(uint64_t now_us) noexcept;
   void Engage() noexcept;
   void Disengage(std::string_view reason) noexcept;
   /// Takes the timing and limits of the drive from the live settings.

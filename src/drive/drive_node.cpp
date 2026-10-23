@@ -312,30 +312,7 @@ void DriveNode::Spin(const uint64_t now_us) noexcept {
     Engage();
   }
   SpinStartup();
-
-  // The cart torque replaces the setpoints once a wheel command arrived; in
-  // limp-home and while it ramps down, the readiness timeout waits.
-  const CartOutput kCart = cart_.Update(now_us, OuterLoop::Instance().Status().speed, engaged_);
-  cart_mode_ = kCart.mode;
-  const auto& isr = CurrentControlIsr::Instance();
-  if (engaged_) {
-    if (now_us - last_readiness_us_ > command_timeout_us_ && !kCart.holds_engagement) {
-      Disengage("readiness timeout");
-    } else if (kPowerStage.GetState() != PowerStageState::kEnabled || isr.Tripped()) {
-      rearm_required_ = true;
-      const char* const kTrip = isr.TripName();
-      Disengage(kTrip != nullptr ? kTrip : "power stage fault");
-    }
-  }
-  if (engaged_ && kCart.mode != CartMode::kOff) {
-    const unit::Current kCurrent =
-        (torque_constant_ > unit::MagneticFlux{}) ? kCart.torque / torque_constant_ : unit::Current{};
-    SetCurrentSetpoint(unit::Current{}, kCurrent, now_us);
-  }
-  if (engaged_ && setpoint_active_ && now_us - last_setpoint_us_ > command_timeout_us_) {
-    ClearSetpoint();
-  }
-  OuterLoop::Instance().SetBatteryLimits(cart_.Battery(now_us));
+  SpinEngagement(now_us);
   // The outer loop commands zero current while the drive is disengaged.
   OuterSetpoint setpoint = setpoint_;
   setpoint.active = engaged_;
@@ -364,6 +341,32 @@ void DriveNode::Spin(const uint64_t now_us) noexcept {
   }
   settings_waiting_ = settings_pending_ || settings_registers_.WriteCount() != applied_writes_;
   UpdateStatus();
+}
+
+void DriveNode::SpinEngagement(const uint64_t now_us) noexcept {
+  // The cart torque replaces the setpoints once a wheel command arrived; in
+  // limp-home and while it ramps down, the readiness timeout waits.
+  const CartOutput kCart = cart_.Update(now_us, OuterLoop::Instance().Status().speed, engaged_);
+  cart_mode_ = kCart.mode;
+  const auto& isr = CurrentControlIsr::Instance();
+  if (engaged_) {
+    if (now_us - last_readiness_us_ > command_timeout_us_ && !kCart.holds_engagement) {
+      Disengage("readiness timeout");
+    } else if (kPowerStage.GetState() != PowerStageState::kEnabled || isr.Tripped()) {
+      rearm_required_ = true;
+      const char* const kTrip = isr.TripName();
+      Disengage(kTrip != nullptr ? kTrip : "power stage fault");
+    }
+  }
+  if (engaged_ && kCart.mode != CartMode::kOff) {
+    const unit::Current kCurrent =
+        (torque_constant_ > unit::MagneticFlux{}) ? kCart.torque / torque_constant_ : unit::Current{};
+    SetCurrentSetpoint(unit::Current{}, kCurrent, now_us);
+  }
+  if (engaged_ && setpoint_active_ && now_us - last_setpoint_us_ > command_timeout_us_) {
+    ClearSetpoint();
+  }
+  OuterLoop::Instance().SetBatteryLimits(cart_.Battery(now_us));
 }
 
 void DriveNode::LoadParameters(const settings::NvmSettings& settings) noexcept {
