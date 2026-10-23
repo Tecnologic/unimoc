@@ -6,7 +6,7 @@
  *	\____/_/ |_/___/_/  /_/\____/\____/
  *
  *	@file units_test.cpp
- *	@brief Tests of the machine-model unit operators.
+ *	@brief Tests of the dimension system and the machine-model unit operators.
  *
  *	SPDX-License-Identifier: GPL-3.0-or-later
  *
@@ -35,6 +35,87 @@ static_assert(std::same_as<decltype(Inertia{} * AngularAcceleration{}), Torque>)
 static_assert(std::same_as<decltype(AngularAcceleration{} * Inertia{}), Torque>);
 static_assert(std::same_as<decltype(TorquePerAngularVelocity{} * AngularVelocity{}), Torque>);
 static_assert(std::same_as<decltype(AngularVelocity{} * TorquePerAngularVelocity{}), Torque>);
+
+// Dimension exponents: products and quotients are derived by the compiler.
+static_assert(std::same_as<decltype(Voltage{} * Current{}), Power>);
+static_assert(std::same_as<decltype(Power{} / Voltage{}), Current>);
+static_assert(std::same_as<decltype(Torque{} * AngularVelocity{}), Power>);
+static_assert(std::same_as<decltype(Power{} / AngularVelocity{}), Torque>);
+static_assert(std::same_as<decltype(Angle{} / Time{}), AngularVelocity>);
+static_assert(std::same_as<decltype(AngularVelocity{} / Time{}), AngularAcceleration>);
+static_assert(std::same_as<decltype(Voltage{} * Time{}), MagneticFlux>);
+static_assert(std::same_as<decltype(Inductance{} * Current{}), MagneticFlux>);
+static_assert(std::same_as<decltype(Voltage{} / Current{}), Resistance>);
+static_assert(std::same_as<decltype(Inductance{} / Resistance{}), Time>);
+static_assert(std::same_as<decltype(1.0F / Time{}), Frequency>);
+static_assert(std::same_as<decltype(Angle{} * Frequency{}), AngularVelocity>);
+static_assert(std::same_as<decltype(Current{} / Current{}), Ratio>);
+static_assert(std::same_as<decltype(Current{} * Ratio{}), Current>);
+// Gains get their type from the formula, with no operator written for them.
+static_assert(std::same_as<decltype(Voltage{} / Current{}), VoltagePerCurrent>);
+static_assert(std::same_as<decltype(VoltagePerCurrentTime{} * Current{} * Time{}), Voltage>);
+static_assert(std::same_as<decltype(CurrentPerVoltageTime{} * Voltage{} * Time{}), Current>);
+static_assert(std::same_as<decltype(AnglePerCurrent{} * Current{}), Angle>);
+static_assert(std::same_as<decltype(AngularVelocityPerAngle{} * Angle{}), AngularVelocity>);
+static_assert(std::same_as<decltype(MagneticFluxPerCurrentTime{} * Current{} * Time{}), MagneticFlux>);
+static_assert(std::same_as<decltype(Torque{} / AngularVelocity{}), TorquePerAngularVelocity>);
+// The radian is a dimension: rad/s and Hz are different types.
+static_assert(!std::same_as<AngularVelocity, Frequency>);
+static_assert(!std::same_as<Angle, Ratio>);
+static_assert(std::same_as<Frequency, InverseTime>);
+// Electromechanical coupling: the rules agree with each other.
+static_assert(std::same_as<decltype(Voltage{} / AngularVelocity{}), MagneticFlux>);
+static_assert(std::same_as<decltype(Torque{} / Current{}), MagneticFlux>);
+static_assert(std::same_as<decltype(AngularVelocity{} * Inductance{}), Resistance>);
+static_assert(std::same_as<decltype((AngularVelocity{} * MagneticFlux{}) * Current{}),
+                           decltype(AngularVelocity{} * (MagneticFlux{} * Current{}))>);
+static_assert(std::same_as<decltype((AngularVelocity{} * Inductance{}) * Current{}),
+                           decltype(AngularVelocity{} * (Inductance{} * Current{}))>);
+// Quantities of different dimensions neither add nor compare.
+template <typename A, typename B>
+concept Addable = requires(A lhs, B rhs) { lhs + rhs; };
+template <typename A, typename B>
+concept Comparable = requires(A lhs, B rhs) { lhs < rhs; };
+static_assert(Addable<Current, Current>);
+static_assert(!Addable<Current, Voltage>);
+static_assert(!Addable<AngularVelocity, Frequency>);
+static_assert(!Comparable<Torque, Power>);
+// The dimension costs nothing: a unit has the layout of its float.
+static_assert(sizeof(Current) == sizeof(float));
+static_assert(sizeof(CurrentPerMagneticFluxTime) == sizeof(float));
+static_assert(IsVoltage<decltype(Current{} * Resistance{})>::value);
+static_assert(IsCurrent<decltype(1.0_mA)>::value);
+static_assert(!IsCurrent<Voltage>::value);
+
+ZTEST(units, test_derived_quantities_scale_with_the_periods) {
+  // Converted to the base period on the assignment.
+  const Current kCurrent = 2.0_V / 4.0_kOhm;
+  const Power kPower = 48.0_V * 500.0_mA;
+  const Ratio kShare = 250.0_mA / 1.0_A;
+  const Frequency kSampleRate = 1.0F / 50.0_us;
+  UNIMOC_EXPECT_FLOAT_EQ(kCurrent, 0.5e-3_A);
+  UNIMOC_EXPECT_FLOAT_EQ(kPower, 24.0_W);
+  UNIMOC_EXPECT_FLOAT_EQ(kShare, 0.25_ratio);
+  UNIMOC_EXPECT_FLOAT_EQ(kSampleRate, 20000.0_Hz);
+}
+
+ZTEST(units, test_gains_follow_from_the_formula) {
+  // A PI current controller: v = kp * i + ki * i * dt.
+  const Time kDt = 10.0_ms;
+  const Voltage kOutput = (2.0_V_per_A * 3.0_A) + (100.0_V_per_A_s * 3.0_A * kDt);
+  UNIMOC_EXPECT_FLOAT_EQ(kOutput, 9.0_V);
+  // Torque of a PMSM with the 3/2 of the amplitude-invariant Clarke transform.
+  const Torque kTorque = 1.5F * (10.0_mWb * 20.0_A);
+  UNIMOC_EXPECT_FLOAT_EQ(kTorque, 0.3_Nm);
+  UNIMOC_EXPECT_FLOAT_EQ(kTorque * 100.0_rad_per_s, 30.0_W);
+}
+
+ZTEST(units, test_sqrt_halves_the_dimension) {
+  static_assert(std::same_as<decltype(Sqrt(Current{} * Current{})), Current>);
+  static_assert(std::same_as<decltype(Sqrt(Inductance{} / Inductance{})), Ratio>);
+  UNIMOC_EXPECT_FLOAT_EQ(Sqrt((3.0_A * 3.0_A) + (4.0_A * 4.0_A)), 5.0_A);
+  UNIMOC_EXPECT_NEAR(Sqrt(4.0_mA * 4.0_mA), 4.0e-3_A, 1.0e-9_A);
+}
 
 ZTEST(units, test_back_emf_is_speed_times_flux) {
   UNIMOC_EXPECT_FLOAT_EQ((100.0_rad_per_s * MagneticFlux{20.0_mWb}).Value(), 2.0F);

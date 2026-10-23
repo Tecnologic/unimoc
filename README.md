@@ -122,7 +122,7 @@ lib/
 │   ├── stator_system.hpp         # α/β stationary reference frame
 │   └── three_phase_system.hpp    # Three-phase (a/b/c) vector
 └── units/
-    └── units.hpp                 # SI unit wrappers
+    └── units.hpp                 # SI units with dimension exponents
 ```
 
 ---

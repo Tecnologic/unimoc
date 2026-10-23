@@ -31,11 +31,9 @@ namespace unimoc::test {
 
 using namespace unit;
 
-template <typename Numerator, typename Denominator>
-concept Dividable = requires(Numerator numerator, Denominator denominator) { numerator / denominator; };
-
-ZTEST(control_observer_units, test_rejects_ratio_per_time) {
-  static_assert(!Dividable<unit::Ratio, unit::Time>);
+ZTEST(control_observer_units, test_ratio_per_time_is_no_angular_velocity) {
+  static_assert(std::is_same_v<decltype(unit::Ratio{} / unit::Time{}), unit::InverseTime>);
+  static_assert(!std::is_same_v<decltype(unit::Ratio{} / unit::Time{}), unit::AngularVelocity>);
   static_assert(
       std::is_same_v<decltype((unit::Ratio{} * unit::Angle{}) / unit::Time{}), unit::AngularVelocity>);
 }

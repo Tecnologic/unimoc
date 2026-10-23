@@ -18,6 +18,8 @@ external API requires different wording.
 | **twister scenario** | One test application under `tests/` with a `testcase.yaml`, built and run by Zephyr's twister (ztest on `native_sim`, build-only on `bcc`). |
 | **SCA** | Zephyr static code analysis; here clang-tidy through CodeChecker (`scripts/twister_sca.sh`). |
 | **native_sim** | Zephyr's Linux simulation target. It runs the firmware application against the PMSM plant on the host. |
+| **unit type** | A `unit::Unit` of `lib/units/units.hpp` (`Current`, `Voltage`, ...): a `float` with a period and a **dimension**. Prefer it to a raw `float` for every physical quantity. |
+| **dimension** | The exponents of kg, m, s, A, K and rad of a unit type. Products and quotients derive it at compile time, so rad/s and Hz are different types and a gain has the type of its formula. Torque is N m/rad and inertia kg m^2/rad^2; the **electromechanical coupling** drops one radian where the electrical and the mechanical side meet (rad/s times Wb is V, Wb times A is N m/rad). |
 | **hardware layer** | Platform-specific code that connects the portable library to ADCs, PWM, timers, NVM, gate drivers, and other peripherals. Its platform is `zephyr_bcc` or `zephyr_sim`. |
 | **BCC** | The battery case controller: the STM32G473 board, built with `-b bcc`. |
 | **plant** | The simulated motor with its inverter, shaft and position sensor (`MotorSimulation` in `lib/sim/`). The firmware controls it on `native_sim`, including the ztest scenarios in `tests/sim/`. |

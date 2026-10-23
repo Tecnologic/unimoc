@@ -6,7 +6,7 @@
  *	\____/_/ |_/___/_/  /_/\____/\____/
  *
  *	@file units.hpp
- *	@brief Strongly typed SI units, unit arithmetic, literals, and type traits.
+ *	@brief Strongly typed SI units with dimension exponents, unit arithmetic, literals, and type traits.
  *
  *	SPDX-License-Identifier: GPL-3.0-or-later
  *
@@ -24,82 +24,274 @@
 /**
  * @namespace unit Strongly typed SI units and unit operations.
  *
- * Unit values carry a representation type, a std::ratio period, and a tag
- * type.  The tags prevent incompatible physical quantities from being mixed
- * accidentally while the periods support explicit scaled-unit conversion.
+ * Unit values carry a representation type, a std::ratio period, and a
+ * dimension. The dimension holds the exponents of the SI base dimensions used
+ * by the drive (mass, length, time, current, temperature) plus the radian as a
+ * dimension of its own, so that rad/s and Hz stay distinct types. Products and
+ * quotients of units derive their dimension at compile time, so a formula needs
+ * no hand-written operator and incompatible quantities cannot be mixed. The
+ * periods support explicit scaled-unit conversion. A unit has the layout of its
+ * representation type; the dimension costs nothing at run time.
  */
 namespace unimoc::unit {
-/// Tag identifying angles, whose base unit is the radian.
-struct AngleTag;
-/// Tag identifying angular velocities, whose base unit is radians per second.
-struct AngularVelocityTag;
-/// Tag identifying torque, whose base unit is the Newton-metre.
-struct TorqueTag;
-/// Tag identifying angular acceleration, whose base unit is radians per second
-/// squared.
-struct AngularAccelerationTag;
-/// Tag identifying electric current, whose base unit is the ampere.
-struct CurrentTag;
-/// Tag identifying electric potential, whose base unit is the volt.
-struct VoltageTag;
-/// Tag identifying temperature readings in degrees Celsius.
-struct TemperatureTag;
-/// Tag identifying power, whose base unit is the watt.
-struct PowerTag;
-/// Tag identifying magnetic flux, whose base unit is the weber.
-struct MagneticFluxTag;
-/// Tag identifying resistance, whose base unit is the ohm.
-struct ResistanceTag;
-/// Tag identifying inductance, whose base unit is the henry.
-struct InductanceTag;
-/// Tag identifying rotational inertia, whose base unit is kg m^2.
-struct InertiaTag;
-/// Tag identifying time, whose base unit is the second.
-struct TimeTag;
-/// Tag identifying frequency, whose base unit is the hertz.
-struct FrequencyTag;
-/// Tag identifying inverse time, whose base unit is 1/s.
-struct InverseTimeTag;
-/// Tag identifying a dimensionless ratio, such as a sine or cosine result.
-struct RatioTag;
-/// Tag identifying voltage-per-current controller gains.
-struct VoltagePerCurrentTag;
-/// Tag identifying voltage-per-current-per-time controller gains.
-struct VoltagePerCurrentTimeTag;
-/// Tag identifying current-per-flux controller gains.
-struct CurrentPerMagneticFluxTag;
-/// Tag identifying current-per-flux-per-time controller gains.
-struct CurrentPerMagneticFluxTimeTag;
-/// Tag identifying current rate [A/s].
-struct CurrentPerTimeTag;
-/// Tag identifying current-per-voltage-per-time controller gains.
-struct CurrentPerVoltageTimeTag;
-/// Tag identifying angle-per-current gains.
-struct AnglePerCurrentTag;
-/// Tag identifying angular-velocity-per-angle controller gains.
-struct AngularVelocityPerAngleTag;
-/// Tag identifying magnetic-flux-per-current-per-time observer gains.
-struct MagneticFluxPerCurrentTimeTag;
-/// Tag identifying viscous rotational damping [N m s/rad].
-struct TorquePerAngularVelocityTag;
+
+/**
+ * @brief Exponents of the base dimensions of a physical quantity.
+ * @tparam MassExp Exponent of the mass (kg).
+ * @tparam LengthExp Exponent of the length (m).
+ * @tparam TimeExp Exponent of the time (s).
+ * @tparam CurrentExp Exponent of the electric current (A).
+ * @tparam TemperatureExp Exponent of the temperature (K, readings in degrees Celsius).
+ * @tparam AngleExp Exponent of the plane angle (rad).
+ *
+ * Every combination of exponents is one type, so two quantities have the same
+ * dimension exactly when their dimension types are the same.
+ */
+template <int MassExp, int LengthExp, int TimeExp, int CurrentExp, int TemperatureExp, int AngleExp>
+struct Dimension {
+  /// Exponent of the mass.
+  static constexpr int kMass = MassExp;
+  /// Exponent of the length.
+  static constexpr int kLength = LengthExp;
+  /// Exponent of the time.
+  static constexpr int kTime = TimeExp;
+  /// Exponent of the electric current.
+  static constexpr int kCurrent = CurrentExp;
+  /// Exponent of the temperature.
+  static constexpr int kTemperature = TemperatureExp;
+  /// Exponent of the plane angle.
+  static constexpr int kAngle = AngleExp;
+};
+
+/**
+ * @brief Dimension of the product of two quantities: the exponents add.
+ * @tparam D1 Dimension of the first factor.
+ * @tparam D2 Dimension of the second factor.
+ */
+template <typename D1, typename D2>
+using DimensionProduct = Dimension<D1::kMass + D2::kMass,
+                                   D1::kLength + D2::kLength,
+                                   D1::kTime + D2::kTime,
+                                   D1::kCurrent + D2::kCurrent,
+                                   D1::kTemperature + D2::kTemperature,
+                                   D1::kAngle + D2::kAngle>;
+
+/**
+ * @brief Dimension of the quotient of two quantities: the exponents subtract.
+ * @tparam D1 Dimension of the numerator.
+ * @tparam D2 Dimension of the denominator.
+ */
+template <typename D1, typename D2>
+using DimensionQuotient = Dimension<D1::kMass - D2::kMass,
+                                    D1::kLength - D2::kLength,
+                                    D1::kTime - D2::kTime,
+                                    D1::kCurrent - D2::kCurrent,
+                                    D1::kTemperature - D2::kTemperature,
+                                    D1::kAngle - D2::kAngle>;
+
+/**
+ * @brief Dimension of the square root of a quantity: the exponents halve.
+ * @tparam D Dimension whose exponents are all even.
+ */
+template <typename D>
+struct DimensionRoot {
+  static_assert(D::kMass % 2 == 0 && D::kLength % 2 == 0 && D::kTime % 2 == 0 && D::kCurrent % 2 == 0 &&
+                    D::kTemperature % 2 == 0 && D::kAngle % 2 == 0,
+                "The square root needs a squared quantity (all dimension exponents even).");
+  /// Dimension with the halved exponents.
+  using type = Dimension<D::kMass / 2,
+                         D::kLength / 2,
+                         D::kTime / 2,
+                         D::kCurrent / 2,
+                         D::kTemperature / 2,
+                         D::kAngle / 2>;
+};
+
+/**
+ * @namespace dim Dimensions of the quantities used by the drive.
+ *
+ * The mechanical rotation quantities carry the radian: torque is energy per
+ * radian (J/rad = N m/rad), so torque times angular velocity is power, and the
+ * rotational inertia is kg m^2/rad^2, so torque over inertia is rad/s^2. The
+ * magnetic flux is the plain weber (V s), so flux over time is voltage and
+ * inductance times current is flux.
+ */
+namespace dim {
+/// No dimension: ratios, duties, sine and cosine results.
+using Dimensionless = Dimension<0, 0, 0, 0, 0, 0>;
+/// Mass [kg].
+using Mass = Dimension<1, 0, 0, 0, 0, 0>;
+/// Length [m].
+using Length = Dimension<0, 1, 0, 0, 0, 0>;
+/// Time [s].
+using Time = Dimension<0, 0, 1, 0, 0, 0>;
+/// Electric current [A].
+using Current = Dimension<0, 0, 0, 1, 0, 0>;
+/// Temperature [K]; the temperature readings are in degrees Celsius.
+using Temperature = Dimension<0, 0, 0, 0, 1, 0>;
+/// Plane angle [rad].
+using Angle = Dimension<0, 0, 0, 0, 0, 1>;
+
+/// Frequency and inverse time [1/s = Hz].
+using Frequency = DimensionQuotient<Dimensionless, Time>;
+/// Angular velocity [rad/s].
+using AngularVelocity = DimensionQuotient<Angle, Time>;
+/// Angular acceleration [rad/s^2].
+using AngularAcceleration = DimensionQuotient<AngularVelocity, Time>;
+/// Energy [J = kg m^2/s^2].
+using Energy = Dimension<1, 2, -2, 0, 0, 0>;
+/// Power [W = J/s].
+using Power = DimensionQuotient<Energy, Time>;
+/// Torque [N m/rad = J/rad].
+using Torque = DimensionQuotient<Energy, Angle>;
+/// Rotational inertia [kg m^2/rad^2].
+using Inertia = DimensionQuotient<Torque, AngularAcceleration>;
+/// Electric potential [V = W/A].
+using Voltage = DimensionQuotient<Power, Current>;
+/// Resistance [Ohm = V/A].
+using Resistance = DimensionQuotient<Voltage, Current>;
+/// Magnetic flux [Wb = V s].
+using MagneticFlux = DimensionProduct<Voltage, Time>;
+/// Inductance [H = Wb/A].
+using Inductance = DimensionQuotient<MagneticFlux, Current>;
+}  // namespace dim
+
+/**
+ * @brief Dimension of the product of two quantities, including the
+ * electromechanical coupling.
+ * @tparam D1 Dimension of the first factor.
+ * @tparam D2 Dimension of the second factor.
+ *
+ * In general the exponents add (DimensionProduct). The specializations below
+ * are the electromechanical coupling of a machine: the flux linkage changes by
+ * its amplitude per electrical radian, so one radian drops out where the
+ * electrical and the mechanical side meet. Angular velocity times flux is the
+ * back-EMF in volts, angular velocity times inductance is the reactance in
+ * ohms, and flux times current is the torque in N m/rad. The rules are
+ * consistent with each other: (omega * psi) * i and omega * (psi * i) are both
+ * power.
+ */
+template <typename D1, typename D2>
+struct ProductDimension {
+  /// Dimension of the product.
+  using type = DimensionProduct<D1, D2>;
+};
+
+/// Back-EMF: angular velocity times magnetic flux is a voltage.
+template <>
+struct ProductDimension<dim::AngularVelocity, dim::MagneticFlux> {
+  /// Voltage.
+  using type = dim::Voltage;
+};
+
+/// Back-EMF: magnetic flux times angular velocity is a voltage.
+template <>
+struct ProductDimension<dim::MagneticFlux, dim::AngularVelocity> {
+  /// Voltage.
+  using type = dim::Voltage;
+};
+
+/// Reactance: angular velocity times inductance is a resistance.
+template <>
+struct ProductDimension<dim::AngularVelocity, dim::Inductance> {
+  /// Resistance.
+  using type = dim::Resistance;
+};
+
+/// Reactance: inductance times angular velocity is a resistance.
+template <>
+struct ProductDimension<dim::Inductance, dim::AngularVelocity> {
+  /// Resistance.
+  using type = dim::Resistance;
+};
+
+/// Torque of one flux/current pair: magnetic flux times current.
+template <>
+struct ProductDimension<dim::MagneticFlux, dim::Current> {
+  /// Torque.
+  using type = dim::Torque;
+};
+
+/// Torque of one flux/current pair: current times magnetic flux.
+template <>
+struct ProductDimension<dim::Current, dim::MagneticFlux> {
+  /// Torque.
+  using type = dim::Torque;
+};
+
+/**
+ * @brief Dimension of the quotient of two quantities, including the
+ * electromechanical coupling.
+ * @tparam D1 Dimension of the numerator.
+ * @tparam D2 Dimension of the denominator.
+ *
+ * In general the exponents subtract (DimensionQuotient). The specializations
+ * invert the coupling rules of ProductDimension.
+ */
+template <typename D1, typename D2>
+struct QuotientDimension {
+  /// Dimension of the quotient.
+  using type = DimensionQuotient<D1, D2>;
+};
+
+/// Torque over a torque constant (flux) is the current that produces it.
+template <>
+struct QuotientDimension<dim::Torque, dim::MagneticFlux> {
+  /// Current.
+  using type = dim::Current;
+};
+
+/// Torque over current is the torque constant, a magnetic flux (N m/A = Wb).
+template <>
+struct QuotientDimension<dim::Torque, dim::Current> {
+  /// Magnetic flux.
+  using type = dim::MagneticFlux;
+};
+
+/// Back-EMF over angular velocity is the flux linkage.
+template <>
+struct QuotientDimension<dim::Voltage, dim::AngularVelocity> {
+  /// Magnetic flux.
+  using type = dim::MagneticFlux;
+};
+
+/// Back-EMF over flux linkage is the angular velocity.
+template <>
+struct QuotientDimension<dim::Voltage, dim::MagneticFlux> {
+  /// Angular velocity.
+  using type = dim::AngularVelocity;
+};
+
+/// Reactance over angular velocity is the inductance.
+template <>
+struct QuotientDimension<dim::Resistance, dim::AngularVelocity> {
+  /// Inductance.
+  using type = dim::Inductance;
+};
+
+/// Reactance over inductance is the angular velocity.
+template <>
+struct QuotientDimension<dim::Resistance, dim::Inductance> {
+  /// Angular velocity.
+  using type = dim::AngularVelocity;
+};
 
 /**
  * @brief A generic class for representing a unit of measurement.
  * @tparam Rep The underlying representation type (e.g., float, double).
  * @tparam Period A std::ratio representing the scaling factor from the base
  * unit (e.g., std::milli, std::kilo).
- * @tparam Tag A tag struct to differentiate unit types (e.g., AngleTag,
- * CurrentTag).
+ * @tparam Dim The Dimension of the quantity (e.g., dim::Current).
  */
-template <typename Rep, typename Period = std::ratio<1>, typename Tag = void>
+template <typename Rep, typename Period = std::ratio<1>, typename Dim = dim::Dimensionless>
 class Unit {
  public:
   /// Representation type used to store the numeric value.
   using representation = Rep;
   /// Scale relative to the corresponding base unit.
   using period = Period;
-  /// Tag that identifies the physical quantity represented by this unit.
-  using tag = Tag;
+  /// Dimension of the physical quantity represented by this unit.
+  using dimension = Dim;
 
   /// Constructs a zero-valued unit.
   constexpr Unit() : val_(0) {}
@@ -110,21 +302,21 @@ class Unit {
   explicit constexpr Unit(Rep val) : val_(val) {}
 
   /**
-   * @brief Converts a value with the same tag from another period.
+   * @brief Converts a value with the same dimension from another period.
    * @param other Unit value expressed in another period.
    */
   template <typename OtherPeriod>
-  constexpr Unit(const Unit<Rep, OtherPeriod, Tag>& other)
+  constexpr Unit(const Unit<Rep, OtherPeriod, Dim>& other)
       : val_(other.Value() * static_cast<Rep>(OtherPeriod::num) / OtherPeriod::den *
              static_cast<Rep>(Period::den) / Period::num) {}
 
   /**
-   * @brief Assigns a value with the same tag from another period.
+   * @brief Assigns a value with the same dimension from another period.
    * @param other Unit value expressed in another period.
    * @return This unit after conversion and assignment.
    */
   template <typename OtherPeriod>
-  constexpr Unit& operator=(const Unit<Rep, OtherPeriod, Tag>& other) {
+  constexpr Unit& operator=(const Unit<Rep, OtherPeriod, Dim>& other) {
     val_ = other.Value() * static_cast<Rep>(OtherPeriod::num) / OtherPeriod::den *
            static_cast<Rep>(Period::den) / Period::num;
     return *this;
@@ -137,21 +329,21 @@ class Unit {
   [[nodiscard]] constexpr Rep Value() const { return val_; }
 
   /**
-   * @brief Converts this unit to another unit of the same type but with a
+   * @brief Converts this unit to another unit of the same dimension but with a
    * different period.
    * @tparam OtherPeriod The period of the target unit.
    * @return A new Unit object with the converted value and OtherPeriod.
    *
-   * @note The unit tag and representation type are preserved.
+   * @note The dimension and representation type are preserved.
    */
   template <typename OtherPeriod>
-  constexpr Unit<Rep, OtherPeriod, Tag> ConvertTo() const {
+  constexpr Unit<Rep, OtherPeriod, Dim> ConvertTo() const {
     // value_base = val_ * (period::num / period::den)
     // new_val * (OtherPeriod::num / OtherPeriod::den) = value_base
     // new_val = value_base * (OtherPeriod::den / OtherPeriod::num)
     // new_val = val_ * (period::num / period::den) * (OtherPeriod::den /
     // OtherPeriod::num)
-    return Unit<Rep, OtherPeriod, Tag>(val_ * static_cast<Rep>(period::num) / period::den * OtherPeriod::den /
+    return Unit<Rep, OtherPeriod, Dim>(val_ * static_cast<Rep>(period::num) / period::den * OtherPeriod::den /
                                        OtherPeriod::num);
   }
 
@@ -177,34 +369,20 @@ class Unit {
   constexpr Unit operator-() const { return Unit(-val_); }
 
   /**
-   * @brief Adds another value with the same tag and period.
+   * @brief Adds another value with the same dimension and period.
    * @param other Unit value to add.
    * @return This unit after the addition.
-   * @pre `other` has the same tag and period as this unit.
    */
   constexpr Unit& operator+=(const Unit& other) {
-    static_assert(std::is_same_v<tag, typename std::remove_cvref_t<decltype(other)>::tag>,
-                  "Cannot add units of different types.");
-    static_assert(std::is_same_v<period, typename std::remove_cvref_t<decltype(other)>::period>,
-                  "Implicit period conversion not allowed for "
-                  "addition/subtraction. Convert "
-                  "explicitly or ensure same period.");
     val_ += other.val_;
     return *this;
   }
   /**
-   * @brief Subtracts another value with the same tag and period.
+   * @brief Subtracts another value with the same dimension and period.
    * @param other Unit value to subtract.
    * @return This unit after the subtraction.
-   * @pre `other` has the same tag and period as this unit.
    */
   constexpr Unit& operator-=(const Unit& other) {
-    static_assert(std::is_same_v<tag, typename std::remove_cvref_t<decltype(other)>::tag>,
-                  "Cannot subtract units of different types.");
-    static_assert(std::is_same_v<period, typename std::remove_cvref_t<decltype(other)>::period>,
-                  "Implicit period conversion not allowed for "
-                  "addition/subtraction. Convert "
-                  "explicitly or ensure same period.");
     val_ -= other.val_;
     return *this;
   }
@@ -238,8 +416,8 @@ class Unit {
 template <typename T>
 struct IsUnit : std::false_type {};
 
-template <typename Rep, typename Period, typename Tag>
-struct IsUnit<Unit<Rep, Period, Tag>> : std::true_type {};
+template <typename Rep, typename Period, typename Dim>
+struct IsUnit<Unit<Rep, Period, Dim>> : std::true_type {};
 
 /**
  * @brief Constrains a type to a UNIMOC unit specialization.
@@ -250,693 +428,156 @@ concept UnitLike = IsUnit<T>::value;
 
 // SI unit types (base type float, period std::ratio<1> for base SI units)
 /// Angle in radians (rad).
-using Angle = Unit<float, std::ratio<1>, AngleTag>;
+using Angle = Unit<float, std::ratio<1>, dim::Angle>;
 /// Angular velocity in radians per second (rad/s).
-using AngularVelocity = Unit<float, std::ratio<1>, AngularVelocityTag>;
-/// Torque in Newton-metres (N m).
-using Torque = Unit<float, std::ratio<1>, TorqueTag>;
+using AngularVelocity = Unit<float, std::ratio<1>, dim::AngularVelocity>;
+/// Torque in Newton-metres per radian (N m/rad).
+using Torque = Unit<float, std::ratio<1>, dim::Torque>;
 /// Angular acceleration in radians per second squared (rad/s^2).
-using AngularAcceleration = Unit<float, std::ratio<1>, AngularAccelerationTag>;
+using AngularAcceleration = Unit<float, std::ratio<1>, dim::AngularAcceleration>;
 /// Electric current in amperes (A).
-using Current = Unit<float, std::ratio<1>, CurrentTag>;
+using Current = Unit<float, std::ratio<1>, dim::Current>;
 /// Electric potential in volts (V).
-using Voltage = Unit<float, std::ratio<1>, VoltageTag>;
+using Voltage = Unit<float, std::ratio<1>, dim::Voltage>;
 /// Temperature in degrees Celsius.
-using Temperature = Unit<float, std::ratio<1>, TemperatureTag>;
+using Temperature = Unit<float, std::ratio<1>, dim::Temperature>;
 /// Power in watts (W).
-using Power = Unit<float, std::ratio<1>, PowerTag>;
+using Power = Unit<float, std::ratio<1>, dim::Power>;
 /// Magnetic flux in webers (Wb).
-using MagneticFlux = Unit<float, std::ratio<1>, MagneticFluxTag>;
+using MagneticFlux = Unit<float, std::ratio<1>, dim::MagneticFlux>;
 /// Resistance in ohms.
-using Resistance = Unit<float, std::ratio<1>, ResistanceTag>;
+using Resistance = Unit<float, std::ratio<1>, dim::Resistance>;
 /// Inductance in henrys (H).
-using Inductance = Unit<float, std::ratio<1>, InductanceTag>;
-/// Rotational inertia in kilogram square metres (kg m^2).
-using Inertia = Unit<float, std::ratio<1>, InertiaTag>;
+using Inductance = Unit<float, std::ratio<1>, dim::Inductance>;
+/// Rotational inertia in kilogram square metres per square radian (kg m^2/rad^2).
+using Inertia = Unit<float, std::ratio<1>, dim::Inertia>;
 
-// Helper units
+// Helper units. Aliases of the same dimension are the same type: Frequency,
+// InverseTime and AngularVelocityPerAngle are 1/s; Resistance,
+// VoltagePerCurrent and MagneticFluxPerCurrentTime are V/A;
+// CurrentPerMagneticFlux and CurrentPerVoltageTime are A/Wb.
 /// Time in seconds (s).
-using Time = Unit<float, std::ratio<1>, TimeTag>;
+using Time = Unit<float, std::ratio<1>, dim::Time>;
 /// Frequency in hertz (Hz).
-using Frequency = Unit<float, std::ratio<1>, FrequencyTag>;
+using Frequency = Unit<float, std::ratio<1>, dim::Frequency>;
 /// Inverse time in reciprocal seconds (1/s).
-using InverseTime = Unit<float, std::ratio<1>, InverseTimeTag>;
+using InverseTime = Unit<float, std::ratio<1>, dim::Frequency>;
 /// Dimensionless ratio, such as a sine or cosine result.
-using Ratio = Unit<float, std::ratio<1>, RatioTag>;
+using Ratio = Unit<float, std::ratio<1>, dim::Dimensionless>;
 /// Voltage per current gain [V/A].
-using VoltagePerCurrent = Unit<float, std::ratio<1>, VoltagePerCurrentTag>;
+using VoltagePerCurrent = Unit<float, std::ratio<1>, dim::Resistance>;
 /// Voltage per current per time gain [V/(A s)].
-using VoltagePerCurrentTime = Unit<float, std::ratio<1>, VoltagePerCurrentTimeTag>;
+using VoltagePerCurrentTime = Unit<float, std::ratio<1>, DimensionQuotient<dim::Resistance, dim::Time>>;
 /// Current per magnetic flux gain [A/Wb].
-using CurrentPerMagneticFlux = Unit<float, std::ratio<1>, CurrentPerMagneticFluxTag>;
+using CurrentPerMagneticFlux = Unit<float, std::ratio<1>, DimensionQuotient<dim::Current, dim::MagneticFlux>>;
 /// Current per magnetic flux per time gain [A/(Wb s)].
-using CurrentPerMagneticFluxTime = Unit<float, std::ratio<1>, CurrentPerMagneticFluxTimeTag>;
+using CurrentPerMagneticFluxTime =
+    Unit<float,
+         std::ratio<1>,
+         DimensionQuotient<DimensionQuotient<dim::Current, dim::MagneticFlux>, dim::Time>>;
 /// Current rate [A/s].
-using CurrentPerTime = Unit<float, std::ratio<1>, CurrentPerTimeTag>;
+using CurrentPerTime = Unit<float, std::ratio<1>, DimensionQuotient<dim::Current, dim::Time>>;
 /// Current per voltage per time gain [A/(V s)].
-using CurrentPerVoltageTime = Unit<float, std::ratio<1>, CurrentPerVoltageTimeTag>;
+using CurrentPerVoltageTime = Unit<float, std::ratio<1>, DimensionQuotient<dim::Current, dim::MagneticFlux>>;
 /// Angle per current gain [rad/A].
-using AnglePerCurrent = Unit<float, std::ratio<1>, AnglePerCurrentTag>;
-/// Angular velocity per angle gain [(rad/s)/rad].
-using AngularVelocityPerAngle = Unit<float, std::ratio<1>, AngularVelocityPerAngleTag>;
-/// Magnetic flux per current per time observer gain [Wb/(A s)].
-using MagneticFluxPerCurrentTime = Unit<float, std::ratio<1>, MagneticFluxPerCurrentTimeTag>;
-/// Viscous rotational damping, torque per angular velocity [N m s/rad].
-using TorquePerAngularVelocity = Unit<float, std::ratio<1>, TorquePerAngularVelocityTag>;
+using AnglePerCurrent = Unit<float, std::ratio<1>, DimensionQuotient<dim::Angle, dim::Current>>;
+/// Angular velocity per angle gain [(rad/s)/rad = 1/s].
+using AngularVelocityPerAngle = Unit<float, std::ratio<1>, dim::Frequency>;
+/// Magnetic flux per current per time observer gain [Wb/(A s) = V/A].
+using MagneticFluxPerCurrentTime = Unit<float, std::ratio<1>, dim::Resistance>;
+/// Viscous rotational damping, torque per angular velocity [N m s/rad^2].
+using TorquePerAngularVelocity =
+    Unit<float, std::ratio<1>, DimensionQuotient<dim::Torque, dim::AngularVelocity>>;
 
 // --- Operators for units ---
 
 /**
- * @brief Adds two unit values with the same tag and period.
+ * @brief Adds two unit values with the same dimension and period.
  * @return The sum with the same unit type as the operands.
  */
-template <typename Rep, typename Period, typename Tag>
-constexpr Unit<Rep, Period, Tag> operator+(const Unit<Rep, Period, Tag>& lhs,
-                                           const Unit<Rep, Period, Tag>& rhs) {
-  return Unit<Rep, Period, Tag>(lhs.Value() + rhs.Value());
+template <typename Rep, typename Period, typename Dim>
+constexpr Unit<Rep, Period, Dim> operator+(const Unit<Rep, Period, Dim>& lhs,
+                                           const Unit<Rep, Period, Dim>& rhs) {
+  return Unit<Rep, Period, Dim>(lhs.Value() + rhs.Value());
 }
 
 /**
- * @brief Subtracts two unit values with the same tag and period.
+ * @brief Subtracts two unit values with the same dimension and period.
  * @return The difference with the same unit type as the operands.
  */
-template <typename Rep, typename Period, typename Tag>
-constexpr Unit<Rep, Period, Tag> operator-(const Unit<Rep, Period, Tag>& lhs,
-                                           const Unit<Rep, Period, Tag>& rhs) {
-  return Unit<Rep, Period, Tag>(lhs.Value() - rhs.Value());
+template <typename Rep, typename Period, typename Dim>
+constexpr Unit<Rep, Period, Dim> operator-(const Unit<Rep, Period, Dim>& lhs,
+                                           const Unit<Rep, Period, Dim>& rhs) {
+  return Unit<Rep, Period, Dim>(lhs.Value() - rhs.Value());
 }
 
 /**
  * @brief Multiplies a unit value by a scalar.
- * @return A unit with the same tag and period as `lhs`.
+ * @return A unit with the same dimension and period as `lhs`.
  */
-template <typename Rep, typename Period, typename Tag>
-constexpr Unit<Rep, Period, Tag> operator*(const Unit<Rep, Period, Tag>& lhs, const Rep& scalar) {
-  return Unit<Rep, Period, Tag>(lhs.Value() * scalar);
+template <typename Rep, typename Period, typename Dim>
+constexpr Unit<Rep, Period, Dim> operator*(const Unit<Rep, Period, Dim>& lhs, const Rep& scalar) {
+  return Unit<Rep, Period, Dim>(lhs.Value() * scalar);
 }
 
 /**
  * @brief Multiplies a scalar by a unit value.
- * @return A unit with the same tag and period as `rhs`.
+ * @return A unit with the same dimension and period as `rhs`.
  */
-template <typename Rep, typename Period, typename Tag>
-constexpr Unit<Rep, Period, Tag> operator*(const Rep& scalar, const Unit<Rep, Period, Tag>& rhs) {
-  return Unit<Rep, Period, Tag>(scalar * rhs.Value());
+template <typename Rep, typename Period, typename Dim>
+constexpr Unit<Rep, Period, Dim> operator*(const Rep& scalar, const Unit<Rep, Period, Dim>& rhs) {
+  return Unit<Rep, Period, Dim>(scalar * rhs.Value());
 }
 
 /**
  * @brief Divides a unit value by a scalar.
- * @return A unit with the same tag and period as `lhs`.
+ * @return A unit with the same dimension and period as `lhs`.
  */
-template <typename Rep, typename Period, typename Tag>
-constexpr Unit<Rep, Period, Tag> operator/(const Unit<Rep, Period, Tag>& lhs, const Rep& scalar) {
-  return Unit<Rep, Period, Tag>(lhs.Value() / scalar);
+template <typename Rep, typename Period, typename Dim>
+constexpr Unit<Rep, Period, Dim> operator/(const Unit<Rep, Period, Dim>& lhs, const Rep& scalar) {
+  return Unit<Rep, Period, Dim>(lhs.Value() / scalar);
 }
 
 /**
- * @brief Divides two unit values with the same tag.
- * @return The dimensionless quotient with the quotient period.
+ * @brief Divides a scalar by a unit value, e.g. 1 / Time to obtain a frequency.
+ * @return A unit with the inverse dimension and the reciprocal period.
  */
-template <typename Rep, typename P1, typename P2, typename Tag>
-constexpr auto operator/(const Unit<Rep, P1, Tag>& lhs, const Unit<Rep, P2, Tag>& rhs) {
-  return Unit<Rep, std::ratio_divide<P1, P2>, RatioTag>(lhs.Value() / rhs.Value());
+template <typename Rep, typename Period, typename Dim>
+constexpr auto operator/(const Rep& scalar, const Unit<Rep, Period, Dim>& rhs) {
+  return Unit<Rep, std::ratio_divide<std::ratio<1>, Period>, DimensionQuotient<dim::Dimensionless, Dim>>(
+      scalar / rhs.Value());
 }
 
 /**
- * @brief Multiplies a unit by a dimensionless ratio.
- * @return A unit with the original tag and period.
+ * @brief Multiplies two unit values.
+ * @return A unit with the product dimension (ProductDimension) and the product period.
  */
-template <typename Rep, typename P, typename Tag>
-constexpr auto operator*(const Unit<Rep, P, Tag>& unit, const Ratio& ratio) {
-  return Unit<Rep, P, Tag>(unit.Value() * ratio.Value());
+template <typename Rep, typename P1, typename D1, typename P2, typename D2>
+constexpr auto operator*(const Unit<Rep, P1, D1>& lhs, const Unit<Rep, P2, D2>& rhs) {
+  return Unit<Rep, std::ratio_multiply<P1, P2>, typename ProductDimension<D1, D2>::type>(lhs.Value() *
+                                                                                         rhs.Value());
 }
 
 /**
- * @brief Multiplies a dimensionless ratio by a unit.
- * @return A unit with the original unit's tag and period.
+ * @brief Divides two unit values.
+ * @return A unit with the quotient dimension (QuotientDimension) and the quotient period; a
+ * dimensionless ratio for operands of the same dimension.
  */
-template <typename Rep, typename P, typename Tag>
-constexpr auto operator*(const Ratio& ratio, const Unit<Rep, P, Tag>& unit) {
-  return unit * ratio;  // Commutative
-}
-
-/**
- * @brief Divides a unit by a dimensionless ratio.
- * @return A unit with the original tag and period.
- */
-template <typename Rep, typename P, typename Tag>
-constexpr auto operator/(const Unit<Rep, P, Tag>& unit, const Ratio& ratio) {
-  return Unit<Rep, P, Tag>(unit.Value() / ratio.Value());
-}
-
-/**
- * @brief Divides an angle by time to obtain angular velocity.
- * @return Angular velocity with the quotient period.
- */
-template <typename Rep, typename P1, typename P2>
-constexpr auto operator/(const Unit<Rep, P1, AngleTag>& angle, const Unit<Rep, P2, TimeTag>& time) {
-  return Unit<Rep, std::ratio_divide<P1, P2>, AngularVelocityTag>(angle.Value() / time.Value());
-}
-
-/**
- * @brief Multiplies angular velocity by time to obtain an angle.
- * @return Angle with the product period.
- */
-template <typename Rep, typename P1, typename P2>
-constexpr auto operator*(const Unit<Rep, P1, AngularVelocityTag>& ang_vel,
-                         const Unit<Rep, P2, TimeTag>& time) {
-  return Unit<Rep, std::ratio_multiply<P1, P2>, AngleTag>(ang_vel.Value() * time.Value());
-}
-
-/**
- * @brief Multiplies time by angular velocity to obtain an angle.
- * @return Angle with the product period.
- */
-template <typename Rep, typename P1, typename P2>
-constexpr auto operator*(const Unit<Rep, P1, TimeTag>& time,
-                         const Unit<Rep, P2, AngularVelocityTag>& ang_vel) {
-  return ang_vel * time;
-}
-
-/**
- * @brief Divides an angle by angular velocity to obtain time.
- * @return Time with the quotient period.
- */
-template <typename Rep, typename P1, typename P2>
-constexpr auto operator/(const Unit<Rep, P1, AngleTag>& angle,
-                         const Unit<Rep, P2, AngularVelocityTag>& ang_vel) {
-  return Unit<Rep, std::ratio_divide<P1, P2>, TimeTag>(angle.Value() / ang_vel.Value());
-}
-
-/**
- * @brief Divides angular velocity by time to obtain angular acceleration.
- * @return Angular acceleration with the quotient period.
- */
-template <typename Rep, typename P1, typename P2>
-constexpr auto operator/(const Unit<Rep, P1, AngularVelocityTag>& ang_vel,
-                         const Unit<Rep, P2, TimeTag>& time) {
-  return Unit<Rep, std::ratio_divide<P1, P2>, AngularAccelerationTag>(ang_vel.Value() / time.Value());
-}
-
-/**
- * @brief Multiplies angular acceleration by time to obtain angular velocity.
- * @return Angular velocity with the product period.
- */
-template <typename Rep, typename P1, typename P2>
-constexpr auto operator*(const Unit<Rep, P1, AngularAccelerationTag>& ang_accel,
-                         const Unit<Rep, P2, TimeTag>& time) {
-  return Unit<Rep, std::ratio_multiply<P1, P2>, AngularVelocityTag>(ang_accel.Value() * time.Value());
-}
-
-/**
- * @brief Multiplies time by angular acceleration to obtain angular velocity.
- * @return Angular velocity with the product period.
- */
-template <typename Rep, typename P1, typename P2>
-constexpr auto operator*(const Unit<Rep, P1, TimeTag>& time,
-                         const Unit<Rep, P2, AngularAccelerationTag>& ang_accel) {
-  return ang_accel * time;
-}
-
-/**
- * @brief Divides angular velocity by angular acceleration to obtain time.
- * @return Time with the quotient period.
- */
-template <typename Rep, typename P1, typename P2>
-constexpr auto operator/(const Unit<Rep, P1, AngularVelocityTag>& ang_vel,
-                         const Unit<Rep, P2, AngularAccelerationTag>& ang_accel) {
-  return Unit<Rep, std::ratio_divide<P1, P2>, TimeTag>(ang_vel.Value() / ang_accel.Value());
-}
-
-/**
- * @brief Multiplies voltage by current to obtain power.
- * @return Power with the product period.
- */
-template <typename Rep, typename P1, typename P2>
-constexpr auto operator*(const Unit<Rep, P1, VoltageTag>& voltage, const Unit<Rep, P2, CurrentTag>& current) {
-  return Unit<Rep, std::ratio_multiply<P1, P2>, PowerTag>(voltage.Value() * current.Value());
-}
-
-/**
- * @brief Multiplies current by voltage to obtain power.
- * @return Power with the product period.
- */
-template <typename Rep, typename P1, typename P2>
-constexpr auto operator*(const Unit<Rep, P1, CurrentTag>& current, const Unit<Rep, P2, VoltageTag>& voltage) {
-  return voltage * current;
-}
-
-/**
- * @brief Divides power by current to obtain voltage.
- * @return Voltage with the quotient period.
- */
-template <typename Rep, typename P1, typename P2>
-constexpr auto operator/(const Unit<Rep, P1, PowerTag>& power, const Unit<Rep, P2, CurrentTag>& current) {
-  return Unit<Rep, std::ratio_divide<P1, P2>, VoltageTag>(power.Value() / current.Value());
-}
-
-/**
- * @brief Divides power by voltage to obtain current.
- * @return Current with the quotient period.
- */
-template <typename Rep, typename P1, typename P2>
-constexpr auto operator/(const Unit<Rep, P1, PowerTag>& power, const Unit<Rep, P2, VoltageTag>& voltage) {
-  return Unit<Rep, std::ratio_divide<P1, P2>, CurrentTag>(power.Value() / voltage.Value());
-}
-
-/**
- * @brief Divides magnetic flux by time to obtain voltage.
- * @return Voltage with the quotient period.
- */
-template <typename Rep, typename P1, typename P2>
-constexpr auto operator/(const Unit<Rep, P1, MagneticFluxTag>& flux, const Unit<Rep, P2, TimeTag>& time) {
-  return Unit<Rep, std::ratio_divide<P1, P2>, VoltageTag>(flux.Value() / time.Value());
-}
-
-/**
- * @brief Multiplies voltage by time to obtain magnetic flux.
- * @return Magnetic flux with the product period.
- */
-template <typename Rep, typename P1, typename P2>
-constexpr auto operator*(const Unit<Rep, P1, VoltageTag>& voltage, const Unit<Rep, P2, TimeTag>& time) {
-  return Unit<Rep, std::ratio_multiply<P1, P2>, MagneticFluxTag>(voltage.Value() * time.Value());
-}
-
-/**
- * @brief Multiplies time by voltage to obtain magnetic flux.
- * @return Magnetic flux with the product period.
- */
-template <typename Rep, typename P1, typename P2>
-constexpr auto operator*(const Unit<Rep, P1, TimeTag>& time, const Unit<Rep, P2, VoltageTag>& voltage) {
-  return voltage * time;
-}
-
-/**
- * @brief Multiplies inductance by current to obtain magnetic flux.
- * @return Magnetic flux with the product period.
- */
-template <typename Rep, typename P1, typename P2>
-constexpr auto operator*(const Unit<Rep, P1, InductanceTag>& inductance,
-                         const Unit<Rep, P2, CurrentTag>& current) {
-  return Unit<Rep, std::ratio_multiply<P1, P2>, MagneticFluxTag>(inductance.Value() * current.Value());
-}
-
-/**
- * @brief Multiplies current by inductance to obtain magnetic flux.
- * @return Magnetic flux with the product period.
- */
-template <typename Rep, typename P1, typename P2>
-constexpr auto operator*(const Unit<Rep, P1, CurrentTag>& current,
-                         const Unit<Rep, P2, InductanceTag>& inductance) {
-  return inductance * current;
-}
-
-/**
- * @brief Divides inductance by resistance to obtain time.
- * @return Time with the quotient period.
- */
-template <typename Rep, typename P1, typename P2>
-constexpr auto operator/(const Unit<Rep, P1, InductanceTag>& inductance,
-                         const Unit<Rep, P2, ResistanceTag>& resistance) {
-  return Unit<Rep, std::ratio_divide<P1, P2>, TimeTag>(inductance.Value() / resistance.Value());
-}
-
-/**
- * @brief Multiplies a current-per-flux gain by magnetic flux to obtain current.
- * @return Current with the product period.
- */
-template <typename Rep, typename P1, typename P2>
-constexpr auto operator*(const Unit<Rep, P1, CurrentPerMagneticFluxTag>& gain,
-                         const Unit<Rep, P2, MagneticFluxTag>& flux) {
-  return Unit<Rep, std::ratio_multiply<P1, P2>, CurrentTag>(gain.Value() * flux.Value());
-}
-
-/**
- * @brief Multiplies magnetic flux by a current-per-flux gain to obtain current.
- * @return Current with the product period.
- */
-template <typename Rep, typename P1, typename P2>
-constexpr auto operator*(const Unit<Rep, P1, MagneticFluxTag>& flux,
-                         const Unit<Rep, P2, CurrentPerMagneticFluxTag>& gain) {
-  return gain * flux;
-}
-
-/**
- * @brief Multiplies a current-per-flux-per-time gain by magnetic flux to obtain current rate.
- * @return Current rate with the product period.
- */
-template <typename Rep, typename P1, typename P2>
-constexpr auto operator*(const Unit<Rep, P1, CurrentPerMagneticFluxTimeTag>& gain,
-                         const Unit<Rep, P2, MagneticFluxTag>& flux) {
-  return Unit<Rep, std::ratio_multiply<P1, P2>, CurrentPerTimeTag>(gain.Value() * flux.Value());
-}
-
-/**
- * @brief Multiplies magnetic flux by a current-per-flux-per-time gain to obtain current rate.
- * @return Current rate with the product period.
- */
-template <typename Rep, typename P1, typename P2>
-constexpr auto operator*(const Unit<Rep, P1, MagneticFluxTag>& flux,
-                         const Unit<Rep, P2, CurrentPerMagneticFluxTimeTag>& gain) {
-  return gain * flux;
-}
-
-/**
- * @brief Multiplies current rate by time to obtain current.
- * @return Current with the product period.
- */
-template <typename Rep, typename P1, typename P2>
-constexpr auto operator*(const Unit<Rep, P1, CurrentPerTimeTag>& current_rate,
-                         const Unit<Rep, P2, TimeTag>& time) {
-  return Unit<Rep, std::ratio_multiply<P1, P2>, CurrentTag>(current_rate.Value() * time.Value());
-}
-
-/**
- * @brief Multiplies time by current rate to obtain current.
- * @return Current with the product period.
- */
-template <typename Rep, typename P1, typename P2>
-constexpr auto operator*(const Unit<Rep, P1, TimeTag>& time,
-                         const Unit<Rep, P2, CurrentPerTimeTag>& current_rate) {
-  return current_rate * time;
-}
-
-/**
- * @brief Divides magnetic flux by voltage to obtain time.
- * @return Time with the quotient period.
- */
-template <typename Rep, typename P1, typename P2>
-constexpr auto operator/(const Unit<Rep, P1, MagneticFluxTag>& flux,
-                         const Unit<Rep, P2, VoltageTag>& voltage) {
-  return Unit<Rep, std::ratio_divide<P1, P2>, TimeTag>(flux.Value() / voltage.Value());
-}
-
-/**
- * @brief Multiplies inverse time by magnetic flux to obtain voltage.
- * @return Voltage with the product period.
- */
-template <typename Rep, typename P1, typename P2>
-constexpr auto operator*(const Unit<Rep, P1, InverseTimeTag>& inverse_time,
-                         const Unit<Rep, P2, MagneticFluxTag>& flux) {
-  return Unit<Rep, std::ratio_multiply<P1, P2>, VoltageTag>(inverse_time.Value() * flux.Value());
-}
-
-/**
- * @brief Multiplies magnetic flux by inverse time to obtain voltage.
- * @return Voltage with the product period.
- */
-template <typename Rep, typename P1, typename P2>
-constexpr auto operator*(const Unit<Rep, P1, MagneticFluxTag>& flux,
-                         const Unit<Rep, P2, InverseTimeTag>& inverse_time) {
-  return inverse_time * flux;
-}
-
-/**
- * @brief Multiplies current by resistance to obtain voltage.
- * @return Voltage with the product period.
- */
-template <typename Rep, typename P1, typename P2>
-constexpr auto operator*(const Unit<Rep, P1, CurrentTag>& current,
-                         const Unit<Rep, P2, ResistanceTag>& resistance) {
-  return Unit<Rep, std::ratio_multiply<P1, P2>, VoltageTag>(current.Value() * resistance.Value());
-}
-
-/**
- * @brief Multiplies resistance by current to obtain voltage.
- * @return Voltage with the product period.
- */
-template <typename Rep, typename P1, typename P2>
-constexpr auto operator*(const Unit<Rep, P1, ResistanceTag>& resistance,
-                         const Unit<Rep, P2, CurrentTag>& current) {
-  return current * resistance;
-}
-
-/**
- * @brief Divides voltage by resistance to obtain current.
- * @return Current with the quotient period.
- */
-template <typename Rep, typename P1, typename P2>
-constexpr auto operator/(const Unit<Rep, P1, VoltageTag>& voltage,
-                         const Unit<Rep, P2, ResistanceTag>& resistance) {
-  return Unit<Rep, std::ratio_divide<P1, P2>, CurrentTag>(voltage.Value() / resistance.Value());
-}
-
-/**
- * @brief Divides voltage by current to obtain resistance.
- * @return Resistance with the quotient period.
- */
-template <typename Rep, typename P1, typename P2>
-constexpr auto operator/(const Unit<Rep, P1, VoltageTag>& voltage, const Unit<Rep, P2, CurrentTag>& current) {
-  return Unit<Rep, std::ratio_divide<P1, P2>, ResistanceTag>(voltage.Value() / current.Value());
-}
-
-/**
- * @brief Multiplies inductance by angular velocity to obtain voltage.
- * @return Voltage with the product period.
- */
-template <typename Rep, typename P1, typename P2>
-constexpr auto operator*(const Unit<Rep, P1, InductanceTag>& inductance,
-                         const Unit<Rep, P2, AngularVelocityTag>& ang_vel) {
-  return Unit<Rep, std::ratio_multiply<P1, P2>, VoltageTag>(inductance.Value() * ang_vel.Value());
-}
-
-/**
- * @brief Multiplies angular velocity by inductance to obtain voltage.
- * @return Voltage with the product period.
- */
-template <typename Rep, typename P1, typename P2>
-constexpr auto operator*(const Unit<Rep, P1, AngularVelocityTag>& ang_vel,
-                         const Unit<Rep, P2, InductanceTag>& inductance) {
-  return inductance * ang_vel;
-}
-
-/**
- * @brief Divides voltage by inductance to obtain current.
- * @return Current with the quotient period.
- */
-template <typename Rep, typename P1, typename P2>
-constexpr auto operator/(const Unit<Rep, P1, VoltageTag>& voltage,
-                         const Unit<Rep, P2, InductanceTag>& inductance) {
-  return Unit<Rep, std::ratio_divide<P1, P2>, CurrentTag>(voltage.Value() / inductance.Value());
-}
-
-/**
- * @brief Multiplies torque by angular velocity to obtain power.
- * @return Power with the product period.
- */
-template <typename Rep, typename P1, typename P2>
-constexpr auto operator*(const Unit<Rep, P1, TorqueTag>& torque,
-                         const Unit<Rep, P2, AngularVelocityTag>& ang_vel) {
-  return Unit<Rep, std::ratio_multiply<P1, P2>, PowerTag>(torque.Value() * ang_vel.Value());
-}
-
-/**
- * @brief Multiplies angular velocity by torque to obtain power.
- * @return Power with the product period.
- */
-template <typename Rep, typename P1, typename P2>
-constexpr auto operator*(const Unit<Rep, P1, AngularVelocityTag>& ang_vel,
-                         const Unit<Rep, P2, TorqueTag>& torque) {
-  return torque * ang_vel;
-}
-
-/**
- * @brief Divides power by angular velocity to obtain torque.
- * @return Torque with the quotient period.
- */
-template <typename Rep, typename P1, typename P2>
-constexpr auto operator/(const Unit<Rep, P1, PowerTag>& power,
-                         const Unit<Rep, P2, AngularVelocityTag>& ang_vel) {
-  return Unit<Rep, std::ratio_divide<P1, P2>, TorqueTag>(power.Value() / ang_vel.Value());
-}
-
-/**
- * @brief Divides power by torque to obtain angular velocity.
- * @return Angular velocity with the quotient period.
- */
-template <typename Rep, typename P1, typename P2>
-constexpr auto operator/(const Unit<Rep, P1, PowerTag>& power, const Unit<Rep, P2, TorqueTag>& torque) {
-  return Unit<Rep, std::ratio_divide<P1, P2>, AngularVelocityTag>(power.Value() / torque.Value());
-}
-
-/**
- * @brief Divides a scalar by time to obtain frequency.
- * @return Frequency with the reciprocal period.
- */
-template <typename Rep, typename Period>
-constexpr auto operator/(const Rep& scalar, const Unit<Rep, Period, TimeTag>& time) {
-  return Unit<Rep, std::ratio_divide<std::ratio<1>, Period>, FrequencyTag>(scalar / time.Value());
-}
-
-/**
- * @brief Divides a scalar by frequency to obtain time.
- * @return Time with the reciprocal period.
- */
-template <typename Rep, typename Period>
-constexpr auto operator/(const Rep& scalar, const Unit<Rep, Period, FrequencyTag>& freq) {
-  return Unit<Rep, std::ratio_divide<std::ratio<1>, Period>, TimeTag>(scalar / freq.Value());
-}
-
-/**
- * @brief Multiplies angle by frequency to obtain angular velocity.
- * @return Angular velocity with the product period.
- */
-template <typename Rep, typename P1, typename P2>
-constexpr auto operator*(const Unit<Rep, P1, AngleTag>& angle, const Unit<Rep, P2, FrequencyTag>& freq) {
-  return Unit<Rep, std::ratio_multiply<P1, P2>, AngularVelocityTag>(angle.Value() * freq.Value());
-}
-
-/**
- * @brief Multiplies frequency by angle to obtain angular velocity.
- * @return Angular velocity with the product period.
- */
-template <typename Rep, typename P1, typename P2>
-constexpr auto operator*(const Unit<Rep, P1, FrequencyTag>& freq, const Unit<Rep, P2, AngleTag>& angle) {
-  return angle * freq;
-}
-
-/**
- * @brief Multiplies angular velocity by magnetic flux to obtain voltage (back-EMF).
- * @return Voltage with the product period.
- */
-template <typename Rep, typename P1, typename P2>
-constexpr auto operator*(const Unit<Rep, P1, AngularVelocityTag>& ang_vel,
-                         const Unit<Rep, P2, MagneticFluxTag>& flux) {
-  return Unit<Rep, std::ratio_multiply<P1, P2>, VoltageTag>(ang_vel.Value() * flux.Value());
-}
-
-/**
- * @brief Multiplies magnetic flux by angular velocity to obtain voltage (back-EMF).
- * @return Voltage with the product period.
- */
-template <typename Rep, typename P1, typename P2>
-constexpr auto operator*(const Unit<Rep, P1, MagneticFluxTag>& flux,
-                         const Unit<Rep, P2, AngularVelocityTag>& ang_vel) {
-  return ang_vel * flux;
-}
-
-/**
- * @brief Divides magnetic flux by inductance to obtain current.
- * @return Current with the quotient period.
- */
-template <typename Rep, typename P1, typename P2>
-constexpr auto operator/(const Unit<Rep, P1, MagneticFluxTag>& flux,
-                         const Unit<Rep, P2, InductanceTag>& inductance) {
-  return Unit<Rep, std::ratio_divide<P1, P2>, CurrentTag>(flux.Value() / inductance.Value());
-}
-
-/**
- * @brief Multiplies resistance by time to obtain inductance.
- * @return Inductance with the product period.
- */
-template <typename Rep, typename P1, typename P2>
-constexpr auto operator*(const Unit<Rep, P1, ResistanceTag>& resistance, const Unit<Rep, P2, TimeTag>& time) {
-  return Unit<Rep, std::ratio_multiply<P1, P2>, InductanceTag>(resistance.Value() * time.Value());
-}
-
-/**
- * @brief Multiplies time by resistance to obtain inductance.
- * @return Inductance with the product period.
- */
-template <typename Rep, typename P1, typename P2>
-constexpr auto operator*(const Unit<Rep, P1, TimeTag>& time, const Unit<Rep, P2, ResistanceTag>& resistance) {
-  return resistance * time;
-}
-
-/**
- * @brief Multiplies magnetic flux by current to obtain torque.
- * @return Torque with the product period.
- *
- * @note The result is the torque of one flux/current pair. Machine torque
- * equations add the pole-pair count and the 3/2 factor of the
- * amplitude-invariant Clarke transform as scalars.
- */
-template <typename Rep, typename P1, typename P2>
-constexpr auto operator*(const Unit<Rep, P1, MagneticFluxTag>& flux,
-                         const Unit<Rep, P2, CurrentTag>& current) {
-  return Unit<Rep, std::ratio_multiply<P1, P2>, TorqueTag>(flux.Value() * current.Value());
-}
-
-/**
- * @brief Multiplies current by magnetic flux to obtain torque.
- * @return Torque with the product period.
- */
-template <typename Rep, typename P1, typename P2>
-constexpr auto operator*(const Unit<Rep, P1, CurrentTag>& current,
-                         const Unit<Rep, P2, MagneticFluxTag>& flux) {
-  return flux * current;
-}
-
-/**
- * @brief Divides torque by magnetic flux to obtain current.
- * @return Current with the quotient period.
- *
- * With a torque constant (N m/A, the same dimension as Wb) as the divisor this
- * is the current that produces the torque.
- */
-template <typename Rep, typename P1, typename P2>
-constexpr auto operator/(const Unit<Rep, P1, TorqueTag>& torque, const Unit<Rep, P2, MagneticFluxTag>& flux) {
-  return Unit<Rep, std::ratio_divide<P1, P2>, CurrentTag>(torque.Value() / flux.Value());
-}
-
-/**
- * @brief Divides torque by rotational inertia to obtain angular acceleration.
- * @return Angular acceleration with the quotient period.
- */
-template <typename Rep, typename P1, typename P2>
-constexpr auto operator/(const Unit<Rep, P1, TorqueTag>& torque, const Unit<Rep, P2, InertiaTag>& inertia) {
-  return Unit<Rep, std::ratio_divide<P1, P2>, AngularAccelerationTag>(torque.Value() / inertia.Value());
-}
-
-/**
- * @brief Multiplies rotational inertia by angular acceleration to obtain torque.
- * @return Torque with the product period.
- */
-template <typename Rep, typename P1, typename P2>
-constexpr auto operator*(const Unit<Rep, P1, InertiaTag>& inertia,
-                         const Unit<Rep, P2, AngularAccelerationTag>& ang_accel) {
-  return Unit<Rep, std::ratio_multiply<P1, P2>, TorqueTag>(inertia.Value() * ang_accel.Value());
-}
-
-/**
- * @brief Multiplies angular acceleration by rotational inertia to obtain torque.
- * @return Torque with the product period.
- */
-template <typename Rep, typename P1, typename P2>
-constexpr auto operator*(const Unit<Rep, P1, AngularAccelerationTag>& ang_accel,
-                         const Unit<Rep, P2, InertiaTag>& inertia) {
-  return inertia * ang_accel;
-}
-
-/**
- * @brief Multiplies viscous damping by angular velocity to obtain torque.
- * @return Torque with the product period.
- */
-template <typename Rep, typename P1, typename P2>
-constexpr auto operator*(const Unit<Rep, P1, TorquePerAngularVelocityTag>& damping,
-                         const Unit<Rep, P2, AngularVelocityTag>& ang_vel) {
-  return Unit<Rep, std::ratio_multiply<P1, P2>, TorqueTag>(damping.Value() * ang_vel.Value());
-}
-
-/**
- * @brief Multiplies angular velocity by viscous damping to obtain torque.
- * @return Torque with the product period.
- */
-template <typename Rep, typename P1, typename P2>
-constexpr auto operator*(const Unit<Rep, P1, AngularVelocityTag>& ang_vel,
-                         const Unit<Rep, P2, TorquePerAngularVelocityTag>& damping) {
-  return damping * ang_vel;
+template <typename Rep, typename P1, typename D1, typename P2, typename D2>
+constexpr auto operator/(const Unit<Rep, P1, D1>& lhs, const Unit<Rep, P2, D2>& rhs) {
+  return Unit<Rep, std::ratio_divide<P1, P2>, typename QuotientDimension<D1, D2>::type>(lhs.Value() /
+                                                                                        rhs.Value());
 }
 
 /**
  * @brief Compares two unit values for equality.
  * @return `true` when both values have the same numeric value.
  *
- * Both operands must have the same tag and period. Convert explicitly before
- * comparing values expressed in different periods.
+ * Both operands must have the same dimension and period. Convert explicitly
+ * before comparing values expressed in different periods.
  */
-template <typename Rep, typename Period, typename Tag>
-constexpr bool operator==(const Unit<Rep, Period, Tag>& lhs, const Unit<Rep, Period, Tag>& rhs) {
+template <typename Rep, typename Period, typename Dim>
+constexpr bool operator==(const Unit<Rep, Period, Dim>& lhs, const Unit<Rep, Period, Dim>& rhs) {
   return lhs.Value() == rhs.Value();
 }
 
@@ -944,8 +585,8 @@ constexpr bool operator==(const Unit<Rep, Period, Tag>& lhs, const Unit<Rep, Per
  * @brief Compares two unit values for inequality.
  * @return `true` when the numeric values differ.
  */
-template <typename Rep, typename Period, typename Tag>
-constexpr bool operator!=(const Unit<Rep, Period, Tag>& lhs, const Unit<Rep, Period, Tag>& rhs) {
+template <typename Rep, typename Period, typename Dim>
+constexpr bool operator!=(const Unit<Rep, Period, Dim>& lhs, const Unit<Rep, Period, Dim>& rhs) {
   return !(lhs == rhs);
 }
 
@@ -953,8 +594,8 @@ constexpr bool operator!=(const Unit<Rep, Period, Tag>& lhs, const Unit<Rep, Per
  * @brief Tests whether one unit value is less than another.
  * @return `true` when `lhs` has the smaller numeric value.
  */
-template <typename Rep, typename Period, typename Tag>
-constexpr bool operator<(const Unit<Rep, Period, Tag>& lhs, const Unit<Rep, Period, Tag>& rhs) {
+template <typename Rep, typename Period, typename Dim>
+constexpr bool operator<(const Unit<Rep, Period, Dim>& lhs, const Unit<Rep, Period, Dim>& rhs) {
   return lhs.Value() < rhs.Value();
 }
 
@@ -962,8 +603,8 @@ constexpr bool operator<(const Unit<Rep, Period, Tag>& lhs, const Unit<Rep, Peri
  * @brief Tests whether one unit value is less than or equal to another.
  * @return `true` when `lhs` is no greater than `rhs`.
  */
-template <typename Rep, typename Period, typename Tag>
-constexpr bool operator<=(const Unit<Rep, Period, Tag>& lhs, const Unit<Rep, Period, Tag>& rhs) {
+template <typename Rep, typename Period, typename Dim>
+constexpr bool operator<=(const Unit<Rep, Period, Dim>& lhs, const Unit<Rep, Period, Dim>& rhs) {
   return lhs.Value() <= rhs.Value();
 }
 
@@ -971,8 +612,8 @@ constexpr bool operator<=(const Unit<Rep, Period, Tag>& lhs, const Unit<Rep, Per
  * @brief Tests whether one unit value is greater than another.
  * @return `true` when `lhs` has the greater numeric value.
  */
-template <typename Rep, typename Period, typename Tag>
-constexpr bool operator>(const Unit<Rep, Period, Tag>& lhs, const Unit<Rep, Period, Tag>& rhs) {
+template <typename Rep, typename Period, typename Dim>
+constexpr bool operator>(const Unit<Rep, Period, Dim>& lhs, const Unit<Rep, Period, Dim>& rhs) {
   return lhs.Value() > rhs.Value();
 }
 
@@ -980,8 +621,8 @@ constexpr bool operator>(const Unit<Rep, Period, Tag>& lhs, const Unit<Rep, Peri
  * @brief Tests whether one unit value is greater than or equal to another.
  * @return `true` when `lhs` is no less than `rhs`.
  */
-template <typename Rep, typename Period, typename Tag>
-constexpr bool operator>=(const Unit<Rep, Period, Tag>& lhs, const Unit<Rep, Period, Tag>& rhs) {
+template <typename Rep, typename Period, typename Dim>
+constexpr bool operator>=(const Unit<Rep, Period, Dim>& lhs, const Unit<Rep, Period, Dim>& rhs) {
   return lhs.Value() >= rhs.Value();
 }
 
@@ -991,10 +632,10 @@ constexpr bool operator>=(const Unit<Rep, Period, Tag>& lhs, const Unit<Rep, Per
 
 /**
  * @brief Absolute value of a unit.
- * @return The magnitude with the same tag and period.
+ * @return The magnitude with the same dimension and period.
  */
-template <typename Rep, typename Period, typename Tag>
-[[nodiscard]] constexpr Unit<Rep, Period, Tag> Abs(const Unit<Rep, Period, Tag>& value) noexcept {
+template <typename Rep, typename Period, typename Dim>
+[[nodiscard]] constexpr Unit<Rep, Period, Dim> Abs(const Unit<Rep, Period, Dim>& value) noexcept {
   return (value.Value() < Rep{0}) ? -value : value;
 }
 
@@ -1002,9 +643,9 @@ template <typename Rep, typename Period, typename Tag>
  * @brief Smaller of two values of the same unit.
  * @return `lhs` when the values are equal.
  */
-template <typename Rep, typename Period, typename Tag>
-[[nodiscard]] constexpr Unit<Rep, Period, Tag> Min(const Unit<Rep, Period, Tag>& lhs,
-                                                   const Unit<Rep, Period, Tag>& rhs) noexcept {
+template <typename Rep, typename Period, typename Dim>
+[[nodiscard]] constexpr Unit<Rep, Period, Dim> Min(const Unit<Rep, Period, Dim>& lhs,
+                                                   const Unit<Rep, Period, Dim>& rhs) noexcept {
   return (rhs < lhs) ? rhs : lhs;
 }
 
@@ -1012,17 +653,17 @@ template <typename Rep, typename Period, typename Tag>
  * @brief Larger of two values of the same unit.
  * @return `lhs` when the values are equal.
  */
-template <typename Rep, typename Period, typename Tag>
-[[nodiscard]] constexpr Unit<Rep, Period, Tag> Max(const Unit<Rep, Period, Tag>& lhs,
-                                                   const Unit<Rep, Period, Tag>& rhs) noexcept {
+template <typename Rep, typename Period, typename Dim>
+[[nodiscard]] constexpr Unit<Rep, Period, Dim> Max(const Unit<Rep, Period, Dim>& lhs,
+                                                   const Unit<Rep, Period, Dim>& rhs) noexcept {
   return (lhs < rhs) ? rhs : lhs;
 }
 
 /**
  * @brief True when the value is neither infinite nor NaN.
  */
-template <typename Rep, typename Period, typename Tag>
-[[nodiscard]] constexpr bool IsFinite(const Unit<Rep, Period, Tag>& value) noexcept {
+template <typename Rep, typename Period, typename Dim>
+[[nodiscard]] constexpr bool IsFinite(const Unit<Rep, Period, Dim>& value) noexcept {
   return std::isfinite(value.Value());
 }
 
@@ -1034,11 +675,27 @@ template <typename Rep, typename Period, typename Tag>
  * -fno-math-errno), so usable in the hot path; no overflow protection beyond
  * float range.
  */
-template <typename Rep, typename Period, typename Tag>
-[[nodiscard]] Unit<Rep, Period, Tag> Hypot(const Unit<Rep, Period, Tag>& first,
-                                           const Unit<Rep, Period, Tag>& second) noexcept {
-  return Unit<Rep, Period, Tag>(
+template <typename Rep, typename Period, typename Dim>
+[[nodiscard]] Unit<Rep, Period, Dim> Hypot(const Unit<Rep, Period, Dim>& first,
+                                           const Unit<Rep, Period, Dim>& second) noexcept {
+  return Unit<Rep, Period, Dim>(
       std::sqrt((first.Value() * first.Value()) + (second.Value() * second.Value())));
+}
+
+/**
+ * @brief Square root of a squared quantity, e.g. the current of a squared current.
+ * @return The root in the base period with the halved dimension exponents.
+ *
+ * Does not compile for a quantity with an odd dimension exponent. The value is
+ * converted to the base period first, so the period of the result is
+ * std::ratio<1>. A plain square root (`vsqrt.f32` on the Cortex-M4 with
+ * -fno-math-errno), so usable in the hot path.
+ */
+template <typename Rep, typename Period, typename Dim>
+[[nodiscard]] Unit<Rep, std::ratio<1>, typename DimensionRoot<Dim>::type> Sqrt(
+    const Unit<Rep, Period, Dim>& value) noexcept {
+  const Unit<Rep, std::ratio<1>, Dim> kBase = value;
+  return Unit<Rep, std::ratio<1>, typename DimensionRoot<Dim>::type>(std::sqrt(kBase.Value()));
 }
 
 /**
@@ -1085,8 +742,8 @@ constexpr Time operator""_s(long double val) { return Time(static_cast<float>(va
  * @param val Literal value in milliseconds.
  * @return Time with a millisecond period.
  */
-constexpr Unit<float, std::milli, TimeTag> operator""_ms(long double val) {
-  return Unit<float, std::milli, TimeTag>(static_cast<float>(val));
+constexpr Unit<float, std::milli, dim::Time> operator""_ms(long double val) {
+  return Unit<float, std::milli, dim::Time>(static_cast<float>(val));
 }
 
 /**
@@ -1101,8 +758,8 @@ constexpr Time operator""_s(unsigned long long val) { return Time(static_cast<fl
  * @param val Literal value in milliseconds.
  * @return Time with a millisecond period.
  */
-constexpr Unit<float, std::milli, TimeTag> operator""_ms(unsigned long long val) {
-  return Unit<float, std::milli, TimeTag>(static_cast<float>(val));
+constexpr Unit<float, std::milli, dim::Time> operator""_ms(unsigned long long val) {
+  return Unit<float, std::milli, dim::Time>(static_cast<float>(val));
 }
 
 /**
@@ -1117,8 +774,8 @@ constexpr Current operator""_A(long double val) { return Current(static_cast<flo
  * @param val Literal value in milliamperes.
  * @return Current with a milliampere period.
  */
-constexpr Unit<float, std::milli, CurrentTag> operator""_mA(long double val) {
-  return Unit<float, std::milli, CurrentTag>(static_cast<float>(val));
+constexpr Unit<float, std::milli, dim::Current> operator""_mA(long double val) {
+  return Unit<float, std::milli, dim::Current>(static_cast<float>(val));
 }
 
 /**
@@ -1133,8 +790,8 @@ constexpr Current operator""_A(unsigned long long val) { return Current(static_c
  * @param val Literal value in milliamperes.
  * @return Current with a milliampere period.
  */
-constexpr Unit<float, std::milli, CurrentTag> operator""_mA(unsigned long long val) {
-  return Unit<float, std::milli, CurrentTag>(static_cast<float>(val));
+constexpr Unit<float, std::milli, dim::Current> operator""_mA(unsigned long long val) {
+  return Unit<float, std::milli, dim::Current>(static_cast<float>(val));
 }
 
 /**
@@ -1149,8 +806,8 @@ constexpr Voltage operator""_V(long double val) { return Voltage(static_cast<flo
  * @param val Literal value in millivolts.
  * @return Voltage with a millivolt period.
  */
-constexpr Unit<float, std::milli, VoltageTag> operator""_mV(long double val) {
-  return Unit<float, std::milli, VoltageTag>(static_cast<float>(val));
+constexpr Unit<float, std::milli, dim::Voltage> operator""_mV(long double val) {
+  return Unit<float, std::milli, dim::Voltage>(static_cast<float>(val));
 }
 
 /**
@@ -1158,8 +815,8 @@ constexpr Unit<float, std::milli, VoltageTag> operator""_mV(long double val) {
  * @param val Literal value in kilovolts.
  * @return Voltage with a kilovolt period.
  */
-constexpr Unit<float, std::kilo, VoltageTag> operator""_kV(long double val) {
-  return Unit<float, std::kilo, VoltageTag>(static_cast<float>(val));
+constexpr Unit<float, std::kilo, dim::Voltage> operator""_kV(long double val) {
+  return Unit<float, std::kilo, dim::Voltage>(static_cast<float>(val));
 }
 
 /**
@@ -1174,8 +831,8 @@ constexpr Voltage operator""_V(unsigned long long val) { return Voltage(static_c
  * @param val Literal value in millivolts.
  * @return Voltage with a millivolt period.
  */
-constexpr Unit<float, std::milli, VoltageTag> operator""_mV(unsigned long long val) {
-  return Unit<float, std::milli, VoltageTag>(static_cast<float>(val));
+constexpr Unit<float, std::milli, dim::Voltage> operator""_mV(unsigned long long val) {
+  return Unit<float, std::milli, dim::Voltage>(static_cast<float>(val));
 }
 
 /**
@@ -1183,8 +840,8 @@ constexpr Unit<float, std::milli, VoltageTag> operator""_mV(unsigned long long v
  * @param val Literal value in kilovolts.
  * @return Voltage with a kilovolt period.
  */
-constexpr Unit<float, std::kilo, VoltageTag> operator""_kV(unsigned long long val) {
-  return Unit<float, std::kilo, VoltageTag>(static_cast<float>(val));
+constexpr Unit<float, std::kilo, dim::Voltage> operator""_kV(unsigned long long val) {
+  return Unit<float, std::kilo, dim::Voltage>(static_cast<float>(val));
 }
 
 /**
@@ -1199,8 +856,8 @@ constexpr Frequency operator""_Hz(long double val) { return Frequency(static_cas
  * @param val Literal value in kilohertz.
  * @return Frequency with a kilohertz period.
  */
-constexpr Unit<float, std::kilo, FrequencyTag> operator""_kHz(long double val) {
-  return Unit<float, std::kilo, FrequencyTag>(static_cast<float>(val));
+constexpr Unit<float, std::kilo, dim::Frequency> operator""_kHz(long double val) {
+  return Unit<float, std::kilo, dim::Frequency>(static_cast<float>(val));
 }
 
 /**
@@ -1215,8 +872,8 @@ constexpr Frequency operator""_Hz(unsigned long long val) { return Frequency(sta
  * @param val Literal value in kilohertz.
  * @return Frequency with a kilohertz period.
  */
-constexpr Unit<float, std::kilo, FrequencyTag> operator""_kHz(unsigned long long val) {
-  return Unit<float, std::kilo, FrequencyTag>(static_cast<float>(val));
+constexpr Unit<float, std::kilo, dim::Frequency> operator""_kHz(unsigned long long val) {
+  return Unit<float, std::kilo, dim::Frequency>(static_cast<float>(val));
 }
 
 /**
@@ -1245,8 +902,8 @@ constexpr Power operator""_W(long double val) { return Power(static_cast<float>(
  * @param val Literal value in kilowatts.
  * @return Power with a kilowatt period.
  */
-constexpr Unit<float, std::kilo, PowerTag> operator""_kW(long double val) {
-  return Unit<float, std::kilo, PowerTag>(static_cast<float>(val));
+constexpr Unit<float, std::kilo, dim::Power> operator""_kW(long double val) {
+  return Unit<float, std::kilo, dim::Power>(static_cast<float>(val));
 }
 
 /**
@@ -1261,8 +918,8 @@ constexpr Power operator""_W(unsigned long long val) { return Power(static_cast<
  * @param val Literal value in kilowatts.
  * @return Power with a kilowatt period.
  */
-constexpr Unit<float, std::kilo, PowerTag> operator""_kW(unsigned long long val) {
-  return Unit<float, std::kilo, PowerTag>(static_cast<float>(val));
+constexpr Unit<float, std::kilo, dim::Power> operator""_kW(unsigned long long val) {
+  return Unit<float, std::kilo, dim::Power>(static_cast<float>(val));
 }
 
 /**
@@ -1277,8 +934,8 @@ constexpr MagneticFlux operator""_Wb(long double val) { return MagneticFlux(stat
  * @param val Literal value in milliwebers.
  * @return Magnetic flux with a milliweber period.
  */
-constexpr Unit<float, std::milli, MagneticFluxTag> operator""_mWb(long double val) {
-  return Unit<float, std::milli, MagneticFluxTag>(static_cast<float>(val));
+constexpr Unit<float, std::milli, dim::MagneticFlux> operator""_mWb(long double val) {
+  return Unit<float, std::milli, dim::MagneticFlux>(static_cast<float>(val));
 }
 
 /**
@@ -1293,8 +950,8 @@ constexpr MagneticFlux operator""_Wb(unsigned long long val) { return MagneticFl
  * @param val Literal value in milliwebers.
  * @return Magnetic flux with a milliweber period.
  */
-constexpr Unit<float, std::milli, MagneticFluxTag> operator""_mWb(unsigned long long val) {
-  return Unit<float, std::milli, MagneticFluxTag>(static_cast<float>(val));
+constexpr Unit<float, std::milli, dim::MagneticFlux> operator""_mWb(unsigned long long val) {
+  return Unit<float, std::milli, dim::MagneticFlux>(static_cast<float>(val));
 }
 
 /**
@@ -1302,12 +959,12 @@ constexpr Unit<float, std::milli, MagneticFluxTag> operator""_mWb(unsigned long 
  * @param val Literal value in microwebers.
  * @return Magnetic flux with a microweber period.
  */
-constexpr Unit<float, std::micro, MagneticFluxTag> operator""_uWb(long double val) {
-  return Unit<float, std::micro, MagneticFluxTag>(static_cast<float>(val));
+constexpr Unit<float, std::micro, dim::MagneticFlux> operator""_uWb(long double val) {
+  return Unit<float, std::micro, dim::MagneticFlux>(static_cast<float>(val));
 }
 
-constexpr Unit<float, std::micro, MagneticFluxTag> operator""_uWb(unsigned long long val) {
-  return Unit<float, std::micro, MagneticFluxTag>(static_cast<float>(val));
+constexpr Unit<float, std::micro, dim::MagneticFlux> operator""_uWb(unsigned long long val) {
+  return Unit<float, std::micro, dim::MagneticFlux>(static_cast<float>(val));
 }
 
 /**
@@ -1322,8 +979,8 @@ constexpr Resistance operator""_Ohm(long double val) { return Resistance(static_
  * @param val Literal value in kilo-ohms.
  * @return Resistance with a kilo-ohm period.
  */
-constexpr Unit<float, std::kilo, ResistanceTag> operator""_kOhm(long double val) {
-  return Unit<float, std::kilo, ResistanceTag>(static_cast<float>(val));
+constexpr Unit<float, std::kilo, dim::Resistance> operator""_kOhm(long double val) {
+  return Unit<float, std::kilo, dim::Resistance>(static_cast<float>(val));
 }
 
 /**
@@ -1338,8 +995,8 @@ constexpr Resistance operator""_Ohm(unsigned long long val) { return Resistance(
  * @param val Literal value in kilo-ohms.
  * @return Resistance with a kilo-ohm period.
  */
-constexpr Unit<float, std::kilo, ResistanceTag> operator""_kOhm(unsigned long long val) {
-  return Unit<float, std::kilo, ResistanceTag>(static_cast<float>(val));
+constexpr Unit<float, std::kilo, dim::Resistance> operator""_kOhm(unsigned long long val) {
+  return Unit<float, std::kilo, dim::Resistance>(static_cast<float>(val));
 }
 
 /**
@@ -1354,8 +1011,8 @@ constexpr Inductance operator""_H(long double val) { return Inductance(static_ca
  * @param val Literal value in millihenrys.
  * @return Inductance with a millihenry period.
  */
-constexpr Unit<float, std::milli, InductanceTag> operator""_mH(long double val) {
-  return Unit<float, std::milli, InductanceTag>(static_cast<float>(val));
+constexpr Unit<float, std::milli, dim::Inductance> operator""_mH(long double val) {
+  return Unit<float, std::milli, dim::Inductance>(static_cast<float>(val));
 }
 
 /**
@@ -1370,8 +1027,8 @@ constexpr Inductance operator""_H(unsigned long long val) { return Inductance(st
  * @param val Literal value in millihenrys.
  * @return Inductance with a millihenry period.
  */
-constexpr Unit<float, std::milli, InductanceTag> operator""_mH(unsigned long long val) {
-  return Unit<float, std::milli, InductanceTag>(static_cast<float>(val));
+constexpr Unit<float, std::milli, dim::Inductance> operator""_mH(unsigned long long val) {
+  return Unit<float, std::milli, dim::Inductance>(static_cast<float>(val));
 }
 
 /**
@@ -1379,12 +1036,12 @@ constexpr Unit<float, std::milli, InductanceTag> operator""_mH(unsigned long lon
  * @param val Literal value in microseconds.
  * @return Time with a microsecond period.
  */
-constexpr Unit<float, std::micro, TimeTag> operator""_us(long double val) {
-  return Unit<float, std::micro, TimeTag>(static_cast<float>(val));
+constexpr Unit<float, std::micro, dim::Time> operator""_us(long double val) {
+  return Unit<float, std::micro, dim::Time>(static_cast<float>(val));
 }
 
-constexpr Unit<float, std::micro, TimeTag> operator""_us(unsigned long long val) {
-  return Unit<float, std::micro, TimeTag>(static_cast<float>(val));
+constexpr Unit<float, std::micro, dim::Time> operator""_us(unsigned long long val) {
+  return Unit<float, std::micro, dim::Time>(static_cast<float>(val));
 }
 
 /**
@@ -1567,162 +1224,121 @@ constexpr Temperature operator""_degC(long double val) { return Temperature(stat
 constexpr Temperature operator""_degC(unsigned long long val) { return Temperature(static_cast<float>(val)); }
 
 /**
- * @brief Tests whether a type carries the angle tag.
- * @tparam T Unit type whose `tag` member is inspected.
+ * @brief Tests whether a unit type has the given dimension, in any period.
+ * @tparam T Unit type whose `dimension` member is inspected.
+ * @tparam Dim Dimension to compare with.
  */
-template <typename T>
-struct IsAngle : std::is_base_of<AngleTag, typename T::tag> {};
+template <typename T, typename Dim>
+struct HasDimension : std::is_same<typename T::dimension, Dim> {};
 
 /**
- * @brief Tests whether a type carries the angular-velocity tag.
- * @tparam T Unit type whose `tag` member is inspected.
+ * @brief Tests whether a type has the angle dimension.
+ * @tparam T Unit type whose `dimension` member is inspected.
  */
 template <typename T>
-struct IsAngularVelocity : std::is_base_of<AngularVelocityTag, typename T::tag> {};
+struct IsAngle : HasDimension<T, dim::Angle> {};
 
 /**
- * @brief Tests whether a type carries the torque tag.
- * @tparam T Unit type whose `tag` member is inspected.
+ * @brief Tests whether a type has the angular-velocity dimension.
+ * @tparam T Unit type whose `dimension` member is inspected.
  */
 template <typename T>
-struct IsTorque : std::is_base_of<TorqueTag, typename T::tag> {};
+struct IsAngularVelocity : HasDimension<T, dim::AngularVelocity> {};
 
 /**
- * @brief Tests whether a type carries the angular-acceleration tag.
- * @tparam T Unit type whose `tag` member is inspected.
+ * @brief Tests whether a type has the torque dimension.
+ * @tparam T Unit type whose `dimension` member is inspected.
  */
 template <typename T>
-struct IsAngularAcceleration : std::is_base_of<AngularAccelerationTag, typename T::tag> {};
+struct IsTorque : HasDimension<T, dim::Torque> {};
 
 /**
- * @brief Tests whether a type carries the current tag.
- * @tparam T Unit type whose `tag` member is inspected.
+ * @brief Tests whether a type has the angular-acceleration dimension.
+ * @tparam T Unit type whose `dimension` member is inspected.
  */
 template <typename T>
-struct IsCurrent : std::is_base_of<CurrentTag, typename T::tag> {};
+struct IsAngularAcceleration : HasDimension<T, dim::AngularAcceleration> {};
 
 /**
- * @brief Tests whether a type carries the voltage tag.
- * @tparam T Unit type whose `tag` member is inspected.
+ * @brief Tests whether a type has the current dimension.
+ * @tparam T Unit type whose `dimension` member is inspected.
  */
 template <typename T>
-struct IsVoltage : std::is_base_of<VoltageTag, typename T::tag> {};
+struct IsCurrent : HasDimension<T, dim::Current> {};
 
 /**
- * @brief Tests whether a type carries the power tag.
- * @tparam T Unit type whose `tag` member is inspected.
+ * @brief Tests whether a type has the voltage dimension.
+ * @tparam T Unit type whose `dimension` member is inspected.
  */
 template <typename T>
-struct IsPower : std::is_base_of<PowerTag, typename T::tag> {};
+struct IsVoltage : HasDimension<T, dim::Voltage> {};
 
 /**
- * @brief Tests whether a type carries the magnetic-flux tag.
- * @tparam T Unit type whose `tag` member is inspected.
+ * @brief Tests whether a type has the power dimension.
+ * @tparam T Unit type whose `dimension` member is inspected.
  */
 template <typename T>
-struct IsMagneticFlux : std::is_base_of<MagneticFluxTag, typename T::tag> {};
+struct IsPower : HasDimension<T, dim::Power> {};
 
 /**
- * @brief Tests whether a type carries the resistance tag.
- * @tparam T Unit type whose `tag` member is inspected.
+ * @brief Tests whether a type has the magnetic-flux dimension.
+ * @tparam T Unit type whose `dimension` member is inspected.
  */
 template <typename T>
-struct IsResistance : std::is_base_of<ResistanceTag, typename T::tag> {};
+struct IsMagneticFlux : HasDimension<T, dim::MagneticFlux> {};
 
 /**
- * @brief Tests whether a type carries the inductance tag.
- * @tparam T Unit type whose `tag` member is inspected.
+ * @brief Tests whether a type has the resistance dimension.
+ * @tparam T Unit type whose `dimension` member is inspected.
  */
 template <typename T>
-struct IsInductance : std::is_base_of<InductanceTag, typename T::tag> {};
+struct IsResistance : HasDimension<T, dim::Resistance> {};
 
 /**
- * @brief Tests whether a type carries the time tag.
- * @tparam T Unit type whose `tag` member is inspected.
+ * @brief Tests whether a type has the inductance dimension.
+ * @tparam T Unit type whose `dimension` member is inspected.
  */
 template <typename T>
-struct IsTime : std::is_base_of<TimeTag, typename T::tag> {};
+struct IsInductance : HasDimension<T, dim::Inductance> {};
 
 /**
- * @brief Tests whether a type carries the frequency tag.
- * @tparam T Unit type whose `tag` member is inspected.
+ * @brief Tests whether a type has the time dimension.
+ * @tparam T Unit type whose `dimension` member is inspected.
  */
 template <typename T>
-struct IsFrequency : std::is_base_of<FrequencyTag, typename T::tag> {};
+struct IsTime : HasDimension<T, dim::Time> {};
 
 /**
- * @brief Computes a common unit type for two units with the same tag.
+ * @brief Tests whether a type has the frequency dimension.
+ * @tparam T Unit type whose `dimension` member is inspected.
+ */
+template <typename T>
+struct IsFrequency : HasDimension<T, dim::Frequency> {};
+
+/**
+ * @brief Computes a common unit type for two units with the same dimension.
  * @tparam T1 First unit type.
- * @tparam T2 Second unit type with the same tag as T1.
+ * @tparam T2 Second unit type with the same dimension as T1.
  *
  * The resulting representation and period are the common types of the two
- * operands. The tag must match exactly.
+ * operands. The dimension must match exactly.
  */
 template <typename T1, typename T2>
 struct CommonUnitType {
-  static_assert(std::is_same_v<typename T1::tag, typename T2::tag>,
-                "Units must have the same tag to find common type.");
+  static_assert(std::is_same_v<typename T1::dimension, typename T2::dimension>,
+                "Units must have the same dimension to find common type.");
   /// Common unit type derived from the two input representations and periods.
   using type = Unit<std::common_type_t<typename T1::representation, typename T2::representation>,
                     std::common_type_t<typename T1::period, typename T2::period>,
-                    typename T1::tag>;
+                    typename T1::dimension>;
 };
 
 /**
- * @brief Shorthand for the common unit type of two same-tag units.
+ * @brief Shorthand for the common unit type of two same-dimension units.
  * @tparam T1 First unit type.
  * @tparam T2 Second unit type.
  */
 template <typename T1, typename T2>
 using common_unit_type_t = CommonUnitType<T1, T2>::type;
-
-/**
- * @brief Computes a common type for two units with different tags.
- * @tparam T1 First unit type.
- * @tparam T2 Second unit type.
- *
- * The result uses a base-unit period and `void` as its tag because the mixed
- * operands do not identify one physical quantity.
- */
-template <typename T1, typename T2>
-struct CommonUnitTypeDifferentTags {
-  /// Common base-period type with no physical-unit tag.
-  using type = Unit<std::common_type_t<typename T1::representation, typename T2::representation>,
-                    std::ratio<1>,
-                    void>;  // Use void tag for mixed
-                            // types
-};
-
-/**
- * @brief Shorthand for the common type of two different-tag units.
- * @tparam T1 First unit type.
- * @tparam T2 Second unit type.
- */
-template <typename T1, typename T2>
-using common_unit_type_different_tags_t = CommonUnitTypeDifferentTags<T1, T2>::type;
-
-/**
- * @brief Computes a common unit type for matching or different tags.
- * @tparam T1 First unit type.
- * @tparam T2 Second unit type.
- *
- * Matching tags use CommonUnitType; different tags use
- * CommonUnitTypeDifferentTags.
- */
-template <typename T1, typename T2>
-struct CommonUnitTypeMixed {
-  /// Common type selected according to whether the input tags match.
-  using type = std::conditional_t<std::is_same_v<typename T1::tag, typename T2::tag>,
-                                  common_unit_type_t<T1, T2>,
-                                  common_unit_type_different_tags_t<T1, T2>>;
-};
-
-/**
- * @brief Shorthand for the common unit type of any two unit types.
- * @tparam T1 First unit type.
- * @tparam T2 Second unit type.
- */
-template <typename T1, typename T2>
-using common_unit_type_mixed_t = CommonUnitTypeMixed<T1, T2>::type;
 
 }  // namespace unimoc::unit
