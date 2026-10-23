@@ -104,9 +104,11 @@ class EbikeControl {
   static constexpr uint64_t kStepUs = 1'000U;
 
   /**
-   * @param io Hardware access; must outlive the control.
+   * @param ebike_io Hardware access; must outlive the control.
    */
-  explicit EbikeControl(const hardware::EbikeIo& io) noexcept : io_(&io) { Configure(EbikeParameters{}); }
+  explicit EbikeControl(const hardware::EbikeIo& ebike_io) noexcept : io_(&ebike_io) {
+    Configure(EbikeParameters{});
+  }
 
   /// Takes new parameters and restarts the pedal observer and the assist ramp.
   void Configure(const EbikeParameters& parameters) noexcept;

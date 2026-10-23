@@ -187,20 +187,20 @@ kunteng::BatteryLevel EbikeControl::BatteryBars(const EbikeVehicle& vehicle) noe
   if (vehicle.battery_current < kBarsMaxCurrent && vehicle.battery_current > -kBarsMaxCurrent) {
     const float kCells = static_cast<float>(std::max<uint8_t>(parameters_.battery_cells, 1U));
     const float kCellVoltage = (vehicle.dc_link / 1.0_V).Value() / kCells;
-    std::size_t up = 0U;
-    std::size_t down = 0U;
+    std::size_t rising = 0U;
+    std::size_t falling = 0U;
     for (std::size_t level = 1U; level < kCellVolts.size(); ++level) {
       if (kCellVoltage >= kCellVolts[level] + kBarHysteresisCellVolts) {
-        up = level;
+        rising = level;
       }
       if (kCellVoltage >= kCellVolts[level] - kBarHysteresisCellVolts) {
-        down = level;
+        falling = level;
       }
     }
-    if (bars_ < up) {
-      bars_ = up;
-    } else if (bars_ > down) {
-      bars_ = down;
+    if (bars_ < rising) {
+      bars_ = rising;
+    } else if (bars_ > falling) {
+      bars_ = falling;
     }
   }
   return kBarCodes[bars_];

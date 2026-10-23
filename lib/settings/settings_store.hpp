@@ -305,8 +305,8 @@ template <std::size_t kCount>
     return value >= ZeroOf(value) && value <= kMaxEbikeRatio;
   };
   if (settings.ebike_pulses_per_rev < kMinEbikePulses || settings.ebike_pulses_per_rev > kMaxEbikePulses ||
-      !(settings.ebike_wheel_circumference >= kMinWheelCircumference &&
-        settings.ebike_wheel_circumference <= kMaxWheelCircumference) ||
+      settings.ebike_wheel_circumference < kMinWheelCircumference ||
+      settings.ebike_wheel_circumference > kMaxWheelCircumference ||
       settings.ebike_gear_ratio <= ZeroOf(settings.ebike_gear_ratio) ||
       settings.ebike_gear_ratio > kMaxEbikeRatio * 5.0F || settings.ebike_battery_cells < 1U ||
       settings.ebike_battery_cells > kMaxBatteryCells || settings.ebike_nominal_voltage == 0U ||
