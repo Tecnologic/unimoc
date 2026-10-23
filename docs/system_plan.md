@@ -11,6 +11,10 @@
 >   application in this repository.
 > - The steering servo is out of scope for now; the first rides use a
 >   steering angle sensor only.
+> - (2026-10-23) The new 4850 hardware gets a fourth half bridge: excitation
+>   winding of an EESM, or brake resistor with a PMSM (section 5.2.1).
+> - (2026-10-23) Current focus: Cyphal/CAN-FD (cart messages, bus error
+>   handling, multi-node simulation; the order is in `TODO.md`, "Next").
 
 ## 1. Goal
 
@@ -95,6 +99,7 @@ record.
 | Cyphal/serial | Not used. | No maintained C implementation (libserard). |
 | USB | Firmware update (DFU) only, later. The CDC-ACM console and the shell were dropped (2026-10-21): the bench log is on RTT, the log also goes out as `uavcan.diagnostic.Record`. | One operating interface; USB stays the recovery path. |
 | Settings | Cyphal registers on the existing `SettingsStore` (`docs/settings_plan.md`). | Already designed that way. |
+| Fourth half bridge on the 4850 | **One auxiliary half bridge per drive** (2026-10-23): excitation winding with an EESM, brake resistor on the DC link with a PMSM (section 5.2.1). | The overvoltage trip opens the phases, but above the back-EMF peak a PMSM keeps charging the DC link through the body diodes (section 7.1); a local chopper holds the DC link without the bus or the BMS. The same output makes the EESM usable on the 4850. |
 | Firmware update | Cyphal file service into flash bank 2 (512 KB dual-bank G4, `docs/settings_plan.md`); USB DFU as recovery. | Update all nodes over the bus without opening the cart. |
 
 ## 5. Hardware Plan
@@ -130,10 +135,50 @@ Requirements for the redesign of [`logic/`](https://github.com/Tecnologic/hardwa
   G4 flash, `docs/settings_plan.md`).
 - **Prepare for the later steering variant:** an SPI or I2C connector for an
   absolute angle sensor.
+- **Fourth half bridge:** see section 5.2.1.
 - **Platform layer:** generalize `hardware/zephyr_bcc` to the G4 family, with
   the board differences (pins, ADC channels, timer, dead time, sample times)
   in the devicetree (`foc0` node, as in `boards/unimoc/bcc/bcc.dts`). A new
   board definition `boards/unimoc/drive4850/` (name to decide).
+
+#### 5.2.1 Fourth half bridge: excitation or brake chopper
+
+Decided 2026-10-23: the new 4850 hardware gets one more half bridge next to
+the three phases. Its role follows the motor type (`unimoc.motor.type`):
+
+| Motor | Load on the half bridge | Function |
+|---|---|---|
+| EESM | Excitation (field) winding | `ExcitationController` (current or flux mode) sets the duty; `ExcitationObserver` filters the measured field current. |
+| PMSM | Brake resistor on the DC link | Brake chopper: switches on above a DC-link threshold (hysteresis or PWM) and while the overvoltage trip holds the phases off, so the body-diode charging of section 7.1 goes into the resistor. |
+| ASM | none (or brake resistor) | The ASM has no excitation winding; the output can serve as a chopper as with the PMSM. |
+
+Requirements to settle in the schematic (nothing is designed yet):
+
+- **Placement:** on the new logic board or as an addition to the power board,
+  which otherwise stays unchanged (section 2.1). Same parts as the phases
+  (BSC040N08, LM5109B) where the rating fits.
+- **PWM:** a fourth channel synchronized with the phase timer (for example a
+  spare channel of TIM1/TIM8 or the HRTIM of the G474), with the same break
+  input, so the E-stop and the overcurrent break also stop it.
+- **Measurement:** the current of the half bridge (field current for the
+  excitation loop, resistor current for the chopper energy), the DC-link
+  voltage at the bridge.
+- **Chopper without the CPU:** like the BMS chopper (section 5.5), a G4
+  comparator with a DAC threshold drives the half bridge directly; the
+  firmware sets the thresholds and watches the resistor energy and
+  temperature in a thread. If the routing does not allow it, the chopper runs
+  in the zero-latency sample ISR (no kernel calls, no locks).
+- **Ratings:** field current and field voltage of the intended EESM; resistor
+  power and energy from the braking case (section 12, question 7), per drive.
+- **Field decay (EESM):** with the field current at zero the EESM has no
+  back-EMF, so a trip cannot charge the DC link once the field has decayed.
+  A single half bridge can only freewheel the field current, which decays
+  slowly; whether a faster de-excitation (asymmetric H-bridge, a second half
+  bridge, a freewheeling resistor) is needed depends on the field time
+  constant. Not checked against a real machine.
+- **Firmware:** an auxiliary output next to `hardware/power_stage_interface.hpp`
+  and the hot-path bindings; the simulation models it first (`lib/sim`, ASM and
+  EESM plants and a DC-link model, `TODO.md`, "Motor types").
 
 ### 5.3 VDC
 
@@ -181,7 +226,9 @@ it; the firmware is portable between both.
   (part to choose), current measurement in the battery path, contactor and
   precharge drivers, and a brake chopper switch (MOSFET or half bridge) with
   a resistor on the DC link. Whether the existing BCC board can take this
-  role is open (section 12).
+  role is open (section 12). With a chopper in every PMSM drive (section
+  5.2.1) the BMS chopper may become optional; an EESM drive has no chopper
+  of its own and relies on de-excitation and the BMS chopper.
 - **Firmware:** `apps/bms/` in this repository, with a portable
   `lib/battery/` (state of charge, current limits from cell voltage and
   temperature, chopper control) and ztest suites in `tests/lib/battery/`.
@@ -352,8 +399,10 @@ path (`AGENTS.md`, zero-latency rules).
   the bench with the chopper disconnected. Implemented in the drive
   (2026-10-22): regenerative derating from 55 V, trip at 58 V (BCC). The
   trip switches all transistors off, so at high speed the motor still
-  charges the DC link through the body diodes; accepted as a known risk
-  until the brake chopper comes with a later hardware design.
+  charges the DC link through the body diodes; accepted as a known risk on
+  the BCC. The new 4850 hardware mitigates it with the fourth half bridge as
+  a local brake chopper (PMSM) or by de-exciting the field (EESM), section
+  5.2.1.
 - **Low speed and standstill:** regeneration fades near zero speed and
   cannot hold the cart; holding torque at standstill costs battery energy.
   Parking needs the mechanical brake (or a parking brake).
@@ -400,7 +449,7 @@ Each phase keeps `check_format.sh` and `twister_sca.sh` green.
 | B | Cyphal v1.0 spike: `native_sim` on `vcan` with pycyphal (fallback UDP over TAP); DSDL namespace; register service, heartbeat, GetInfo | none | One register exchange and one telemetry subject with pycyphal |
 | C | G4 bring-up: M0 and M8 on the BCC, CAN-FD transceiver, Cyphal/CAN-FD | BCC | Closed current loop with the 50 A limit; registers over CAN FD |
 | C2 | CAN FD bus test: the BCC and G4 evaluation boards on a cart-length harness, 1/4 and 1/2 Mbit/s, bus load and latency at 250 and 500 Hz | BCC, evaluation boards, USB CAN FD adapter | Measured load and latency; bit rate and cycle rate chosen |
-| D | 4850 G4 logic board: schematic, layout, G4 platform generalized from the BCC, regenerative braking with DC-link limits | new logic board, quad motor | Same tests as C on the 4850; braking into a full battery and with the battery disconnected on the bench |
+| D | 4850 G4 logic board: schematic, layout, G4 platform generalized from the BCC, regenerative braking with DC-link limits, fourth half bridge (chopper, excitation; section 5.2.1), simulated first | new logic board, quad motor | Same tests as C on the 4850; braking into a full battery and with the battery disconnected on the bench, the local chopper holding the DC link |
 | E | VDC (G4) and pedal unit hardware, steering angle sensor; `apps/` split | VDC, pedal unit | Pedal and angle published on the bus, VDC commands a drive on the bench |
 | E2 | BMS controller with brake chopper: board, `apps/bms/`, `lib/battery/`, chopper thresholds, contactor sequence | BMS board, battery, resistor | Regenerative braking into a full battery and with an open contactor on the bench, DC link held below the limit |
 | F | VDC firmware, multi-node sim with the vehicle model, fault reactions of section 7 in the sim | none, then VDC | All fault cases of section 7 pass in the sim |
@@ -442,6 +491,10 @@ Not a safety concept; a list of what one must cover.
 7. **Brake resistor:** power and energy rating from the cart mass, top speed
    and longest braking; chopper switch and its cooling.
 8. **Steering assist:** concept, torque sensor, interface (later).
+9. **Fourth half bridge (section 5.2.1):** placement (logic or power board),
+   PWM timer channel and comparator routing, current measurement, field and
+   resistor ratings, de-excitation of the EESM; whether the BMS still needs
+   its own chopper.
 
 ## 13. Risks
 
@@ -456,8 +509,11 @@ Not a safety concept; a list of what one must cover.
   the battery state and the bus; covered by the limp-home path, the brake
   chopper and the mechanical emergency brake (section 7.1).
 - **Chopper in hardware:** the comparator-to-timer path of the G4 has to be
-  confirmed in the schematic; otherwise the chopper needs a fast interrupt on
-  the BMS controller.
+  confirmed in the schematic (BMS and the fourth half bridge of the drives);
+  otherwise the chopper needs a fast interrupt.
+- **ASM and EESM without a plant model:** the libraries exist, but the
+  simulation and the runtime run the PMSM only; the fourth half bridge and
+  the EESM are first tested in the sim once its plants exist.
 - **G4 pin and ADC budget in LQFP64:** checked before the schematic of
   phase D; a larger package changes the logic board layout.
 - **Vehicle model effort:** the VDC cannot be tested in the sim without it

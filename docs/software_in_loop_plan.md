@@ -238,7 +238,14 @@ Keep long simulation batches and Cyphal I/O outside the UI thread. The GUI shoul
 
 After the PMSM runtime and tests are stable:
 
-1. Add ASM and EESM plants behind the same contract.
+1. Add ASM and EESM plants behind the same contract, with the fourth half
+   bridge of the new 4850 hardware in the inverter model (field voltage for
+   the EESM, brake resistor for the PMSM) and a DC-link model (capacitor,
+   battery resistance, contactor) instead of the stiff source, so the
+   overvoltage trip, the body-diode charging and the chopper can be tested
+   (`docs/system_plan.md`, section 5.2.1; `TODO.md`, "Motor types"). The
+   runtime then needs the ASM and EESM control paths: today it runs the PMSM
+   path only.
 2. Add startup, observers, field weakening, homing, and control-mode transitions one scenario at a time.
 3. Add application models for shared batteries, wheels, differentials, road loads, and torque vectoring.
 4. Add fault injection and trace/replay tooling.

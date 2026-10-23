@@ -248,9 +248,11 @@ charge limit falls linearly from `unimoc.battery.limits.regen_derate_voltage`
 hardware's 60 V), where the control cycle trips the power stage.  The trip
 switches all transistors off: above the line-to-line back-EMF peak the
 motor still feeds the DC link through the body diodes, so the trip level
-must stay above the battery voltage and the chopper of the BMS (section 7.1
-of `docs/system_plan.md`) has to hold the DC link; that chopper comes with
-a later hardware design (an accepted risk until then).  The BCC voltages
+must stay above the battery voltage and a brake chopper has to hold the
+DC link (section 7.1 of `docs/system_plan.md`).  The BCC has none (an
+accepted risk); the new 4850 hardware gets a fourth half bridge that
+drives a brake resistor with a PMSM or the excitation winding of an EESM
+(section 5.2.1).  The BCC voltages
 are accepted values, to be checked against its schematic during bring-up.
 
 An overcurrent or overvoltage trip or a power stage fault while engaged disengages the drive;
