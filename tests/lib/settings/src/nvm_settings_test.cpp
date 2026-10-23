@@ -64,7 +64,24 @@ ZTEST(nvm_settings, test_node_id_can_be_set) {
 // --- Parameter spot-checks (verify fields exist + have sensible defaults)
 ZTEST(nvm_settings, test_default_stator_r) {
   NvmSettings settings;
-  UNIMOC_EXPECT_FLOAT_EQ(settings.stator_r, 0.1_Ohm);
+  UNIMOC_EXPECT_FLOAT_EQ(settings.stator_r, 0.15_Ohm);
+}
+
+// --- The default motor is a 6.5" hoverboard hub motor: 15 pole pairs, 0.52 N m per A
+ZTEST(nvm_settings, test_default_motor_is_hoverboard) {
+  NvmSettings settings;
+  zexpect_equal(settings.pole_pairs, 15U);
+  const auto kPolePairs = static_cast<float>(settings.pole_pairs);
+  UNIMOC_EXPECT_NEAR(settings.flux_pm * (1.5F * kPolePairs) * 1.0_A, 0.52_Nm, 0.01_Nm);  // torque at 1 A
+  UNIMOC_EXPECT_FLOAT_EQ(settings.l_d, settings.l_q);
+}
+
+// --- The current PI cancels the stator pole: kp / ki = L / R
+ZTEST(nvm_settings, test_default_current_gains_cancel_stator_pole) {
+  NvmSettings settings;
+  UNIMOC_EXPECT_NEAR(settings.current_kp_q / settings.current_ki_q, settings.l_q / settings.stator_r, 1e-6_s);
+  UNIMOC_EXPECT_FLOAT_EQ(settings.current_kp_d, settings.current_kp_q);
+  UNIMOC_EXPECT_FLOAT_EQ(settings.current_ki_d, settings.current_ki_q);
 }
 
 ZTEST(nvm_settings, test_default_fw_v_max) {

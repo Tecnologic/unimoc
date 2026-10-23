@@ -52,6 +52,7 @@
 #include "settings_save_gate.hpp"
 #include "settings_store.hpp"
 #include "sim_control.hpp"
+#include "sim_test_motor.hpp"
 #include "sin_cos.hpp"
 #include "slow_update.hpp"
 #include "zephyr_settings_storage.hpp"
@@ -103,8 +104,13 @@ const uint8_t* In(std::span<const std::byte> buffer) {
 }
 uint8_t* Out(std::span<std::byte> buffer) { return reinterpret_cast<uint8_t*>(buffer.data()); }
 
+/// The platform profile with the test motor this suite was written for.
+const unimoc::settings::SettingsProfile& TestProfile() {
+  return unimoc::test::SimTestMotorProfile(unimoc::hardware::kSettings.GetSettingsProfile());
+}
+
 SettingsStore MakeStore() {
-  return SettingsStore{unimoc::hardware::kSettings.GetSettingsProfile(),
+  return SettingsStore{TestProfile(),
                        ZephyrSettingsStorage::Adapter(),
                        unimoc::settings::PowerStageSaveGate(kPowerStage),
                        unimoc::hardware::kSettings.GetSettingsLock()};
@@ -379,9 +385,8 @@ Rig* g_rig = nullptr;
 
 void Before(void* /*unused*/) {
   kPowerStage.Disable();
-  // The factory motor (no permanent magnet) unless a test configures another.
-  zassert_equal(sim::Plant().Configure(unimoc::hardware::kSettings.GetSettingsProfile().factory_settings),
-                unimoc::sim::Status::kOk);
+  // The test motor (no permanent magnet) unless a test configures another.
+  zassert_equal(sim::Plant().Configure(TestProfile().factory_settings), unimoc::sim::Status::kOk);
   sim::Plant().SetInput(unimoc::sim::SimulationInput{});
   sim::Plant().SetDcLinkVoltage(48.0_V);
   sim::ClearHallCodeOverride();
@@ -452,7 +457,7 @@ MagneticFlux TorqueConstant(const Rig& rig) {
   return 1.5F * static_cast<float>(kSnapshot.Get().pole_pairs) * kSnapshot.Get().flux_pm;
 }
 
-/// A permanent magnet for the factory motor, so a torque makes a q current.
+/// A permanent magnet for the test motor, so a torque makes a q current.
 MagneticFlux GiveTheMotorAMagnet(Rig& rig) {
   (void)rig.Access(reg::kPmsmFluxPm, Real(5e-3F));
   rig.Run(2U);  // applied while disengaged
@@ -518,7 +523,7 @@ ZTEST(sim_cyphal_drive, test_readiness_and_setpoint_timeouts) {
 
 ZTEST(sim_cyphal_drive, test_sleep_disengages_and_setpoints_are_limited) {
   Rig& rig = *g_rig;
-  rig.Hold(30.0F, 40.0F, 20U);  // |i| = 50 A, at the factory limit of 50 A
+  rig.Hold(30.0F, 40.0F, 20U);  // |i| = 50 A, at the test motor limit of 50 A
   zexpect_within(CurrentControlIsr::Instance().state.i_ref.d, 30.0_A, 1e-3_A);
   rig.Hold(300.0F, 400.0F, 10U);  // scaled to 50 A, direction kept
   zexpect_within(CurrentControlIsr::Instance().state.i_ref.d, 30.0_A, 1e-3_A);
@@ -532,7 +537,7 @@ ZTEST(sim_cyphal_drive, test_sleep_disengages_and_setpoints_are_limited) {
 
 ZTEST(sim_cyphal_drive, test_torque_setpoint_uses_the_torque_constant) {
   Rig& rig = *g_rig;
-  (void)rig.Access(reg::kPmsmFluxPm, Real(5e-3F));  // the factory profile has no flux
+  (void)rig.Access(reg::kPmsmFluxPm, Real(5e-3F));  // the test motor has no flux
   const auto kSnapshot = rig.store.GetSnapshot();
   const MagneticFlux kTorqueConstant =
       1.5F * static_cast<float>(kSnapshot.Get().pole_pairs) * kSnapshot.Get().flux_pm;
@@ -634,8 +639,7 @@ ZTEST(sim_cyphal_drive, test_store_is_refused_while_engaged_and_persists_otherwi
   zexpect_equal(reloaded.GetSnapshot().Get().pole_pairs, 7U);
 
   zexpect_equal(rig.Command(cmd::kCommandFactoryReset), cmd::kStatusSuccess);
-  zexpect_equal(rig.store.GetSnapshot().Get().pole_pairs,
-                unimoc::hardware::kSettings.GetSettingsProfile().factory_settings.pole_pairs);
+  zexpect_equal(rig.store.GetSnapshot().Get().pole_pairs, TestProfile().factory_settings.pole_pairs);
   auto erased = MakeStore();
   zexpect_equal(erased.Load(), SettingsStatus::kFactoryDefaults);
 }

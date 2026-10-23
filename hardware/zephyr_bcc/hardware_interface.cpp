@@ -54,7 +54,6 @@ const settings::SettingsProfile kSettingsProfile = [] {
   // supply of the gate driver.
   profile.factory_settings.svm_duty_min = 0.03_ratio;
   profile.factory_settings.svm_duty_max = 0.97_ratio;
-  profile.factory_settings.motor_i_max = 50.0_A;  // current controller limit
   profile.factory_settings.battery_drive_current_max = 50.0_A;
   profile.factory_settings.battery_charge_current_max = 20.0_A;
   profile.capabilities.max_phase_current = 60.0_A;  // hard trip limit of the power stage
