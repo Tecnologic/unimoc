@@ -109,6 +109,34 @@ external API requires different wording.
 | **trigger** | The condition that ends the pre-trigger part of a capture: rising, falling, hysteresis or immediate on one trace variable, or a `cymon.TriggerEvent` of another node. |
 | **slcan** | The Lawicel ASCII serial-line CAN protocol; the simulation offers it on pseudo terminals for tools on hosts without `vcan`. |
 
+## Unit Boundaries
+
+Calculations stay in unit types (**unit type**, **dimension**). A raw `float`
+appears only where the value leaves or enters the typed world. Each boundary
+converts in one place, in the base unit (period 1: A, V, rad, rad/s, N m/rad,
+s), and keeps its count in `scripts/unit_escapes_baseline.txt`
+(`check_unit_escapes.py`). Anything else that unwraps a unit is a defect, not
+a boundary.
+
+| Boundary | Where | What crosses |
+|---|---|---|
+| **Bus (DSDL)** | `src/drive/drive_node.cpp`, `hardware/zephyr_sim/cyphal_platform.cpp` | `unimoc.drive.Telemetry`, `unimoc.sim.Plant`, the `uavcan.si.*` setpoints and the sim inputs: `float32` fields in base units, the electrical angle wrapped to [0, 2 pi). |
+| **Registers** | `lib/settings/settings_registers.hpp`, `src/drive/settings_register_provider.cpp` | A unit setting is one `real32` register in its base unit (`EncodeRegisterValue()`/`DecodeRegisterValue()`). |
+| **Traces** | `src/trace/trace_signals.cpp`, the plant trace in `hardware/zephyr_sim/hardware_interface.cpp` | The cymon float mirror: one `float` per trace variable, sampled after the control cycle. |
+| **ADC and timer counts** | `hardware/zephyr_bcc/analog_scaling.hpp`, `hardware/zephyr_bcc/hardware_interface.cpp` | ADC counts in, units out (`CountsToCurrent()`, ...); the overcurrent limit back to ADC counts, a duty to compare counts. |
+| **Timer periods and timestamps** | `hardware/zephyr_bcc/foc_stm32g4.cpp`, `hardware/zephyr_sim/hardware_interface.cpp`, `src/current_control/current_control_isr.cpp`, `src/current_control/slow_update.cpp`, `src/drive/drive_node.cpp`, `hardware/zephyr_common/cyphal_runtime.cpp` | The PWM frequency in whole Hz for the timer setup, timestamp offsets in ticks, Hall edge times in ns, the telemetry and trace periods in us. |
+| **Fixed-point angle** | `lib/motor_control/src/rotor_angle.hpp`, `sin_cos.hpp`, `angle_wrap.hpp` | The Q1.31 phase of `RotorAngle`, the sine-table index, the wrap loops; their public API is typed. |
+| **Mixed-unit filter state** | `lib/motor_control/src/mechanical_observer.hpp`, `hall_fusion.hpp`, `slow_update.cpp` | The Kalman covariance and gain (one state vector of rad/s, rad and N m/rad) and the measurement noise variances stay `float`. |
+| **libm** | `lib/motor_control/src/asm_flux_observer.hpp` | `atan2` of the flux angle (not in the firmware yet). Sine and cosine come from `system::SinCos`. |
+| **Logs** | `src/startup/hw_startup.cpp`, test messages | `%f` arguments of the log and of ztest messages. |
+| **Electromechanical coupling in the plant** | `lib/sim/src/pmsm_model.hpp` | The electrical rotation per step enters the backward-Euler matrix as a plain number (the radian dropped once, as in the coupling rules). |
+| **Tests** | `tests/common/unimoc_test.hpp` | The float checks compare the plain values of two values of one unit; tests otherwise compare units (`UNIMOC_EXPECT_NEAR(i, 2.0_A, 1e-3_A)`). |
+
+Not a boundary, but still counted: `HwStartup` keeps its thresholds,
+calibration accumulators (`double`) and results in plain numbers (open in
+`TODO.md`), and some headers build constants with `unit::Ratio{0.5F}` where a
+literal would do.
+
 ## Naming Rules
 
 - Use the exact code names `MotorType`, `ControlMode`, `NvmSettings`,
