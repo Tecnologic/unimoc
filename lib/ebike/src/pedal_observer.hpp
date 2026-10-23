@@ -53,7 +53,7 @@ struct PedalObserverConfig {
   /// Time constant of the fast (not ripple free) torque.
   Time torque_time_constant{20.0_ms};
   /// Initial offset of the torque signal (the sensor reading at zero load).
-  Torque zero_offset{};
+  Torque zero_offset;
   /// The offset only follows readings this close to it (a foot resting on a pedal must not become the zero).
   Torque zero_window{3.0_Nm};
   /// The crank must stand still this long before the offset follows the reading.
@@ -123,8 +123,8 @@ class PedalObserver {
    */
   void Step(const Time dt, const Torque torque, const std::span<const Time> pulse_ages) noexcept {
     Time elapsed;
-    for (const Time age : pulse_ages) {
-      const Time kEdge = std::clamp(dt - age, elapsed, dt);
+    for (const Time kAge : pulse_ages) {
+      const Time kEdge = std::clamp(dt - kAge, elapsed, dt);
       Predict(kEdge - elapsed);
       elapsed = kEdge;
       OnPulse();
@@ -187,29 +187,30 @@ class PedalObserver {
     mean_torque_ = Torque{};
   }
 
-  void Predict(const Time h) noexcept {
+  void Predict(const Time dt) noexcept {
     if (pulses_seen_ == 0U) {
-      still_time_ += h;
+      still_time_ += dt;
       return;
     }
-    time_since_pulse_ += h;
+    time_since_pulse_ += dt;
     if (time_since_pulse_ > config_.stop_timeout) {
       const Time kStill = time_since_pulse_;
       ResetCrank();
       still_time_ = kStill;
       return;
     }
-    angle_ = observer::WrapAngle(angle_ + omega_ * h);
+    angle_ = observer::WrapAngle(angle_ + omega_ * dt);
     // Overdue pulse: the cadence cannot be much higher than one pulse angle per elapsed time.
     const Angle kLimit = pulse_angle_ * kOverdueMargin;
     if (omega_ * time_since_pulse_ > kLimit) {
       omega_ = kLimit / time_since_pulse_;
     }
-    const float kH = h.Value();
-    const float kQ = config_.cadence_noise;
-    p_.angle += kH * (2.0F * p_.cross + kH * p_.cadence) + kQ * kH * kH * kH / 3.0F;
-    p_.cross += kH * p_.cadence + kQ * kH * kH / 2.0F;
-    p_.cadence += kQ * kH;
+    const float kStep = dt.Value();
+    const float kNoise = config_.cadence_noise;
+    p_.angle +=
+        (kStep * ((2.0F * p_.cross) + (kStep * p_.cadence))) + (kNoise * kStep * kStep * kStep / 3.0F);
+    p_.cross += (kStep * p_.cadence) + (kNoise * kStep * kStep / 2.0F);
+    p_.cadence += kNoise * kStep;
   }
 
   void OnPulse() noexcept {
@@ -229,7 +230,9 @@ class PedalObserver {
         // The first interval is a direct speed measurement.
         omega_ = pulse_angle_ / time_since_pulse_;
         angle_ = kMeasured;
-        p_ = Covariance{config_.angle_variance, 0.0F, kInitialCadenceVariance / 100.0F};
+        p_ = Covariance{.angle = config_.angle_variance,
+                        .cross = 0.0F,
+                        .cadence = kInitialCadenceVariance / 100.0F};
       } else {
         FuseAngle(observer::WrapAngle(kMeasured - angle_));
       }
@@ -241,9 +244,9 @@ class PedalObserver {
   }
 
   void FuseAngle(const Angle innovation) noexcept {
-    const float kS = p_.angle + config_.angle_variance;
-    const float kGainAngle = p_.angle / kS;
-    const float kGainCadence = p_.cross / kS;
+    const float kInnovationVariance = p_.angle + config_.angle_variance;
+    const float kGainAngle = p_.angle / kInnovationVariance;
+    const float kGainCadence = p_.cross / kInnovationVariance;
     angle_ = observer::WrapAngle(angle_ + innovation * kGainAngle);
     omega_ += innovation * Frequency{kGainCadence};
     p_.cadence -= kGainCadence * p_.cross;
