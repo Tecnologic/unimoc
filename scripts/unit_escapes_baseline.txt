@@ -6,6 +6,9 @@
 1 hardware/zephyr_common/cyphal_runtime.cpp
 12 hardware/zephyr_sim/cyphal_platform.cpp
 16 hardware/zephyr_sim/hardware_interface.cpp
+1 lib/ebike/src/assist_controller.hpp
+3 lib/ebike/src/kunteng_protocol.hpp
+2 lib/ebike/src/pedal_observer.hpp
 4 lib/motor_control/src/angle_wrap.hpp
 2 lib/motor_control/src/asm_flux_controller.hpp
 3 lib/motor_control/src/asm_flux_observer.hpp
@@ -28,6 +31,8 @@
 12 src/trace/trace_signals.cpp
 5 tests/common/unimoc_test.hpp
 4 tests/drive/cart_control/src/main.cpp
+1 tests/lib/ebike/src/assist_controller_test.cpp
+4 tests/lib/ebike/src/pedal_observer_test.cpp
 1 tests/lib/motor_control/src/dc_link_limit_test.cpp
 12 tests/lib/motor_control/src/hall_decoder_test.cpp
 6 tests/lib/motor_control/src/hall_fusion_test.cpp
