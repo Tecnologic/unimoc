@@ -18,6 +18,7 @@
 #include <zephyr/ztest.h>
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstddef>
 #include <string_view>
 #include <type_traits>
@@ -502,6 +503,53 @@ ZTEST(settings_store, test_every_operation_runs_under_the_lock) {
   zassert_equal(operations.ResetToFactoryDefaults(), SettingsStatus::kSuccess);
   kCheck();
   zexpect_equal(g_probe.max_lock_depth, 1);  // never taken twice (the lock need not be recursive)
+}
+
+ZTEST(settings_store, test_ebike_settings_are_validated) {
+  Fixture ctx;
+  zassert_equal(ctx.store.Load(), SettingsStatus::kFactoryDefaults);
+  auto operations = ctx.store.GetOperations();
+  const auto kSet = [&operations](const auto& change) { return operations.Update(change); };
+  zexpect_equal(kSet([](NvmSettings& settings) { settings.ebike_pulses_per_rev = 18U; }),
+                SettingsStatus::kSuccess);
+  zexpect_equal(kSet([](NvmSettings& settings) { settings.ebike_pulses_per_rev = 1U; }),
+                SettingsStatus::kOutOfRange);
+  zexpect_equal(kSet([](NvmSettings& settings) { settings.ebike_pulses_per_rev = 65U; }),
+                SettingsStatus::kOutOfRange);
+  zexpect_equal(kSet([](NvmSettings& settings) { settings.ebike_wheel_circumference = 2.2F; }),
+                SettingsStatus::kSuccess);
+  zexpect_equal(kSet([](NvmSettings& settings) { settings.ebike_wheel_circumference = 0.2F; }),
+                SettingsStatus::kOutOfRange);
+  zexpect_equal(kSet([](NvmSettings& settings) { settings.ebike_wheel_circumference = 5.0F; }),
+                SettingsStatus::kOutOfRange);
+  zexpect_equal(kSet([](NvmSettings& settings) { settings.ebike_gear_ratio = 0.0_ratio; }),
+                SettingsStatus::kOutOfRange);
+  zexpect_equal(kSet([](NvmSettings& settings) { settings.ebike_battery_cells = 0U; }),
+                SettingsStatus::kOutOfRange);
+  zexpect_equal(kSet([](NvmSettings& settings) { settings.ebike_battery_cells = 31U; }),
+                SettingsStatus::kOutOfRange);
+  zexpect_equal(kSet([](NvmSettings& settings) { settings.ebike_nominal_voltage = 0U; }),
+                SettingsStatus::kOutOfRange);
+  zexpect_equal(kSet([](NvmSettings& settings) { settings.ebike_gain_3 = -0.1_ratio; }),
+                SettingsStatus::kOutOfRange);
+  zexpect_equal(kSet([](NvmSettings& settings) { settings.ebike_gain_5 = 25.0_ratio; }),
+                SettingsStatus::kOutOfRange);
+  zexpect_equal(kSet([](NvmSettings& settings) { settings.ebike_power_scale = 0.0_W; }),
+                SettingsStatus::kOutOfRange);
+  zexpect_equal(kSet([](NvmSettings& settings) { settings.ebike_torque_deadband = -1.0_Nm; }),
+                SettingsStatus::kOutOfRange);
+  zexpect_equal(kSet([](NvmSettings& settings) { settings.ebike_speed_taper = 0.0_rad_per_s; }),
+                SettingsStatus::kOutOfRange);
+  zexpect_equal(kSet([](NvmSettings& settings) { settings.ebike_rise_time = 0.0_s; }),
+                SettingsStatus::kOutOfRange);
+  zexpect_equal(kSet([](NvmSettings& settings) { settings.ebike_fall_time = 0.0_s; }),
+                SettingsStatus::kOutOfRange);
+  zexpect_equal(kSet([](NvmSettings& settings) { settings.ebike_display_timeout = 0.0_s; }),
+                SettingsStatus::kOutOfRange);
+  zexpect_equal(kSet([](NvmSettings& settings) { settings.ebike_engage_hold = 0.0_s; }),
+                SettingsStatus::kSuccess);
+  zexpect_equal(kSet([](NvmSettings& settings) { settings.ebike_wheel_circumference = std::nanf(""); }),
+                SettingsStatus::kInvalidSettings);
 }
 
 }  // namespace unimoc::settings::test

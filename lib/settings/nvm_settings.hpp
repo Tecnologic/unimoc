@@ -673,6 +673,95 @@ struct NvmSettings {
   /// Register: `unimoc.cart.battery_share`
   unit::Ratio cart_battery_share{1.0_ratio};
 
+  // =========================================================================
+  // E-bike (docs/ebike_plan.md): the assist law, the sensor and the display.
+  // Used with CONFIG_UNIMOC_EBIKE; untuned starting values.
+  // =========================================================================
+
+  /// Cadence pulses per crank revolution (poles of the sensor ring), 2 to 64.
+  /// Register: `unimoc.ebike.pulses_per_rev`
+  uint8_t ebike_pulses_per_rev{36U};
+
+  /// Rolling circumference of the wheel [m]; the wheel size of the display has to match it.
+  /// Register: `unimoc.ebike.wheel_circumference`
+  float ebike_wheel_circumference{2.1F};
+
+  /// Motor shaft revolutions per wheel revolution (1: hub motor).
+  /// Register: `unimoc.ebike.gear_ratio`
+  unit::Ratio ebike_gear_ratio{1.0_ratio};
+
+  /// Series cells of the battery (battery bars of the display), 1 to 30.
+  /// Register: `unimoc.ebike.battery_cells`
+  uint8_t ebike_battery_cells{10U};
+
+  /// Nominal battery voltage [V] the display is set to (24, 36, 48).
+  /// Register: `unimoc.ebike.nominal_voltage`
+  uint8_t ebike_nominal_voltage{36U};
+
+  /// Assist ratio (motor power / pedal power) of display level 1.
+  /// Register: `unimoc.ebike.gain_1`
+  unit::Ratio ebike_gain_1{0.3_ratio};
+
+  /// Assist ratio of display level 2.
+  /// Register: `unimoc.ebike.gain_2`
+  unit::Ratio ebike_gain_2{0.6_ratio};
+
+  /// Assist ratio of display level 3.
+  /// Register: `unimoc.ebike.gain_3`
+  unit::Ratio ebike_gain_3{1.0_ratio};
+
+  /// Assist ratio of display level 4.
+  /// Register: `unimoc.ebike.gain_4`
+  unit::Ratio ebike_gain_4{1.5_ratio};
+
+  /// Assist ratio of display level 5; levels 6 and 7 use it too.
+  /// Register: `unimoc.ebike.gain_5`
+  unit::Ratio ebike_gain_5{2.0_ratio};
+
+  /// The assist ratio grows with exp(pedal power / power_scale).
+  /// Register: `unimoc.ebike.power_scale`
+  unit::Power ebike_power_scale{300.0_W};
+
+  /// Upper limit of the total assist ratio.
+  /// Register: `unimoc.ebike.max_ratio`
+  unit::Ratio ebike_max_ratio{4.0_ratio};
+
+  /// Motor torque per pedal torque at a standing motor (low-speed torque assist).
+  /// Register: `unimoc.ebike.torque_ratio`
+  unit::Ratio ebike_torque_ratio{0.5_ratio};
+
+  /// Pedal torque below this gives no assist.
+  /// Register: `unimoc.ebike.torque_deadband`
+  unit::Torque ebike_torque_deadband{2.0_Nm};
+
+  /// No assist below this crank speed.
+  /// Register: `unimoc.ebike.min_cadence`
+  unit::AngularVelocity ebike_min_cadence{2.0_rad_per_s};
+
+  /// The assist fades out over this motor speed range below the speed limit of the display.
+  /// Register: `unimoc.ebike.speed_taper`
+  unit::AngularVelocity ebike_speed_taper{20.0_rad_per_s};
+
+  /// Time to ramp the assist torque from zero to the torque limit.
+  /// Register: `unimoc.ebike.rise_time`
+  unit::Time ebike_rise_time{0.5_s};
+
+  /// Time to ramp the assist torque from the torque limit to zero.
+  /// Register: `unimoc.ebike.fall_time`
+  unit::Time ebike_fall_time{0.15_s};
+
+  /// The drive stays engaged this long after the assist ended.
+  /// Register: `unimoc.ebike.engage_hold`
+  unit::Time ebike_engage_hold{2.0_s};
+
+  /// After a fault the pedals must stand still this long before the drive engages again.
+  /// Register: `unimoc.ebike.rearm_time`
+  unit::Time ebike_rearm_time{1.0_s};
+
+  /// Without a display request for this long the display counts as lost: no assist.
+  /// Register: `unimoc.ebike.display_timeout`
+  unit::Time ebike_display_timeout{2.0_s};
+
   /// Restore all fields to factory defaults.
   void ResetToDefaults() noexcept { *this = NvmSettings{}; }
 };

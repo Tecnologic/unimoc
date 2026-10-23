@@ -33,6 +33,8 @@
 #include "cyphal_log_backend.h"
 #include "cyphal_platform.hpp"
 #include "drive_node.hpp"
+#include "ebike_control.hpp"
+#include "ebike_interface.hpp"
 #include "hardware_interface.hpp"
 #include "hardware_interface_config.hpp"
 #include "trace_node.hpp"
@@ -160,6 +162,13 @@ void CyphalThread(void* /*unused*/, void* /*unused*/, void* /*unused*/) {
                                 kMotors[0],
                                 drive::DriveHooks{Restart, SettingsApplied},
                                 std::span<const uint8_t>{g_unique_id}};
+  // The e-bike control engages the drive and sets its torque (docs/ebike_plan.md).
+  static ebike::EbikeControl ebike_control{GetEbikeIo()};
+  if (IS_ENABLED(CONFIG_UNIMOC_EBIKE)) {
+    StartEbikeIo();
+    drive.SetLocalControl(&ebike_control);
+    LOG_INF("e-bike control on");
+  }
   CyphalPlatformStart(node, kSnapshot.Get());
 
   // Traces: the control signals first (IDs 0..11), then the platform's.
