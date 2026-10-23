@@ -35,7 +35,10 @@ inline constexpr int32_t kCurrentZeroCounts = 2048;
 inline constexpr float kShuntResistance = 0.0005F;  ///< [Ohm]
 inline constexpr float kCurrentAmplifierGain = 50.0F;
 inline constexpr float kVoltageDividerRatio = (33.0F + 1.0F) / 1.0F;  ///< 33k / 1k
-inline constexpr float kTorqueSensitivity = 70.0F;                    ///< E-Rider T9 [V/Nm]
+/// Input network of the crank torque (PB14): R84 || R85 (3k3 each) in series, R86 (3k3) to ground.
+inline constexpr float kTorqueDividerRatio = 3.3F / ((3.3F / 2.0F) + 3.3F);
+inline constexpr float kTorqueScale = 70.0F;       ///< E-Rider T9N [Nm/V]
+inline constexpr float kTorqueRestVoltage = 1.5F;  ///< E-Rider T9N output at zero load [V]
 
 [[nodiscard]] constexpr float CountsToVolts(const float counts) noexcept {
   return counts * kVoltageReference / kAdcResolution;
@@ -59,13 +62,27 @@ inline constexpr unit::Current kCurrentPerCount =
   return unit::Voltage{CountsToVolts(static_cast<float>(raw)) * kVoltageDividerRatio};
 }
 
-/// Crank torque without offset compensation.
+/// Crank torque from the sensor voltage above its nominal rest voltage (the voltage at the connector, behind
+/// the input divider). The offset of the individual sensor remains; the pedal observer (lib/ebike) trims it.
 [[nodiscard]] constexpr unit::Torque CountsToTorque(const uint32_t raw) noexcept {
-  return unit::Torque{CountsToVolts(static_cast<float>(raw)) / kTorqueSensitivity};
+  const float kSensorVolts = CountsToVolts(static_cast<float>(raw)) / kTorqueDividerRatio;
+  return unit::Torque{(kSensorVolts - kTorqueRestVoltage) * kTorqueScale};
 }
 
 static_assert(CountsToCurrent(static_cast<uint32_t>(kCurrentZeroCounts)) == unit::Current{});
 static_assert(kCurrentPerCount > unit::Current{});
+
+// E-Rider T9N: 1.5 V at rest, 70 Nm/V, so 2.0 V is 35 Nm. The output range ends at 3.5 V (140 Nm), which the
+// input divider brings to 2.3 V at the ADC, inside its range.
+namespace detail {
+using unit::operator""_Nm;
+constexpr uint32_t kRestCounts =
+    static_cast<uint32_t>(kTorqueRestVoltage * kTorqueDividerRatio / kVoltageReference * kAdcResolution);
+constexpr uint32_t kTwoVoltCounts =
+    static_cast<uint32_t>(2.0F * kTorqueDividerRatio / kVoltageReference * kAdcResolution);
+static_assert(CountsToTorque(kRestCounts) < 0.1_Nm && CountsToTorque(kRestCounts) > -0.1_Nm);
+static_assert(CountsToTorque(kTwoVoltCounts) > 34.0_Nm && CountsToTorque(kTwoVoltCounts) < 36.0_Nm);
+}  // namespace detail
 
 namespace detail {
 

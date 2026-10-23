@@ -298,6 +298,34 @@ it engages again only after a readiness other than `ENGAGED` (re-arm).
 `STANDBY` while disengaged acknowledges a latched trip or fault without
 releasing the outputs; the settings can only be stored without one.
 
+### E-bike (battery case controller)
+
+With `CONFIG_UNIMOC_EBIKE=y` (off by default) the drive becomes the motor of a
+pedal-assist e-bike ([`docs/ebike_plan.md`](docs/ebike_plan.md)). The crank torque and cadence sensor (E-Rider
+T9N) and the display (KT-LCD8, Kunteng protocol) feed the assist law (`lib/ebike/`, `src/ebike/`):
+
+- Low speed: the motor torque follows the pedal torque (`unimoc.ebike.torque_ratio`); above the crossover speed
+  the motor power follows the pedal power. The assist ratio is the base ratio of the display level
+  (`unimoc.ebike.gain_1` to `gain_5`) times `exp(pedal power / unimoc.ebike.power_scale)`, limited to
+  `unimoc.ebike.max_ratio`. It fades out below the speed limit of the display, stays within the torque limit of
+  the drive and ramps (`rise_time`, `fall_time`).
+- The e-bike control engages the drive on demand: while the crank turns at a display level above 0, and for
+  `unimoc.ebike.engage_hold` afterwards. The readiness `ENGAGED` of the bus no longer engages it; `SLEEP` and
+  `STANDBY` release it and keep it released until the pedals stood still for `unimoc.ebike.rearm_time`, as a trip
+  or a refused engage do. Without a display request for `unimoc.ebike.display_timeout` the level counts as 0.
+- Registers (all persistent): `unimoc.ebike.pulses_per_rev`, `wheel_circumference` [m], `gear_ratio`,
+  `battery_cells`, `nominal_voltage`, `gain_1` to `gain_5`, `power_scale`, `max_ratio`, `torque_ratio`,
+  `torque_deadband`, `min_cadence`, `speed_taper`, `rise_time`, `fall_time`, `engage_hold`, `rearm_time`,
+  `display_timeout`; the direction is `unimoc.cart.reversed`. A change while engaged waits for the disengage. The
+  defaults are untuned starting values: try them on the bench first.
+- BCC wiring (from the schematic): the display transmit line is PB10 (USART3_TX); the display receive line is
+  on PB15, which has no UART receiver on the STM32G473, so TIM15 channel 2 captures its edges and a software
+  receiver decodes the bytes; the cadence pulse is PA5; the crank torque is a channel of the injected ADC
+  sequence behind a 2/3 divider.
+- `native_sim`: a simulated rider and display (`hardware/zephyr_sim/sim_ebike.hpp`) drive the control in the
+  tests (`sim_cyphal_drive` attaches the control itself); the simulation app keeps the bus readiness for the
+  pytest integration tests, so `CONFIG_UNIMOC_EBIKE` is off there too.
+
 ### Commands (uavcan.node.ExecuteCommand)
 
 | Command | Effect |

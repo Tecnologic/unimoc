@@ -10,10 +10,10 @@ set(UNIMOC_ROOT ${ZEPHYR_UNIMOC_MODULE_DIR})
 # --- Platform selection (Kconfig symbol chosen by the board) ----------------
 if(CONFIG_UNIMOC_PLATFORM_BCC)
   set(UNIMOC_PLATFORM_DIR ${UNIMOC_ROOT}/hardware/zephyr_bcc)
-  set(UNIMOC_PLATFORM_EXTRA_SOURCES foc_stm32g4.cpp cyphal_platform.cpp)
+  set(UNIMOC_PLATFORM_EXTRA_SOURCES foc_stm32g4.cpp cyphal_platform.cpp ebike_io.cpp)
 elseif(CONFIG_UNIMOC_PLATFORM_SIM)
   set(UNIMOC_PLATFORM_DIR ${UNIMOC_ROOT}/hardware/zephyr_sim)
-  set(UNIMOC_PLATFORM_EXTRA_SOURCES cyphal_platform.cpp slcan_media.cpp sim_cmdline.c)
+  set(UNIMOC_PLATFORM_EXTRA_SOURCES cyphal_platform.cpp slcan_media.cpp sim_cmdline.c ebike_io.cpp)
   set(UNIMOC_PLATFORM_LIBRARIES unimoc_sim)
 else()
   message(FATAL_ERROR "No UNIMOC platform for board '${BOARD}'.")
@@ -29,6 +29,7 @@ target_sources(unimoc_core PRIVATE
   ${UNIMOC_ROOT}/src/current_control/outer_loop.cpp
   ${UNIMOC_ROOT}/src/startup/hw_startup.cpp
   ${UNIMOC_ROOT}/src/drive/cart_control.cpp
+  ${UNIMOC_ROOT}/src/ebike/ebike_control.cpp
   ${UNIMOC_ROOT}/src/drive/drive_node.cpp
   ${UNIMOC_ROOT}/src/drive/settings_register_provider.cpp
   ${UNIMOC_ROOT}/src/drive/startup_registers.cpp
@@ -38,6 +39,7 @@ target_sources(unimoc_core PRIVATE
 target_include_directories(unimoc_core PUBLIC
   ${UNIMOC_ROOT}/src/current_control
   ${UNIMOC_ROOT}/src/drive
+  ${UNIMOC_ROOT}/src/ebike
   ${UNIMOC_ROOT}/src/trace
   ${UNIMOC_ROOT}/src/startup
   ${UNIMOC_PLATFORM_DIR})
