@@ -56,8 +56,9 @@ config UNIMOC_EBIKE
 	  control engages the power stage on demand while the rider pedals
 	  (src/ebike). The readiness ENGAGED of the Cyphal bus then no longer
 	  engages the drive. The assist parameters are untuned defaults:
-	  enable it on the bench first. Off by default; native_sim enables it
-	  (app/boards/native_sim_native_64.conf).
+	  enable it on the bench first. Off by default, also in native_sim:
+	  the pytest integration tests engage the simulated drive over the
+	  bus.
 
 config UNIMOC_HOT_PATH_TIMING
 	bool "Measure the execution times of the interrupts (M0)"

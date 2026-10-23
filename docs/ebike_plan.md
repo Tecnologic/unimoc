@@ -139,7 +139,9 @@ so there is no assist without a display. The assist torque ramps up in 0.5 s and
 
 **Switch.** `CONFIG_UNIMOC_EBIKE` is off on the BCC by default, because the assist parameters are untuned and
 the control engages the power stage by itself; enable it in `app/boards/bcc.conf` for the bench
-(`unimoc.app.build.ebike` builds it). native_sim has it on.
+(`unimoc.app.build.ebike` builds it for the BCC and the simulation). The simulation app keeps it off, so that
+the pytest integration tests can still engage the drive over the bus; the e-bike tests of `sim_cyphal_drive`
+attach the control themselves.
 
 ## 8. Steps
 

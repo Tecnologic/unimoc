@@ -299,7 +299,7 @@ releasing the outputs; the settings can only be stored without one.
 
 ### E-bike (battery case controller)
 
-With `CONFIG_UNIMOC_EBIKE=y` (off by default on the BCC, on in `native_sim`) the drive becomes the motor of a
+With `CONFIG_UNIMOC_EBIKE=y` (off by default) the drive becomes the motor of a
 pedal-assist e-bike ([`docs/ebike_plan.md`](docs/ebike_plan.md)). The crank torque and cadence sensor (E-Rider
 T9N) and the display (KT-LCD8, Kunteng protocol) feed the assist law (`lib/ebike/`, `src/ebike/`):
 
@@ -322,7 +322,8 @@ T9N) and the display (KT-LCD8, Kunteng protocol) feed the assist law (`lib/ebike
   receiver decodes the bytes; the cadence pulse is PA5; the crank torque is a channel of the injected ADC
   sequence behind a 2/3 divider.
 - `native_sim`: a simulated rider and display (`hardware/zephyr_sim/sim_ebike.hpp`) drive the control in the
-  tests (`sim_cyphal_drive`).
+  tests (`sim_cyphal_drive` attaches the control itself); the simulation app keeps the bus readiness for the
+  pytest integration tests, so `CONFIG_UNIMOC_EBIKE` is off there too.
 
 ### Commands (uavcan.node.ExecuteCommand)
 
