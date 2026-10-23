@@ -180,8 +180,8 @@ struct Hfi {
     // v_α = v_d·cos θ̂ − v_q·sin θ̂
     // v_β = v_d·sin θ̂ + v_q·cos θ̂
     return system::Stator<unit::Voltage>{
-        v_d.Value() * cos_th.Value() - v_q.Value() * sin_th.Value(),
-        v_d.Value() * sin_th.Value() + v_q.Value() * cos_th.Value(),
+        (v_d * cos_th) - (v_q * sin_th),
+        (v_d * sin_th) + (v_q * cos_th),
     };
   }
 
@@ -208,39 +208,39 @@ struct Hfi {
     // Park transform: α/β → estimated d/q
     // i_d =  i_α·cos θ̂ + i_β·sin θ̂
     // i_q = −i_α·sin θ̂ + i_β·cos θ̂
-    const T kID = i_ab.alpha.Value() * cos_th.Value() + i_ab.beta.Value() * sin_th.Value();
-    const T kIQ = -i_ab.alpha.Value() * sin_th.Value() + i_ab.beta.Value() * cos_th.Value();
+    const unit::Current kID = (i_ab.alpha * cos_th) + (i_ab.beta * sin_th);
+    const unit::Current kIQ = (-i_ab.alpha * sin_th) + (i_ab.beta * cos_th);
 
     switch (step) {
       case 0:
-        i_d_step0 = unit::Current{kID};
-        i_q_step0 = unit::Current{kIQ};
+        i_d_step0 = kID;
+        i_q_step0 = kIQ;
         break;
       case 1:
-        i_d_step1 = unit::Current{kID};
-        i_q_step1 = unit::Current{kIQ};
+        i_d_step1 = kID;
+        i_q_step1 = kIQ;
         break;
       case 2:
-        i_d_step2 = unit::Current{kID};
-        i_q_step2 = unit::Current{kIQ};
+        i_d_step2 = kID;
+        i_q_step2 = kIQ;
         break;
       case 3: {
-        i_d_step3 = unit::Current{kID};
-        i_q_step3 = unit::Current{kIQ};
+        i_d_step3 = kID;
+        i_q_step3 = kIQ;
 
         // --- Angle error extraction ---
         //
         // Δî_q from d-axis injection: proportional to sin(2ε)
-        const T kDeltaIqD = i_q_step0.Value() - i_q_step1.Value();
+        const unit::Current kDeltaIqD = i_q_step0 - i_q_step1;
 
         // Δî_d from q-axis injection: proportional to −sin(2ε)
-        const T kDeltaIdQ = i_d_step2.Value() - i_d_step3.Value();
+        const unit::Current kDeltaIdQ = i_d_step2 - i_d_step3;
 
         // Combined error: adds both estimates, doubling SNR
-        const T kRawError = kDeltaIqD - kDeltaIdQ;
+        const unit::Current kRawError = kDeltaIqD - kDeltaIdQ;
 
         // Feed scaled error into the shared PLL of the mechanical observer
-        mech_obs.InjectAngleError(unit::Angle{kRawError * error_gain.Value()}, dt);
+        mech_obs.InjectAngleError(kRawError * error_gain, dt);
         break;
       }
       default:

@@ -154,48 +154,47 @@ struct AsmFluxObserver {
                         MechanicalObserver<T>& mech_obs) noexcept {
     // --- Derived parameters (computed every cycle for generality; in
     //     practice the compiler will CSE these if parameters are const.) ---
-    const T kSigma = CalcSigma();
-    const T kInvTR = R_r.Value() / L_r.Value();  // 1/T_r
-    const T kInvSLs = static_cast<T>(1) / (kSigma * L_s.Value());
+    const unit::Ratio kSigma = CalcSigma();
+    const unit::InverseTime kInvTR = R_r / L_r;               // 1/T_r
+    const auto kInvSLs = static_cast<T>(1) / (kSigma * L_s);  // 1/(σ·L_s) [1/H]
 
     // Stator-current time-constant coefficient
-    const T kAlphaI = R_s.Value() * kInvSLs + (static_cast<T>(1) - kSigma) * kInvTR / kSigma;
+    const unit::InverseTime kAlphaI = (R_s * kInvSLs) + ((1.0_ratio - kSigma) * kInvTR / kSigma);
 
-    // Flux-to-current coupling coefficient L_m/(σ·L_s·L_r)
-    const T kFlux = L_m.Value() / (kSigma * L_s.Value() * L_r.Value());
+    // Flux-to-current coupling coefficient L_m/(σ·L_s·L_r) [1/H]
+    const auto kFlux = L_m / (kSigma * L_s * L_r);
 
     // Electrical rotor speed from MechanicalObserver PLL
-    const T kOmegaR = mech_obs.omega.Value();
+    const unit::AngularVelocity kOmegaR = mech_obs.omega;
 
     // --- Current prediction error ---
-    const T kErrAlpha = i_ab.alpha.Value() - i_alpha_hat.Value();
-    const T kErrBeta = i_ab.beta.Value() - i_beta_hat.Value();
+    const unit::Current kErrAlpha = i_ab.alpha - i_alpha_hat;
+    const unit::Current kErrBeta = i_ab.beta - i_beta_hat;
 
-    // --- Stator-current observer ---
-    const T kDiAlpha = -kAlphaI * i_alpha_hat.Value() +
-                       kFlux * (kInvTR * psi_r_alpha.Value() + kOmegaR * psi_r_beta.Value()) +
-                       kInvSLs * v_ab.alpha.Value() + g_i.Value() * kErrAlpha;
+    // --- Stator-current observer [A/s] ---
+    const unit::CurrentPerTime kDiAlpha = (-kAlphaI * i_alpha_hat) +
+                                          (kFlux * ((kInvTR * psi_r_alpha) + (kOmegaR * psi_r_beta))) +
+                                          (kInvSLs * v_ab.alpha) + (g_i * kErrAlpha);
 
-    const T kDiBeta = -kAlphaI * i_beta_hat.Value() +
-                      kFlux * (kInvTR * psi_r_beta.Value() - kOmegaR * psi_r_alpha.Value()) +
-                      kInvSLs * v_ab.beta.Value() + g_i.Value() * kErrBeta;
+    const unit::CurrentPerTime kDiBeta = (-kAlphaI * i_beta_hat) +
+                                         (kFlux * ((kInvTR * psi_r_beta) - (kOmegaR * psi_r_alpha))) +
+                                         (kInvSLs * v_ab.beta) + (g_i * kErrBeta);
 
-    // --- Rotor-flux observer ---
-    const T kDpsiRAlpha = (L_m.Value() * kInvTR) * i_alpha_hat.Value() - kInvTR * psi_r_alpha.Value() -
-                          kOmegaR * psi_r_beta.Value() + g_flux.Value() * kErrAlpha;
+    // --- Rotor-flux observer [Wb/s = V] ---
+    const unit::Voltage kDpsiRAlpha = ((L_m * kInvTR) * i_alpha_hat) - (kInvTR * psi_r_alpha) -
+                                      (kOmegaR * psi_r_beta) + (g_flux * kErrAlpha);
 
-    const T kDpsiRBeta = (L_m.Value() * kInvTR) * i_beta_hat.Value() - kInvTR * psi_r_beta.Value() +
-                         kOmegaR * psi_r_alpha.Value() + g_flux.Value() * kErrBeta;
+    const unit::Voltage kDpsiRBeta =
+        ((L_m * kInvTR) * i_beta_hat) - (kInvTR * psi_r_beta) + (kOmegaR * psi_r_alpha) + (g_flux * kErrBeta);
 
     // --- Euler integration ---
-    i_alpha_hat = unit::Current{i_alpha_hat.Value() + dt.Value() * kDiAlpha};
-    i_beta_hat = unit::Current{i_beta_hat.Value() + dt.Value() * kDiBeta};
-    psi_r_alpha = unit::MagneticFlux{psi_r_alpha.Value() + dt.Value() * kDpsiRAlpha};
-    psi_r_beta = unit::MagneticFlux{psi_r_beta.Value() + dt.Value() * kDpsiRBeta};
+    i_alpha_hat += dt * kDiAlpha;
+    i_beta_hat += dt * kDiBeta;
+    psi_r_alpha += dt * kDpsiRAlpha;
+    psi_r_beta += dt * kDpsiRBeta;
 
     // --- Compute flux magnitude and angle ---
-    flux_magnitude = unit::MagneticFlux{
-        std::sqrt(psi_r_alpha.Value() * psi_r_alpha.Value() + psi_r_beta.Value() * psi_r_beta.Value())};
+    flux_magnitude = unit::Hypot(psi_r_alpha, psi_r_beta);
     flux_angle = unit::Angle{std::atan2(psi_r_beta.Value(), psi_r_alpha.Value())};
     sin_flux = unit::Ratio{std::sin(flux_angle.Value())};
     cos_flux = unit::Ratio{std::cos(flux_angle.Value())};
@@ -207,10 +206,10 @@ struct AsmFluxObserver {
     //   sin(θ_flux − θ̂) ≈ sin(θ_flux)·cos(θ̂) − cos(θ_flux)·sin(θ̂)
     //
     // This is the same technique used in the PMSM back-EMF PLL.
-    const T kAngleError =
-        sin_flux.Value() * mech_obs.cos_theta.Value() - cos_flux.Value() * mech_obs.sin_theta.Value();
+    // The small-angle sine is the angle in radians.
+    const unit::Ratio kAngleError = (sin_flux * mech_obs.cos_theta) - (cos_flux * mech_obs.sin_theta);
 
-    mech_obs.InjectAngleError(unit::Angle{kAngleError}, dt);
+    mech_obs.InjectAngleError(kAngleError * 1.0_rad, dt);
   }
 
   /**
@@ -231,8 +230,8 @@ struct AsmFluxObserver {
 
  private:
   /// Compute total leakage factor σ = 1 − L_m² / (L_s · L_r).
-  [[nodiscard]] constexpr T CalcSigma() const noexcept {
-    return static_cast<T>(1) - (L_m.Value() * L_m.Value()) / (L_s.Value() * L_r.Value());
+  [[nodiscard]] constexpr unit::Ratio CalcSigma() const noexcept {
+    return 1.0_ratio - ((L_m * L_m) / (L_s * L_r));
   }
 };
 

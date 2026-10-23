@@ -66,11 +66,13 @@ static_assert(std::same_as<Frequency, InverseTime>);
 // Electromechanical coupling: the rules agree with each other.
 static_assert(std::same_as<decltype(Voltage{} / AngularVelocity{}), MagneticFlux>);
 static_assert(std::same_as<decltype(Torque{} / Current{}), MagneticFlux>);
-static_assert(std::same_as<decltype(AngularVelocity{} * Inductance{}), Resistance>);
+static_assert(std::same_as<decltype(AngularVelocity{} * (Inductance{} * Current{})), Voltage>);
 static_assert(std::same_as<decltype((AngularVelocity{} * MagneticFlux{}) * Current{}),
                            decltype(AngularVelocity{} * (MagneticFlux{} * Current{}))>);
-static_assert(std::same_as<decltype((AngularVelocity{} * Inductance{}) * Current{}),
-                           decltype(AngularVelocity{} * (Inductance{} * Current{}))>);
+// Only unambiguous coupling rules: R/L and V/Wb stay 1/s, they are no speed.
+static_assert(std::same_as<decltype(Resistance{} / Inductance{}), InverseTime>);
+static_assert(std::same_as<decltype(Voltage{} / MagneticFlux{}), InverseTime>);
+static_assert(std::same_as<decltype((Voltage{} / MagneticFlux{}) * 1.0_rad), AngularVelocity>);
 // Quantities of different dimensions neither add nor compare.
 template <typename A, typename B>
 concept Addable = requires(A lhs, B rhs) { lhs + rhs; };

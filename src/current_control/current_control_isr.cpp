@@ -121,14 +121,14 @@ void CurrentControlIsr::OnControlCycle() noexcept {
   // 1. Samples of the cycle (oldest first) from the hardware boundary.
   // -------------------------------------------------------------------------
   const hardware::ControlCycleSamples kSamples = hardware::hot_path::GetControlCycleSamples();
-  const float kDcLinkVoltage = kSamples.dc_link.Value();
+  const unit::Voltage kDcLinkVoltage = kSamples.dc_link;
 
   // -------------------------------------------------------------------------
   // 1a. Store the newest raw sample — always, regardless of control mode.
   //     The startup FSM reads it from a lower-priority context.
   // -------------------------------------------------------------------------
   state.raw_phase_currents = kSamples.phase_currents[kNumSubSteps - 1U];
-  state.raw_vdc = unit::Voltage{kDcLinkVoltage};
+  state.raw_vdc = kDcLinkVoltage;
   state.i_ref = state.i_ref_mailbox.Read();
   if (gains_pending_.load(std::memory_order_acquire)) {
     gains_pending_.store(false, std::memory_order_relaxed);
@@ -208,7 +208,7 @@ void CurrentControlIsr::OnControlCycle() noexcept {
   // 4. Current PI with decoupling feedforward, once per cycle.
   // -------------------------------------------------------------------------
   const system::Rotor<unit::Voltage> kVoltageDq =
-      cc.Update(state.i_ref, i_dq_mean, mech_obs.omega, state.dt_slow, unit::Voltage{kDcLinkVoltage});
+      cc.Update(state.i_ref, i_dq_mean, mech_obs.omega, state.dt_slow, kDcLinkVoltage);
   buffer.u_dq = kVoltageDq;
   state.u_dq_last = kVoltageDq;
 
@@ -218,7 +218,7 @@ void CurrentControlIsr::OnControlCycle() noexcept {
   //    One reciprocal of V_dc for all entries (M2).
   // -------------------------------------------------------------------------
   const system::Stator<unit::Ratio> kDtcRatio = dtc.Calculate(buffer.i_ab_samples[kNumSubSteps - 1U]);
-  const float kInverseVDc = control::Svm::InverseDcLinkVoltage(kSamples.dc_link);
+  const auto kInverseVDc = control::Svm::InverseDcLinkVoltage(kSamples.dc_link);
   hardware::DutyPlan plan{};
   for (uint8_t k = 0U; k < kNumSubSteps; ++k) {
     const system::SinCos<unit::Ratio>& sc_out = buffer.sc_out[k];

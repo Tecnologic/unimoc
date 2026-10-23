@@ -91,19 +91,19 @@ ZTEST(svm, test_precomputed_inverse_matches_voltage_overload) {
   const Svm kSvm;
   const unimoc::system::Stator<unimoc::unit::Voltage> kVoltage{7.0F, -3.0F};
   const Stator kDeadTime{0.01F, -0.02F};
-  const float kInverse = Svm::InverseDcLinkVoltage(48.0_V);
+  const auto kInverse = Svm::InverseDcLinkVoltage(48.0_V);
 
   const auto kDirect = kSvm.CalculateWithDeadTimeCompensation(kVoltage, 48.0_V, kDeadTime);
   const auto kPrecomputed = kSvm.CalculateWithInverseDcLinkVoltage(kVoltage, kInverse, kDeadTime);
 
-  UNIMOC_EXPECT_FLOAT_EQ(kInverse, 1.0F / 48.0F);
+  UNIMOC_EXPECT_FLOAT_EQ(kInverse, 1.0F / 48.0_V);
   UNIMOC_EXPECT_FLOAT_EQ(kPrecomputed.a.Value(), kDirect.a.Value());
   UNIMOC_EXPECT_FLOAT_EQ(kPrecomputed.b.Value(), kDirect.b.Value());
   UNIMOC_EXPECT_FLOAT_EQ(kPrecomputed.c.Value(), kDirect.c.Value());
 }
 
 ZTEST(svm, test_inverse_dc_link_voltage_guards_against_zero) {
-  UNIMOC_EXPECT_FLOAT_EQ(Svm::InverseDcLinkVoltage(0.0_V), 1.0F);
+  UNIMOC_EXPECT_FLOAT_EQ(Svm::InverseDcLinkVoltage(0.0_V), 1.0F / 1.0_V);
 }
 
 ZTEST_SUITE(svm, nullptr, nullptr, nullptr, nullptr, nullptr);

@@ -15,7 +15,6 @@
  */
 #pragma once
 
-#include <cmath>
 #include <concepts>
 #include "nvm_settings.hpp"
 #include "stator_system.hpp"
@@ -88,35 +87,23 @@ struct DeadTimeCompensation {
   [[nodiscard]] constexpr system::Stator<unit::Ratio> Calculate(
       const system::Stator<unit::Current>& i_ab) const noexcept {
     // --- Reconstruct three-phase currents from α/β ---
-    constexpr T kSqrt3By2 = static_cast<T>(0.8660254037844386);  // √3 / 2
-
     const auto kPhaseCurrents = i_ab.ToThreePhase();
-    const T kIa = kPhaseCurrents.a.Value();
-    const T kIb = kPhaseCurrents.b.Value();
-    const T kIc = kPhaseCurrents.c.Value();
 
     // --- Soft sign function: clamp(i / threshold, -1, +1) ---
     // This provides linear interpolation through zero, preventing chattering.
-    const T kThreshold = i_threshold.Value();
-    constexpr unit::Ratio kMinusOne{-1.0F};
-    constexpr unit::Ratio kOne{1.0F};
-    T sign_a = unit::Ratio{kIa / kThreshold}.Clamp(kMinusOne, kOne).Value();
-    T sign_b = unit::Ratio{kIb / kThreshold}.Clamp(kMinusOne, kOne).Value();
-    T sign_c = unit::Ratio{kIc / kThreshold}.Clamp(kMinusOne, kOne).Value();
+    using unit::operator""_ratio;
+    constexpr unit::Ratio kMinusOne = -1.0_ratio;
+    constexpr unit::Ratio kOne = 1.0_ratio;
+    const unit::Ratio kSignA = (kPhaseCurrents.a / i_threshold).Clamp(kMinusOne, kOne);
+    const unit::Ratio kSignB = (kPhaseCurrents.b / i_threshold).Clamp(kMinusOne, kOne);
+    const unit::Ratio kSignC = (kPhaseCurrents.c / i_threshold).Clamp(kMinusOne, kOne);
 
     // Normalised per-phase voltage error: sign · t_dead · f_pwm
-    T dt_norm = dead_time.Value() * f_pwm.Value();
-    T dva = sign_a * dt_norm;
-    T dvb = sign_b * dt_norm;
-    T dvc = sign_c * dt_norm;
+    const unit::Ratio kDtNorm = dead_time * f_pwm;
+    const system::ThreePhase<unit::Ratio> kPhaseErrors{kSignA * kDtNorm, kSignB * kDtNorm, kSignC * kDtNorm};
 
     // --- Clarke transform (amplitude-invariant) back to α/β ---
-    constexpr T kTwoThirds = static_cast<T>(2.0 / 3.0);
-
-    T d_alpha = kTwoThirds * (dva - static_cast<T>(0.5) * dvb - static_cast<T>(0.5) * dvc);
-    T d_beta = kTwoThirds * (kSqrt3By2 * dvb - kSqrt3By2 * dvc);
-
-    return system::Stator<unit::Ratio>{d_alpha, d_beta};
+    return kPhaseErrors.ToStator();
   }
 };
 

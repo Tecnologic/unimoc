@@ -166,10 +166,14 @@ using Inductance = DimensionQuotient<MagneticFlux, Current>;
  * are the electromechanical coupling of a machine: the flux linkage changes by
  * its amplitude per electrical radian, so one radian drops out where the
  * electrical and the mechanical side meet. Angular velocity times flux is the
- * back-EMF in volts, angular velocity times inductance is the reactance in
- * ohms, and flux times current is the torque in N m/rad. The rules are
- * consistent with each other: (omega * psi) * i and omega * (psi * i) are both
- * power.
+ * back-EMF in volts and flux times current is the torque in N m/rad; the
+ * products agree with each other: (omega * psi) * i and omega * (psi * i) are
+ * both power.
+ *
+ * A rule exists only where the plain result has no meaning of its own. There
+ * is no reactance rule (omega * L): write omega * (L * i). Voltage over flux
+ * stays 1/s (e.g. R/L or the inverse of a flux time constant), so the speed of
+ * a back-EMF is (e / psi) * 1.0_rad.
  */
 template <typename D1, typename D2>
 struct ProductDimension {
@@ -189,20 +193,6 @@ template <>
 struct ProductDimension<dim::MagneticFlux, dim::AngularVelocity> {
   /// Voltage.
   using type = dim::Voltage;
-};
-
-/// Reactance: angular velocity times inductance is a resistance.
-template <>
-struct ProductDimension<dim::AngularVelocity, dim::Inductance> {
-  /// Resistance.
-  using type = dim::Resistance;
-};
-
-/// Reactance: inductance times angular velocity is a resistance.
-template <>
-struct ProductDimension<dim::Inductance, dim::AngularVelocity> {
-  /// Resistance.
-  using type = dim::Resistance;
 };
 
 /// Torque of one flux/current pair: magnetic flux times current.
@@ -226,7 +216,8 @@ struct ProductDimension<dim::Current, dim::MagneticFlux> {
  * @tparam D2 Dimension of the denominator.
  *
  * In general the exponents subtract (DimensionQuotient). The specializations
- * invert the coupling rules of ProductDimension.
+ * invert the coupling rules of ProductDimension where the plain quotient has
+ * no meaning of its own (see ProductDimension).
  */
 template <typename D1, typename D2>
 struct QuotientDimension {
@@ -253,27 +244,6 @@ template <>
 struct QuotientDimension<dim::Voltage, dim::AngularVelocity> {
   /// Magnetic flux.
   using type = dim::MagneticFlux;
-};
-
-/// Back-EMF over flux linkage is the angular velocity.
-template <>
-struct QuotientDimension<dim::Voltage, dim::MagneticFlux> {
-  /// Angular velocity.
-  using type = dim::AngularVelocity;
-};
-
-/// Reactance over angular velocity is the inductance.
-template <>
-struct QuotientDimension<dim::Resistance, dim::AngularVelocity> {
-  /// Inductance.
-  using type = dim::Inductance;
-};
-
-/// Reactance over inductance is the angular velocity.
-template <>
-struct QuotientDimension<dim::Resistance, dim::Inductance> {
-  /// Angular velocity.
-  using type = dim::AngularVelocity;
 };
 
 /**

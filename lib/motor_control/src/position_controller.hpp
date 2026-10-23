@@ -15,7 +15,6 @@
  */
 #pragma once
 
-#include <cmath>
 #include <concepts>
 #include "units.hpp"
 
@@ -230,11 +229,10 @@ struct PositionController {
                                          unit::AngularVelocity omega_meas,
                                          unit::Time delta_time,
                                          unit::Current homing_current_feedback = unit::Current{}) noexcept {
-    const T kOmegaMeasValue = omega_meas.Value();
     // --- Homing override ---
     if (homing_state == HomingState::kSearching) {
-      if (homing_block_current_threshold.Value() > 0.0F &&
-          std::abs(homing_current_feedback.Value()) >= homing_block_current_threshold.Value()) {
+      if (homing_block_current_threshold > unit::Current{} &&
+          unit::Abs(homing_current_feedback) >= homing_block_current_threshold) {
         homing_state = HomingState::kZeroing;
       } else {
         omega_ref = homing_speed;
@@ -257,18 +255,15 @@ struct PositionController {
       return omega_ref;
     }
 
-    const T kOmegaDemand = SpeedDemand(pos_meas_rad, omega_meas, delta_time).Value();
+    const unit::AngularVelocity kOmegaDemand = SpeedDemand(pos_meas_rad, omega_meas, delta_time);
 
     // --- Speed loop (PI) ---
-    const T kSpeedError = kOmegaDemand - kOmegaMeasValue;
+    const unit::AngularVelocity kSpeedError = kOmegaDemand - omega_meas;
 
     speed_integrator =
-        unit::AngularVelocity{speed_integrator.Value() + ki_speed.Value() * kSpeedError * delta_time.Value()}
-            .Clamp(-speed_limit, speed_limit);
+        (speed_integrator + (ki_speed * kSpeedError * delta_time)).Clamp(-speed_limit, speed_limit);
 
-    omega_ref =
-        unit::AngularVelocity{kp_speed.Value() * kSpeedError + speed_integrator.Value()}.Clamp(-speed_limit,
-                                                                                               speed_limit);
+    omega_ref = ((kp_speed * kSpeedError) + speed_integrator).Clamp(-speed_limit, speed_limit);
     return omega_ref;
   }
 
@@ -288,37 +283,32 @@ struct PositionController {
   constexpr unit::AngularVelocity SpeedDemand(unit::Angle pos_meas_rad,
                                               unit::AngularVelocity omega_meas,
                                               unit::Time delta_time) noexcept {
-    const T kPosMeas = pos_meas_rad.Value();
-
     // --- Position reference planning ---
-    const T kMaxPosStep = speed_limit.Value() * delta_time.Value();
-    const T kSetpointJumpMag = std::abs(pos_ref_rad.Value() - kPosMeas);
-    if (kSetpointJumpMag > trapezoid_jump_threshold.Value()) {
-      const T kPosErrRaw = pos_ref_rad.Value() - pos_ref_limited.Value();
-      pos_ref_limited += unit::Angle{kPosErrRaw}.Clamp(-unit::Angle{kMaxPosStep}, unit::Angle{kMaxPosStep});
+    const unit::Angle kMaxPosStep = speed_limit * delta_time;
+    const unit::Angle kSetpointJumpMag = unit::Abs(pos_ref_rad - pos_meas_rad);
+    if (kSetpointJumpMag > trapezoid_jump_threshold) {
+      const unit::Angle kPosErrRaw = pos_ref_rad - pos_ref_limited;
+      pos_ref_limited += kPosErrRaw.Clamp(-kMaxPosStep, kMaxPosStep);
     } else {
       pos_ref_limited = pos_ref_rad;
     }
 
     // --- Position loop (P) ---
-    const T kPosError = pos_ref_limited.Value() - kPosMeas;
-    T omega_demand = kp_pos.Value() * kPosError;
-    omega_demand = unit::AngularVelocity{omega_demand}.Clamp(-speed_limit, speed_limit).Value();
+    const unit::Angle kPosError = pos_ref_limited - pos_meas_rad;
+    unit::AngularVelocity omega_demand = kp_pos * kPosError;
+    omega_demand = omega_demand.Clamp(-speed_limit, speed_limit);
 
     // --- Acceleration limit on speed demand ---
-    const T kMaxDeltaOmega = accel_limit.Value() * delta_time.Value();
-    omega_demand = unit::AngularVelocity{omega_demand}
-                       .Clamp(omega_demand_prev - unit::AngularVelocity{kMaxDeltaOmega},
-                              omega_demand_prev + unit::AngularVelocity{kMaxDeltaOmega})
-                       .Value();
-    omega_demand_prev = unit::AngularVelocity{omega_demand};
+    const unit::AngularVelocity kMaxDeltaOmega = accel_limit * delta_time;
+    omega_demand = omega_demand.Clamp(omega_demand_prev - kMaxDeltaOmega, omega_demand_prev + kMaxDeltaOmega);
+    omega_demand_prev = omega_demand;
 
     // --- In-position flag ---
     // Compare against the raw setpoint, not the rate-limited intermediate.
-    in_position = (std::abs(pos_ref_rad.Value() - kPosMeas) <= position_tolerance.Value()) &&
-                  (std::abs(omega_meas.Value()) <= speed_tolerance.Value());
+    in_position = (unit::Abs(pos_ref_rad - pos_meas_rad) <= position_tolerance) &&
+                  (unit::Abs(omega_meas) <= speed_tolerance);
 
-    return unit::AngularVelocity{omega_demand};
+    return omega_demand;
   }
 
   /**

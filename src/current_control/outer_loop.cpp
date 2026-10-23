@@ -14,7 +14,6 @@
  *    See the repository LICENSE file for details.
  */
 #include "outer_loop.hpp"
-#include <cmath>
 #include "angle_wrap.hpp"
 
 namespace unimoc::current_control {
@@ -215,18 +214,16 @@ system::Rotor<Current> OuterLoop::TorqueToCurrent(const Torque torque) const noe
 }
 
 system::Rotor<Current> OuterLoop::LimitCurrent(const system::Rotor<Current> current) const noexcept {
-  const float kCurrentD = current.d.Value();
-  const float kCurrentQ = current.q.Value();
-  if (!std::isfinite(kCurrentD) || !std::isfinite(kCurrentQ)) {
+  if (!unit::IsFinite(current.d) || !unit::IsFinite(current.q)) {
     return {Current{}, Current{}};
   }
-  const float kMagnitude = std::sqrt((kCurrentD * kCurrentD) + (kCurrentQ * kCurrentQ));
-  const float kLimit = active_.current_limit.Value();
-  if (kMagnitude <= kLimit || kMagnitude <= 0.0F) {
+  const Current kMagnitude = current.Length();
+  const Current kLimit = active_.current_limit;
+  if (kMagnitude <= kLimit || kMagnitude <= Current{}) {
     return current;
   }
-  const float kScale = kLimit / kMagnitude;
-  return {Current{kCurrentD * kScale}, Current{kCurrentQ * kScale}};
+  const Ratio kScale = kLimit / kMagnitude;
+  return {current.d * kScale, current.q * kScale};
 }
 
 }  // namespace unimoc::current_control

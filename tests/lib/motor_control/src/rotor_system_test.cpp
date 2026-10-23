@@ -44,11 +44,13 @@ ZTEST(rotor_system, test_to_stator_at_quarter_turn) {
 }
 
 ZTEST(rotor_system, test_length_squared_avoids_square_root) {
-  constexpr Rotor kRotor{3.0F, 4.0F};
+  using unimoc::unit::operator""_A;
+  constexpr unimoc::system::Rotor kRotor{3.0_A, 4.0_A};
 
-  static_assert(std::same_as<decltype(kRotor.LengthSquared()), float>);
-  static_assert(kRotor.LengthSquared() == 25.0F);
-  UNIMOC_EXPECT_FLOAT_EQ(kRotor.LengthSquared(), 25.0F);
+  static_assert(std::same_as<decltype(kRotor.LengthSquared()),
+                             decltype(unimoc::unit::Current{} * unimoc::unit::Current{})>);
+  static_assert(kRotor.LengthSquared() == 5.0_A * 5.0_A);
+  UNIMOC_EXPECT_FLOAT_EQ(kRotor.LengthSquared(), 5.0_A * 5.0_A);
 }
 
 ZTEST_SUITE(rotor_system, nullptr, nullptr, nullptr, nullptr, nullptr);

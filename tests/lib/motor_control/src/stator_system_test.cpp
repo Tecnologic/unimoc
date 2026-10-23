@@ -67,11 +67,11 @@ ZTEST(stator_system, test_park_transform_is_constexpr) {
 }
 
 ZTEST(stator_system, test_length_squared_avoids_square_root) {
-  constexpr Stator kStator{3.0F, 4.0F};
+  constexpr unimoc::system::Stator kStator{3.0_A, 4.0_A};
 
-  static_assert(std::same_as<decltype(kStator.LengthSquared()), float>);
-  static_assert(kStator.LengthSquared() == 25.0F);
-  UNIMOC_EXPECT_FLOAT_EQ(kStator.LengthSquared(), 25.0F);
+  static_assert(std::same_as<decltype(kStator.LengthSquared()), decltype(Current{} * Current{})>);
+  static_assert(kStator.LengthSquared() == 5.0_A * 5.0_A);
+  UNIMOC_EXPECT_FLOAT_EQ(kStator.LengthSquared(), 5.0_A * 5.0_A);
 }
 
 ZTEST(stator_system, test_clarke_and_park_preserve_the_unit_type) {

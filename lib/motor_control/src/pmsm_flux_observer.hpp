@@ -187,8 +187,8 @@ struct PmsmFluxObserver {
       const unit::Time dt,
       const MechanicalObserver<T>& mech_obs) noexcept {
     // Snapshot sin/cos from the mechanical observer
-    const T kSn = mech_obs.sin_theta.Value();
-    const T kCs = mech_obs.cos_theta.Value();
+    const unit::Ratio kSn = mech_obs.sin_theta;
+    const unit::Ratio kCs = mech_obs.cos_theta;
 
     // -----------------------------------------------------------------
     // Rotor-frame back-EMF (voltage model + feedback)
@@ -201,8 +201,8 @@ struct PmsmFluxObserver {
     //   e_α = bemf_d · cos θ̂ − bemf_q · sin θ̂
     //   e_β = bemf_d · sin θ̂ + bemf_q · cos θ̂
     // -----------------------------------------------------------------
-    const unit::Voltage kBemfAlpha{kBemfD.Value() * kCs - kBemfQ.Value() * kSn};
-    const unit::Voltage kBemfBeta{kBemfD.Value() * kSn + kBemfQ.Value() * kCs};
+    const unit::Voltage kBemfAlpha = (kBemfD * kCs) - (kBemfQ * kSn);
+    const unit::Voltage kBemfBeta = (kBemfD * kSn) + (kBemfQ * kCs);
 
     // -----------------------------------------------------------------
     // Stator-frame flux integration
@@ -215,8 +215,8 @@ struct PmsmFluxObserver {
     //   ψ_d =  ψ_α · cos θ̂ + ψ_β · sin θ̂
     //   ψ_q = −ψ_α · sin θ̂ + ψ_β · cos θ̂
     // -----------------------------------------------------------------
-    const unit::MagneticFlux kPsiD{psi_alpha.Value() * kCs + psi_beta.Value() * kSn};
-    const unit::MagneticFlux kPsiQ{-psi_alpha.Value() * kSn + psi_beta.Value() * kCs};
+    const unit::MagneticFlux kPsiD = (psi_alpha * kCs) + (psi_beta * kSn);
+    const unit::MagneticFlux kPsiQ = (-psi_alpha * kSn) + (psi_beta * kCs);
 
     // -----------------------------------------------------------------
     // Subtract inductance-induced flux to get PM flux estimate
@@ -238,7 +238,8 @@ struct PmsmFluxObserver {
     if (!(set_flux.d > unit::MagneticFlux{})) {
       return std::nullopt;
     }
-    return unit::Angle{(psi_pm_q / set_flux.d).Value()};
+    // The small-angle tangent ψ_q_PM / ψ_d is the angle in radians.
+    return (psi_pm_q / set_flux.d) * 1.0_rad;
   }
 
   /**
