@@ -41,8 +41,8 @@ def test_port_list_names_the_drive_ports(sim: SimClient):
     port_list = sim.receive(sim.port_list, timeout=12.0)[0]
     publishers = {item.value for item in port_list.publishers.sparse_list}
     subscribers = {item.value for item in port_list.subscribers.sparse_list}
-    assert {7509, 212, 213} <= publishers
-    assert {106, 107, 100} <= subscribers
+    assert {7509, 212, 213, 214} <= publishers
+    assert {106, 107, 100, 110, 111, 112} <= subscribers
     assert port_list.servers.mask[384] and port_list.servers.mask[385]
     assert port_list.servers.mask[430] and port_list.servers.mask[435]
 
@@ -116,6 +116,37 @@ def test_torque_setpoint_uses_the_torque_constant(sim: SimClient):
     sim.hold(0.2, STANDBY)
     sim.hold(1.0, ENGAGED, sim.torque_setpoint(2.0 * torque_constant))
     assert sim.latest(sim.telemetry, settle=0.0).i_q_ref == pytest.approx(2.0, rel=1e-3)
+    sim.hold(0.2, SLEEP)
+
+
+def test_wheel_command_and_drive_status(sim: SimClient):
+    torque_constant = 1.5 * 7 * 5e-3  # the motor of the test before
+    sim.hold(1.0, ENGAGED, sim.wheel_command(2.0 * torque_constant))
+    assert sim.latest(sim.telemetry, settle=0.0).i_q_ref == pytest.approx(2.0, rel=1e-3)
+    status = sim.latest(sim.drive_status, settle=0.0)
+    assert status.engaged and not status.limp_home
+    assert status.wheel == 0
+    assert status.estimated_torque == pytest.approx(2.0 * torque_constant, abs=0.5 * torque_constant)
+    assert status.dc_link_voltage == pytest.approx(48.0, abs=0.5)
+    assert math.isnan(status.motor_temperature)
+    sim.hold(0.2, SLEEP)
+
+
+def test_limp_home_on_the_pedals_without_the_vdc(sim: SimClient):
+    torque_constant = 1.5 * 7 * 5e-3
+    assert sim.write("unimoc.cart.limp_home_torque", real(2.0 * torque_constant)) == pytest.approx(2.0 * torque_constant)
+    sim.hold(0.2, STANDBY)  # applied while disengaged
+    sim.hold(0.5, ENGAGED, sim.wheel_command(0.0))
+    # The VDC stops (readiness and wheel command), the pedal unit stays beyond the readiness timeout.
+    sim.publish_for(1.0, sim.pedals(1.0, 0.0))
+    telemetry = sim.latest(sim.telemetry, settle=0.0)
+    assert telemetry.engaged
+    assert telemetry.i_q_ref == pytest.approx(2.0, rel=1e-3)
+    assert sim.latest(sim.drive_status, settle=0.0).limp_home
+    # Without the pedals the torque ramps to zero and the readiness timeout disengages.
+    sim.wait(0.5)
+    assert not sim.latest(sim.telemetry).engaged
+    assert "disengaged: readiness timeout" in sim.records
     sim.hold(0.2, SLEEP)
 
 

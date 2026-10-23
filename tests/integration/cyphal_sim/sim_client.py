@@ -28,6 +28,7 @@ import reg.udral.physics.dynamics.rotation
 import reg.udral.physics.kinematics.rotation
 import reg.udral.service.common
 import cymon
+import unimoc.cart
 import unimoc.drive
 import unimoc.sim
 
@@ -42,6 +43,10 @@ PORT_POSITION_SETPOINT = 102
 PORT_SERVO_SETPOINT = 108
 PORT_TELEMETRY = 212
 PORT_PLANT = 213
+PORT_WHEEL_COMMAND = 110
+PORT_PEDAL_STATE = 111
+PORT_BATTERY_STATUS = 112
+PORT_DRIVE_STATUS = 214
 
 # Trace services (cymon), defaults of the uavcan.srv.cymon_*.id registers.
 PORT_CYMON_VARIABLES = 120
@@ -101,6 +106,7 @@ class SimClient:
         self.heartbeat = self.node.make_subscriber(uavcan.node.Heartbeat_1_0)
         self.telemetry = self.node.make_subscriber(unimoc.drive.Telemetry_0_1, PORT_TELEMETRY)
         self.plant = self.node.make_subscriber(unimoc.sim.Plant_0_1, PORT_PLANT)
+        self.drive_status = self.node.make_subscriber(unimoc.cart.DriveStatus_0_1, PORT_DRIVE_STATUS)
         self.port_list = self.node.make_subscriber(uavcan.node.port.List_1_0)
         self.diagnostic = self.node.make_subscriber(uavcan.diagnostic.Record_1_1)
         self.diagnostic.receive_in_background(self._on_record)
@@ -110,6 +116,8 @@ class SimClient:
         self.speed = self.node.make_publisher(uavcan.si.unit.angular_velocity.Scalar_1_0, PORT_SPEED_SETPOINT)
         self.position = self.node.make_publisher(uavcan.si.unit.angle.Scalar_1_0, PORT_POSITION_SETPOINT)
         self.servo = self.node.make_publisher(reg.udral.physics.dynamics.rotation.Planar_0_1, PORT_SERVO_SETPOINT)
+        self.wheel_command_publisher = self.node.make_publisher(unimoc.cart.WheelCommand_0_1, PORT_WHEEL_COMMAND)
+        self.pedal_state_publisher = self.node.make_publisher(unimoc.cart.PedalState_0_1, PORT_PEDAL_STATE)
 
     async def _on_record(self, record: uavcan.diagnostic.Record_1_1, _meta) -> None:
         self.records.append(record.text.tobytes().decode())
@@ -270,6 +278,32 @@ class SimClient:
                 await asyncio.sleep(period)
 
         self._run(go())
+
+    def publish_for(self, seconds: float, setpoint: Callable[[], None], period: float = 0.02) -> None:
+        """Publishes @p setpoint every @p period for @p seconds, without the readiness."""
+        async def go():
+            deadline = self.loop.time() + seconds
+            while self.loop.time() < deadline:
+                await setpoint()
+                await asyncio.sleep(period)
+
+        self._run(go())
+
+    def wheel_command(self, front_left: float):
+        """Wheel command with @p front_left [N m] for the drive's wheel, the others zero."""
+        async def publish():
+            await self.wheel_command_publisher.publish(unimoc.cart.WheelCommand_0_1(wheel_torque=[front_left, 0.0, 0.0, 0.0]))
+
+        return publish
+
+    def pedals(self, drive: float, brake: float):
+        """Plausible pedal state, both channels equal."""
+        async def publish():
+            await self.pedal_state_publisher.publish(unimoc.cart.PedalState_0_1(
+                drive_pedal=[drive, drive], brake_pedal=[brake, brake],
+                drive_pedal_plausible=True, brake_pedal_plausible=True))
+
+        return publish
 
     def current_setpoint(self, i_d: float, i_q: float):
         async def publish():
