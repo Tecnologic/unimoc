@@ -161,6 +161,46 @@ void Riding(Rig& rig, const uint8_t level = 3U, const Torque pedal_torque = 20.0
 
 }  // namespace
 
+ZTEST(ebike_control, test_the_settings_defaults_are_the_parameter_defaults) {
+  const EbikeParameters kFromSettings = EbikeParameters::From(unimoc::settings::NvmSettings{});
+  const EbikeParameters kDefaults;
+  zexpect_equal(kFromSettings.pedal.pulses_per_rev, kDefaults.pedal.pulses_per_rev);
+  for (std::size_t level = 0U; level < kAssistLevels; ++level) {
+    UNIMOC_EXPECT_FLOAT_EQ(kFromSettings.assist.level_gain[level], kDefaults.assist.level_gain[level]);
+  }
+  UNIMOC_EXPECT_FLOAT_EQ(kFromSettings.assist.power_scale, kDefaults.assist.power_scale);
+  UNIMOC_EXPECT_FLOAT_EQ(kFromSettings.assist.max_ratio, kDefaults.assist.max_ratio);
+  UNIMOC_EXPECT_FLOAT_EQ(kFromSettings.assist.torque_ratio, kDefaults.assist.torque_ratio);
+  UNIMOC_EXPECT_FLOAT_EQ(kFromSettings.assist.torque_deadband, kDefaults.assist.torque_deadband);
+  UNIMOC_EXPECT_FLOAT_EQ(kFromSettings.assist.min_cadence, kDefaults.assist.min_cadence);
+  UNIMOC_EXPECT_FLOAT_EQ(kFromSettings.assist.speed_taper, kDefaults.assist.speed_taper);
+  UNIMOC_EXPECT_FLOAT_EQ(kFromSettings.assist.rise_time, kDefaults.assist.rise_time);
+  UNIMOC_EXPECT_FLOAT_EQ(kFromSettings.assist.fall_time, kDefaults.assist.fall_time);
+  UNIMOC_EXPECT_FLOAT_EQ(kFromSettings.engage_hold, kDefaults.engage_hold);
+  UNIMOC_EXPECT_FLOAT_EQ(kFromSettings.rearm_pedal_stop, kDefaults.rearm_pedal_stop);
+  UNIMOC_EXPECT_FLOAT_EQ(kFromSettings.display_timeout, kDefaults.display_timeout);
+  UNIMOC_EXPECT_FLOAT_EQ(kFromSettings.wheel_circumference_m, kDefaults.wheel_circumference_m);
+  UNIMOC_EXPECT_FLOAT_EQ(kFromSettings.gear_ratio, kDefaults.gear_ratio);
+  zexpect_equal(kFromSettings.battery_cells, kDefaults.battery_cells);
+  zexpect_equal(kFromSettings.nominal_voltage, kDefaults.nominal_voltage);
+  zexpect_equal(kFromSettings.reversed, kDefaults.reversed);
+}
+
+ZTEST(ebike_control, test_the_parameters_follow_the_settings) {
+  unimoc::settings::NvmSettings settings;
+  settings.ebike_gain_3 = 1.25_ratio;
+  settings.ebike_gain_5 = 2.5_ratio;
+  settings.cart_reversed = 1U;
+  settings.ebike_battery_cells = 13U;
+  const EbikeParameters kParameters = EbikeParameters::From(settings);
+  UNIMOC_EXPECT_FLOAT_EQ(kParameters.assist.level_gain[0], 0.0_ratio);
+  UNIMOC_EXPECT_FLOAT_EQ(kParameters.assist.level_gain[3], 1.25_ratio);
+  // Levels 6 and 7 use the gain of level 5.
+  UNIMOC_EXPECT_FLOAT_EQ(kParameters.assist.level_gain[7], 2.5_ratio);
+  zexpect_true(kParameters.reversed);
+  zexpect_equal(kParameters.battery_cells, 13U);
+}
+
 ZTEST(ebike_control, test_no_assist_without_a_display) {
   Rig rig;
   rig.Pedal(kCadence, 20.0_Nm);

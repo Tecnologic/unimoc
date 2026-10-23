@@ -417,6 +417,11 @@ void DriveNode::LoadParameters(const settings::NvmSettings& settings) noexcept {
   drive_status_period_us_ = PeriodMicroseconds(settings.cart_status_rate);
   cart_wheel_ = settings.cart_wheel;
   cart_.Configure(CartParameters::From(settings));
+  // Not while engaged: it restarts the pedal observer and the assist ramp, so e-bike changes wait for the
+  // disengage.
+  if (ebike_ != nullptr && !engaged_) {
+    ebike_->Configure(ebike::EbikeParameters::From(settings));
+  }
   current_limit_ = settings.motor_i_max;
   // PMSM torque constant: T = 3/2 p psi_pm i_q.
   torque_constant_ = settings.flux_pm * (1.5F * static_cast<float>(settings.pole_pairs));

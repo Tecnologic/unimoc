@@ -20,6 +20,7 @@
 #include "assist_controller.hpp"
 #include "ebike_interface.hpp"
 #include "kunteng_protocol.hpp"
+#include "nvm_settings.hpp"
 #include "pedal_observer.hpp"
 #include "units.hpp"
 
@@ -45,6 +46,9 @@ struct EbikeParameters {
   uint8_t nominal_voltage{36U};
   /// Positive rotor torque and speed drive backward.
   bool reversed{false};
+
+  /// The parameters of the settings (`unimoc.ebike.*`, and `unimoc.cart.reversed` for the direction).
+  [[nodiscard]] static EbikeParameters From(const settings::NvmSettings& settings) noexcept;
 };
 
 /// What the drive tells the e-bike control about the vehicle.

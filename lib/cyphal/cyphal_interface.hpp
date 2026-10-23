@@ -644,6 +644,90 @@ inline constexpr const char* kCartStandstillSpeed = "unimoc.cart.standstill_spee
 /// Type: real32[1] (read/write, persistent)
 inline constexpr const char* kCartBatteryShare = "unimoc.cart.battery_share";
 
+/// Cadence pulses per crank revolution (poles of the sensor ring), 2 to 64.
+/// Type: uint8[1] (read/write, persistent)
+inline constexpr const char* kEbikePulsesPerRev = "unimoc.ebike.pulses_per_rev";
+
+/// Rolling circumference of the wheel [m]; the wheel size of the display has to match it.
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kEbikeWheelCircumference = "unimoc.ebike.wheel_circumference";
+
+/// Motor shaft revolutions per wheel revolution (1: hub motor).
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kEbikeGearRatio = "unimoc.ebike.gear_ratio";
+
+/// Series cells of the battery (battery bars of the display), 1 to 30.
+/// Type: uint8[1] (read/write, persistent)
+inline constexpr const char* kEbikeBatteryCells = "unimoc.ebike.battery_cells";
+
+/// Nominal battery voltage [V] the display is set to (24, 36, 48).
+/// Type: uint8[1] (read/write, persistent)
+inline constexpr const char* kEbikeNominalVoltage = "unimoc.ebike.nominal_voltage";
+
+/// Assist ratio (motor power / pedal power) of display level 1.
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kEbikeGain1 = "unimoc.ebike.gain_1";
+
+/// Assist ratio of display level 2.
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kEbikeGain2 = "unimoc.ebike.gain_2";
+
+/// Assist ratio of display level 3.
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kEbikeGain3 = "unimoc.ebike.gain_3";
+
+/// Assist ratio of display level 4.
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kEbikeGain4 = "unimoc.ebike.gain_4";
+
+/// Assist ratio of display level 5; levels 6 and 7 use it too.
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kEbikeGain5 = "unimoc.ebike.gain_5";
+
+/// The assist ratio grows with exp(pedal power / power_scale).
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kEbikePowerScale = "unimoc.ebike.power_scale";
+
+/// Upper limit of the total assist ratio.
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kEbikeMaxRatio = "unimoc.ebike.max_ratio";
+
+/// Motor torque per pedal torque at a standing motor (low-speed torque assist).
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kEbikeTorqueRatio = "unimoc.ebike.torque_ratio";
+
+/// Pedal torque below this gives no assist.
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kEbikeTorqueDeadband = "unimoc.ebike.torque_deadband";
+
+/// No assist below this crank speed.
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kEbikeMinCadence = "unimoc.ebike.min_cadence";
+
+/// The assist fades out over this motor speed range below the speed limit of the display.
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kEbikeSpeedTaper = "unimoc.ebike.speed_taper";
+
+/// Time to ramp the assist torque from zero to the torque limit.
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kEbikeRiseTime = "unimoc.ebike.rise_time";
+
+/// Time to ramp the assist torque from the torque limit to zero.
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kEbikeFallTime = "unimoc.ebike.fall_time";
+
+/// The drive stays engaged this long after the assist ended.
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kEbikeEngageHold = "unimoc.ebike.engage_hold";
+
+/// After a fault the pedals must stand still this long before the drive engages again.
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kEbikeRearmTime = "unimoc.ebike.rearm_time";
+
+/// Without a display request for this long the display counts as lost: no assist.
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kEbikeDisplayTimeout = "unimoc.ebike.display_timeout";
+
 /// Bus-off events of the CAN interfaces since start.
 /// Type: natural32[1] (read-only)
 inline constexpr const char* kCanBusOffCount = "unimoc.can.bus_off_count";

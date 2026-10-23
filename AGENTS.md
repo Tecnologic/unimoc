@@ -36,6 +36,9 @@ Read `README.md` for the supported motor types and public features, and
 - `lib/sim/` is the portable motor plant simulation (`MotorSimulation`: inverter,
   motor models, shaft, Hall sensors) for `native_sim`. It is not part of
   `unimoc_lib`.
+- `lib/ebike/` is the portable e-bike logic (pedal observer, assist law, Kunteng display codec, software UART
+  receiver; docs/ebike_plan.md); its tests are in `tests/lib/ebike/`. `src/ebike/` is the e-bike control that
+  the drive attaches (`tests/ebike/`).
 - `lib/settings/`, `lib/units/`, and `lib/cyphal/` are separate library
   dependencies. The Zephyr build links them through `unimoc_lib`
   (`cmake/UnimocZephyr.cmake`). `lib/cyphal/` is the portable Cyphal stack:

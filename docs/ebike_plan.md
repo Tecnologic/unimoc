@@ -1,8 +1,9 @@
 # Plan: Pedal Assist on the Battery Case Controller
 
-Status: 2026-10-23, draft. Steps 1 to 4 are implemented and tested under twister on
-`native_sim` (`lib/ebike/`, `tests/lib/ebike/`). Nothing is verified on the BCC
-hardware or on a real KT-LCD8.
+Status: 2026-10-23. Steps 1 to 5 are implemented, tested under twister on `native_sim`
+(`lib/ebike/`, `src/ebike/`, `tests/lib/ebike/`, `tests/ebike/`, the e-bike tests of
+`tests/sim/cyphal_drive`) and compiled for the BCC (`unimoc.app.build.ebike`). Nothing is
+verified on the BCC hardware or on a real KT-LCD8.
 
 ## 1. Goal
 
@@ -43,12 +44,12 @@ E-Rider T9N (ebikes.ca product page):
 | Cadence | single wire, 36 poles per revolution (10 degrees); a vendor text gives 18, so the pulse count is a parameter |
 | Direction | not available (single wire), so no back-pedal detection |
 
-Open points: the T9N output reaches 3.5 V, the BCC ADC reference is 3.3 V
-(check the input network of PB14 in the schematic); the sensor needs 5 to 15 V
-(check the supply of the connector).
-
-`analog_scaling.hpp` converts counts to torque above the nominal 1.5 V rest
-voltage. The offset of the individual sensor is trimmed by the observer.
+BCC wiring (schematic, Tecnologic/battery-case-controller, connector J38 CRANK): pin 1 is +12 V (the sensor
+accepts 5 to 15 V), pin 2 the cadence pulse (a 1k pull-up to 3V3, 3k3 series, 2n2: PA5), pin 3 the torque
+(R84 || R85 in series with R86 to ground: a 2/3 divider, so 3.5 V at the sensor is 2.3 V at the ADC; PB14, a
+channel of the injected sequence), pin 4 ground. `analog_scaling.hpp` undoes the divider and converts to torque
+above the nominal 1.5 V rest voltage (it ignored the divider before). The offset of the individual sensor is
+trimmed by the observer.
 
 ## 4. Pedal observer (`lib/ebike/src/pedal_observer.hpp`)
 
@@ -86,9 +87,10 @@ With the pedal torque after a deadband, the cadence and the pedal power
 
 The defaults are a starting point (level gains 0, 0.3, 0.6, 1.0, 1.5, 2.0;
 `P_scale` 300 W; maximum ratio 4; torque ratio 0.5; deadband 2 Nm), none is
-tuned. They become settings (registers) with the integration. Open: the
-conversion of the display's speed limit and the torque limit to the motor
-shaft, which needs the wheel circumference and the gearing.
+tuned. They are the `unimoc.ebike.*` registers (README, "E-bike"). The speed
+limit of the display (km/h) becomes a motor shaft speed with the wheel
+circumference and the gear ratio. The display's current limit code is not used
+yet: the torque limit is the drive's own window (motor and battery limits).
 
 ## 6. Display protocol (`lib/ebike/src/kunteng_protocol.hpp`)
 
@@ -109,14 +111,45 @@ layout (the EBiCS firmware was read as a reference, nothing was copied).
   window, so it needs no DMA length tricks and resynchronizes by itself.
 
 Unverified against a real KT-LCD8: the temperature offset, the wheel size
-code mapping (kept raw), and the checksum constant of this display.
+code mapping (kept raw), the error codes (any fault reports code 1) and the
+checksum constant of this display.
 
-## 7. Steps
+## 7. Integration
 
-1. Torque scaling and zero offset. **Done** (scaling fixed, offset trim in the observer).
+**Engagement on demand** (`src/ebike/ebike_control.*`, `DriveNode::SetLocalControl()`): the e-bike asks for
+the drive while the crank turns at a display level above 0 and for the engage hold (2 s) afterwards. Its
+torque replaces the other setpoints while the drive is engaged (limited by `i_max` and the outer loop). The
+readiness `ENGAGED` of the bus is ignored; `SLEEP` or `STANDBY` release the drive and latch the e-bike off until
+the pedals stood still for the re-arm time (1 s). A trip, a power stage fault or a refused engage latch it the
+same way, so a persistent fault cannot re-engage the drive in a loop. A silent display (2 s) counts as level 0,
+so there is no assist without a display. The assist torque ramps up in 0.5 s and down in 0.15 s.
+
+**BCC hardware** (connector J32 Display: pin 1 +BATT, 2 DCDC_VIN, 3 GND, 4 DISP_TX, 5 DISP_RX):
+
+- DISP_TX is PB10, USART3_TX (Zephyr UART driver, interrupt driven, 9600 8N1).
+- DISP_RX is PB15, which has **no UART receive function** on the STM32G473, and PB11, the receive pin of USART3,
+  is the second break input. The edges of PB15 are captured by TIM15 channel 2 (both edges, an interrupt each,
+  stamped with the DWT counter) and `EdgeUartDecoder` rebuilds the bytes in the Cyphal thread. EXTI is not used
+  for it: EXTI line 15 is also the line of Hall C (PC15) in the Hall fusion plan. A swap of the two display
+  lines on a later board revision would give a normal UART.
+- The cadence pulse PA5 is a GPIO interrupt (falling edge) that stamps the DWT counter.
+- The crank torque is read from the injected ADC results (a single reading per update, the observer averages).
+- Not verified on the board: the TIM15 both-edge capture (CC2NP on TIM15), the logic levels of the display
+  (5 V on DISP_RX?), the interrupt latencies.
+
+**Switch.** `CONFIG_UNIMOC_EBIKE` is off on the BCC by default, because the assist parameters are untuned and
+the control engages the power stage by itself; enable it in `app/boards/bcc.conf` for the bench
+(`unimoc.app.build.ebike` builds it). native_sim has it on.
+
+## 8. Steps
+
+1. Torque scaling and zero offset. **Done** (scaling and the input divider fixed, offset trim in the observer).
 2. `PedalObserver` with tests. **Done.**
 3. Assist law with tests. **Done.**
 4. Kunteng frame codec with tests. **Done.**
-5. BCC drivers (cadence interrupt, display UART, devicetree nodes), the
-   setpoint hook-up, the register set for the parameters above, and fake inputs
-   for `native_sim`. **Open.**
+5. BCC drivers, devicetree nodes, the drive hook, the registers and the native_sim rider. **Done**, except
+   the open points below.
+
+Open: tuning on the bench and on the road; the display on a real KT-LCD8; the board check of the TIM15 capture and
+the logic levels; brake, light and throttle inputs (no pins on the BCC connectors); the `unimoc.sim.pedal_*`
+registers for pytest and yakut; persisting the learned torque offset; the display's current limit code.

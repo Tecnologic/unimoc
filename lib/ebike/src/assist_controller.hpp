@@ -39,7 +39,8 @@ inline constexpr std::size_t kAssistLevels = 8U;
  */
 struct AssistConfig {
   /// Base assist ratio (motor power / pedal power) per assist level; level 0 is off.
-  std::array<float, kAssistLevels> level_gain{0.0F, 0.3F, 0.6F, 1.0F, 1.5F, 2.0F, 2.0F, 2.0F};
+  std::array<Ratio, kAssistLevels>
+      level_gain{0.0_ratio, 0.3_ratio, 0.6_ratio, 1.0_ratio, 1.5_ratio, 2.0_ratio, 2.0_ratio, 2.0_ratio};
   /// The ratio grows with exp(pedal power / power_scale): the assist rises with the effort.
   Power power_scale{300.0_W};
   /// Upper limit of the total assist ratio (base ratio times the exponential).

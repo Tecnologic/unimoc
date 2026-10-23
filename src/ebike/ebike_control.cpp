@@ -42,6 +42,36 @@ constexpr unit::Time kMaxWheelPeriod = 65'535.0_ms;
 
 }  // namespace
 
+EbikeParameters EbikeParameters::From(const settings::NvmSettings& settings) noexcept {
+  EbikeParameters parameters;
+  parameters.pedal.pulses_per_rev = settings.ebike_pulses_per_rev;
+  parameters.assist.level_gain = {0.0_ratio,
+                                  settings.ebike_gain_1,
+                                  settings.ebike_gain_2,
+                                  settings.ebike_gain_3,
+                                  settings.ebike_gain_4,
+                                  settings.ebike_gain_5,
+                                  settings.ebike_gain_5,
+                                  settings.ebike_gain_5};
+  parameters.assist.power_scale = settings.ebike_power_scale;
+  parameters.assist.max_ratio = settings.ebike_max_ratio;
+  parameters.assist.torque_ratio = settings.ebike_torque_ratio;
+  parameters.assist.torque_deadband = settings.ebike_torque_deadband;
+  parameters.assist.min_cadence = settings.ebike_min_cadence;
+  parameters.assist.speed_taper = settings.ebike_speed_taper;
+  parameters.assist.rise_time = settings.ebike_rise_time;
+  parameters.assist.fall_time = settings.ebike_fall_time;
+  parameters.engage_hold = settings.ebike_engage_hold;
+  parameters.rearm_pedal_stop = settings.ebike_rearm_time;
+  parameters.display_timeout = settings.ebike_display_timeout;
+  parameters.wheel_circumference_m = settings.ebike_wheel_circumference;
+  parameters.gear_ratio = settings.ebike_gear_ratio.Value();
+  parameters.battery_cells = settings.ebike_battery_cells;
+  parameters.nominal_voltage = settings.ebike_nominal_voltage;
+  parameters.reversed = settings.cart_reversed != 0U;
+  return parameters;
+}
+
 void EbikeControl::Configure(const EbikeParameters& parameters) noexcept {
   parameters_ = parameters;
   pedal_ = PedalObserver(parameters.pedal);

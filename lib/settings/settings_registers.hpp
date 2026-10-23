@@ -154,6 +154,27 @@ void ForEachRegister(const Visitor& visit, Settings&... settings) {
   visit(reg::kCartLimpHomeTorque, settings.cart_limp_home_torque...);
   visit(reg::kCartStandstillSpeed, settings.cart_standstill_speed...);
   visit(reg::kCartBatteryShare, settings.cart_battery_share...);
+  visit(reg::kEbikePulsesPerRev, settings.ebike_pulses_per_rev...);
+  visit(reg::kEbikeWheelCircumference, settings.ebike_wheel_circumference...);
+  visit(reg::kEbikeGearRatio, settings.ebike_gear_ratio...);
+  visit(reg::kEbikeBatteryCells, settings.ebike_battery_cells...);
+  visit(reg::kEbikeNominalVoltage, settings.ebike_nominal_voltage...);
+  visit(reg::kEbikeGain1, settings.ebike_gain_1...);
+  visit(reg::kEbikeGain2, settings.ebike_gain_2...);
+  visit(reg::kEbikeGain3, settings.ebike_gain_3...);
+  visit(reg::kEbikeGain4, settings.ebike_gain_4...);
+  visit(reg::kEbikeGain5, settings.ebike_gain_5...);
+  visit(reg::kEbikePowerScale, settings.ebike_power_scale...);
+  visit(reg::kEbikeMaxRatio, settings.ebike_max_ratio...);
+  visit(reg::kEbikeTorqueRatio, settings.ebike_torque_ratio...);
+  visit(reg::kEbikeTorqueDeadband, settings.ebike_torque_deadband...);
+  visit(reg::kEbikeMinCadence, settings.ebike_min_cadence...);
+  visit(reg::kEbikeSpeedTaper, settings.ebike_speed_taper...);
+  visit(reg::kEbikeRiseTime, settings.ebike_rise_time...);
+  visit(reg::kEbikeFallTime, settings.ebike_fall_time...);
+  visit(reg::kEbikeEngageHold, settings.ebike_engage_hold...);
+  visit(reg::kEbikeRearmTime, settings.ebike_rearm_time...);
+  visit(reg::kEbikeDisplayTimeout, settings.ebike_display_timeout...);
 }
 
 namespace settings_registers_internal {
