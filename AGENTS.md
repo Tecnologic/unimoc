@@ -226,9 +226,15 @@ link time per platform, no function pointers); the thread context uses the
 
 ## Git Safety
 
-- Do not stage or commit changes unless the user explicitly requests it.
-- Do not create branches, reset, checkout files, abort, or continue a merge or
-  rebase unless the user explicitly requests that operation.
+- Commit and push each finished working step on the agent's own working
+  branch (the branch the session was given, or one created for the task), so
+  no work is lost. Use clear commit messages; `check_format.sh` and
+  `twister_sca.sh` must pass before a PR, not before every working commit.
+- Never commit to or push `main`, `develop` or another person's branch; if the
+  session starts on one of them, create an own working branch first. Never
+  force-push, amend, or rebase pushed commits unless the user asks.
+- Do not reset, checkout files, abort, or continue a merge or rebase unless
+  the user explicitly requests that operation.
 - Leave the working tree and merge state available for the user when a workflow
   reaches a git lifecycle boundary.
 
