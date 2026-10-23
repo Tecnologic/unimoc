@@ -17,6 +17,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include "battery_limits.hpp"
 #include "current_control_isr.hpp"
 #include "cyphal/control_mode.hpp"
 #include "dc_link_limit.hpp"
@@ -73,6 +74,14 @@ struct OuterStatus {
   system::Rotor<unit::Current> current_reference{unit::Current{}, unit::Current{}};
   /// Position mode: the shaft is within the position and speed tolerance.
   bool in_position{false};
+  /// Most negative shaft torque the drive can apply now: the motor current
+  /// limit and the battery power window at the present speed [N m].
+  unit::Torque torque_min;
+  /// Most positive shaft torque the drive can apply now [N m].
+  unit::Torque torque_max;
+  /// The charge limit is reduced: by the BMS below the settings, or by the
+  /// DC-link overvoltage derating.
+  bool regen_derated{false};
 };
 
 /**
@@ -89,8 +98,9 @@ struct OuterStatus {
  *    (position mode), turns the torque into a q current with the torque
  *    constant (PMSM, i_d = 0), limits it to the motor current and to the
  *    battery current limits (control::DcLinkLimit: regenerative braking
- *    derated with the DC-link voltage) and hands the current reference to
- *    the control cycle (CurrentControlIsr::SetCurrentRef(), a mailbox).
+ *    derated with the DC-link voltage; the limits of the settings or those
+ *    of the BMS, SetBatteryLimits()) and hands the current reference to the
+ *    control cycle (CurrentControlIsr::SetCurrentRef(), a mailbox).
  *  - The drive (Cyphal thread) writes setpoints and parameters through
  *    mailboxes; it never touches the controllers.
  *
@@ -127,6 +137,14 @@ class OuterLoop {
 
   /// Hands a new setpoint to the control thread (one writer: the drive).
   void SetSetpoint(const OuterSetpoint& setpoint) noexcept { setpoint_.Write(setpoint); }
+
+  /**
+   * @brief Replaces the battery current limits of the settings (BMS).
+   *
+   * The control thread takes them at its next step and keeps them across
+   * Init(); invalid limits return to the settings. One writer: the drive.
+   */
+  void SetBatteryLimits(const BatteryLimits& limits) noexcept { battery_.Write(limits); }
 
   /**
    * @brief Observer side, after every control cycle.
@@ -195,6 +213,7 @@ class OuterLoop {
 
   CurrentControlIsr* isr_{nullptr};
   Mailbox<OuterSetpoint> setpoint_{};
+  Mailbox<BatteryLimits> battery_{};
   Mailbox<Parameters> parameters_{};
   Mailbox<Gains> gains_{};
   std::atomic<uint32_t> gains_generation_{0U};  ///< Counts SetGains(); the control thread compares.

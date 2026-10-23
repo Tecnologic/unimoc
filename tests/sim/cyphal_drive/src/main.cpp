@@ -23,6 +23,10 @@
 #include <uavcan/si/unit/angle/Scalar_1_0.h>
 #include <uavcan/si/unit/angular_velocity/Scalar_1_0.h>
 #include <uavcan/si/unit/torque/Scalar_1_0.h>
+#include <unimoc/cart/BatteryStatus_0_1.h>
+#include <unimoc/cart/DriveStatus_0_1.h>
+#include <unimoc/cart/PedalState_0_1.h>
+#include <unimoc/cart/WheelCommand_0_1.h>
 #include <unimoc/drive/CurrentSetpoint_0_1.h>
 #include <unimoc/drive/Telemetry_0_1.h>
 #include <zephyr/ztest.h>
@@ -146,6 +150,7 @@ struct Rig {
     client.SetLocalNodeId(kClientId);
     client.Process(now);
     zassert_true(client.Subscribe(TransferKind::kMessage, unimoc::cyphal::kPubTelemetry, 64U));
+    zassert_true(client.Subscribe(TransferKind::kMessage, unimoc::cyphal::kPubDriveStatus, 64U));
     zassert_true(client.Subscribe(TransferKind::kServiceResponse, port::kRegisterAccess, 267U));
     zassert_true(client.Subscribe(TransferKind::kServiceResponse, port::kExecuteCommand, 48U));
     zassert_true(drive.Start(now));
@@ -211,6 +216,59 @@ struct Rig {
     std::size_t size = tx.size();
     zassert_equal(reg_udral_physics_dynamics_rotation_Planar_0_1_serialize_(&setpoint, Out(tx), &size), 0);
     Publish(unimoc::cyphal::kSubServoSetpoint, std::span<const std::byte>{tx.data(), size});
+  }
+
+  /// Wheel command with @p torque [N m] for the front left wheel (the drive's default wheel).
+  void WheelCommand(const float torque) {
+    unimoc_cart_WheelCommand_0_1 command{};
+    command.wheel_torque[unimoc_cart_WheelCommand_0_1_WHEEL_FRONT_LEFT] = torque;
+    command.wheel_torque[unimoc_cart_WheelCommand_0_1_WHEEL_REAR_RIGHT] = -torque;  // another wheel
+    std::size_t size = tx.size();
+    zassert_equal(unimoc_cart_WheelCommand_0_1_serialize_(&command, Out(tx), &size), 0);
+    Publish(unimoc::cyphal::kSubWheelCommand, std::span<const std::byte>{tx.data(), size});
+  }
+
+  /// Plausible pedal state, both channels equal.
+  void Pedals(const float drive, const float brake) {
+    unimoc_cart_PedalState_0_1 state{};
+    state.drive_pedal[0] = drive;
+    state.drive_pedal[1] = drive;
+    state.brake_pedal[0] = brake;
+    state.brake_pedal[1] = brake;
+    state.drive_pedal_plausible = true;
+    state.brake_pedal_plausible = true;
+    std::size_t size = tx.size();
+    zassert_equal(unimoc_cart_PedalState_0_1_serialize_(&state, Out(tx), &size), 0);
+    Publish(unimoc::cyphal::kSubPedalState, std::span<const std::byte>{tx.data(), size});
+  }
+
+  /// Battery status of a BMS with the contactor closed.
+  void Battery(const float discharge_limit, const float charge_limit) {
+    unimoc_cart_BatteryStatus_0_1 status{};
+    status.voltage = 48.0F;
+    status.discharge_current_limit = discharge_limit;
+    status.charge_current_limit = charge_limit;
+    status.contactor = unimoc_cart_BatteryStatus_0_1_CONTACTOR_CLOSED;
+    std::size_t size = tx.size();
+    zassert_equal(unimoc_cart_BatteryStatus_0_1_serialize_(&status, Out(tx), &size), 0);
+    Publish(unimoc::cyphal::kSubBatteryStatus, std::span<const std::byte>{tx.data(), size});
+  }
+
+  /// Waits for a drive status published from now on.
+  bool DriveStatus(unimoc_cart_DriveStatus_0_1& status) {
+    Transfer transfer{};
+    while (client.Receive(rx, transfer) == ReceiveResult::kReceived) {
+    }
+    for (unsigned i = 0U; i < 100U; ++i) {
+      Run(1U);
+      while (client.Receive(rx, transfer) == ReceiveResult::kReceived) {
+        if (transfer.port_id == unimoc::cyphal::kPubDriveStatus) {
+          std::size_t size = transfer.payload.size();
+          return unimoc_cart_DriveStatus_0_1_deserialize_(&status, In(transfer.payload), &size) >= 0;
+        }
+      }
+    }
+    return false;
   }
 
   /// Engaged, current setpoint refreshed every 10 ms for @p milliseconds.
@@ -387,6 +445,21 @@ void ConfigureSpeedControl(Rig& rig) {
 }
 
 AngularVelocity PlantSpeed() { return sim::Plant().Output().mechanical_speed; }
+
+/// Torque constant of the drive's settings: 3/2 p psi_pm.
+MagneticFlux TorqueConstant(const Rig& rig) {
+  const auto kSnapshot = rig.store.GetSnapshot();
+  return 1.5F * static_cast<float>(kSnapshot.Get().pole_pairs) * kSnapshot.Get().flux_pm;
+}
+
+/// A permanent magnet for the factory motor, so a torque makes a q current.
+MagneticFlux GiveTheMotorAMagnet(Rig& rig) {
+  (void)rig.Access(reg::kPmsmFluxPm, Real(5e-3F));
+  rig.Run(2U);  // applied while disengaged
+  const MagneticFlux kTorqueConstant = TorqueConstant(rig);
+  zassert_true(kTorqueConstant > MagneticFlux{});
+  return kTorqueConstant;
+}
 Angle PlantAngle() { return sim::Plant().Output().mechanical_angle.AbsoluteAngle(); }
 
 /// Pole pairs of ConfigureSpeedControl().
@@ -867,6 +940,138 @@ ZTEST(sim_cyphal_drive, test_timing_registers_count_the_interrupts_and_reset) {
                "records %u, before the reset %u",
                kAfter,
                kBeforeReset);
+}
+
+ZTEST(sim_cyphal_drive, test_every_settings_register_is_reachable) {
+  Rig& rig = *g_rig;
+  // The last registers of the settings (the provider once held fewer than there are).
+  const auto kTimeout = unimoc::cyphal::GetNumber(rig.Access(reg::kCommandTimeout, Empty()));
+  zassert_true(kTimeout.has_value());
+  zexpect_within(*kTimeout, 0.5F, 1e-6F);
+  zexpect_equal(Integer(rig.Access(reg::kCartWheel, Empty())), 0);
+  const auto kShare = unimoc::cyphal::GetNumber(rig.Access(reg::kCartBatteryShare, Empty()));
+  zassert_true(kShare.has_value());
+  zexpect_within(*kShare, 1.0F, 1e-6F);
+  zexpect_equal(Integer(rig.Access(reg::kCanBusOffCount, Empty())), 0);
+}
+
+ZTEST(sim_cyphal_drive, test_wheel_command_drives_the_plant_and_the_drive_status_reports_it) {
+  Rig& rig = *g_rig;
+  const MagneticFlux kTorqueConstant = GiveTheMotorAMagnet(rig);
+  const Torque kTorque = 2.0_A * kTorqueConstant;
+  rig.HoldWith([&rig, kTorque] { rig.WheelCommand(kTorque.Value()); }, 30U);  // DSDL payload
+  zassert_true(rig.drive.IsEngaged());
+  zexpect_within(CurrentControlIsr::Instance().state.i_ref.q, 2.0_A, 1e-3_A);
+
+  // The cart torque replaces the other setpoints until the disengage.
+  rig.HoldWith(
+      [&rig, kTorque] {
+        rig.WheelCommand(kTorque.Value());
+        rig.Current(0.0F, 10.0F);
+      },
+      30U);
+  zexpect_within(CurrentControlIsr::Instance().state.i_ref.q, 2.0_A, 1e-3_A);
+
+  unimoc_cart_DriveStatus_0_1 status{};
+  zassert_true(rig.DriveStatus(status));
+  zexpect_true(status.engaged);
+  zexpect_false(status.limp_home);
+  zexpect_equal(status.wheel, unimoc_cart_WheelCommand_0_1_WHEEL_FRONT_LEFT);
+  zexpect_equal(status.power_stage, unimoc_cart_DriveStatus_0_1_POWER_STAGE_ENABLED);
+  zexpect_within(status.estimated_torque,
+                 kTorque.Value(),
+                 (0.5_A * kTorqueConstant).Value(),
+                 "torque %f",
+                 static_cast<double>(status.estimated_torque));
+  zexpect_within(status.dc_link_voltage, 48.0F, 0.5F);
+  zexpect_true(status.drive_torque_limit > 0.0F);
+  zexpect_true(status.brake_torque_limit > 0.0F);
+  zexpect_true(std::isnan(status.motor_temperature), "the simulation measures no temperature");
+}
+
+ZTEST(sim_cyphal_drive, test_limp_home_on_the_pedals_then_stop_without_them) {
+  Rig& rig = *g_rig;
+  const MagneticFlux kTorqueConstant = GiveTheMotorAMagnet(rig);
+  (void)rig.Access(reg::kCartLimpHomeTorque, Real((2.0_A * kTorqueConstant).Value()));
+  rig.Run(2U);
+  rig.HoldWith(
+      [&rig] {
+        rig.WheelCommand(0.0F);
+        rig.Pedals(0.0F, 0.0F);
+      },
+      30U);
+  zassert_true(rig.drive.IsEngaged());
+
+  // The VDC is gone (no readiness, no wheel command); the pedal unit stays,
+  // longer than the readiness timeout.
+  for (unsigned elapsed = 0U; elapsed < 700U; elapsed += 10U) {
+    rig.Pedals(1.0F, 0.0F);
+    rig.Run(10U);
+  }
+  zassert_true(rig.drive.IsEngaged(), "limp-home keeps the drive engaged without the readiness");
+  zexpect_within(CurrentControlIsr::Instance().state.i_ref.q, 2.0_A, 1e-3_A);
+  unimoc_cart_DriveStatus_0_1 status{};
+  rig.Pedals(1.0F, 0.0F);
+  zassert_true(rig.DriveStatus(status));
+  zexpect_true(status.limp_home);
+
+  // The pedal unit is gone too: the torque ramps to zero, then the readiness timeout disengages.
+  rig.Run(200U);
+  zexpect_false(rig.drive.IsEngaged());
+  zexpect_within(CurrentControlIsr::Instance().state.i_ref.q, 0.0_A, 1e-3_A);
+}
+
+ZTEST(sim_cyphal_drive, test_battery_status_of_the_bms_replaces_the_battery_limits) {
+  Rig& rig = *g_rig;
+  ConfigureSpeedControl(rig);
+  sim::Plant().SetShaftMode(unimoc::sim::ShaftMode::kImposedSpeed, 50.0_rad_per_s);
+  // The BMS allows 0.5 A charge: 24 W at 48 V, 0.48 N m against 50 rad/s.
+  rig.HoldWith(
+      [&rig] {
+        rig.WheelCommand(0.0F);
+        rig.Battery(30.0F, 0.5F);
+      },
+      500U);
+  zassert_true(rig.drive.IsEngaged());
+  unimoc_cart_DriveStatus_0_1 status{};
+  rig.Battery(30.0F, 0.5F);
+  zassert_true(rig.DriveStatus(status));
+  zexpect_within(status.brake_torque_limit,
+                 0.48F,
+                 0.03F,
+                 "brake limit %f",
+                 static_cast<double>(status.brake_torque_limit));
+  zexpect_true(status.regen_derated);
+  zexpect_true(status.drive_torque_limit > 1.0F);
+
+  // Without the BMS the limits of the settings apply again (20 A charge).
+  rig.HoldWith([&rig] { rig.WheelCommand(0.0F); }, 200U);
+  zassert_true(rig.DriveStatus(status));
+  zexpect_true(status.brake_torque_limit > 1.0F,
+               "brake limit %f",
+               static_cast<double>(status.brake_torque_limit));
+  zexpect_false(status.regen_derated);
+}
+
+ZTEST(sim_cyphal_drive, test_bus_off_stops_the_cart_torque_and_is_counted) {
+  Rig& rig = *g_rig;
+  const MagneticFlux kTorqueConstant = GiveTheMotorAMagnet(rig);
+  const Torque kTorque = 2.0_A * kTorqueConstant;
+  rig.HoldWith([&rig, kTorque] { rig.WheelCommand(kTorque.Value()); }, 30U);
+  zassert_true(rig.drive.IsEngaged());
+
+  rig.drive_media.bus_status =
+      unimoc::cyphal::CanBusStatus{.state = unimoc::cyphal::CanBusState::kBusOff, .bus_off_count = 1U};
+  rig.Run(20U);
+  zexpect_within(CurrentControlIsr::Instance().state.i_ref.q, 0.0_A, 1e-3_A, "torque ramped to zero at once");
+  rig.Run(600U);
+  zexpect_false(rig.drive.IsEngaged(), "the readiness timed out");
+
+  // Back on the bus.
+  rig.drive_media.bus_status =
+      unimoc::cyphal::CanBusStatus{.state = unimoc::cyphal::CanBusState::kErrorActive, .bus_off_count = 1U};
+  rig.Run(5U);
+  zexpect_equal(Integer(rig.Access(reg::kCanBusOffCount, Empty())), 1);
 }
 
 ZTEST_SUITE(sim_cyphal_drive, nullptr, nullptr, Before, After, nullptr);

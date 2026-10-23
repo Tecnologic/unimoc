@@ -1,0 +1,66 @@
+# State of one wheel drive for the vehicle dynamics controller (VDC), published
+# by every drive at the cycle rate of the VDC (docs/system_plan.md, section
+# 6.2). All drives of the cart may publish on the same subject; wheel tells
+# them apart independent of the node ID.
+#
+# Directions follow unimoc.cart.WheelCommand: positive is the forward direction
+# of the cart. Values that a drive does not measure are NaN.
+#
+# Payload 18 bytes, one CAN FD frame.
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+float16 wheel_speed
+# Angular velocity of the wheel [rad/s].
+
+float16 estimated_torque
+# Torque estimate at the wheel [N m].
+
+float16 drive_torque_limit
+# Largest torque the drive can apply now in the direction of motion [N m],
+# >= 0 (at standstill: forward): the motor current limit and the battery
+# drive limit at the present speed and DC-link voltage.
+
+float16 brake_torque_limit
+# Largest torque the drive can apply now against the direction of motion
+# [N m], >= 0 (at standstill: backward): the motor current limit and the
+# regenerative limit from the battery charge limit and the DC-link
+# overvoltage derating.
+
+float16 dc_link_voltage
+# Measured DC-link voltage [V].
+
+float16 dc_link_current
+# Estimated battery current of the drive [A]; positive while motoring,
+# negative while braking.
+
+float16 power_stage_temperature
+float16 motor_temperature
+# [K]
+
+uint2 wheel
+# Wheel of this drive, one of unimoc.cart.WheelCommand.WHEEL_*.
+
+uint3 power_stage
+uint3 POWER_STAGE_DISABLED = 0
+uint3 POWER_STAGE_ENABLED = 1
+uint3 POWER_STAGE_FAULT = 2
+uint3 POWER_STAGE_BLOCKED = 3
+# State of the power stage outputs, as in unimoc.drive.Telemetry.
+# BLOCKED: the external enable (E-stop loop) is missing.
+
+bool engaged
+# The drive is ENGAGED and follows the torque command.
+
+bool limp_home
+# The VDC timed out: the torque comes from unimoc.cart.PedalState.
+
+bool regen_derated
+# The brake torque limit is reduced by the battery charge limit or the
+# DC-link overvoltage derating.
+
+bool overcurrent_tripped
+bool overvoltage_tripped
+# A trip of the control cycle opened the power stage; cleared by the next arm.
+
+@extent 63 * 8

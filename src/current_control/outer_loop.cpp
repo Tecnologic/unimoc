@@ -97,6 +97,13 @@ void OuterLoop::Step() noexcept {
   }
   const ObserverState kObserver = observer_.Read();
   const OuterSetpoint kSetpoint = setpoint_.Read();
+  control::DcLinkLimit dc_link = active_.dc_link;
+  const BatteryLimits kBattery = battery_.Read();
+  if (kBattery.valid) {
+    dc_link.drive_current_max = kBattery.drive_current;
+    dc_link.charge_current_max = kBattery.charge_current;
+  }
+  const Voltage kDcLink = isr_->state.raw_vdc;
 
   // -------------------------------------------------------------------------
   // 1. Mechanical position and speed from the electrical estimate. The
@@ -119,6 +126,12 @@ void OuterLoop::Step() noexcept {
   status.steps = ++steps_;
   status.speed = kSpeed;
   status.position = tracker_.PositionRad();
+  // The battery power window as shaft torque, within the motor torque.
+  const control::DcLinkLimit::TorqueRange kTorqueRange = dc_link.AllowedTorque(kSpeed, kDcLink);
+  const Torque kMotorTorque = active_.torque_constant * active_.current_limit;
+  status.torque_min = unit::Max(kTorqueRange.lower, -kMotorTorque);
+  status.torque_max = unit::Min(kTorqueRange.upper, kMotorTorque);
+  status.regen_derated = dc_link.AllowedChargeCurrent(kDcLink) < active_.dc_link.charge_current_max;
 
   // -------------------------------------------------------------------------
   // 2. Current reference of the active mode. A new mode or a new engagement
@@ -139,8 +152,6 @@ void OuterLoop::Step() noexcept {
     mode_ = kSetpoint.mode;
     // The speed controller stays inside the battery power window, so its
     // integral does not wind up against the current limit below.
-    const control::DcLinkLimit::TorqueRange kTorqueRange =
-        active_.dc_link.AllowedTorque(kSpeed, isr_->state.raw_vdc);
     speed_.torque_min = kTorqueRange.lower;
     speed_.torque_max = kTorqueRange.upper;
     switch (mode_) {
@@ -162,8 +173,7 @@ void OuterLoop::Step() noexcept {
       }
     }
   }
-  current =
-      active_.dc_link.Limit(LimitCurrent(current), active_.torque_constant, kSpeed, isr_->state.raw_vdc);
+  current = dc_link.Limit(LimitCurrent(current), active_.torque_constant, kSpeed, kDcLink);
   isr_->SetCurrentRef(current);
 
   status.active = kSetpoint.active;

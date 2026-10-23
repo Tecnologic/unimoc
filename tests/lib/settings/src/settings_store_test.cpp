@@ -227,6 +227,42 @@ ZTEST(settings_store, test_dc_link_voltages_are_ordered_and_within_the_capabilit
   zexpect_equal(ctx.store.GetSnapshot().Get().dc_link_trip, 56.0_V);
 }
 
+ZTEST(settings_store, test_cart_settings_are_validated) {
+  Fixture ctx;
+  zassert_equal(ctx.store.Load(), SettingsStatus::kFactoryDefaults);
+  auto operations = ctx.store.GetOperations();
+  const auto kSet = [&operations](const auto& change) { return operations.Update(change); };
+
+  zexpect_equal(kSet([](NvmSettings& settings) { settings.cart_wheel = 3U; }), SettingsStatus::kSuccess);
+  zexpect_equal(kSet([](NvmSettings& settings) { settings.cart_wheel = 4U; }),
+                SettingsStatus::kInvalidSettings);
+  zexpect_equal(kSet([](NvmSettings& settings) { settings.cart_reversed = 2U; }),
+                SettingsStatus::kInvalidSettings);
+  // Limp-home has to start before the readiness times out.
+  zexpect_equal(kSet([](NvmSettings& settings) { settings.cart_timeout = settings.command_timeout; }),
+                SettingsStatus::kSuccess);
+  zexpect_equal(kSet([](NvmSettings& settings) {
+                  settings.cart_timeout = settings.command_timeout + 0.001_s;
+                }),
+                SettingsStatus::kOutOfRange);
+  zexpect_equal(kSet([](NvmSettings& settings) { settings.cart_timeout = 0.0_s; }),
+                SettingsStatus::kOutOfRange);
+  zexpect_equal(kSet([](NvmSettings& settings) { settings.cart_battery_share = 1.5_ratio; }),
+                SettingsStatus::kOutOfRange);
+  zexpect_equal(kSet([](NvmSettings& settings) { settings.cart_limp_home_torque = -1.0_Nm; }),
+                SettingsStatus::kOutOfRange);
+  zexpect_equal(kSet([](NvmSettings& settings) { settings.cart_torque_ramp = 0.0_Nm / 1.0_s; }),
+                SettingsStatus::kOutOfRange);
+  // The cart subjects take part in the port-ID check.
+  zexpect_equal(kSet([](NvmSettings& settings) {
+                  settings.sub_pedal_state_id = settings.sub_wheel_command_id;
+                }),
+                SettingsStatus::kInvalidSettings);
+  zexpect_equal(kSet([](NvmSettings& settings) { settings.pub_drive_status_id = settings.pub_telemetry_id; }),
+                SettingsStatus::kInvalidSettings);
+  zexpect_equal(ctx.store.GetSnapshot().Get().cart_wheel, 3U);
+}
+
 ZTEST(settings_store, test_two_ports_on_one_port_id_are_rejected) {
   Fixture ctx;
   zassert_equal(ctx.store.Load(), SettingsStatus::kFactoryDefaults);

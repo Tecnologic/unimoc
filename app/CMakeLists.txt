@@ -28,6 +28,7 @@ target_sources(unimoc_core PRIVATE
   ${UNIMOC_ROOT}/src/current_control/slow_update.cpp
   ${UNIMOC_ROOT}/src/current_control/outer_loop.cpp
   ${UNIMOC_ROOT}/src/startup/hw_startup.cpp
+  ${UNIMOC_ROOT}/src/drive/cart_control.cpp
   ${UNIMOC_ROOT}/src/drive/drive_node.cpp
   ${UNIMOC_ROOT}/src/drive/settings_register_provider.cpp
   ${UNIMOC_ROOT}/src/drive/startup_registers.cpp

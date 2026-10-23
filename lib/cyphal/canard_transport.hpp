@@ -54,8 +54,9 @@ class CanardTransport final : public Transport {
   /// Largest number of CAN interfaces of one node.
   static constexpr std::size_t kMaxInterfaces = 2U;
   /// Largest number of subscribed ports (messages, requests and responses).
-  /// The drive uses up to 18: 4 standard services, plug-and-play, 6 setpoint
-  /// and readiness subjects, 5 trace services and the trace trigger.
+  /// The drive uses up to 21: 4 standard services, plug-and-play, 6 setpoint
+  /// and readiness subjects, 3 cart subjects, 5 trace services and the trace
+  /// trigger.
   static constexpr std::size_t kMaxSubscriptions = 24U;
   /// Frames held per TX queue before Send() refuses a transfer.
   static constexpr std::size_t kTxQueueCapacity = 64U;
@@ -85,6 +86,14 @@ class CanardTransport final : public Transport {
   void SetLocalNodeId(uint8_t node_id) noexcept override;
   [[nodiscard]] uint8_t LocalNodeId() const noexcept override;
   void Process(uint64_t now_us) noexcept override;
+
+  /**
+   * @brief Bus state of the node: the best state of its interfaces.
+   *
+   * With redundant interfaces the node is off the bus only when all of them
+   * are; the bus-off events of all interfaces are summed.
+   */
+  [[nodiscard]] CanBusStatus BusStatus() const noexcept override;
 
   /// Number of CAN interfaces in use.
   [[nodiscard]] std::size_t InterfaceCount() const noexcept { return interface_count_; }

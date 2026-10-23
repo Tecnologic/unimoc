@@ -185,8 +185,9 @@ class CyphalNode {
   /// Largest number of register providers (drive: settings, info, startup,
   /// timing; the platform: one more).
   static constexpr std::size_t kMaxRegisterProviders = 6U;
-  /// Largest number of application subscriptions.
-  static constexpr std::size_t kMaxListeners = 8U;
+  /// Largest number of application subscriptions (drive: 6 setpoint and
+  /// readiness subjects, 3 cart subjects; traces: the trigger).
+  static constexpr std::size_t kMaxListeners = 12U;
   /// Largest number of application publishers reported in the port list.
   static constexpr std::size_t kMaxPublishers = 8U;
   /// Largest number of application services.
@@ -301,6 +302,9 @@ class CyphalNode {
 
   /// Node-ID, or kNodeIdUnset while plug-and-play runs.
   [[nodiscard]] uint8_t NodeId() const noexcept { return transport_->LocalNodeId(); }
+
+  /// Bus state of the transport (CAN fault confinement).
+  [[nodiscard]] CanBusStatus BusStatus() const noexcept { return transport_->BusStatus(); }
 
   /// Seconds since Start().
   [[nodiscard]] uint32_t UptimeSeconds(uint64_t now_us) const noexcept;

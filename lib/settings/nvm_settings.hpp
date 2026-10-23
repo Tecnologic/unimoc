@@ -34,6 +34,9 @@ namespace unimoc::settings {
 
 using namespace unit;
 
+/// Rate of change of a torque [N m/s].
+using TorqueRate = decltype(Torque{} / Time{});
+
 /**
  * @brief Aggregate of all persistent (NVM-backed) UNIMOC configuration.
  *
@@ -588,6 +591,62 @@ struct NvmSettings {
   /// Readiness and setpoint timeout.
   /// Register: `unimoc.control.command_timeout`
   unit::Time command_timeout{0.5_s};
+
+  // =========================================================================
+  // Cart (docs/system_plan.md, sections 6.2 and 7)
+  //
+  // The drive becomes a cart wheel drive with the first wheel command after
+  // it engaged; without one it follows the setpoint subjects above.
+  // =========================================================================
+
+  /// Wheel command subscription (unimoc.cart.WheelCommand.0.1).
+  /// Register: `uavcan.sub.wheel_command.id`
+  uint16_t sub_wheel_command_id{cyphal::kSubWheelCommand};
+
+  /// Pedal state subscription (unimoc.cart.PedalState.0.1), for limp-home mode.
+  /// Register: `uavcan.sub.pedal_state.id`
+  uint16_t sub_pedal_state_id{cyphal::kSubPedalState};
+
+  /// Battery status subscription (unimoc.cart.BatteryStatus.0.1).
+  /// Register: `uavcan.sub.battery_status.id`
+  uint16_t sub_battery_status_id{cyphal::kSubBatteryStatus};
+
+  /// Drive status publication (unimoc.cart.DriveStatus.0.1).
+  /// Register: `uavcan.pub.drive_status.id`
+  uint16_t pub_drive_status_id{cyphal::kPubDriveStatus};
+
+  /// Wheel of this drive (unimoc.cart.WheelCommand.WHEEL_*), 0 to 3.
+  /// Register: `unimoc.cart.wheel`
+  uint8_t cart_wheel{0U};
+
+  /// 1: positive rotor torque drives the cart backward.
+  /// Register: `unimoc.cart.reversed`
+  uint8_t cart_reversed{0U};
+
+  /// Timeout of the wheel command, the pedal state and the battery status;
+  /// at most `command_timeout`, so limp-home starts before the readiness times out.
+  /// Register: `unimoc.cart.timeout`
+  unit::Time cart_timeout{0.1_s};
+
+  /// Drive status publication rate; 0 stops it.
+  /// Register: `unimoc.cart.status_rate`
+  unit::Frequency cart_status_rate{50.0_Hz};
+
+  /// Torque ramp when the source of the cart torque changes.
+  /// Register: `unimoc.cart.torque_ramp`
+  TorqueRate cart_torque_ramp{50.0_Nm / 1.0_s};
+
+  /// Wheel torque of a fully pressed pedal in limp-home mode.
+  /// Register: `unimoc.cart.limp_home_torque`
+  unit::Torque cart_limp_home_torque{5.0_Nm};
+
+  /// Wheel speed below which the cart stands still.
+  /// Register: `unimoc.cart.standstill_speed`
+  unit::AngularVelocity cart_standstill_speed{1.0_rad_per_s};
+
+  /// Share of the BMS current limits this drive may use, 0 to 1.
+  /// Register: `unimoc.cart.battery_share`
+  unit::Ratio cart_battery_share{1.0_ratio};
 
   /// Restore all fields to factory defaults.
   void ResetToDefaults() noexcept { *this = NvmSettings{}; }

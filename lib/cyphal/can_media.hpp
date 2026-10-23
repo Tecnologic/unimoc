@@ -37,6 +37,26 @@ struct CanFrame {
   std::array<std::byte, kCanFdMtu> data{};
 };
 
+/// Fault confinement state of a CAN controller (ISO 11898-1).
+enum class CanBusState : uint8_t {
+  /// Error counters below 96: normal operation.
+  kErrorActive = 0,
+  /// An error counter reached 96: still on the bus.
+  kErrorWarning = 1,
+  /// An error counter reached 128: sends passive error frames only.
+  kErrorPassive = 2,
+  /// The transmit error counter passed 255: off the bus until it recovers.
+  kBusOff = 3,
+};
+
+/// Bus state of a CAN interface and how often it went bus-off.
+struct CanBusStatus {
+  /// Present state of the controller.
+  CanBusState state{CanBusState::kErrorActive};
+  /// Bus-off events since start; counts also a bus-off that recovered in between two queries.
+  uint32_t bus_off_count{0U};
+};
+
 /**
  * @brief One CAN interface of the node: a CAN controller, a SocketCAN device
  *        or a serial-line CAN adapter.
@@ -72,6 +92,16 @@ class CanMedia {
    * @return `false` when no frame is pending.
    */
   [[nodiscard]] virtual bool Pop(CanFrame& frame) noexcept = 0;
+
+  /**
+   * @brief Bus state of the controller.
+   *
+   * The controller leaves bus-off on its own (automatic recovery after 128
+   * occurrences of 11 recessive bits); the node only watches the state.
+   * Interfaces without fault confinement (a serial-line adapter, SocketCAN)
+   * report kErrorActive.
+   */
+  [[nodiscard]] virtual CanBusStatus BusStatus() const noexcept { return CanBusStatus{}; }
 };
 
 }  // namespace unimoc::cyphal

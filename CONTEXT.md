@@ -102,6 +102,10 @@ external API requires different wording.
 | **engaged** | The drive state in which the power stage is released for the setpoint. Entered on readiness `ENGAGED` (`reg.udral.service.common.Readiness`), left on `SLEEP`/`STANDBY`, a readiness timeout, a trip or a power stage fault. Use **disengaged** for the opposite, not "disarmed". |
 | **re-arm** | After a trip or fault while engaged, the drive engages again only after a readiness other than `ENGAGED`. |
 | **command timeout** | `unimoc.control.command_timeout`: the drive disengages without readiness and falls back to zero current without setpoints for longer than this time. |
+| **cart drive** | A drive that follows the wheel command of the vehicle dynamics controller (**VDC**). It becomes one with the first wheel command after the engage and stays one until it disengages (`src/drive/cart_control.*`). |
+| **wheel command** | `unimoc.cart.WheelCommand`: the torque of every wheel from the VDC; a drive takes the entry of `unimoc.cart.wheel`. Torques and speeds of the cart messages are in the **cart frame** (positive drives the cart forward); `unimoc.cart.reversed` maps it to the rotor frame. |
+| **limp-home** | The cart drive mode without the VDC: the torque comes from the pedal state, brake pedal first, ramped and limited to `unimoc.cart.limp_home_torque`. The readiness timeout waits meanwhile; the VDC takes over again only at standstill. |
+| **bus-off** | The CAN fault confinement state in which a controller leaves the bus (`cyphal::CanBusState`). The controller recovers on its own; the drive treats a bus-off as the loss of every cart input. |
 | **CAN interface** | One CAN connection of a node behind `cyphal::CanMedia`: a CAN controller (FDCAN, SocketCAN) or the slcan pseudo terminals of the simulation. Several interfaces are redundant interfaces of one node. |
 | **DSDL** | The Cyphal data type definitions. Standard types come from the OpenCyphal public regulated data types, UNIMOC types from `dsdl/unimoc/`; Nunavut generates their C serialization. |
 | **trace** | A recording of drive signals over Cyphal with cymon (`src/trace/`, `lib/cymon`). Use **trace variable** for one registered float signal and **telemetry** for the periodic `unimoc.drive.Telemetry` subject, not "trace". |
@@ -120,7 +124,7 @@ a boundary.
 
 | Boundary | Where | What crosses |
 |---|---|---|
-| **Bus (DSDL)** | `src/drive/drive_node.cpp`, `hardware/zephyr_sim/cyphal_platform.cpp` | `unimoc.drive.Telemetry`, `unimoc.sim.Plant`, the `uavcan.si.*` setpoints and the sim inputs: `float32` fields in base units, the electrical angle wrapped to [0, 2 pi). |
+| **Bus (DSDL)** | `src/drive/drive_node.cpp`, `hardware/zephyr_sim/cyphal_platform.cpp` | `unimoc.drive.Telemetry`, `unimoc.sim.Plant`, the `uavcan.si.*` setpoints and the sim inputs: `float32` fields in base units, the electrical angle wrapped to [0, 2 pi). The cart messages (`unimoc.cart.*`) use `float16` fields in base units. |
 | **Registers** | `lib/settings/settings_registers.hpp`, `src/drive/settings_register_provider.cpp` | A unit setting is one `real32` register in its base unit (`EncodeRegisterValue()`/`DecodeRegisterValue()`). |
 | **Traces** | `src/trace/trace_signals.cpp`, the plant trace in `hardware/zephyr_sim/hardware_interface.cpp` | The cymon float mirror: one `float` per trace variable, sampled after the control cycle. |
 | **ADC and timer counts** | `hardware/zephyr_bcc/analog_scaling.hpp`, `hardware/zephyr_bcc/hardware_interface.cpp` | ADC counts in, units out (`CountsToCurrent()`, ...); the overcurrent limit back to ADC counts, a duty to compare counts. |

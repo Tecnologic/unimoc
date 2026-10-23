@@ -40,7 +40,7 @@ namespace unimoc::drive {
 class SettingsRegisterProvider final : public cyphal::RegisterProvider {
  public:
   /// Largest number of registers the provider can hold.
-  static constexpr std::size_t kCapacity = 96U;
+  static constexpr std::size_t kCapacity = 128U;
 
   /// @param store Settings store shared with the rest of the firmware; must outlive the provider.
   explicit SettingsRegisterProvider(settings::SettingsStore& store) noexcept;

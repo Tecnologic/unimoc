@@ -22,6 +22,7 @@
 #include <zephyr/drivers/can.h>
 #include <zephyr/kernel.h>
 #include <array>
+#include <atomic>
 #include "cyphal/can_media.hpp"
 
 namespace unimoc::hardware {
@@ -33,6 +34,10 @@ namespace unimoc::hardware {
  * message queue from the driver callback and wakes the Cyphal thread through
  * a semaphore. Frames are sent without blocking; a full controller makes
  * Push() fail and the transport retries.
+ *
+ * The bus state comes from the state-change callback of the driver (an
+ * interrupt), handed over in atomics. The controller leaves bus-off on its
+ * own: the application does not enable CONFIG_CAN_MANUAL_RECOVERY_MODE.
  */
 class ZephyrCanMedia final : public cyphal::CanMedia {
  public:
@@ -51,12 +56,17 @@ class ZephyrCanMedia final : public cyphal::CanMedia {
   [[nodiscard]] std::size_t Mtu() const noexcept override { return mtu_; }
   [[nodiscard]] bool Push(const cyphal::CanFrame& frame) noexcept override;
   [[nodiscard]] bool Pop(cyphal::CanFrame& frame) noexcept override;
+  [[nodiscard]] cyphal::CanBusStatus BusStatus() const noexcept override;
 
   /// Frames dropped because the receive queue was full.
   [[nodiscard]] uint32_t RxOverruns() const noexcept { return rx_overruns_; }
 
  private:
   static void OnFrame(const struct device* device, struct can_frame* frame, void* user_data);
+  static void OnStateChange(const struct device* device,
+                            enum can_state state,
+                            struct can_bus_err_cnt error_count,
+                            void* user_data);
 
   const struct device* device_{nullptr};
   struct k_sem* wake_{nullptr};
@@ -65,6 +75,8 @@ class ZephyrCanMedia final : public cyphal::CanMedia {
   std::size_t mtu_{cyphal::kCanClassicMtu};
   bool brs_{false};
   uint32_t rx_overruns_{0U};
+  std::atomic<uint8_t> bus_state_{static_cast<uint8_t>(cyphal::CanBusState::kErrorActive)};
+  std::atomic<uint32_t> bus_off_count_{0U};
 };
 
 }  // namespace unimoc::hardware
