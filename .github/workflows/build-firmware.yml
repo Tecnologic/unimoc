@@ -1,0 +1,63 @@
+name: Build firmware
+
+# The firmware of every target as artifacts (unimoc-bcc, unimoc-native_sim). Called by the
+# Zephyr CI workflow, whose release job attaches them to the GitHub release.
+# A new board or simulator is one more matrix row and a case in
+# scripts/package_firmware.sh (docs/release_plan.md).
+on:
+  workflow_call:
+    inputs:
+      release:
+        description: Name the files by the version alone (no commit)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  firmware:
+    name: firmware (${{ matrix.target }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: bcc
+            board: bcc
+            artifact: unimoc-bcc
+          - target: sim
+            board: native_sim/native/64
+            artifact: unimoc-native_sim
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: unimoc
+          submodules: recursive
+
+      - name: Set up the west workspace and Zephyr SDK
+        uses: zephyrproject-rtos/action-zephyr-setup@v1
+        with:
+          app-path: unimoc
+          toolchains: arm-zephyr-eabi
+
+      - name: Install Nunavut
+        run: pip install -r unimoc/scripts/requirements-cyphal.txt
+
+      - name: Build
+        run: west build -p always -b ${{ matrix.board }} unimoc/app -d build/${{ matrix.target }}
+
+      - name: Collect the files
+        run: |
+          version="$(python3 unimoc/scripts/release_version.py current)"
+          if [[ "${{ inputs.release }}" != "true" ]]; then
+            version="${version}-g$(git -C unimoc rev-parse --short HEAD)"
+          fi
+          unimoc/scripts/package_firmware.sh "${{ matrix.target }}" "build/${{ matrix.target }}" \
+              "$version" firmware
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.artifact }}
+          path: firmware/
+          if-no-files-found: error

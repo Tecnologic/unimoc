@@ -1,0 +1,48 @@
+name: PR title
+
+# Squash merges make the pull request title the commit, and the commits decide
+# the next version and the change log (docs/release_plan.md).
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+    branches: [develop]
+
+permissions:
+  pull-requests: read
+
+jobs:
+  conventional-title:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: amannn/action-semantic-pull-request@v5
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          types: |
+            feat
+            fix
+            perf
+            refactor
+            docs
+            test
+            build
+            ci
+            chore
+            style
+          scopes: |
+            motor_control
+            units
+            settings
+            cyphal
+            dsdl
+            drive
+            startup
+            trace
+            current_control
+            bcc
+            sim
+            hardware
+            ci
+            docs
+            release
+          requireScope: false

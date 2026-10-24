@@ -5,15 +5,59 @@ on:
   # branches (merges) still run.
   push:
     branches: [main, develop]
-    # A version tag publishes the firmware as a GitHub release (job release).
-    tags: ["v*"]
   pull_request:
     branches: [main, develop, "copilot/**"]
   workflow_dispatch:
+# The release is a job of the run on main: never cancel that one.
 concurrency:
   group: zephyr-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 jobs:
+  # Decides whether this run publishes a release (docs/release_plan.md): a push
+  # to main that merges a pull request from develop, with a releasable change
+  # and a version that has no tag yet.
+  plan:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      release: ${{ steps.plan.outputs.release }}
+      version: ${{ steps.plan.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Plan
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          release=false
+          version="$(python3 scripts/release_version.py current)"
+          if [[ "$GITHUB_EVENT_NAME" == "push" && "$GITHUB_REF" == "refs/heads/main" ]]; then
+            pip install git-cliff
+            from_develop="$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" \
+                --jq '[.[] | select(.head.ref == "develop" and .base.ref == "main")] | length')"
+            tagged=false
+            if git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then tagged=true; fi
+            pending="$(python3 scripts/release_version.py pending)"
+            echo "from develop: $from_develop, tag exists: $tagged, releasable change: $pending"
+            if [[ "$from_develop" != "0" && "$tagged" == "false" && "$pending" == "true" ]]; then
+              release=true
+            fi
+          fi
+          echo "release=$release" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Release: $release (v$version)" >> "$GITHUB_STEP_SUMMARY"
+
+  # The firmware of every target (BCC, native_sim and later ones).
+  firmware:
+    needs: plan
+    uses: ./.github/workflows/build-firmware.yml
+    with:
+      release: ${{ needs.plan.outputs.release == 'true' }}
+
   twister:
     runs-on: ubuntu-24.04
     steps:
@@ -61,37 +105,6 @@ jobs:
             fi
           done
 
-      # Plain builds of the application, outside twister and without the SCA:
-      # the firmware of the battery case controller and the host simulation.
-      - name: Build the firmware (bcc, native_sim)
-        run: |
-          west build -p always -b bcc unimoc/app -d build/bcc
-          west build -p always -b native_sim/native/64 unimoc/app -d build/sim
-
-      - name: Collect the firmware
-        run: |
-          version="$(git -C unimoc describe --tags --always --dirty)"
-          mkdir -p firmware/bcc firmware/sim
-          for ext in elf hex bin; do
-            cp "build/bcc/zephyr/zephyr.$ext" "firmware/bcc/unimoc-bcc-$version.$ext"
-          done
-          cp build/bcc/zephyr/zephyr.map "firmware/bcc/unimoc-bcc-$version.map"
-          # tar keeps the executable bit, which the artifact zip drops.
-          tar -C build/sim/zephyr -czf "firmware/sim/unimoc-native_sim-$version.tar.gz" \
-              --transform "s/zephyr.exe/unimoc-native_sim/" zephyr.exe
-
-      - uses: actions/upload-artifact@v7
-        with:
-          name: unimoc-bcc
-          path: firmware/bcc/
-          if-no-files-found: error
-
-      - uses: actions/upload-artifact@v7
-        with:
-          name: unimoc-native_sim
-          path: firmware/sim/
-          if-no-files-found: error
-
       - uses: actions/upload-artifact@v7
         if: always()
         with:
@@ -103,23 +116,51 @@ jobs:
             twister-out/**/twister_harness.log
             twister-out/**/handler.log
 
-  # A pushed version tag (v*) attaches the firmware of the passed run to a
-  # GitHub release of that tag.
+  # Publishes the release of a merged develop pull request: tag, change log
+  # and every firmware build, after the tests and builds of this run passed.
   release:
-    needs: twister
-    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [plan, twister, firmware]
+    if: needs.plan.outputs.release == 'true'
     runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          submodules: recursive
+      - name: Install git-cliff and Doxygen
+        run: |
+          pip install git-cliff
+          sudo apt-get update
+          sudo apt-get install -y doxygen graphviz zip
+      - name: The version file, the change log and the commits agree
+        run: |
+          python3 scripts/release_version.py check
+          grep -q "^## \[${{ needs.plan.outputs.version }}\]" CHANGELOG.md
       - uses: actions/download-artifact@v8
         with:
           pattern: unimoc-*
           path: firmware
           merge-multiple: true
-      - name: Create the release with the firmware
+      - uses: actions/download-artifact@v8
+        with:
+          name: twister-out
+          path: twister-out
+      - name: Collect the release files
+        run: |
+          version="${{ needs.plan.outputs.version }}"
+          cp "$(find twister-out -name twister.json | head -1)" "firmware/unimoc-twister-$version.json"
+          mkdir -p build && doxygen docs/Doxyfile
+          (cd build/doxygen && zip -qr "$GITHUB_WORKSPACE/firmware/unimoc-docs-$version.zip" html)
+          (cd firmware && sha256sum unimoc-* > SHA256SUMS)
+          python3 scripts/release_version.py notes > notes.md
+      - name: Create the tag and the release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
-              --title "UNIMOC $GITHUB_REF_NAME" --generate-notes firmware/*
+          version="${{ needs.plan.outputs.version }}"
+          prerelease=()
+          if [[ "$version" == *-* ]]; then prerelease=(--prerelease); fi
+          gh release create "v$version" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+              --title "UNIMOC v$version" --notes-file notes.md "${prerelease[@]}" firmware/*
