@@ -1,0 +1,45 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+description: |
+  UNIMOC e-bike inputs of the battery case controller (docs/ebike_plan.md):
+  the cadence pulse of the crank torque sensor, the receive line of the
+  display, and the UART that transmits to the display.
+
+  The crank torque itself is a channel of the injected ADC sequence (node
+  foc0, io-channel "crank-torque").
+
+compatible: "unimoc,ebike"
+
+include: [base.yaml, pinctrl-device.yaml]
+
+properties:
+  crank-pulse-gpios:
+    type: phandle-array
+    required: true
+    description: |
+      Cadence pulse input of the crank sensor (connector CRANK, PULSE_CRK):
+      one falling edge per pole of the sensor ring, with a pull-up on the
+      board.
+
+  display-rx-gpios:
+    type: phandle-array
+    required: true
+    description: |
+      Receive line of the display (connector Display, DISP_RX). It is on a
+      pin without a UART receiver, so the hardware layer captures its edges
+      with a timer (timer property) and decodes the bytes in software.
+
+  display-rx-timer:
+    type: phandle
+    required: true
+    description: |
+      Timer (st,stm32-timers) whose channel 2 input capture is on the
+      display receive pin: TIM15 for PB15. Its interrupt and registers are
+      used directly by the hardware layer.
+
+  display-uart:
+    type: phandle
+    required: true
+    description: |
+      UART that transmits to the display (connector Display, DISP_TX); its
+      receiver is not connected to the display.

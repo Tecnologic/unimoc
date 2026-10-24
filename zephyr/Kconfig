@@ -47,6 +47,19 @@ config UNIMOC_SETTINGS_ZMS
 	  zephyr_settings_storage.cpp). Needs the 'storage_partition' of the
 	  board devicetree; native_sim uses its flash simulator.
 
+config UNIMOC_EBIKE
+	bool "E-bike pedal assist and display (docs/ebike_plan.md)"
+	depends on UNIMOC_PLATFORM_BCC || UNIMOC_PLATFORM_SIM
+	help
+	  Turns the drive into an e-bike: the crank torque and cadence sensor
+	  and the display (Kunteng protocol) feed the assist law, and the
+	  control engages the power stage on demand while the rider pedals
+	  (src/ebike). The readiness ENGAGED of the Cyphal bus then no longer
+	  engages the drive. The assist parameters are untuned defaults:
+	  enable it on the bench first. Off by default, also in native_sim:
+	  the pytest integration tests engage the simulated drive over the
+	  bus.
+
 config UNIMOC_HOT_PATH_TIMING
 	bool "Measure the execution times of the interrupts (M0)"
 	depends on UNIMOC_PLATFORM_BCC || UNIMOC_PLATFORM_SIM

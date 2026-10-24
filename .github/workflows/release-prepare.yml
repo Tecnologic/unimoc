@@ -1,0 +1,86 @@
+name: Release prepare
+
+# While a pull request from develop to main is open, commit the next version
+# (app/VERSION, Zephyr's version file) and CHANGELOG.md to develop and show the
+# release in a PR comment (docs/release_plan.md). The merge into main then
+# publishes exactly this version (job release of the Zephyr workflow).
+#
+# The commit must start the CI of develop: push it with the secret
+# RELEASE_TOKEN (a GitHub App or personal access token with contents: write).
+# The default token still works, but its commit gets no CI run.
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, labeled, unlabeled]
+    branches: [main]
+
+concurrency:
+  group: release-prepare
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    # Pull requests from develop of this repository only.
+    if: github.head_ref == 'develop' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: develop
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_TOKEN || github.token }}
+      - run: pip install git-cliff
+      - name: Next version
+        id: next
+        env:
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ' ') }}
+        run: |
+          # release-as:X.Y.Z[-rc1] forces the version (also the step to 1.0.0).
+          forced="$(grep -oE 'release-as:[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?' <<<"$LABELS" | head -1 | cut -d: -f2 || true)"
+          args=()
+          if [[ -n "$forced" ]]; then args=(--version "$forced"); fi
+          echo "pending=$(python3 scripts/release_version.py "${args[@]}" pending)" >> "$GITHUB_OUTPUT"
+          echo "args=${args[*]}" >> "$GITHUB_OUTPUT"
+      - name: Write app/VERSION and CHANGELOG.md
+        if: steps.next.outputs.pending == 'true'
+        id: apply
+        run: |
+          version="$(python3 scripts/release_version.py ${{ steps.next.outputs.args }} apply)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          python3 scripts/release_version.py ${{ steps.next.outputs.args }} notes > "$RUNNER_TEMP/notes.md"
+      - name: Commit to develop
+        if: steps.next.outputs.pending == 'true'
+        run: |
+          # CHANGELOG.md is new on the first run: stage everything, then compare.
+          git add app/VERSION CHANGELOG.md
+          if git diff --cached --quiet; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore(release): v${{ steps.apply.outputs.version }}"
+          git push origin HEAD:develop
+      - name: Comment the release on the pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PENDING: ${{ steps.next.outputs.pending }}
+          VERSION: ${{ steps.apply.outputs.version }}
+        run: |
+          marker='<!-- release-prepare -->'
+          {
+            echo "$marker"
+            if [[ "$PENDING" == "true" ]]; then
+              echo "### Release v$VERSION"
+              echo
+              echo "Merging this pull request into \`main\` publishes it (tag, change log, all firmware builds)."
+              echo "Force a version with the label \`release-as:X.Y.Z\`."
+              echo
+              cat "$RUNNER_TEMP/notes.md"
+            else
+              echo "### No release"
+              echo
+              echo "No \`feat\`, \`fix\`, \`perf\` or \`refactor\` change since the last tag: merging this pull request publishes nothing."
+            fi
+          } > "$RUNNER_TEMP/comment.md"
+          gh pr comment ${{ github.event.pull_request.number }} --body-file "$RUNNER_TEMP/comment.md" \
+            --edit-last --create-if-none
