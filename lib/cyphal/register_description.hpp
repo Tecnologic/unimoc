@@ -53,7 +53,7 @@ enum class RegisterEffect : uint8_t {
  */
 struct RegisterDescription {
   /// SI unit symbol, empty for a count, a ratio or text.
-  std::string_view unit{};
+  std::string_view unit;
   /// Smallest value the node may accept.
   float minimum{-std::numeric_limits<float>::infinity()};
   /// Largest value the node may accept.
@@ -61,7 +61,7 @@ struct RegisterDescription {
   /// When a written value takes effect.
   RegisterEffect effect{RegisterEffect::kImmediate};
   /// One line of help.
-  std::string_view help{};
+  std::string_view help;
 };
 
 }  // namespace unimoc::cyphal

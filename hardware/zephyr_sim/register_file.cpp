@@ -81,7 +81,7 @@ void PutElements(std::FILE* file, const Array& array) noexcept {
 /// Writes `"type": ..., "size": ..., "default": ...` of a register value.
 void PutValue(std::FILE* file, const cyphal::RegisterValue& value) noexcept {
   const auto kField = [file](const char* type, const std::size_t size) {
-    (void)std::fprintf(file, "\"type\": \"%s\", \"size\": %zu, \"default\": ", type, size);
+    (void)std::fprintf(file, R"("type": "%s", "size": %zu, "default": )", type, size);
   };
   if (uavcan_register_Value_1_0_is_string_(&value)) {
     const auto& text = value._string.value;
@@ -128,7 +128,7 @@ void PutRegister(std::FILE* file,
   (void)std::fputs(", ", file);
   PutValue(file, value);
   (void)std::fprintf(file,
-                     ", \"mutable\": %s, \"persistent\": %s",
+                     R"(, "mutable": %s, "persistent": %s)",
                      flags.is_mutable ? "true" : "false",
                      flags.is_persistent ? "true" : "false");
   if (!description.unit.empty()) {
@@ -157,11 +157,12 @@ void PutRegister(std::FILE* file,
 bool WriteRegisterFile(const cyphal::CyphalNode& node,
                        const cyphal::NodeInfo& info,
                        const char* const path) noexcept {
-  std::FILE* const file = std::fopen(path, "w");
-  if (file == nullptr) {
+  // NOLINTNEXTLINE(cppcoreguidelines-owning-memory): a stdio file, closed at the end of this function.
+  std::FILE* const kFile = std::fopen(path, "w");
+  if (kFile == nullptr) {
     return false;
   }
-  (void)std::fprintf(file,
+  (void)std::fprintf(kFile,
                      "{\n  \"schema\": %d,\n  \"firmware\": {\"name\": \"unimoc\", \"version\": \"%s\", "
                      "\"vcs_revision\": \"%016" PRIx64
                      "\", \"target\": \"native_sim\"},\n  \"registers\": [\n",
@@ -173,14 +174,15 @@ bool WriteRegisterFile(const cyphal::CyphalNode& node,
     for (std::size_t index = 0U; index < kProvider->Count(); ++index) {
       cyphal::RegisterValue value{};
       const cyphal::RegisterFlags kFlags = kProvider->Read(index, value);
-      (void)std::fputs(first ? "" : ",\n", file);
+      (void)std::fputs(first ? "" : ",\n", kFile);
       first = false;
-      PutRegister(file, kProvider->Name(index), kFlags, value, kProvider->Describe(index));
+      PutRegister(kFile, kProvider->Name(index), kFlags, value, kProvider->Describe(index));
     }
   }
-  (void)std::fputs("\n  ]\n}\n", file);
-  const bool kWritten = std::ferror(file) == 0;
-  return (std::fclose(file) == 0) && kWritten;
+  (void)std::fputs("\n  ]\n}\n", kFile);
+  const bool kWritten = std::ferror(kFile) == 0;
+  // NOLINTNEXTLINE(cppcoreguidelines-owning-memory): the stdio file opened above.
+  return (std::fclose(kFile) == 0) && kWritten;
 }
 
 }  // namespace unimoc::hardware::sim

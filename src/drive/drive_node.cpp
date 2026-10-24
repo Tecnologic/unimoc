@@ -89,9 +89,9 @@ constexpr std::array<InfoRegister, 19> kInfoRegisters{{
  */
 void CopyTunable(const settings::NvmSettings& source, settings::NvmSettings& target) noexcept {
   settings::ForEachRegister(
-      [](const settings::RegisterEntry& entry, const auto& from, auto& to) {
+      [](const settings::RegisterEntry& entry, const auto& source_field, auto& target_field) {
         if (entry.description.effect == cyphal::RegisterEffect::kImmediate) {
-          to = from;
+          target_field = source_field;
         }
       },
       source,
