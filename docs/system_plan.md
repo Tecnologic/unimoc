@@ -297,8 +297,10 @@ Design of the cart messages:
   forward. Each drive maps them to its own rotor direction (a settings
   register of the drive, with the wheel index; defined with the drive side).
 - **Arming stays with `reg.udral.service.common.Readiness`**; the wheel
-  command carries no mode. Limp-home is decided by each drive (section 7)
-  and reported in the drive status.
+  command carries no mode. Each drive has its own readiness subject, 1024 +
+  node-ID by default (2026-10-24), so the VDC arms the drives one by one.
+  Limp-home is decided by each drive (section 7) and reported in the drive
+  status.
 - **`@extent 63 * 8`** instead of `@sealed`: a later minor version can add
   fields within the one frame and older receivers still accept it.
 - **Own types instead of the UDRAL battery service** (`reg.udral.service.battery`):

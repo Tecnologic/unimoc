@@ -87,7 +87,7 @@ Python with pycyphal and PySide6), in its own repository with its own plan
 simulation, done 2026-10-24). [docs/gui_plan.md](docs/gui_plan.md) keeps the
 contract with the firmware. The firmware side, in this repository:
 
- - [ ] F1: vendor status bits 4 to 7 (trip latched, E-stop latched, settings pending, local control) in the heartbeat; readiness subject per node (`uavcan.sub.readiness.id` follows the node-ID until written, proposed base 1024); GetInfo names per application; README, system plan 6.2 and the pycyphal tests.
+ - [x] F1 (2026-10-24): vendor status bits 4 to 7 (trip latched, E-stop latched, settings pending, local control) in the heartbeat; the readiness subject follows the node-ID (65534: 1024 + node-ID) until written; ztest and pytest. The GetInfo name convention was dropped (the name is the user's role label, `docs/gui_plan.md`, section 6).
  - [ ] F2: register description file: unit, limits, default, live-tunable flag and help next to each register, `registers.json` from the build, a twister check against the registers on the bus, a CI and release asset; `scripts/sim_cluster.sh` for N drives on `vcan0`.
  - [ ] F3: serve the description file over `uavcan.file.Read` (with the Cyphal file service of the firmware update).
  - [ ] Decide the license of `dsdl/unimoc/` (proposed: permissive, so the GUI repository can carry it; plan section 2.1).

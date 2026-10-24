@@ -18,8 +18,14 @@ from sim_client import (
     ENGAGED,
     PORT_CYMON_READ,
     PORT_CYMON_VARIABLES,
+    PORT_READINESS,
+    READINESS_FOLLOWS_NODE_ID,
     SLEEP,
     STANDBY,
+    VENDOR_EMERGENCY_STOP,
+    VENDOR_ENGAGED,
+    VENDOR_SETTINGS_PENDING,
+    VENDOR_TRIP_LATCHED,
     SimClient,
     natural8,
     natural16,
@@ -35,6 +41,9 @@ def test_heartbeat_and_get_info(sim: SimClient):
     assert info.protocol_version.major == 1
     assert info.name.tobytes().decode() == "unimoc"
     assert info.software_vcs_revision_id != 0  # git hash of the build
+    # Disabled, nothing latched, no local control (the pytest build has no e-bike).
+    assert heartbeat.vendor_specific_status_code == 0
+    assert heartbeat.health.value == 0  # NOMINAL
 
 
 def test_port_list_names_the_drive_ports(sim: SimClient):
@@ -42,7 +51,7 @@ def test_port_list_names_the_drive_ports(sim: SimClient):
     publishers = {item.value for item in port_list.publishers.sparse_list}
     subscribers = {item.value for item in port_list.subscribers.sparse_list}
     assert {7509, 212, 213, 214} <= publishers
-    assert {106, 107, 100, 110, 111, 112} <= subscribers
+    assert {PORT_READINESS, 107, 100, 110, 111, 112} <= subscribers
     assert port_list.servers.mask[384] and port_list.servers.mask[385]
     assert port_list.servers.mask[430] and port_list.servers.mask[435]
 
@@ -57,6 +66,7 @@ def test_registers_list_read_write_and_validation(sim: SimClient):
 
     assert sim.read("uavcan.node.id") == DRIVE
     assert sim.read("uavcan.sub.readiness.type") == "reg.udral.service.common.Readiness.0.1"
+    assert sim.read("uavcan.sub.readiness.id") == READINESS_FOLLOWS_NODE_ID
     response = sim.access("unimoc.motor.pole_pairs")
     assert response.mutable and response.persistent
     assert response.value.natural8 is not None
@@ -67,7 +77,8 @@ def test_registers_list_read_write_and_validation(sim: SimClient):
     assert sim.write("unimoc.does_not_exist", real(1.0)) is None  # unknown register: empty value
     assert sim.write("uavcan.pub.telemetry.type", real(1.0)) == "unimoc.drive.Telemetry.0.1"
     # Two ports on one subject-ID are rejected; a free one is taken.
-    assert sim.write("uavcan.sub.torque_setpoint.id", natural16(106)) == 100  # readiness
+    assert sim.write("uavcan.sub.torque_setpoint.id", natural16(PORT_READINESS)) == 100  # readiness
+    assert sim.write("uavcan.sub.torque_setpoint.id", natural16(READINESS_FOLLOWS_NODE_ID)) == 100
     assert sim.write("uavcan.pub.cymon_trigger.id", natural16(212)) == 65535  # telemetry
     assert sim.write("uavcan.pub.cymon_trigger.id", natural16(300)) == 300
     assert sim.write("uavcan.pub.cymon_trigger.id", natural16(65535)) == 65535
@@ -88,6 +99,8 @@ def test_engage_current_setpoint_and_telemetry(sim: SimClient):
     assert telemetry.i_q == pytest.approx(8.0, abs=0.5)
     assert telemetry.dc_link_voltage == pytest.approx(48.0, abs=0.5)
     assert any(record == "engaged" for record in sim.records)
+    vendor = sim.heartbeat_now().vendor_specific_status_code
+    assert vendor & 0x07 == 1 and vendor & VENDOR_ENGAGED  # ENABLED and engaged
 
     # The current limit of the previous test (20 A) applies.
     sim.hold(0.5, ENGAGED, sim.current_setpoint(0.0, 40.0))
@@ -224,10 +237,18 @@ def test_dc_link_overvoltage_trips_the_drive(sim: SimClient):
     assert not telemetry.engaged
     assert telemetry.power_stage == 2  # FAULT
     assert "disengaged: DC-link overvoltage trip" in sim.records
+    sim.hold(1.2, ENGAGED)  # a rearm is needed: ENGAGED alone does not clear the trip
+    heartbeat = sim.heartbeat_now()
+    assert heartbeat.vendor_specific_status_code & VENDOR_TRIP_LATCHED
+    assert not heartbeat.vendor_specific_status_code & VENDOR_ENGAGED
+    assert heartbeat.health.value == 1  # ADVISORY
 
     assert sim.write("unimoc.sim.dc_link_voltage", real(48.0)) == pytest.approx(48.0)
-    sim.hold(0.3, STANDBY)  # acknowledges the trip
+    sim.hold(1.2, STANDBY)  # acknowledges the trip
     assert sim.latest(sim.telemetry).power_stage == 0  # DISABLED
+    heartbeat = sim.heartbeat_now()
+    assert heartbeat.vendor_specific_status_code == 0
+    assert heartbeat.health.value == 0
 
 
 def test_settings_that_need_a_restart_are_reported_while_engaged(sim: SimClient):
@@ -244,10 +265,13 @@ def test_settings_that_need_a_restart_are_reported_while_engaged(sim: SimClient)
     sim.hold(0.2, ENGAGED, sim.current_setpoint(0.0, 1.0))
     assert sim.read("unimoc.settings.pending")
     assert "settings wait for the disengage: unimoc.motor.limits.i_max" in sim.records
+    sim.hold(1.2, ENGAGED, sim.current_setpoint(0.0, 1.0))
+    assert sim.heartbeat_now().vendor_specific_status_code & VENDOR_SETTINGS_PENDING
 
-    sim.hold(0.3, SLEEP)
+    sim.hold(1.2, SLEEP)
     assert not sim.read("unimoc.settings.pending")
     assert "waiting settings applied" in sim.records
+    assert not sim.heartbeat_now().vendor_specific_status_code & VENDOR_SETTINGS_PENDING
     assert sim.write("unimoc.motor.limits.i_max", real(20.0)) == pytest.approx(20.0)  # as before
 
 
@@ -366,13 +390,24 @@ def test_paused_simulation_advances_by_whole_cycles(sim: SimClient):
     assert not sim.read("unimoc.sim.paused")
 
 
+def test_emergency_stop_latches_until_the_restart(sim: SimClient):
+    assert sim.command(65531) == 0  # EMERGENCY_STOP
+    sim.hold(1.2, ENGAGED, sim.current_setpoint(0.0, 1.0))  # engaging is refused
+    assert not sim.latest(sim.telemetry).engaged
+    heartbeat = sim.heartbeat_now()
+    assert heartbeat.vendor_specific_status_code & VENDOR_EMERGENCY_STOP
+    assert heartbeat.health.value == 2  # CAUTION
+    sim.hold(0.2, SLEEP)  # the restart of the next test clears the latch
+
+
 def test_store_and_restart_keep_the_settings(sim: SimClient, dut):
     assert sim.command(65530) == 0  # STORE
     assert sim.command(65535) == 0  # RESTART: the simulation re-executes itself
     sim.close()
     restarted = SimClient(sim.loop, wait_for_pty(dut))
     try:
-        restarted.wait_for_node()
+        heartbeat = restarted.wait_for_node()
+        assert not heartbeat.vendor_specific_status_code & VENDOR_EMERGENCY_STOP  # cleared by the restart
         assert restarted.read("unimoc.motor.pole_pairs") == 7
         assert restarted.read("unimoc.motor.limits.i_max") == pytest.approx(20.0)
         assert restarted.read("unimoc.sim.shaft_mode") == 0  # simulation registers are volatile

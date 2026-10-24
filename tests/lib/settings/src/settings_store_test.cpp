@@ -276,7 +276,7 @@ ZTEST(settings_store, test_two_ports_on_one_port_id_are_rejected) {
   // Two subscriptions, or a publication on a subscribed subject.
   zexpect_equal(kSet(&NvmSettings::sub_speed_setpoint_id, factory.sub_torque_setpoint_id),
                 SettingsStatus::kInvalidSettings);
-  zexpect_equal(kSet(&NvmSettings::pub_telemetry_id, factory.sub_readiness_id),
+  zexpect_equal(kSet(&NvmSettings::pub_telemetry_id, factory.sub_current_setpoint_id),
                 SettingsStatus::kInvalidSettings);
   zexpect_equal(kSet(&NvmSettings::sub_cymon_trigger_id, factory.sub_current_setpoint_id),
                 SettingsStatus::kInvalidSettings);
@@ -295,6 +295,39 @@ ZTEST(settings_store, test_two_ports_on_one_port_id_are_rejected) {
   // The cymon trigger may publish and subscribe one shared subject.
   zexpect_equal(kSet(&NvmSettings::pub_cymon_trigger_id, 300U), SettingsStatus::kSuccess);
   zexpect_equal(kSet(&NvmSettings::sub_cymon_trigger_id, 300U), SettingsStatus::kSuccess);
+}
+
+ZTEST(settings_store, test_readiness_follows_the_node_id) {
+  Fixture ctx;
+  zassert_equal(ctx.store.Load(), SettingsStatus::kFactoryDefaults);
+  auto operations = ctx.store.GetOperations();
+  const auto kSet = [&operations](uint16_t NvmSettings::* port, const uint16_t port_id) {
+    return operations.Update([port, port_id](NvmSettings& settings) { settings.*port = port_id; });
+  };
+  zexpect_equal(MakeProfile().factory_settings.sub_readiness_id, cyphal::kReadinessFollowsNodeId);
+  zexpect_equal(cyphal::EffectiveReadinessId(cyphal::kReadinessFollowsNodeId, 10U), 1034U);
+  zexpect_equal(cyphal::EffectiveReadinessId(cyphal::kReadinessFollowsNodeId, 255U), cyphal::kUnsetPortId);
+  zexpect_equal(cyphal::EffectiveReadinessId(106U, 10U), 106U);
+
+  // Without a node-ID (plug-and-play) the readiness has no subject yet.
+  zassert_equal(operations.SetNodeId(0U), SettingsStatus::kSuccess);
+  zexpect_equal(kSet(&NvmSettings::pub_telemetry_id, 1034U), SettingsStatus::kSuccess);
+  // Node-ID 10 would put the readiness on the telemetry subject.
+  zexpect_equal(operations.SetNodeId(10U), SettingsStatus::kInvalidSettings);
+  zexpect_equal(kSet(&NvmSettings::pub_telemetry_id, 1035U), SettingsStatus::kSuccess);
+  zassert_equal(operations.SetNodeId(10U), SettingsStatus::kSuccess);
+  zexpect_equal(kSet(&NvmSettings::pub_telemetry_id, 1034U), SettingsStatus::kInvalidSettings);
+
+  // A fixed readiness subject, then back to the node-ID; no other port follows the node-ID.
+  zexpect_equal(kSet(&NvmSettings::sub_readiness_id, 106U), SettingsStatus::kSuccess);
+  zexpect_equal(kSet(&NvmSettings::pub_telemetry_id, 1034U), SettingsStatus::kSuccess);
+  zexpect_equal(kSet(&NvmSettings::sub_readiness_id, cyphal::kReadinessFollowsNodeId),
+                SettingsStatus::kInvalidSettings);
+  zexpect_equal(kSet(&NvmSettings::pub_telemetry_id, 1035U), SettingsStatus::kSuccess);
+  zexpect_equal(kSet(&NvmSettings::sub_readiness_id, cyphal::kReadinessFollowsNodeId),
+                SettingsStatus::kSuccess);
+  zexpect_equal(kSet(&NvmSettings::sub_torque_setpoint_id, cyphal::kReadinessFollowsNodeId),
+                SettingsStatus::kOutOfRange);
 }
 
 ZTEST(settings_store, test_stored_port_id_collision_falls_back_to_factory) {

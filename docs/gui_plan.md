@@ -108,20 +108,31 @@ text. The firmware owns that knowledge, so the firmware owns the file:
 Decided 2026-10-23: every drive has its **own readiness subject**, so the GUI
 (and the VDC) can enable each drive alone.
 
-- **Default:** `uavcan.sub.readiness.id` follows the node-ID,
-  `kSubReadinessBase + node-ID` (proposed base 1024: 1024 to 1151 for the CAN
-  node-IDs 0 to 127, clear of the IDs in use today), as long as the register
-  was not written. Reading the register gives the effective ID. Writing an ID
-  fixes it; a factory reset returns to "follows the node-ID". A node-ID change
-  moves the readiness subject with it after the restart, like every port.
-- **Collision check:** the existing check of the port registers includes the
-  derived ID.
+Implemented 2026-10-24 (README, "Readiness per drive and the heartbeat
+status"):
+
+- **Default:** `uavcan.sub.readiness.id` is 65534
+  (`cyphal::kReadinessFollowsNodeId`): the drive subscribes
+  `kSubReadinessBase + node-ID`, 1024 to 1151 for the CAN node-IDs 0 to 127,
+  clear of the other default port-IDs (`cyphal::EffectiveReadinessId()`).
+  Writing an ID fixes it, writing 65534 or a factory reset returns to the
+  node-ID. A node-ID change moves the readiness subject with it after the
+  restart, like every port; a plug-and-play drive subscribes once its ID is
+  allocated.
+- **The register keeps the written value (65534), not the effective ID**
+  (changed from the first proposal): a settings profile copied from one drive
+  to another must not carry a fixed subject, and the value reads back as it
+  was written. A tool computes the subject as 1024 + `uavcan.node.id`; it also
+  shows in the node's `uavcan.node.port.List`.
+- **Collision check:** the check of the port registers includes the subject
+  of the node-ID (for a node with a node-ID); 65534 is accepted for the
+  readiness only.
+- Settings saved before keep their readiness subject (106) until a factory
+  reset.
 - **GUI:** "Enable" publishes `ENGAGED` on the subject of each selected drive,
   "Enable all" on all of them; readiness costs one frame per drive and period
   (about 4 frames at 20 Hz for four drives).
-- **Cart:** the VDC arms each drive on its subject. The README, the system
-  plan (section 6.2) and `sim_client.py` (`PORT_READINESS = 106`) change with
-  it.
+- **Cart:** the VDC arms each drive on its subject (system plan section 6.2).
 - **Setpoints** stay on shared subjects: only an engaged drive applies them,
   so per-node readiness already allows "this drive runs, the others are off".
   Different setpoints for several engaged drives at once (not the cart, which
@@ -136,13 +147,16 @@ Decided 2026-10-23: every drive has its **own readiness subject**, so the GUI
 
 Each its own PR with ztest and pytest coverage:
 
-1. **Vendor status bits 4 to 7** (section 3). README, "Commands".
-2. **Readiness per node** (section 5): derived default, register reads the
-   effective ID, collision check, README, system plan section 6.2,
-   `tests/integration/cyphal_sim`.
-3. **GetInfo name convention** per application: `org.tecnologic.unimoc.drive`,
-   `.vdc`, `.bms`, `.ebike`, `.sim` suffix for the simulation. Shown in the
-   GUI; the capabilities still come from discovery.
+1. Done (F1, 2026-10-24): **vendor status bits 4 to 7** (section 3), README
+   "Readiness per drive and the heartbeat status", pytest checks of every bit
+   but 7 (the pytest build has no e-bike).
+2. Done (F1, 2026-10-24): **readiness per node** (section 5), ztest
+   `test_readiness_follows_the_node_id`, pytest on subject 1034.
+3. Dropped (2026-10-24): a **GetInfo name convention**. The GetInfo name is
+   the `uavcan.node.description` register, a role label the user sets
+   (`NodeIdentity`, for example "unimoc.propulsion.left"), so it cannot also
+   be a fixed product name. A tool recognizes a UNIMOC node by its registers
+   (the `unimoc.` prefix) instead; the factory name stays "unimoc".
 4. **`.type` registers** for every port of every application (the drive has
    them), so the GUI can decode every subject.
 5. **Register description file** (section 4): metadata next to the
