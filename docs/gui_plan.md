@@ -1,4 +1,4 @@
-# UNIMOC GUI plan
+# UNIMOC GUI plan (cypilot)
 
 Status: **plan** (2026-10-23), decisions of the same day in section 2.
 Nothing is built. The GUI and its CLI live in **their own repository**; this
@@ -46,7 +46,7 @@ Decided 2026-10-23:
 
 | Topic | Decision | Consequence |
 |---|---|---|
-| Place | GUI (`unimoc-gui`) and CLI (`unimoc-ctl`) in **one separate repository** (name proposed: `Tecnologic/unimoc-gui`) | Own release cycle and CI; the firmware repository stays Zephyr only. The contract between both is the DSDL, the registers, the vendor status bits and the register description file. |
+| Place | GUI (`cypilot`) and CLI (`cypilot-ctl`) in **one separate repository**, **`Tecnologic/cypilot`** (name decided 2026-10-24; Cyphal + pilot, the operating counterpart of cymon) | Own release cycle and CI; the firmware repository stays Zephyr only. The contract between both is the DSDL, the registers, the vendor status bits and the register description file. |
 | Tests | The separate repository uses **plain pytest**, also for logic tests without a simulation; the `AGENTS.md` rule "tests are ztest under twister" applies to this repository only | Its integration tests start the released `native_sim` binary (section 11). |
 | Scope | **Reuse the capture client of the cymon host tool** (<https://github.com/Tecnologic/cymon>) | The GUI depends on the cymon package. If cymon does not offer its client as an importable API, that is a change in cymon, not a copy in the GUI (section 8.2). |
 | Vendor status bits | Bits 4 to 7 as proposed (section 6) | Firmware change in this repository. |
@@ -81,7 +81,7 @@ The firmware stays GPL-3.0-or-later. For the GUI repository: **Apache-2.0**.
 
 ### 2.2 What each repository owns
 
-| This repository (`unimoc`) | GUI repository (`unimoc-gui`) |
+| This repository (`unimoc`) | GUI repository (`cypilot`) |
 |---|---|
 | DSDL namespace `dsdl/unimoc/` (cymon DSDL from cymon-lib) | A pinned copy of the DSDL (`dsdl/`, synced by a script from a `unimoc` tag), checked in its CI |
 | Registers, port defaults, vendor status bits, GetInfo names | Discovery, capabilities, the status model |
@@ -95,11 +95,11 @@ submodule by both. Only worth it if the copy and its check become a burden.
 ## 3. Architecture (GUI repository)
 
 ```text
- unimoc-gui (PySide6, pyqtgraph)          unimoc-ctl (CLI)            pytest
+ cypilot (PySide6, pyqtgraph)             cypilot-ctl (CLI)           pytest
         │  commands ▲ snapshots, events          │                       │
         └───────────┼────────────────────────────┴───────────────────────┘
                     │
-   unimoc_gui.core  │  (no Qt; asyncio loop in the bus thread)
+   cypilot.core     │  (no Qt; asyncio loop in the bus thread)
    ┌────────────────┴─────────────────────────────────────────────────────┐
    │ session    transport factory, local node, DSDL import path           │
    │ discovery  heartbeat, GetInfo, port.List, .type registers → NodeModel │
@@ -120,16 +120,16 @@ submodule by both. Only worth it if the copy and its check become a burden.
 Repository layout (proposal):
 
 ```text
-unimoc-gui/
-  pyproject.toml            # dependencies, entry points unimoc-gui and unimoc-ctl
+cypilot/
+  pyproject.toml            # dependencies, entry points cypilot and cypilot-ctl
   README.md                 # install, transports, workflows (Linux, WSL2, Windows)
   LICENSE                   # Apache-2.0 (section 2.1)
   dsdl/                     # pinned copy: unimoc, cymon, public regulated data types
   scripts/sync_dsdl.py      # copies the DSDL of a unimoc tag, records the tag
-  src/unimoc_gui/
+  src/cypilot/
     core/                   # section 3 above; no Qt import
     profiles/               # capability plugins
-    cli/                    # unimoc-ctl
+    cli/                    # cypilot-ctl
     ui/                     # Qt windows, docks and widgets
   tests/
     unit/                   # pytest without a bus
@@ -484,16 +484,16 @@ CI.
 | Phase | Repository | Content | Done when |
 |---|---|---|---|
 | F1 | unimoc | Vendor status bits, readiness per node, GetInfo names | Released with a `unimoc` tag |
-| G0 | gui | Repository, license, DSDL sync, package skeleton, transport factory, `unimoc-ctl nodes` and `unimoc-ctl regs <node>`, CI against the released `native_sim` | The CLI lists the simulated drive and its registers in CI |
-| G1 | gui | Discovery, capabilities, status model, register scan, edit, store, profiles and diff in the core and the CLI | Profile copy between two simulated drives in a test |
-| G2 | gui | Qt main window: connection dialog, node table with status chips, register editor, log view | Offscreen smoke test; manual check on Linux, WSL2 and Windows |
-| G3 | gui | Control: readiness per node, keep-alive and UI watchdog, enable, disable, stop all, E-stop, setpoint panel, recovery procedures, simulation panel | Engage, trip, recover and E-stop flows pass against the simulation |
+| G0 | cypilot | Repository, license, DSDL sync, package skeleton, transport factory, `cypilot-ctl nodes` and `cypilot-ctl regs <node>`, CI against the released `native_sim` | The CLI lists the simulated drive and its registers in CI |
+| G1 | cypilot | Discovery, capabilities, status model, register scan, edit, store, profiles and diff in the core and the CLI | Profile copy between two simulated drives in a test |
+| G2 | cypilot | Qt main window: connection dialog, node table with status chips, register editor, log view | Offscreen smoke test; manual check on Linux, WSL2 and Windows |
+| G3 | cypilot | Control: readiness per node, keep-alive and UI watchdog, enable, disable, stop all, E-stop, setpoint panel, recovery procedures, simulation panel | Engage, trip, recover and E-stop flows pass against the simulation |
 | F2 | unimoc | Register description file (generator, check, release asset), `scripts/sim_cluster.sh`, multi-node simulation | Asset in a release; four drives on `vcan0` |
-| G4 | gui | Live plots across nodes, recorder, CSV/JSON export and replay; description file in the editor | Plot of four nodes from the cluster |
+| G4 | cypilot | Live plots across nodes, recorder, CSV/JSON export and replay; description file in the editor | Plot of four nodes from the cluster |
 | C1 | cymon | Capture client as an importable API, released | GUI pins it |
-| G5 | gui | Scope on the cymon client: multi-node capture with the shared trigger, export | Capture of two simulated drives on one trigger, delay measured |
-| G6 | gui | Profiles for the cart (wheel panel, cart sketch), the e-bike (after PR #29), the VDC and the BMS as they appear | Per node type |
-| G7 | gui | Windows bundle, README workflows | Install on a clean Windows machine |
+| G5 | cypilot | Scope on the cymon client: multi-node capture with the shared trigger, export | Capture of two simulated drives on one trigger, delay measured |
+| G6 | cypilot | Profiles for the cart (wheel panel, cart sketch), the e-bike (after PR #29), the VDC and the BMS as they appear | Per node type |
+| G7 | cypilot | Windows bundle, README workflows | Install on a clean Windows machine |
 | F3 | unimoc | Description file served over `uavcan.file.Read` (with the firmware update) | GUI reads it from the node |
 
 F1 and G0 to G3 make the tool useful on the bench with one to four drives;
@@ -501,8 +501,8 @@ G4 and G5 replace most cymon sessions for daily work.
 
 ## 13. Open points
 
-1. **Repository name:** `Tecnologic/unimoc-gui` (proposed); created by the
-   owner.
+1. **Repository:** `Tecnologic/cypilot` (name decided 2026-10-24), created
+   by the owner.
 2. **License:** Apache-2.0 for the GUI repository (proposed, section 2.1), and
    relicensing `dsdl/unimoc/` to a permissive license.
 3. **Readiness base subject-ID:** 1024 + node-ID (proposed, section 7.1).

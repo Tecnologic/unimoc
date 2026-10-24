@@ -79,9 +79,9 @@ In this order; all without hardware unless marked.
 
 ## GUI
 
-The operator GUI and CLI for one to many nodes live in their own repository
-(proposed `Tecnologic/unimoc-gui`, Python with pycyphal and PySide6), planned
-in [docs/gui_plan.md](docs/gui_plan.md). Decided 2026-10-23: separate
+The operator GUI and CLI for one to many nodes live in their own repository,
+`Tecnologic/cypilot` (`cypilot` and `cypilot-ctl`, Python with pycyphal and
+PySide6), planned in [docs/gui_plan.md](docs/gui_plan.md). Decided 2026-10-23: separate
 repository with plain pytest, reuse of the cymon host capture client, vendor
 status bits 4 to 7, a register description file owned by this repository,
 readiness per node; Windows only on real adapters (simulation and GUI together
