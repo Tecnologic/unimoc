@@ -35,7 +35,8 @@ import unimoc.sim
 DRIVE = 10
 LOCAL = 127
 
-PORT_READINESS = 106
+PORT_READINESS = 1024 + DRIVE  # the factory readiness follows the node-ID
+READINESS_FOLLOWS_NODE_ID = 65534
 PORT_CURRENT_SETPOINT = 107
 PORT_TORQUE_SETPOINT = 100
 PORT_SPEED_SETPOINT = 101
@@ -54,6 +55,13 @@ PORT_CYMON_BUFFER_INFO = 121
 PORT_CYMON_SETUP = 122
 PORT_CYMON_ARM = 123
 PORT_CYMON_READ = 124
+
+# Vendor status of the heartbeat (docs/gui_plan.md, section 3); bits 0..2 are the power stage.
+VENDOR_ENGAGED = 0x08
+VENDOR_TRIP_LATCHED = 0x10
+VENDOR_EMERGENCY_STOP = 0x20
+VENDOR_SETTINGS_PENDING = 0x40
+VENDOR_LOCAL_CONTROL = 0x80
 
 ENGAGED = reg.udral.service.common.Readiness_0_1.ENGAGED
 SLEEP = reg.udral.service.common.Readiness_0_1.SLEEP
@@ -239,6 +247,10 @@ class SimClient:
             return result
 
         return self._run(go())
+
+    def heartbeat_now(self) -> uavcan.node.Heartbeat_1_0:
+        """The newest heartbeat of the drive received so far (they come once per second)."""
+        return self.latest(self.heartbeat, settle=0.0)
 
     def wait_for_node(self, timeout: float = 30.0) -> uavcan.node.Heartbeat_1_0:
         """Waits for the first heartbeat of the drive (the slcan port opens with a delay)."""

@@ -297,8 +297,10 @@ Design of the cart messages:
   forward. Each drive maps them to its own rotor direction (a settings
   register of the drive, with the wheel index; defined with the drive side).
 - **Arming stays with `reg.udral.service.common.Readiness`**; the wheel
-  command carries no mode. Limp-home is decided by each drive (section 7)
-  and reported in the drive status.
+  command carries no mode. Each drive has its own readiness subject, 1024 +
+  node-ID by default (2026-10-24), so the VDC arms the drives one by one.
+  Limp-home is decided by each drive (section 7) and reported in the drive
+  status.
 - **`@extent 63 * 8`** instead of `@sealed`: a later minor version can add
   fields within the one frame and older receivers still accept it.
 - **Own types instead of the UDRAL battery service** (`reg.udral.service.battery`):
@@ -475,7 +477,7 @@ the simulation, not on hardware):
 | Cyphal layer | `lib/cyphal` | `Transport` with a CAN-FD implementation (libcanard), register service on `SettingsStore`, heartbeat, GetInfo, file update; a UDP implementation (libudpard) only for the simulation fallback |
 | Simulation | `native_sim` | Single-process deterministic tests (`tests/sim/`), plus multi-process runs: one `native_sim` per node on `vcan` (section 6.4) |
 | Vehicle model | `lib/sim` (P4 in `TODO.md`) | Four wheels, tyres, steering angle, shared battery; needed for VDC tests |
-| Tools | Python, pycyphal | Register access, telemetry, scenarios, later the GUI (`docs/software_in_loop_plan.md`, P3) over CAN FD |
+| Tools | Python, pycyphal | Register access, telemetry, scenarios, the operator GUI and CLI [cypilot](https://github.com/Tecnologic/cypilot) (contract: `docs/gui_plan.md`) over CAN FD |
 | Steering assist | Later | Own plan once the steering concept exists |
 
 ## 9. Porting from the `electric_quad` Firmware

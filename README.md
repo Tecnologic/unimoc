@@ -215,7 +215,7 @@ flash, refused (`BAD_STATE`) while the power stage is enabled.
 
 | Register | Default | Type | Function |
 |---|---|---|---|
-| `uavcan.sub.readiness.id` | 106 | `reg.udral.service.common.Readiness.0.1` | `ENGAGED` (3) releases the power stage, `SLEEP`/`STANDBY` disable it |
+| `uavcan.sub.readiness.id` | 65534: 1024 + node-ID | `reg.udral.service.common.Readiness.0.1` | `ENGAGED` (3) releases the power stage, `SLEEP`/`STANDBY` disable it; one subject per drive (below) |
 | `uavcan.sub.current_setpoint.id` | 107 | `unimoc.drive.CurrentSetpoint.0.1` | d/q current setpoint [A] |
 | `uavcan.sub.torque_setpoint.id` | 100 | `uavcan.si.unit.torque.Scalar.1.0` | Torque [N m], converted to i_q with 3/2 p ψ_PM |
 | `uavcan.sub.speed_setpoint.id` | 101 | `uavcan.si.unit.angular_velocity.Scalar.1.0` | Mechanical speed [rad/s], speed loop of the control thread, limited to the motor speed range |
@@ -326,6 +326,32 @@ T9N) and the display (KT-LCD8, Kunteng protocol) feed the assist law (`lib/ebike
   tests (`sim_cyphal_drive` attaches the control itself); the simulation app keeps the bus readiness for the
   pytest integration tests, so `CONFIG_UNIMOC_EBIKE` is off there too.
 
+### Readiness per drive and the heartbeat status
+
+The factory value of `uavcan.sub.readiness.id` is 65534, "follows the
+node-ID": the drive subscribes the readiness on subject 1024 + node-ID (1034
+for node 10), so each drive of a bus is armed on its own subject, and a tool
+or the VDC arms several drives by publishing on each of their subjects.
+Writing another subject-ID fixes it (65535 disables it), writing 65534
+returns to the node-ID; the register keeps the written value. A drive
+without a node-ID (plug-and-play) subscribes once the ID is allocated. Two
+ports on one subject are rejected, including the readiness subject of the
+node-ID. Settings saved before this scheme keep their readiness subject
+until a factory reset.
+
+The vendor-specific status code of the heartbeat gives the drive state
+without any other subscription (`cyphal::vendor_status`,
+`docs/gui_plan.md`, section 3):
+
+| Bits | Meaning |
+|---|---|
+| 0 to 2 | Power stage: 0 disabled, 1 enabled, 2 fault, 3 blocked (external enable missing) |
+| 3 | Engaged |
+| 4 | Trip latched (overcurrent or overvoltage); `STANDBY` acknowledges it |
+| 5 | Emergency stop latched until a restart (health CAUTION as well) |
+| 6 | Settings wait for the disengage (`unimoc.settings.pending`) |
+| 7 | Local control: the e-bike control engages the drive, the bus readiness does not |
+
 ### Commands (uavcan.node.ExecuteCommand)
 
 | Command | Effect |
@@ -414,7 +440,7 @@ unimoc/app/build/sim/zephyr/zephyr.exe        # prints "uart_1 connected to pseu
 yakut call 10 uavcan.node.getinfo
 yakut rl 10                                   # all registers
 yakut reg 10 unimoc.sim.shaft_mode 1          # imposed speed (0 rad/s: locked rotor)
-yakut pub --period 0.05 106:reg.udral.service.common.Readiness '{value: 3}' \
+yakut pub --period 0.05 1034:reg.udral.service.common.Readiness '{value: 3}' \
               107:unimoc.drive.CurrentSetpoint '{i_d: 0, i_q: 5}'    # second terminal
 yakut sub 212:unimoc.drive.Telemetry 213:unimoc.sim.Plant           # third terminal
 yakut sub uavcan.diagnostic.Record

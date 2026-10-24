@@ -553,9 +553,10 @@ struct NvmSettings {
   // disables the port.
   // =========================================================================
 
-  /// Readiness subscription (reg.udral.service.common.Readiness.0.1).
+  /// Readiness subscription (reg.udral.service.common.Readiness.0.1); by
+  /// default it follows the node-ID (cyphal::EffectiveReadinessId()).
   /// Register: `uavcan.sub.readiness.id`
-  uint16_t sub_readiness_id{cyphal::kSubReadiness};
+  uint16_t sub_readiness_id{cyphal::kReadinessFollowsNodeId};
 
   /// Current setpoint subscription (unimoc.drive.CurrentSetpoint.0.1).
   /// Register: `uavcan.sub.current_setpoint.id`
