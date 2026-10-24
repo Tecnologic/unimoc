@@ -208,8 +208,9 @@ Add protocol-level tests for register operations, setpoint delivery, telemetry d
 
 ### Phase 5: Python command-and-control GUI
 
-> **Superseded (2026-10-23)** by [gui_plan.md](gui_plan.md), which covers
-> the GUI for the simulation and the real bus. The list below is kept for its
+> **Superseded (2026-10-23)** by [cypilot](https://github.com/Tecnologic/cypilot)
+> and its plan (the firmware contract is in [gui_plan.md](gui_plan.md)), which
+> covers the GUI for the simulation and the real bus. The list below is kept for its
 > simulation workflow.
 
 Create a separate Python package and dependency file. Do not add GUI and network dependencies to the firmware-focused `requirements.txt`.

@@ -79,14 +79,12 @@ In this order; all without hardware unless marked.
 
 ## GUI
 
-The operator GUI and CLI for one to many nodes live in their own repository,
-`Tecnologic/cypilot` (`cypilot` and `cypilot-ctl`, Python with pycyphal and
-PySide6), planned in [docs/gui_plan.md](docs/gui_plan.md). Decided 2026-10-23: separate
-repository with plain pytest, reuse of the cymon host capture client, vendor
-status bits 4 to 7, a register description file owned by this repository,
-readiness per node; Windows only on real adapters (simulation and GUI together
-in WSL2). Open points in section 13 of the plan. The firmware side, in this
-repository:
+The operator GUI and CLI for one to many nodes is
+[cypilot](https://github.com/Tecnologic/cypilot) (`cypilot`, `cypilot-ctl`,
+Python with pycyphal and PySide6), in its own repository with its own plan
+(`docs/plan.md` there; G0, the core and `cypilot-ctl` against the v0.1.0
+simulation, done 2026-10-24). [docs/gui_plan.md](docs/gui_plan.md) keeps the
+contract with the firmware. The firmware side, in this repository:
 
  - [ ] F1: vendor status bits 4 to 7 (trip latched, E-stop latched, settings pending, local control) in the heartbeat; readiness subject per node (`uavcan.sub.readiness.id` follows the node-ID until written, proposed base 1024); GetInfo names per application; README, system plan 6.2 and the pycyphal tests.
  - [ ] F2: register description file: unit, limits, default, live-tunable flag and help next to each register, `registers.json` from the build, a twister check against the registers on the bus, a CI and release asset; `scripts/sim_cluster.sh` for N drives on `vcan0`.
@@ -143,7 +141,7 @@ down. The boundaries are documented in `CONTEXT.md` ("Unit Boundaries").
  - [ ] P2: Telemetry and heartbeat with explicit virtual-time semantics (published in real time today; the telemetry carries the control-cycle count).
  - [ ] P2: Simulation-control commands run-until and snapshot (pause, fixed-cycle advance, reset and clock status done).
  - [ ] P2: Protocol and localhost end-to-end tests for multi-node operation (single node done: `unimoc.app.cyphal_integration`).
- - [ ] P3: The command-and-control GUI moved to its own plan, [docs/gui_plan.md](docs/gui_plan.md) (section "GUI" below).
+ - [ ] P3: The command-and-control GUI moved to cypilot (section "GUI" below).
  - [ ] P4: Startup, observer, field-weakening, homing and control-mode transition scenarios.
  - [ ] P4: Vehicle-level models: shared battery and DC link, wheels, differential load, road load, torque vectoring.
  - [ ] P4: Fault injection, profiling and large-N motor trace tooling; process-per-motor hosting only once the coordinator is stable and a concrete isolation need exists.
