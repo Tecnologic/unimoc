@@ -27,10 +27,11 @@ Cyphal register service / shell / startup FSM                 (threads)
 
 - **One key per register.** The key is the Cyphal register name
   (`cyphal::reg`), the Zephyr entry is `unimoc/<register name>`. The table of
-  77 persistent registers is `ForEachRegister()` in
+  130 persistent registers is `ForEachRegister()` in
   `lib/settings/settings_registers.hpp`; adding a register is one line there
-  plus the field in `NvmSettings`. The same table will drive the Cyphal
-  register service.
+  (with its description, below) plus the field in `NvmSettings`. The same
+  table drives the Cyphal register service and the register description
+  file.
 - **Value encoding.** Units and floats are little-endian IEEE floats,
   `uint8_t` and 8 bit enums one byte, `uint16_t` port-IDs two bytes, the node name its characters plus a
   terminator. No value is empty, because `settings_save_one()` deletes an
@@ -126,6 +127,55 @@ enabled ports on one subject-ID or two services on one service-ID
 trigger may share one subject. GetInfo takes the hardware and
 software versions from the firmware (`hardware_interface_config.hpp`,
 `app/VERSION`), not from the settings.
+
+## Register description file
+
+Implemented (2026-10-24, F2 of `docs/gui_plan.md`). Each line of
+`ForEachRegister()` is a `RegisterEntry`: the name and a
+`cyphal::RegisterDescription` (unit, minimum, maximum, effect, help), made
+with `Setting()` (applied while disengaged), `Tunable()` (live tuning while
+engaged: `DriveNode` copies exactly these, `CopyTunable()`) or
+`AfterRestart()` (node-ID, name, port-IDs). An empty unit is taken from the
+unit type of the field (`UnitSymbol()`); plain floats and composite gains name
+theirs. The limits are those of `Validate()` that hold for the register
+alone; ztest `test_a_value_beyond_each_limit_is_rejected` checks that a
+value just outside each limit is rejected, and
+`test_every_register_is_described` that every register has help and every
+dimensioned one a unit. The other providers (drive info, startup aid, timing,
+simulation) describe theirs through `RegisterProvider::Describe()`.
+
+`zephyr.exe --describe-registers=<file>` (native_sim) writes the file after
+the start and exits; `scripts/package_firmware.sh` adds it to the native_sim
+artifact and the release as `unimoc-registers-<version>.json`. The pytest
+`test_registers_json_describes_every_register_on_the_bus` compares it with
+the running drive: the same names in the order of `uavcan.register.List`,
+the same value types, sizes and flags.
+
+Schema version 1:
+
+```json
+{
+  "schema": 1,
+  "firmware": {"name": "unimoc", "version": "0.2.0", "vcs_revision": "<16 hex digits>", "target": "native_sim"},
+  "registers": [
+    {"name": "unimoc.motor.limits.i_max", "type": "real32", "size": 1, "default": [15],
+     "mutable": true, "persistent": true, "unit": "A", "min": 0,
+     "applies": "disengaged", "help": "Largest motor current (stator vector), up to the hardware limit"}
+  ]
+}
+```
+
+- `type`: the field of `uavcan.register.Value` (`string`, `unstructured`,
+  `bit`, `natural8/16/32`, `real32`, `empty`); `size` its number of elements
+  (bytes of a string); `default` the value of a fresh simulated node (a
+  string, an array of numbers or booleans). The BCC profile differs in the
+  board values (node-ID 0, the Hall sensors not fused, no speed weight of the flux
+  observer; `hardware_interface.cpp` of each platform).
+- `unit`, `min`, `max`: absent when none. `applies`: only for mutable
+  registers. `help`: one line.
+- A tool accepts the schema versions it knows and falls back to the bare
+  register scan otherwise. A change of the layout raises the version
+  (`kSchemaVersion` in `hardware/zephyr_sim/register_file.cpp`).
 
 ## Open items
 

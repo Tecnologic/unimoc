@@ -40,8 +40,16 @@ void StartCyphal(settings::SettingsStore& store) noexcept;
 /// @name Implemented by each platform
 /// @{
 
-/// Node-ID given on the command line (native_sim `--node-id`), applied to the RAM settings at start.
-[[nodiscard]] uint8_t CyphalPlatformNodeIdOverride() noexcept;
+/**
+ * @brief Applies the settings given on the command line to the RAM settings at start.
+ *
+ * native_sim: `--node-id` and `--cart-wheel`, so several simulated drives
+ * share one bus with one firmware image; the BCC has none. The result is
+ * validated like a register write and not stored.
+ *
+ * @param settings The live settings to change.
+ */
+void CyphalPlatformSettingsOverrides(settings::NvmSettings& settings) noexcept;
 
 /// Prepares the platform before the CAN interfaces start (transceiver pins).
 void CyphalPlatformInit() noexcept;
@@ -55,6 +63,13 @@ void CyphalPlatformInit() noexcept;
  * @param settings Live settings at start (telemetry rate, motor parameters).
  */
 void CyphalPlatformStart(cyphal::CyphalNode& node, const settings::NvmSettings& settings) noexcept;
+
+/**
+ * @brief Called once the node has all its registers and ports, before the first spin.
+ * @param node The drive's Cyphal node.
+ * @param info Its GetInfo values (sim: `--describe-registers` writes the description file and exits).
+ */
+void CyphalPlatformReady(const cyphal::CyphalNode& node, const cyphal::NodeInfo& info) noexcept;
 
 /**
  * @brief Registers the trace variables of the platform after those of the control (sim: plant truth).

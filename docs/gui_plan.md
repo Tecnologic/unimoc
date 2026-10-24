@@ -85,15 +85,17 @@ text. The firmware owns that knowledge, so the firmware owns the file:
 
 - **Source:** `ForEachRegister()` (`lib/settings/settings_registers.hpp`) and
   the register providers of the applications get a unit, the limits of the
-  validation, the default, a live-tunable flag and one line of help per
-  register, next to the register itself. Each application (drive, VDC, BMS,
+  validation, when a write takes effect (`immediate`, i.e. live-tunable,
+  `disengaged` or `restart`) and one line of help per register, next to the
+  register itself; the default is the value of a fresh simulated node. Each application (drive, VDC, BMS,
   e-bike) describes its own registers in the same way.
-- **Generator:** the build writes `registers.json` (schema version, firmware
-  version and VCS revision, one entry per register). A twister test checks
-  that every register on the bus has an entry and the other way round.
+- **Generator:** the simulation writes it (`--describe-registers=<file>`:
+  schema version, firmware version and VCS revision, one entry per
+  register). A twister pytest checks that every register on the bus has an
+  entry and the other way round.
 - **Delivery, step 1:** the CI attaches `registers.json` to the firmware
-  artifacts and the release, next to `unimoc-bcc-*.elf` and
-  `unimoc-native_sim-*.tar.gz`. The GUI picks it by the software version and
+  artifacts and the release as `unimoc-registers-<version>.json`, next to
+  `unimoc-bcc-*.elf` and `unimoc-native_sim-*.tar.gz`. The GUI picks it by the software version and
   VCS revision of `GetInfo`, from a local folder or the release.
 - **Delivery, step 2:** the node serves it compressed through
   `uavcan.file.Read` (path `unimoc/registers.json.gz`, a few KB in flash) once
@@ -159,11 +161,17 @@ Each its own PR with ztest and pytest coverage:
    (the `unimoc.` prefix) instead; the factory name stays "unimoc".
 4. **`.type` registers** for every port of every application (the drive has
    them), so the GUI can decode every subject.
-5. **Register description file** (section 4): metadata next to the
-   registers, the generator, the twister check, the CI and release asset; the
-   served file after the Cyphal file service.
-6. **`scripts/sim_cluster.sh`**: starts N `native_sim` drives on `vcan0` with
-   their own flash files, node-IDs (10, 11, ...) and wheel indices; the
-   multi-node simulation of `TODO.md` ("Next") is the precondition. The GUI
-   repository's tests use it from the release.
+5. Done (F2, 2026-10-24): **register description file** (section 4):
+   the description next to every register (`ForEachRegister()` entries,
+   `RegisterProvider::Describe()`), `--describe-registers` of the
+   simulation, ztests of the descriptions and their limits, the pytest
+   against the registers on the bus, the CI and release asset
+   `unimoc-registers-<version>.json`; schema in `docs/settings_plan.md`.
+   Open (F3): the served file after the Cyphal file service.
+6. Done (F2, 2026-10-24): **`scripts/sim_cluster.sh`**: starts N
+   `native_sim` drives on `vcan0` with their own flash files, node-IDs (10,
+   11, ...), unique-IDs and wheel indices (`--cart-wheel`). Not run on `vcan`
+   yet (the development container has none); the multi-node checks of
+   `TODO.md` ("Next") stay open. The GUI repository's tests use it with the
+   released `native_sim`.
 7. **License of `dsdl/unimoc/`** (section 2), if accepted.

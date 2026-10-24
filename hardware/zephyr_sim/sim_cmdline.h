@@ -27,6 +27,18 @@ extern "C" {
  */
 int32_t UnimocSimNodeIdOption(void);
 
+/**
+ * @brief Value of `--cart-wheel=<n>`.
+ * @return The wheel, or a negative value when the option was not given.
+ */
+int32_t UnimocSimCartWheelOption(void);
+
+/**
+ * @brief Value of `--describe-registers=<file>`.
+ * @return The file name, or NULL when the option was not given.
+ */
+const char* UnimocSimDescribeRegistersOption(void);
+
 #ifdef __cplusplus
 }
 #endif

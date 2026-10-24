@@ -122,19 +122,35 @@ std::size_t SettingsRegisterCount() noexcept {
   return count;
 }
 
-SettingsRegisterProvider::SettingsRegisterProvider(settings::SettingsStore& store) noexcept : store_{&store} {
+SettingsRegisterProvider::SettingsRegisterProvider(settings::SettingsStore& store) noexcept
+    : store_{&store} {}
+
+std::string_view SettingsRegisterProvider::Name(const std::size_t index) const noexcept {
+  std::string_view found{};
+  std::size_t position = 0U;
   const settings::NvmSettings kSettings{};
   settings::ForEachRegister(
       [&](const std::string_view name, const auto& /*field*/) {
-        if (count_ < kCapacity) {
-          names_[count_++] = name;
+        if (position++ == index) {
+          found = name;
         }
       },
       kSettings);
+  return found;  // the names are string literals of cyphal::reg
 }
 
-std::string_view SettingsRegisterProvider::Name(const std::size_t index) const noexcept {
-  return index < count_ ? names_[index] : std::string_view{};
+cyphal::RegisterDescription SettingsRegisterProvider::Describe(const std::size_t index) const noexcept {
+  cyphal::RegisterDescription description{};
+  std::size_t position = 0U;
+  const settings::NvmSettings kSettings{};
+  settings::ForEachRegister(
+      [&](const settings::RegisterEntry& entry, const auto& field) {
+        if (position++ == index) {
+          description = settings::DescriptionOf(entry, field);
+        }
+      },
+      kSettings);
+  return description;
 }
 
 cyphal::RegisterFlags SettingsRegisterProvider::Read(const std::size_t index,

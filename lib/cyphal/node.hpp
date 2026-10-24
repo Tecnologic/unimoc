@@ -317,6 +317,11 @@ class CyphalNode {
                                   RegisterProvider*& provider,
                                   std::size_t& index) const noexcept;
 
+  /// The added register providers, in the order uavcan.register.List names their registers.
+  [[nodiscard]] std::span<RegisterProvider* const> RegisterProviders() const noexcept {
+    return std::span<RegisterProvider* const>{providers_.data(), provider_count_};
+  }
+
  private:
   struct Listener {
     uint16_t subject_id{kUnsetPortId};

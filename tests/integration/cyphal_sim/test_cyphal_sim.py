@@ -2,13 +2,16 @@
 #
 # The native_sim drive as a Cyphal node, tested from pycyphal over the slcan
 # pseudo terminal: node services, registers, arming, setpoints, telemetry,
-# the simulation registers, diagnostics, traces (cymon) and persistence across
-# a restart.
+# the simulation registers, diagnostics, traces (cymon), persistence across
+# a restart and the register description file (--describe-registers).
 # The tests share one simulation process and run in file order.
 
 from __future__ import annotations
 
+import json
 import math
+import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -32,6 +35,34 @@ from sim_client import (
     real,
 )
 import cymon
+
+VALUE_TYPES = (
+    "empty", "string", "unstructured", "bit",
+    "integer64", "integer32", "integer16", "integer8",
+    "natural64", "natural32", "natural16", "natural8",
+    "real64", "real32", "real16",
+)
+
+
+def value_type(value) -> tuple[str, int]:
+    """The selected field of a uavcan.register.Value and its number of elements."""
+    for name in VALUE_TYPES:
+        field = getattr(value, name, None)
+        if field is not None:
+            return name, (0 if name == "empty" else len(field.value))
+    raise AssertionError(f"unknown register value {value}")
+
+
+def describe_registers(dut, directory: Path) -> dict:
+    """Runs the binary of the test with --describe-registers on a fresh flash file."""
+    executable = Path(dut.device_config.build_dir) / "zephyr" / "zephyr.exe"
+    output = directory / "registers.json"
+    subprocess.run(
+        [str(executable), f"-flash={directory / 'flash.bin'}", f"--describe-registers={output}"],
+        check=True, timeout=60, capture_output=True,
+    )
+    return json.loads(output.read_text())
+
 
 
 def test_heartbeat_and_get_info(sim: SimClient):
@@ -82,6 +113,37 @@ def test_registers_list_read_write_and_validation(sim: SimClient):
     assert sim.write("uavcan.pub.cymon_trigger.id", natural16(212)) == 65535  # telemetry
     assert sim.write("uavcan.pub.cymon_trigger.id", natural16(300)) == 300
     assert sim.write("uavcan.pub.cymon_trigger.id", natural16(65535)) == 65535
+
+
+def test_registers_json_describes_every_register_on_the_bus(dut, sim: SimClient, tmp_path: Path):
+    described = describe_registers(dut, tmp_path)
+    assert described["schema"] == 1
+    info = sim.get_info()
+    firmware = described["firmware"]
+    major, minor, _ = firmware["version"].split(".", 2)
+    assert (int(major), int(minor)) == (info.software_version.major, info.software_version.minor)
+    assert int(firmware["vcs_revision"], 16) == info.software_vcs_revision_id
+
+    entries = described["registers"]
+    by_name = {entry["name"]: entry for entry in entries}
+    assert len(by_name) == len(entries), "a register is described twice"
+    # The same registers in the order of uavcan.register.List.
+    assert [entry["name"] for entry in entries] == sim.register_names()
+
+    for name, entry in by_name.items():
+        response = sim.access(name)
+        assert value_type(response.value) == (entry["type"], entry["size"]), name
+        assert (response.mutable, response.persistent) == (entry["mutable"], entry["persistent"]), name
+        assert entry["help"], f"{name} has no help"
+        if entry["mutable"]:
+            assert entry["applies"] in ("immediate", "disengaged", "restart"), name
+        if "min" in entry and "max" in entry:
+            assert entry["min"] <= entry["max"], name
+
+    # The persistent settings, among them the e-bike registers past the 128th.
+    settings = [entry for entry in entries if entry["persistent"] and entry["mutable"]]
+    assert len(settings) == 130
+    assert "unimoc.ebike.display_timeout" in by_name
 
 
 def test_unknown_commands_are_rejected(sim: SimClient):

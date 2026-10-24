@@ -17,8 +17,13 @@
 #include "settings_registers.hpp"
 #include <zephyr/ztest.h>
 #include <array>
+#include <cmath>
 #include <cstddef>
+#include <limits>
+#include <optional>
 #include <string_view>
+#include <type_traits>
+#include "settings_store.hpp"
 #include "unimoc_test.hpp"
 
 namespace unimoc::settings::test {
@@ -87,6 +92,85 @@ ZTEST(settings_registers, test_every_register_round_trips_and_fits_the_buffer) {
       },
       source,
       decoded);
+}
+
+ZTEST(settings_registers, test_every_register_is_described) {
+  const NvmSettings kSettings{};
+  ForEachRegister(
+      [&](const RegisterEntry& entry, const auto& field) {
+        using Field = std::remove_cvref_t<decltype(field)>;
+        const cyphal::RegisterDescription kDescription = DescriptionOf(entry, field);
+        zassert_false(kDescription.help.empty(), "%s has no help", entry.name.data());
+        zassert_true(kDescription.minimum <= kDescription.maximum, "%s: limits swapped", entry.name.data());
+        if constexpr (unit::UnitLike<Field>) {
+          if constexpr (!std::is_same_v<typename Field::dimension, unit::dim::Dimensionless>) {
+            zassert_false(kDescription.unit.empty(), "%s has no unit", entry.name.data());
+          }
+        }
+        // The drive subscribes and publishes its ports and takes its node-ID at the start.
+        const bool kPort = entry.name.starts_with("uavcan.sub.") || entry.name.starts_with("uavcan.pub.") ||
+                           entry.name.starts_with("uavcan.srv.") || entry.name == cyphal::reg::kNodeId;
+        if (kPort) {
+          zassert_equal(kDescription.effect, cyphal::RegisterEffect::kRestart, "%s", entry.name.data());
+        }
+      },
+      kSettings);
+}
+
+/// The value just beyond @p bound (above it or below it), when the field type can hold one.
+template <typename Field>
+[[nodiscard]] std::optional<Field> Beyond(const float bound, const bool above) {
+  const float kDirection =
+      above ? std::numeric_limits<float>::infinity() : -std::numeric_limits<float>::infinity();
+  if constexpr (unit::UnitLike<Field>) {
+    return Field{std::nextafter(bound, kDirection)};
+  } else if constexpr (std::is_same_v<Field, float>) {
+    return std::nextafter(bound, kDirection);
+  } else if constexpr (std::is_same_v<Field, uint8_t> || std::is_same_v<Field, uint16_t> ||
+                       (std::is_enum_v<Field> && sizeof(Field) == 1U)) {
+    using Raw = std::conditional_t<std::is_same_v<Field, uint16_t>, uint16_t, uint8_t>;
+    const float kValue = above ? bound + 1.0F : bound - 1.0F;
+    if (kValue < 0.0F || kValue > static_cast<float>(std::numeric_limits<Raw>::max())) {
+      return std::nullopt;
+    }
+    return static_cast<Field>(static_cast<Raw>(kValue));
+  } else {
+    return std::nullopt;  // the node name
+  }
+}
+
+ZTEST(settings_registers, test_a_value_beyond_each_limit_is_rejected) {
+  // The limits of the description are a hint for tools; they must not be
+  // tighter than the validation, so a value just outside is always rejected.
+  const HardwareCapabilities kCapabilities{};
+  NvmSettings candidate{};
+  zassert_equal(settings_store_internal::Validate(candidate, kCapabilities), SettingsStatus::kSuccess);
+  std::size_t checked = 0U;
+  ForEachRegister(
+      [&](const RegisterEntry& entry, auto& field) {
+        using Field = std::remove_cvref_t<decltype(field)>;
+        const Field kOriginal = field;
+        for (const bool kAbove : {false, true}) {
+          const float kBound = kAbove ? entry.description.maximum : entry.description.minimum;
+          if (!std::isfinite(kBound)) {
+            continue;
+          }
+          const std::optional<Field> kOutside = Beyond<Field>(kBound, kAbove);
+          if (!kOutside.has_value()) {
+            continue;
+          }
+          field = *kOutside;
+          zassert_not_equal(settings_store_internal::Validate(candidate, kCapabilities),
+                            SettingsStatus::kSuccess,
+                            "%s accepts a value %s its limit",
+                            entry.name.data(),
+                            kAbove ? "above" : "below");
+          field = kOriginal;
+          ++checked;
+        }
+      },
+      candidate);
+  zexpect_true(checked > 100U, "only %u limits checked", static_cast<unsigned>(checked));
 }
 
 ZTEST(settings_registers, test_values_are_little_endian_ieee_floats) {

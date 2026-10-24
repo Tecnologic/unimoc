@@ -71,7 +71,8 @@ Read `README.md` for the supported motor types and public features, and
   backend to `uavcan.diagnostic.Record`). All Cyphal code is shared between
   the platforms except `cyphal_platform.cpp` of each platform (BCC:
   transceiver pin; sim: slcan pseudo terminals, `unimoc.sim.*` registers,
-  plant trace). `hardware/hardware_interface.hpp`,
+  plant trace, the register description file `register_file.cpp` written by
+  `--describe-registers`). `hardware/hardware_interface.hpp`,
   `hardware/power_stage_interface.hpp` and `hardware/cyphal_platform.hpp`
   are the platform-independent boundaries.
 - `hardware/hot_path_interface.hpp` is the link-time bound hardware access of
@@ -93,7 +94,8 @@ Read `README.md` for the supported motor types and public features, and
   unit-escape ratchet `check_unit_escapes.py` against
   `unit_escapes_baseline.txt`), the Python requirements of the
   Cyphal build (`requirements-cyphal.txt`, Nunavut) and tools
-  (`requirements-cyphal-tools.txt`, yakut), and `sim_yakut_env.sh`.
+  (`requirements-cyphal-tools.txt`, yakut), `sim_yakut_env.sh`, and
+  `sim_cluster.sh` (N simulated drives on `vcan0`).
 - `docs/` contains the plans and the workflow notes. `TODO.md` lists open topics.
 - `lib/cymon/` is a submodule (cymon-lib, target `cymon`, linked into
   `unimoc_lib`; limits from `CONFIG_UNIMOC_TRACE_*`). Its DSDL namespace

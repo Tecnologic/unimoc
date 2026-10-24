@@ -17,6 +17,7 @@
 #include "timing_registers.hpp"
 #include <array>
 #include <cstdint>
+#include <limits>
 #include <optional>
 #include <span>
 #include "current_control_isr.hpp"
@@ -40,6 +41,17 @@ constexpr std::array<std::string_view, 6> kNames{
     cyphal::reg::kTimingReset,
 };
 
+using cyphal::RegisterEffect;
+constexpr float kInf = std::numeric_limits<float>::infinity();
+constexpr std::array<cyphal::RegisterDescription, kNames.size()> kDescriptions{{
+    {"cycles", -kInf, kInf, RegisterEffect::kImmediate, "Sample ISR run time: min, mean, max, count"},
+    {"cycles", -kInf, kInf, RegisterEffect::kImmediate, "Control cycle run time: min, mean, max, count"},
+    {"cycles", -kInf, kInf, RegisterEffect::kImmediate, "Observer run time: min, mean, max, count"},
+    {{}, -kInf, kInf, RegisterEffect::kImmediate, "Overruns: duty updates too late, observer runs skipped"},
+    {"Hz", -kInf, kInf, RegisterEffect::kImmediate, "Clock of the run time counters"},
+    {{}, 1.0F, 1.0F, RegisterEffect::kImmediate, "1 resets the run time statistics"},
+}};
+
 void SetNatural32Array(cyphal::RegisterValue& value, const std::span<const uint32_t> numbers) noexcept {
   uavcan_register_Value_1_0_select_natural32_(&value);
   for (std::size_t i = 0U; i < numbers.size(); ++i) {
@@ -61,6 +73,10 @@ std::size_t TimingRegisters::Count() const noexcept { return kNames.size(); }
 
 std::string_view TimingRegisters::Name(const std::size_t index) const noexcept {
   return index < kNames.size() ? kNames[index] : std::string_view{};
+}
+
+cyphal::RegisterDescription TimingRegisters::Describe(const std::size_t index) const noexcept {
+  return index < kDescriptions.size() ? kDescriptions[index] : cyphal::RegisterDescription{};
 }
 
 cyphal::RegisterFlags TimingRegisters::Read(const std::size_t index,

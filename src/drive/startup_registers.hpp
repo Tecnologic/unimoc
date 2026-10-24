@@ -55,6 +55,7 @@ class StartupRegisters final : public cyphal::RegisterProvider {
                                            cyphal::RegisterValue& value) const noexcept override;
   [[nodiscard]] cyphal::RegisterWriteResult Write(std::size_t index,
                                                   const cyphal::RegisterValue& value) noexcept override;
+  [[nodiscard]] cyphal::RegisterDescription Describe(std::size_t index) const noexcept override;
 
  private:
   startup::HwStartup* fsm_;
