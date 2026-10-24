@@ -809,6 +809,42 @@ inline constexpr uint16_t kUnsetPortId = 0xFFFFU;
 /// Largest Cyphal service-ID (0..255 unregulated, 256..511 regulated).
 inline constexpr uint16_t kMaxServiceId = 511U;
 
+/// Value of `uavcan.sub.readiness.id` meaning "follows the node-ID": the drive
+/// subscribes `kSubReadinessBase + node-ID`, so every drive of a bus can be
+/// armed alone (the factory default; docs/gui_plan.md, section 5).
+inline constexpr uint16_t kReadinessFollowsNodeId = 0xFFFEU;
+
+/// First readiness subject of the node-ID scheme: 1024 to 1151 for the CAN
+/// node-IDs 0 to 127, clear of the other default port-IDs.
+inline constexpr uint16_t kSubReadinessBase = 1024U;
+
+/// The readiness subject a drive subscribes: the configured one, or for
+/// `kReadinessFollowsNodeId` the subject of its node-ID (`kUnsetPortId` while
+/// the node has none, before a plug-and-play allocation).
+[[nodiscard]] constexpr uint16_t EffectiveReadinessId(const uint16_t configured,
+                                                      const uint8_t node_id) noexcept {
+  if (configured != kReadinessFollowsNodeId) {
+    return configured;
+  }
+  return (node_id <= 127U) ? static_cast<uint16_t>(kSubReadinessBase + node_id) : kUnsetPortId;
+}
+
+/// Bits of the vendor-specific status code of the heartbeat (docs/gui_plan.md,
+/// section 3). Bits 0 to 2 hold the power stage state (`hardware::PowerStageState`).
+namespace vendor_status {
+inline constexpr uint8_t kPowerStageMask = 0x07U;
+/// The drive is ENGAGED.
+inline constexpr uint8_t kEngaged = 0x08U;
+/// An overcurrent or overvoltage trip is latched; STANDBY or ENGAGED clears it.
+inline constexpr uint8_t kTripLatched = 0x10U;
+/// EMERGENCY_STOP is latched until a restart.
+inline constexpr uint8_t kEmergencyStop = 0x20U;
+/// Settings wait for the disengage (`unimoc.settings.pending`).
+inline constexpr uint8_t kSettingsPending = 0x40U;
+/// Local control: the drive engages by itself (e-bike); a bus ENGAGED does not engage it.
+inline constexpr uint8_t kLocalControl = 0x80U;
+}  // namespace vendor_status
+
 /// @defgroup sub_ports Subscriber (input) subjects — setpoints received by UNIMOC
 /// @{
 
@@ -838,10 +874,9 @@ inline constexpr uint16_t kSubControlMode = 103U;
 /// Register: `uavcan.sub.excitation_sp.id`
 inline constexpr uint16_t kSubExcitationSetpoint = 104U;
 
-/// Readiness (arming) of the drive.
-/// Data type: reg.udral.service.common.Readiness.0.1
-/// Register: `uavcan.sub.readiness.id`
-inline constexpr uint16_t kSubReadiness = 106U;
+// Readiness (arming) of the drive, reg.udral.service.common.Readiness.0.1, register
+// `uavcan.sub.readiness.id`: no fixed default; it follows the node-ID
+// (kReadinessFollowsNodeId, kSubReadinessBase, EffectiveReadinessId() above).
 
 /// d/q current setpoint.
 /// Data type: unimoc.drive.CurrentSetpoint.0.1

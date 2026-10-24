@@ -99,6 +99,9 @@ namespace reg = unimoc::cyphal::reg;
 namespace sim = unimoc::hardware::sim;
 
 constexpr uint8_t kDriveId = 10U;  // the sim profile's factory node-ID
+// The factory readiness subject follows the node-ID.
+constexpr uint16_t kReadinessPort =
+    unimoc::cyphal::EffectiveReadinessId(unimoc::cyphal::kReadinessFollowsNodeId, kDriveId);
 constexpr uint8_t kClientId = 100U;
 constexpr unsigned kCyclesPerMs = 16U;  // 32 kHz PWM, 16 kHz control cycle
 
@@ -191,7 +194,7 @@ struct Rig {
     reg_udral_service_common_Readiness_0_1 readiness{value};
     std::size_t size = tx.size();
     zassert_equal(reg_udral_service_common_Readiness_0_1_serialize_(&readiness, Out(tx), &size), 0);
-    Publish(unimoc::cyphal::kSubReadiness, std::span<const std::byte>{tx.data(), size});
+    Publish(kReadinessPort, std::span<const std::byte>{tx.data(), size});
   }
 
   void Current(const float i_d, const float i_q) {

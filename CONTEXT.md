@@ -99,7 +99,7 @@ external API requires different wording.
 | **save gate** | The `SettingsSaveGate` that allows writing settings to flash only while the power stage is disabled. |
 | **runtime value** | A value used during operation but not retained in NVM, such as a setpoint or telemetry sample. |
 | **factory default** | The value of a register that is not stored: the factory profile of the platform. A register at its factory value is erased from flash on save. |
-| **engaged** | The drive state in which the power stage is released for the setpoint. Entered on readiness `ENGAGED` (`reg.udral.service.common.Readiness`), left on `SLEEP`/`STANDBY`, a readiness timeout, a trip or a power stage fault. Use **disengaged** for the opposite, not "disarmed". |
+| **engaged** | The drive state in which the power stage is released for the setpoint. Entered on readiness `ENGAGED` (`reg.udral.service.common.Readiness`, on the drive's own subject, 1024 + node-ID by default), left on `SLEEP`/`STANDBY`, a readiness timeout, a trip or a power stage fault. Use **disengaged** for the opposite, not "disarmed". |
 | **re-arm** | After a trip or fault while engaged, the drive engages again only after a readiness other than `ENGAGED`. |
 | **command timeout** | `unimoc.control.command_timeout`: the drive disengages without readiness and falls back to zero current without setpoints for longer than this time. |
 | **cart drive** | A drive that follows the wheel command of the vehicle dynamics controller (**VDC**). It becomes one with the first wheel command after the engage and stays one until it disengages (`src/drive/cart_control.*`). |

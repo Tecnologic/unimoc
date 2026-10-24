@@ -239,7 +239,10 @@ bool DriveNode::Start(const uint64_t now_us) noexcept {
   now_us_ = now_us;
   const settings::SettingsSnapshot kSnapshot = store_->GetSnapshot();
   const settings::NvmSettings& live = kSnapshot.Get();
-  readiness_port_ = live.sub_readiness_id;
+  // 0 is "not assigned" in the settings: request a node-ID by plug-and-play.
+  const uint8_t kNodeId = (live.node_id == 0U) ? cyphal::kNodeIdUnset : live.node_id;
+  // A readiness that follows the node-ID waits for an allocated one (OnNodeIdAllocated()).
+  readiness_port_ = cyphal::EffectiveReadinessId(live.sub_readiness_id, kNodeId);
   current_setpoint_port_ = live.sub_current_setpoint_id;
   torque_setpoint_port_ = live.sub_torque_setpoint_id;
   speed_setpoint_port_ = live.sub_speed_setpoint_id;
@@ -292,8 +295,6 @@ bool DriveNode::Start(const uint64_t now_us) noexcept {
   node_->SetCommandHandler(*this);
   node_->SetNodeIdListener(*this);
 
-  // 0 is "not assigned" in the settings: request a node-ID by plug-and-play.
-  const uint8_t kNodeId = (live.node_id == 0U) ? cyphal::kNodeIdUnset : live.node_id;
   subscribed = node_->Start(kNodeId, now_us) && subscribed;
   node_->SetMode(cyphal::Mode::kOperational);
   next_telemetry_us_ = now_us;
@@ -804,6 +805,14 @@ uint8_t DriveNode::OnCommand(const uint16_t command, std::span<const uint8_t> /*
 }
 
 void DriveNode::OnNodeIdAllocated(const uint8_t node_id) noexcept {
+  if (readiness_port_ == cyphal::kUnsetPortId) {
+    const uint16_t kConfigured = store_->GetSnapshot().Get().sub_readiness_id;
+    readiness_port_ = cyphal::EffectiveReadinessId(kConfigured, node_id);
+    if (!node_->Subscribe(readiness_port_, reg_udral_service_common_Readiness_0_1_EXTENT_BYTES_, *this)) {
+      readiness_port_ = cyphal::kUnsetPortId;
+      (void)node_->Log(cyphal::Severity::kWarning, "readiness could not be subscribed");
+    }
+  }
   auto operations = store_->GetOperations();
   if (operations.SetNodeId(node_id) == settings::SettingsStatus::kSuccess &&
       operations.SaveToFlash() == settings::SettingsStatus::kSuccess) {
@@ -895,8 +904,14 @@ void DriveNode::UpdateStatus() noexcept {
     health = cyphal::Health::kAdvisory;
   }
   node_->SetHealth(health);
-  // Vendor status: bits 0..2 power stage state, bit 3 engaged.
-  node_->SetVendorStatus(static_cast<uint8_t>(static_cast<uint8_t>(kState) | (engaged_ ? 0x08U : 0x00U)));
+  // Vendor status (docs/gui_plan.md, section 3): bits 0..2 power stage state, then the flags.
+  namespace bits = cyphal::vendor_status;
+  const auto kFlag = [](const bool set, const uint8_t bit) { return set ? bit : uint8_t{0U}; };
+  node_->SetVendorStatus(static_cast<uint8_t>(
+      (static_cast<uint8_t>(kState) & bits::kPowerStageMask) | kFlag(engaged_, bits::kEngaged) |
+      kFlag(CurrentControlIsr::Instance().Tripped(), bits::kTripLatched) |
+      kFlag(emergency_stop_, bits::kEmergencyStop) | kFlag(settings_waiting_, bits::kSettingsPending) |
+      kFlag(ebike_ != nullptr, bits::kLocalControl)));
 }
 
 }  // namespace unimoc::drive

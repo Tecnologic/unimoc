@@ -187,7 +187,13 @@ template <std::size_t kCount>
  * (a node does not receive its own transfers).
  */
 [[nodiscard]] inline bool HasPortIdCollision(const NvmSettings& settings) noexcept {
-  const std::array<uint16_t, 11U> kSubjects{settings.sub_readiness_id,
+  // A readiness that follows the node-ID is checked on its subject; without a
+  // node-ID (0: plug-and-play) it has none yet.
+  const uint16_t kReadiness =
+      (settings.node_id == 0U && settings.sub_readiness_id == cyphal::kReadinessFollowsNodeId)
+          ? cyphal::kUnsetPortId
+          : cyphal::EffectiveReadinessId(settings.sub_readiness_id, settings.node_id);
+  const std::array<uint16_t, 11U> kSubjects{kReadiness,
                                             settings.sub_current_setpoint_id,
                                             settings.sub_torque_setpoint_id,
                                             settings.sub_speed_setpoint_id,
@@ -276,10 +282,12 @@ template <std::size_t kCount>
   const auto kIsSubjectId = [](const uint16_t port_id) {
     return port_id <= kMaxSubjectId || port_id == cyphal::kUnsetPortId;
   };
-  if (!kIsSubjectId(settings.sub_readiness_id) || !kIsSubjectId(settings.sub_current_setpoint_id) ||
-      !kIsSubjectId(settings.sub_torque_setpoint_id) || !kIsSubjectId(settings.sub_speed_setpoint_id) ||
-      !kIsSubjectId(settings.sub_position_setpoint_id) || !kIsSubjectId(settings.sub_servo_setpoint_id) ||
-      !kIsSubjectId(settings.pub_telemetry_id) || settings.telemetry_rate < ZeroOf(settings.telemetry_rate) ||
+  if ((!kIsSubjectId(settings.sub_readiness_id) &&
+       settings.sub_readiness_id != cyphal::kReadinessFollowsNodeId) ||
+      !kIsSubjectId(settings.sub_current_setpoint_id) || !kIsSubjectId(settings.sub_torque_setpoint_id) ||
+      !kIsSubjectId(settings.sub_speed_setpoint_id) || !kIsSubjectId(settings.sub_position_setpoint_id) ||
+      !kIsSubjectId(settings.sub_servo_setpoint_id) || !kIsSubjectId(settings.pub_telemetry_id) ||
+      settings.telemetry_rate < ZeroOf(settings.telemetry_rate) ||
       settings.telemetry_rate > kMaxTelemetryRate ||
       settings.command_timeout <= ZeroOf(settings.command_timeout) ||
       settings.command_timeout > kMaxCommandTimeout) {
