@@ -1,0 +1,28 @@
+# Torque command of the vehicle dynamics controller (VDC) for all wheel drives
+# of the cart, published at the cycle rate of the VDC (250 to 500 Hz) with the
+# highest Cyphal priority of the cart (docs/system_plan.md, section 6.2).
+#
+# One message carries all wheels; every drive takes the entry of its own wheel
+# and applies it on reception. A drive without a new message for its setpoint
+# timeout ramps its torque to zero (limp-home mode, system plan section 7).
+# Arming is not part of this message: it stays with
+# reg.udral.service.common.Readiness.
+#
+# Payload 8 bytes, one CAN FD frame.
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+uint2 WHEEL_FRONT_LEFT = 0
+uint2 WHEEL_FRONT_RIGHT = 1
+uint2 WHEEL_REAR_LEFT = 2
+uint2 WHEEL_REAR_RIGHT = 3
+# Index of a wheel in wheel_torque[]; also the wheel index of unimoc.cart.DriveStatus.
+
+float16[4] wheel_torque
+# Torque at the wheel in the forward direction of the cart [N m], indexed by
+# WHEEL_*. Negative values brake while the cart moves forward. The drive maps
+# it to its own rotor direction and limits it to its current drive and
+# regenerative limits (unimoc.cart.DriveStatus). A wheel without a drive or
+# switched off by the VDC gets zero. NaN is treated as zero.
+
+@extent 63 * 8

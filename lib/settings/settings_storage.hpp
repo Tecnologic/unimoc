@@ -116,4 +116,48 @@ class SettingsStorage {
   EraseCallback erase_{nullptr};
 };
 
+/**
+ * @brief Mutual exclusion of the threads that use one SettingsStore.
+ *
+ * The store takes the lock around every public operation, so the Cyphal
+ * register service, the shell and the startup FSM can share it. The callbacks
+ * block and run in thread context only. A default-constructed lock does
+ * nothing (a single settings thread, host tests).
+ */
+class SettingsLock {
+ public:
+  /// Takes or releases the lock.
+  using Callback = void (*)(void* context);
+
+  constexpr SettingsLock() = default;
+
+  /**
+   * @brief Constructs a lock from platform callbacks.
+   * @param context Opaque callback context.
+   * @param lock Takes the lock, blocking until it is free.
+   * @param unlock Releases the lock.
+   */
+  constexpr SettingsLock(void* context, Callback lock, Callback unlock) noexcept
+      : context_{context}, lock_{lock}, unlock_{unlock} {}
+
+  /// Takes the lock.
+  void Lock() const noexcept {
+    if (lock_ != nullptr) {
+      lock_(context_);
+    }
+  }
+
+  /// Releases the lock.
+  void Unlock() const noexcept {
+    if (unlock_ != nullptr) {
+      unlock_(context_);
+    }
+  }
+
+ private:
+  void* context_{nullptr};
+  Callback lock_{nullptr};
+  Callback unlock_{nullptr};
+};
+
 }  // namespace unimoc::settings

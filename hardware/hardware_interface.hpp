@@ -18,6 +18,7 @@
 #include <array>
 #include <cstdint>
 #include <optional>
+#include "hall_capture.hpp"
 #include "hardware_interface_config.hpp"
 #include "settings_profile.hpp"
 #include "settings_storage.hpp"
@@ -41,6 +42,9 @@ struct ControlCycleSamples {
   /// A sample of this cycle exceeded the overcurrent limit. The hardware layer
   /// has already tripped the power stage when this is set.
   bool overcurrent{false};
+  /// Time of the last sample (the control boundary) in ticks of the
+  /// timestamp clock (kTimestampFrequency), the clock of the Hall events.
+  uint32_t timestamp{0U};
 };
 
 /**
@@ -115,38 +119,46 @@ class HardwareSystemInterface {
 class HardwareInterface {
  public:
   using InitializeCallback = bool (*)(unit::Frequency, uint32_t) noexcept;
+  using StopCallback = void (*)() noexcept;
   using GetPhaseCurrentsCallback = system::ThreePhase<unit::Current> (*)() noexcept;
   using GetPhaseVoltagesCallback = system::ThreePhase<unit::Voltage> (*)() noexcept;
   using GetTemperatureMeasurementsCallback = TemperatureMeasurements (*)() noexcept;
   using SetOvercurrentLimitCallback = void (*)(unit::Current) noexcept;
   using SetAdcTriggerOffsetCallback = void (*)(uint32_t) noexcept;
   using GetTimerClockFrequencyCallback = uint32_t (*)() noexcept;
+  using PopHallEventCallback = bool (*)(observer::HallEvent&) noexcept;
 
   /**
    * @brief Constructs a motor hardware interface.
    * @param initialize Initializes the hardware for the requested PWM frequency
    *                   and ADC trigger offset and starts the interrupts.
+   * @param stop Stops the interrupts and the cycle source (see Stop()).
    * @param get_phase_currents Reads the three phase currents.
    * @param get_phase_voltages Reads the three phase voltages.
    * @param get_temperature_measurements Reads optional temperature channels.
    * @param set_overcurrent_limit Sets the per-sample overcurrent limit.
    * @param set_adc_trigger_offset Updates the ADC trigger compare value.
    * @param get_timer_clock_frequency Returns the timer input clock in Hz.
+   * @param pop_hall_event Takes the oldest captured change of the Hall code.
    */
   HardwareInterface(InitializeCallback initialize,
+                    StopCallback stop,
                     GetPhaseCurrentsCallback get_phase_currents,
                     GetPhaseVoltagesCallback get_phase_voltages,
                     GetTemperatureMeasurementsCallback get_temperature_measurements,
                     SetOvercurrentLimitCallback set_overcurrent_limit,
                     SetAdcTriggerOffsetCallback set_adc_trigger_offset,
-                    GetTimerClockFrequencyCallback get_timer_clock_frequency)
+                    GetTimerClockFrequencyCallback get_timer_clock_frequency,
+                    PopHallEventCallback pop_hall_event)
       : initialize_(initialize),
+        stop_(stop),
         get_phase_currents_(get_phase_currents),
         get_phase_voltages_(get_phase_voltages),
         get_temperature_measurements_(get_temperature_measurements),
         set_overcurrent_limit_(set_overcurrent_limit),
         set_adc_trigger_offset_(set_adc_trigger_offset),
-        get_timer_clock_frequency_(get_timer_clock_frequency) {}
+        get_timer_clock_frequency_(get_timer_clock_frequency),
+        pop_hall_event_(pop_hall_event) {}
 
   /**
    * @brief Initializes the hardware and starts its interrupts.
@@ -161,6 +173,16 @@ class HardwareInterface {
   [[nodiscard]] bool Initialize(unit::Frequency pwm_frequency, uint32_t adc_trigger_offset) const noexcept {
     return initialize_(pwm_frequency, adc_trigger_offset);
   }
+
+  /**
+   * @brief Stops the cycle source before a new Initialize().
+   *
+   * Afterwards neither ControlCycleHandler() nor ObserverHandler() runs and
+   * the hardware is in a state Initialize() may reprogram (BCC: interrupts
+   * off, timer, duty DMA and ADC sequences stopped, ADCs disabled). The power
+   * stage must be disabled. Does nothing before the first Initialize().
+   */
+  void Stop() const noexcept { stop_(); }
 
   /**
    * @brief Reads the three phase currents.
@@ -206,14 +228,31 @@ class HardwareInterface {
    */
   [[nodiscard]] uint32_t GetTimerClockFrequency() const noexcept { return get_timer_clock_frequency_(); }
 
+  /**
+   * @brief Takes the oldest captured change of the Hall code.
+   *
+   * The platform captures every change of the Hall code with its timestamp
+   * (BCC: EXTI interrupt and the DWT cycle counter; native_sim: the edges of
+   * the simulated sensors in virtual time) and the code at Initialize().
+   * The observer takes them after each control cycle; it is the only reader.
+   *
+   * @param event Receives the code and its timestamp (kTimestampFrequency ticks).
+   * @return False when no change is pending.
+   */
+  [[nodiscard]] bool PopHallEvent(observer::HallEvent& event) const noexcept {
+    return pop_hall_event_(event);
+  }
+
  private:
   InitializeCallback initialize_;
+  StopCallback stop_;
   GetPhaseCurrentsCallback get_phase_currents_;
   GetPhaseVoltagesCallback get_phase_voltages_;
   GetTemperatureMeasurementsCallback get_temperature_measurements_;
   SetOvercurrentLimitCallback set_overcurrent_limit_;
   SetAdcTriggerOffsetCallback set_adc_trigger_offset_;
   GetTimerClockFrequencyCallback get_timer_clock_frequency_;
+  PopHallEventCallback pop_hall_event_;
 };
 
 /**
@@ -228,10 +267,12 @@ class HardwareSettingsInterface {
    * @brief Constructs the settings hardware boundary.
    * @param profile Immutable factory settings and hardware capabilities.
    * @param storage Platform callbacks for the writable settings image.
+   * @param lock Serializes the threads that share the settings store.
    */
   HardwareSettingsInterface(const settings::SettingsProfile& profile,
-                            settings::SettingsStorage storage) noexcept
-      : profile_{&profile}, storage_{storage} {}
+                            settings::SettingsStorage storage,
+                            settings::SettingsLock lock) noexcept
+      : profile_{&profile}, storage_{storage}, lock_{lock} {}
 
   /**
    * @brief Returns the immutable target profile.
@@ -243,9 +284,15 @@ class HardwareSettingsInterface {
    */
   [[nodiscard]] const settings::SettingsStorage& GetSettingsStorage() const noexcept { return storage_; }
 
+  /**
+   * @brief Returns the platform lock of the settings store.
+   */
+  [[nodiscard]] const settings::SettingsLock& GetSettingsLock() const noexcept { return lock_; }
+
  private:
   const settings::SettingsProfile* profile_;
   settings::SettingsStorage storage_;
+  settings::SettingsLock lock_;
 };
 
 // Platform boundary objects, defined once per platform (hardware/zephyr_*).

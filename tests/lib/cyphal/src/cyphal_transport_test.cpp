@@ -44,7 +44,15 @@ class FakeTransport final : public Transport {
     return ReceiveResult::kReceived;
   }
 
+  bool Subscribe(TransferKind /*kind*/, uint16_t /*port_id*/, std::size_t /*extent*/) noexcept override {
+    return true;
+  }
+  void SetLocalNodeId(uint8_t node_id) noexcept override { local_node_id = node_id; }
+  [[nodiscard]] uint8_t LocalNodeId() const noexcept override { return local_node_id; }
+  void Process(uint64_t /*now_us*/) noexcept override {}
+
   bool send_result{true};
+  uint8_t local_node_id{kNodeIdUnset};
   ReceiveResult receive_result{ReceiveResult::kNoTransfer};
   Transfer sent_transfer{};
   Transfer received_transfer{};

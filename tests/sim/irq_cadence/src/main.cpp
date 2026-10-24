@@ -17,6 +17,7 @@
 #include <zephyr/ztest.h>
 #include "hardware_interface.hpp"
 #include "hot_path_interface.hpp"
+#include "hot_path_timing.hpp"
 #include "power_stage_interface.hpp"
 #include "sim_control.hpp"
 
@@ -24,7 +25,7 @@ namespace {
 
 using unimoc::hardware::DutyPlan;
 using unimoc::hardware::kMotors;
-using unimoc::unit::Ratio;
+using namespace unimoc::unit;
 namespace sim = unimoc::hardware::sim;
 
 volatile uint32_t g_control_count = 0U;
@@ -32,8 +33,8 @@ volatile uint32_t g_observer_count = 0U;
 volatile uint32_t g_misordered = 0U;  // observer callbacks not directly after a control callback
 
 // Plan of cycle n: phase A duty of entry k is 0.1 * (k + 1) + 0.01 * n.
-float PlanDuty(const uint32_t cycle, const uint8_t entry) {
-  return (0.1F * static_cast<float>(entry + 1U)) + (0.01F * static_cast<float>(cycle));
+Ratio PlanDuty(const uint32_t cycle, const uint8_t entry) {
+  return (0.1_ratio * static_cast<float>(entry + 1U)) + (0.01_ratio * static_cast<float>(cycle));
 }
 
 }  // namespace
@@ -42,7 +43,7 @@ float PlanDuty(const uint32_t cycle, const uint8_t entry) {
 void unimoc::hardware::ControlCycleHandler() noexcept {
   DutyPlan plan{};
   for (uint8_t k = 0U; k < unimoc::hardware::kHalfPeriodsPerCycle; ++k) {
-    plan.duties[k].a = Ratio{PlanDuty(g_control_count, k)};
+    plan.duties[k].a = PlanDuty(g_control_count, k);
   }
   unimoc::hardware::hot_path::SetDutyPlan(plan);
   g_control_count = g_control_count + 1U;
@@ -65,9 +66,7 @@ void Reset() {
 
 }  // namespace
 
-ZTEST(sim_irq_cadence, test_rejects_zero_frequency) {
-  zassert_false(kMotors[0].Initialize(unimoc::unit::Frequency{0.0F}, 0U));
-}
+ZTEST(sim_irq_cadence, test_rejects_zero_frequency) { zassert_false(kMotors[0].Initialize(0.0_Hz, 0U)); }
 
 ZTEST(sim_irq_cadence, test_one_control_cycle_per_four_half_periods) {
   Reset();
@@ -96,18 +95,60 @@ ZTEST(sim_irq_cadence, test_plan_entries_reach_the_following_half_periods) {
   auto applied = sim::AppliedDuties();
   // The half period right after the control boundary still runs the old
   // plan (neutral here); entries 0..2 follow.
-  zassert_within(applied[0].a.Value(), 0.5F, 1e-6F);
+  zassert_within(applied[0].a, 0.5_ratio, 1e-6_ratio);
   for (uint8_t k = 1U; k < 4U; ++k) {
-    zassert_within(applied[k].a.Value(), PlanDuty(0U, k - 1U), 1e-6F);
+    zassert_within(applied[k].a, PlanDuty(0U, k - 1U), 1e-6_ratio);
   }
 
   sim::StepCycle();  // plan 1; entry 3 of plan 0 carries over
   applied = sim::AppliedDuties();
-  zassert_within(applied[0].a.Value(), PlanDuty(0U, 3U), 1e-6F);
+  zassert_within(applied[0].a, PlanDuty(0U, 3U), 1e-6_ratio);
   for (uint8_t k = 1U; k < 4U; ++k) {
-    zassert_within(applied[k].a.Value(), PlanDuty(1U, k - 1U), 1e-6F);
+    zassert_within(applied[k].a, PlanDuty(1U, k - 1U), 1e-6_ratio);
   }
   zassert_equal(sim::CycleCount(), 2U);
+}
+
+ZTEST(sim_irq_cadence, test_stop_halts_the_cycle_source_until_the_next_initialize) {
+  Reset();
+  kMotors[0].Stop();  // nothing running yet: no effect
+  zassert_true(kMotors[0].Initialize(unimoc::unit::Frequency{32'000.0F}, 0U));
+  k_sleep(K_MSEC(10));
+  kMotors[0].Stop();
+  const uint32_t kStopped = g_control_count;
+  zassert_true(kStopped > 0U);
+  k_sleep(K_MSEC(20));
+  zassert_equal(g_control_count, kStopped, "no control cycle after Stop()");
+  zassert_equal(g_observer_count, kStopped, "no observer after Stop()");
+
+  // A restart with another PWM frequency runs from cycle 0 again.
+  zassert_true(kMotors[0].Initialize(unimoc::unit::Frequency{16'000.0F}, 0U));
+  sim::SetFreeRunning(false);
+  sim::StepCycle();
+  zassert_equal(sim::CycleCount(), 1U);
+  zassert_equal(g_control_count, kStopped + 1U);
+}
+
+ZTEST(sim_irq_cadence, test_timing_probe_keeps_min_mean_max_and_resets_at_the_next_record) {
+  unimoc::hardware::timing::Probe probe{};
+  zassert_equal(probe.Read().count, 0U);
+  zassert_equal(probe.Read().MeanCycles(), 0U);
+  probe.Record(30U);
+  probe.Record(10U);
+  probe.Record(20U);
+  auto stats = probe.Read();
+  zassert_equal(stats.min_cycles, 10U);
+  zassert_equal(stats.max_cycles, 30U);
+  zassert_equal(stats.MeanCycles(), 20U);
+  zassert_equal(stats.count, 3U);
+
+  probe.Reset();
+  zassert_equal(probe.Read().count, 3U, "the writer carries out the reset");
+  probe.Record(5U);
+  stats = probe.Read();
+  zassert_equal(stats.count, 1U);
+  zassert_equal(stats.min_cycles, 5U);
+  zassert_equal(stats.max_cycles, 5U);
 }
 
 ZTEST(sim_power_stage, test_enable_needs_external_enable) {

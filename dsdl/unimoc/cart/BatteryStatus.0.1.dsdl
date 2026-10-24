@@ -1,0 +1,41 @@
+# State of the traction battery, published by the BMS controller at 50 to
+# 100 Hz (docs/system_plan.md, sections 5.5 and 6.2). The drives limit their
+# battery current to the limits of this message; without it they fall back to
+# the limits stored in their settings (system plan section 7).
+#
+# Payload 15 bytes, one CAN FD frame.
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+float16 voltage
+# Pack voltage [V].
+
+float16 current
+# Pack current [A]; positive while discharging, negative while charging.
+
+float16 state_of_charge
+# 0 (empty) to 1 (full).
+
+float16 discharge_current_limit
+float16 charge_current_limit
+# Largest pack current the battery takes now [A], >= 0 for both directions.
+# The drives share them; the charge limit bounds regenerative braking.
+
+float16 cell_temperature
+# Highest cell temperature [K].
+
+float16 chopper_temperature
+# Temperature of the brake resistor of the BMS [K]; NaN without a chopper.
+
+uint2 contactor
+uint2 CONTACTOR_OPEN = 0
+uint2 CONTACTOR_PRECHARGE = 1
+uint2 CONTACTOR_CLOSED = 2
+uint2 CONTACTOR_OPENING = 3
+# OPENING: the BMS announced the opening; the drives ramp the regenerative
+# torque down and the contactor opens after the announcement time of the BMS.
+
+bool chopper_active
+# The brake chopper of the BMS is switching.
+
+@extent 63 * 8

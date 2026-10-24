@@ -64,6 +64,17 @@ namespace unimoc::hardware::foc_stm32g4 {
 [[nodiscard]] bool Initialize(unit::Frequency pwm_frequency, uint32_t adc_trigger_offset) noexcept;
 
 /**
+ * @brief Stops the sample and observer interrupts and the hardware they run on.
+ *
+ * Disables both interrupts, stops TIM8 (outputs off) and the duty DMA, stops
+ * the injected sequences (JADSTP) and disables the ADCs (ADDIS), so that
+ * Initialize() may calibrate and reprogram them: the reference manual allows
+ * ADCAL only with ADEN = 0 and a JSQR write only with JADSTART = 0. Thread
+ * context, power stage disabled. Does nothing before the first Initialize().
+ */
+void Stop() noexcept;
+
+/**
  * @name Power stage release
  * The outputs stay off after Initialize(). The external enable is the break
  * input TIM8_BKIN (active low, internal pull-down): when it drops, the timer
@@ -119,9 +130,18 @@ struct CycleRaw {
   std::array<RawCurrents, kHalfPeriodsPerCycle> currents;  ///< oldest first
   uint32_t vdc;                                            ///< of the last sample
   bool overcurrent;                                        ///< a sample left the window
+  uint32_t timestamp;                                      ///< Timestamp() at the last sample
 };
 
 [[nodiscard]] const CycleRaw& CycleSamples() noexcept;
+
+/**
+ * @brief The timestamp clock of the drive: the DWT cycle counter.
+ *
+ * Counts core clock cycles (kTimestampFrequency) and wraps every 25 s;
+ * Initialize() starts it. A plain register read, usable in every context.
+ */
+[[nodiscard]] uint32_t Timestamp() noexcept;
 
 /// Compare values that were active while sample k of the current cycle was taken.
 [[nodiscard]] const PhaseTicks& AppliedTicks(uint8_t sample) noexcept;

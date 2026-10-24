@@ -31,6 +31,9 @@ class ZephyrSettingsStorage {
  public:
   /// Returns the storage adapter for `SettingsStore`.
   [[nodiscard]] static settings::SettingsStorage Adapter() noexcept;
+
+  /// Returns the lock for `SettingsStore`: one Zephyr mutex, threads only.
+  [[nodiscard]] static settings::SettingsLock Lock() noexcept;
 };
 
 }  // namespace unimoc::hardware

@@ -39,8 +39,8 @@ constexpr int kPolePairs = 4;
 // --- Default state
 ZTEST(position_tracker, test_default_state_is_zero) {
   Tracker tracker;
-  UNIMOC_EXPECT_FLOAT_EQ(tracker.PositionRad().Value(), 0.0F);
-  UNIMOC_EXPECT_FLOAT_EQ(tracker.PositionRev().Value(), 0.0F);
+  UNIMOC_EXPECT_FLOAT_EQ(tracker.PositionRad(), 0.0_rad);
+  UNIMOC_EXPECT_FLOAT_EQ(tracker.PositionRev(), 0.0_ratio);
   zexpect_false(tracker.IsHomed());
 }
 
@@ -49,7 +49,7 @@ ZTEST(position_tracker, test_converts_absolute_electrical_position_to_mechanical
   Tracker tracker;
   const RotorAngle kAngle = RotorAngle::FromAngle(0.5_rad);
   tracker.Update(kAngle, kPolePairs);
-  UNIMOC_EXPECT_NEAR(tracker.PositionRad().Value(), 0.5F / static_cast<float>(kPolePairs), 1e-6F);
+  UNIMOC_EXPECT_NEAR(tracker.PositionRad(), (0.5F / static_cast<float>(kPolePairs)) * 1.0_rad, 1e-6_rad);
   zexpect_equal(kAngle, RotorAngle::FromAngle(0.5_rad));
 }
 
@@ -59,7 +59,9 @@ ZTEST(position_tracker, test_uses_source_revolution_count_across_positive_wrap) 
   angle.Advance(0.02_rad);
   tracker.Update(angle, kPolePairs);
   zexpect_equal(angle.Revolutions(), 1);
-  UNIMOC_EXPECT_NEAR(tracker.PositionRad().Value(), (kPi + 0.01F) / static_cast<float>(kPolePairs), 1e-5F);
+  UNIMOC_EXPECT_NEAR(tracker.PositionRad(),
+                     ((kPi + 0.01F) / static_cast<float>(kPolePairs)) * 1.0_rad,
+                     1e-5_rad);
 }
 
 ZTEST(position_tracker, test_uses_source_revolution_count_across_negative_wrap) {
@@ -68,22 +70,24 @@ ZTEST(position_tracker, test_uses_source_revolution_count_across_negative_wrap) 
   angle.Advance(-0.02_rad);
   tracker.Update(angle, kPolePairs);
   zexpect_equal(angle.Revolutions(), -1);
-  UNIMOC_EXPECT_NEAR(tracker.PositionRad().Value(), (-kPi - 0.01F) / static_cast<float>(kPolePairs), 1e-5F);
+  UNIMOC_EXPECT_NEAR(tracker.PositionRad(),
+                     ((-kPi - 0.01F) / static_cast<float>(kPolePairs)) * 1.0_rad,
+                     1e-5_rad);
 }
 
 ZTEST(position_tracker, test_converts_multiple_source_revolutions) {
   Tracker tracker;
   const RotorAngle kAngle = RotorAngle::FromRaw(0, 4 * kPolePairs);
   tracker.Update(kAngle, kPolePairs);
-  UNIMOC_EXPECT_NEAR(tracker.PositionRad().Value(), 4.0F * kTwoPi, 1e-5F);
-  UNIMOC_EXPECT_NEAR(tracker.PositionRev().Value(), 4.0F, 1e-6F);
+  UNIMOC_EXPECT_NEAR(tracker.PositionRad(), (4.0F * kTwoPi) * 1.0_rad, 1e-5_rad);
+  UNIMOC_EXPECT_NEAR(tracker.PositionRev(), 4.0_ratio, 1e-6_ratio);
 }
 
 // --- Position formula: (turns * 2π + theta) / pole_pairs − home_offset
 ZTEST(position_tracker, test_position_formula) {
   Tracker tracker;
   tracker.Update(RotorAngle::FromAngle(Angle{kPi / 2.0F}), kPolePairs);
-  UNIMOC_EXPECT_NEAR(tracker.PositionRad().Value(), kPi / 8.0F, 1e-5F);
+  UNIMOC_EXPECT_NEAR(tracker.PositionRad(), (kPi / 8.0F) * 1.0_rad, 1e-5_rad);
 }
 
 // --- SetHome() zeroes position
@@ -91,8 +95,8 @@ ZTEST(position_tracker, test_set_home_clears_position) {
   Tracker tracker;
   tracker.Update(RotorAngle::FromAngle(Angle{kPi / 2.0F}), kPolePairs);
   tracker.SetHome();
-  UNIMOC_EXPECT_FLOAT_EQ(tracker.PositionRad().Value(), 0.0F);
-  UNIMOC_EXPECT_FLOAT_EQ(tracker.PositionRev().Value(), 0.0F);
+  UNIMOC_EXPECT_FLOAT_EQ(tracker.PositionRad(), 0.0_rad);
+  UNIMOC_EXPECT_FLOAT_EQ(tracker.PositionRev(), 0.0_ratio);
   zexpect_true(tracker.IsHomed());
 }
 
@@ -103,7 +107,7 @@ ZTEST(position_tracker, test_position_relative_to_home) {
   tracker.SetHome();
 
   tracker.Update(RotorAngle::FromAngle(Angle{kPi / 2.0F}), kPolePairs);
-  UNIMOC_EXPECT_NEAR(tracker.PositionRad().Value(), kPi / 8.0F, 1e-5F);
+  UNIMOC_EXPECT_NEAR(tracker.PositionRad(), (kPi / 8.0F) * 1.0_rad, 1e-5_rad);
 }
 
 ZTEST(position_tracker, test_home_offset_uses_mechanical_position_and_leaves_source_untouched) {
@@ -113,7 +117,7 @@ ZTEST(position_tracker, test_home_offset_uses_mechanical_position_and_leaves_sou
   tracker.SetHome();
   const RotorAngle kMoved = RotorAngle::FromRaw(0, 15);
   tracker.Update(kMoved, 3);
-  UNIMOC_EXPECT_NEAR(tracker.PositionRad().Value(), kTwoPi, 1e-5F);
+  UNIMOC_EXPECT_NEAR(tracker.PositionRad(), kTwoPi * 1.0_rad, 1e-5_rad);
   zexpect_equal(kMoved.Revolutions(), 15);
 }
 
@@ -124,7 +128,7 @@ ZTEST(position_tracker, test_reset_clears_all) {
   tracker.SetHome();
   tracker.Update(RotorAngle::FromAngle(1.0_rad), kPolePairs);
   tracker.Reset();
-  UNIMOC_EXPECT_FLOAT_EQ(tracker.PositionRad().Value(), 0.0F);
+  UNIMOC_EXPECT_FLOAT_EQ(tracker.PositionRad(), 0.0_rad);
   zexpect_false(tracker.IsHomed());
 }
 

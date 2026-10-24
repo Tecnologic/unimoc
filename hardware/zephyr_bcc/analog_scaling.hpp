@@ -22,6 +22,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include "units.hpp"
 
 namespace unimoc::hardware::analog {
 
@@ -34,27 +35,54 @@ inline constexpr int32_t kCurrentZeroCounts = 2048;
 inline constexpr float kShuntResistance = 0.0005F;  ///< [Ohm]
 inline constexpr float kCurrentAmplifierGain = 50.0F;
 inline constexpr float kVoltageDividerRatio = (33.0F + 1.0F) / 1.0F;  ///< 33k / 1k
-inline constexpr float kTorqueSensitivity = 70.0F;                    ///< E-Rider T9 [V/Nm]
+/// Input network of the crank torque (PB14): R84 || R85 (3k3 each) in series, R86 (3k3) to ground.
+inline constexpr float kTorqueDividerRatio = 3.3F / ((3.3F / 2.0F) + 3.3F);
+inline constexpr float kTorqueScale = 70.0F;       ///< E-Rider T9N [Nm/V]
+inline constexpr float kTorqueRestVoltage = 1.5F;  ///< E-Rider T9N output at zero load [V]
 
 [[nodiscard]] constexpr float CountsToVolts(const float counts) noexcept {
   return counts * kVoltageReference / kAdcResolution;
 }
 
-/// Signed phase current [A] from a raw conversion.
-[[nodiscard]] constexpr float CountsToCurrent(const uint32_t raw) noexcept {
+// The conversions below are the boundary from raw counts to the unit types:
+// the scale factors are plain floats here, the results carry their unit.
+
+/// Signed phase current from a raw conversion.
+[[nodiscard]] constexpr unit::Current CountsToCurrent(const uint32_t raw) noexcept {
   const auto kCentered = static_cast<float>(static_cast<int32_t>(raw) - kCurrentZeroCounts);
-  return CountsToVolts(kCentered) / (kShuntResistance * kCurrentAmplifierGain);
+  return unit::Current{CountsToVolts(kCentered) / (kShuntResistance * kCurrentAmplifierGain)};
 }
 
-/// Voltage [V] in front of the 33k/1k divider.
-[[nodiscard]] constexpr float CountsToVoltage(const uint32_t raw) noexcept {
-  return CountsToVolts(static_cast<float>(raw)) * kVoltageDividerRatio;
+/// Current of one count above zero: the resolution of a current channel.
+inline constexpr unit::Current kCurrentPerCount =
+    CountsToCurrent(static_cast<uint32_t>(kCurrentZeroCounts + 1));
+
+/// Voltage in front of the 33k/1k divider.
+[[nodiscard]] constexpr unit::Voltage CountsToVoltage(const uint32_t raw) noexcept {
+  return unit::Voltage{CountsToVolts(static_cast<float>(raw)) * kVoltageDividerRatio};
 }
 
-/// Crank torque [Nm] without offset compensation.
-[[nodiscard]] constexpr float CountsToTorque(const uint32_t raw) noexcept {
-  return CountsToVolts(static_cast<float>(raw)) / kTorqueSensitivity;
+/// Crank torque from the sensor voltage above its nominal rest voltage (the voltage at the connector, behind
+/// the input divider). The offset of the individual sensor remains; the pedal observer (lib/ebike) trims it.
+[[nodiscard]] constexpr unit::Torque CountsToTorque(const uint32_t raw) noexcept {
+  const float kSensorVolts = CountsToVolts(static_cast<float>(raw)) / kTorqueDividerRatio;
+  return unit::Torque{(kSensorVolts - kTorqueRestVoltage) * kTorqueScale};
 }
+
+static_assert(CountsToCurrent(static_cast<uint32_t>(kCurrentZeroCounts)) == unit::Current{});
+static_assert(kCurrentPerCount > unit::Current{});
+
+// E-Rider T9N: 1.5 V at rest, 70 Nm/V, so 2.0 V is 35 Nm. The output range ends at 3.5 V (140 Nm), which the
+// input divider brings to 2.3 V at the ADC, inside its range.
+namespace detail {
+using unit::operator""_Nm;
+constexpr uint32_t kRestCounts =
+    static_cast<uint32_t>(kTorqueRestVoltage * kTorqueDividerRatio / kVoltageReference * kAdcResolution);
+constexpr uint32_t kTwoVoltCounts =
+    static_cast<uint32_t>(2.0F * kTorqueDividerRatio / kVoltageReference * kAdcResolution);
+static_assert(CountsToTorque(kRestCounts) < 0.1_Nm && CountsToTorque(kRestCounts) > -0.1_Nm);
+static_assert(CountsToTorque(kTwoVoltCounts) > 34.0_Nm && CountsToTorque(kTwoVoltCounts) < 36.0_Nm);
+}  // namespace detail
 
 namespace detail {
 
@@ -67,8 +95,8 @@ inline constexpr float kNtcAdcStep = (kAdcResolution - 1.0F) / static_cast<float
 
 }  // namespace detail
 
-/// Temperature [degC] of a 10k NTC (beta 3950) with 10k pull-up, by table interpolation.
-[[nodiscard]] inline float CountsToTemperature(const uint32_t raw) noexcept {
+/// Temperature of a 10k NTC (beta 3950) with 10k pull-up, by table interpolation.
+[[nodiscard]] inline unit::Temperature CountsToTemperature(const uint32_t raw) noexcept {
   using namespace detail;
   static const std::array<float, kNtcTableSize> kTable = [] {
     std::array<float, kNtcTableSize> table{};
@@ -87,7 +115,7 @@ inline constexpr float kNtcAdcStep = (kAdcResolution - 1.0F) / static_cast<float
   const std::size_t kUpper = (kLower + 1 >= kNtcTableSize) ? kNtcTableSize - 1 : kLower + 1;
   const std::size_t kLowerClamped = (kLower >= kNtcTableSize) ? kNtcTableSize - 1 : kLower;
   const float kFraction = kPosition - static_cast<float>(kLowerClamped);
-  return kTable[kLowerClamped] + kFraction * (kTable[kUpper] - kTable[kLowerClamped]);
+  return unit::Temperature{kTable[kLowerClamped] + kFraction * (kTable[kUpper] - kTable[kLowerClamped])};
 }
 
 }  // namespace unimoc::hardware::analog

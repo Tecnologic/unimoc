@@ -15,6 +15,7 @@
  */
 #include "current_control_isr.hpp"
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include "hardware_interface.hpp"
 #include "hot_path_interface.hpp"
@@ -44,10 +45,11 @@ void CurrentControlIsr::Init(const settings::NvmSettings& settings,
 
   // Centre-aligned PWM: ARR = timer_clock / (2 × f_pwm) − 1
   state.arr = timer_clock_hz / (2U * kPwmHz) - 1U;
-  state.dt_fast = 1.0F / (2.0F * static_cast<float>(kPwmHz));
-  state.dt_slow = static_cast<float>(kNumSubSteps) * state.dt_fast;
+  state.dt_fast = DtFastFromPwmFrequency(settings.pwm_frequency);
+  state.dt_slow = DtSlowFromPwmFrequency(settings.pwm_frequency);
   state.adc_trigger_offset = static_cast<uint32_t>(std::roundf(1e-6F * static_cast<float>(timer_clock_hz)));
 
+  state.dc_link_trip = settings.dc_link_trip;
   hfi.Init(settings);
   dtc.Init(settings);
   svm.Init(settings);
@@ -57,6 +59,7 @@ void CurrentControlIsr::Init(const settings::NvmSettings& settings,
   cc.ki_d = settings.current_ki_d;
   cc.kp_q = settings.current_kp_q;
   cc.ki_q = settings.current_ki_q;
+  gains_pending_.store(false, std::memory_order_relaxed);  // the settings are newer than any live gains
   cc.L_d = settings.l_d;
   cc.L_q = settings.l_q;
   cc.psi = settings.flux_pm;
@@ -86,6 +89,13 @@ void CurrentControlIsr::Init(const settings::NvmSettings& settings,
   state.control_cycles = 0U;
   state.duty_plan = hardware::DutyPlan{};
   state.phase_duties = system::ThreePhase<unit::Ratio>{0.5_ratio, 0.5_ratio, 0.5_ratio};
+  // A restart leaves a bring-up mode: the control loop runs again, from zero
+  // current until the outer loop hands over a reference.
+  force_duty_active_.store(false, std::memory_order_release);
+  state.i_ref = system::Rotor<unit::Current>{0.0F, 0.0F};
+  state.i_ref_mailbox.Write(state.i_ref);
+  state.i_dq_last = system::Rotor<unit::Current>{0.0F, 0.0F};
+  state.u_dq_last = system::Rotor<unit::Voltage>{0.0F, 0.0F};
 }
 
 // =============================================================================
@@ -97,9 +107,8 @@ void CurrentControlIsr::Init(const settings::NvmSettings& settings,
 // hardware only through hot_path:: (bound at link time, no function
 // pointers) and calls no libm function (built with -fno-math-errno).
 //
-static bool Exceeds(const system::ThreePhase<unit::Current>& currents, const float limit) noexcept {
-  return std::abs(currents.a.Value()) > limit || std::abs(currents.b.Value()) > limit ||
-         std::abs(currents.c.Value()) > limit;
+static bool Exceeds(const system::ThreePhase<unit::Current>& currents, const unit::Current limit) noexcept {
+  return unit::Abs(currents.a) > limit || unit::Abs(currents.b) > limit || unit::Abs(currents.c) > limit;
 }
 
 void CurrentControlIsr::OnControlCycle() noexcept {
@@ -112,14 +121,23 @@ void CurrentControlIsr::OnControlCycle() noexcept {
   // 1. Samples of the cycle (oldest first) from the hardware boundary.
   // -------------------------------------------------------------------------
   const hardware::ControlCycleSamples kSamples = hardware::hot_path::GetControlCycleSamples();
-  const float kDcLinkVoltage = kSamples.dc_link.Value();
+  const unit::Voltage kDcLinkVoltage = kSamples.dc_link;
 
   // -------------------------------------------------------------------------
   // 1a. Store the newest raw sample — always, regardless of control mode.
   //     The startup FSM reads it from a lower-priority context.
   // -------------------------------------------------------------------------
   state.raw_phase_currents = kSamples.phase_currents[kNumSubSteps - 1U];
-  state.raw_vdc = unit::Voltage{kDcLinkVoltage};
+  state.raw_vdc = kDcLinkVoltage;
+  state.i_ref = state.i_ref_mailbox.Read();
+  if (gains_pending_.load(std::memory_order_acquire)) {
+    gains_pending_.store(false, std::memory_order_relaxed);
+    const CurrentGains kGains = gains_.Read();
+    cc.kp_d = kGains.kp_d;
+    cc.ki_d = kGains.ki_d;
+    cc.kp_q = kGains.kp_q;
+    cc.ki_q = kGains.ki_q;
+  }
 
   // -------------------------------------------------------------------------
   // 1b. Hard overcurrent limit. The hardware has checked every sample and
@@ -137,17 +155,23 @@ void CurrentControlIsr::OnControlCycle() noexcept {
       state.overcurrent_tripped = true;
     }
   }
-  if (state.overcurrent_tripped) {
+  // 1c. DC-link overvoltage: no braking current can be taken any more; the
+  //     outer loop has derated regenerative braking before this level.
+  if (!state.overvoltage_tripped && !(kSamples.dc_link < state.dc_link_trip)) {
+    hardware::hot_path::TripPowerStage();
+    state.overvoltage_tripped = true;
+  }
+  if (state.overcurrent_tripped || state.overvoltage_tripped) {
     SetUniformDuties(system::ThreePhase<unit::Ratio>{0.5_ratio, 0.5_ratio, 0.5_ratio});
     FinishCycleWithoutControl();
     return;
   }
 
   // -------------------------------------------------------------------------
-  // 1c. Force-duty mode: fixed duties, no control loop.
+  // 1d. Force-duty mode: fixed duties, no control loop.
   // -------------------------------------------------------------------------
-  if (force_duty_active) {
-    SetUniformDuties(forced_duties);
+  if (force_duty_active_.load(std::memory_order_acquire)) {
+    SetUniformDuties(forced_duties_.Read());
     FinishCycleWithoutControl();
     return;
   }
@@ -161,6 +185,7 @@ void CurrentControlIsr::OnControlCycle() noexcept {
   }
   const uint8_t kActiveBuffer = state.double_buf.active.load(std::memory_order_acquire);
   SubStepBuffer& buffer = state.double_buf.buf[kActiveBuffer];
+  buffer.timestamp = kSamples.timestamp;
 
   // -------------------------------------------------------------------------
   // 3. Clarke per sample, Park with the angle of the sample, mean d/q current.
@@ -177,15 +202,13 @@ void CurrentControlIsr::OnControlCycle() noexcept {
   i_dq_mean.d *= kInverseCount;
   i_dq_mean.q *= kInverseCount;
   buffer.i_dq_mean = i_dq_mean;
+  state.i_dq_last = i_dq_mean;
 
   // -------------------------------------------------------------------------
   // 4. Current PI with decoupling feedforward, once per cycle.
   // -------------------------------------------------------------------------
-  const system::Rotor<unit::Voltage> kVoltageDq = cc.Update(state.i_ref,
-                                                            i_dq_mean,
-                                                            mech_obs.omega,
-                                                            unit::Time{state.dt_slow},
-                                                            unit::Voltage{kDcLinkVoltage});
+  const system::Rotor<unit::Voltage> kVoltageDq =
+      cc.Update(state.i_ref, i_dq_mean, mech_obs.omega, state.dt_slow, kDcLinkVoltage);
   buffer.u_dq = kVoltageDq;
   state.u_dq_last = kVoltageDq;
 
@@ -195,7 +218,7 @@ void CurrentControlIsr::OnControlCycle() noexcept {
   //    One reciprocal of V_dc for all entries (M2).
   // -------------------------------------------------------------------------
   const system::Stator<unit::Ratio> kDtcRatio = dtc.Calculate(buffer.i_ab_samples[kNumSubSteps - 1U]);
-  const float kInverseVDc = control::Svm::InverseDcLinkVoltage(kSamples.dc_link);
+  const auto kInverseVDc = control::Svm::InverseDcLinkVoltage(kSamples.dc_link);
   hardware::DutyPlan plan{};
   for (uint8_t k = 0U; k < kNumSubSteps; ++k) {
     const system::SinCos<unit::Ratio>& sc_out = buffer.sc_out[k];
@@ -219,14 +242,12 @@ void CurrentControlIsr::OnControlCycle() noexcept {
 // force_duty
 // =============================================================================
 
-void CurrentControlIsr::ForceDuty(float da, float db, float dc) noexcept {
-  const auto kClampDuty = [this](float duty) noexcept {
-    return unit::Ratio{std::clamp(duty, svm.duty_min.Value(), svm.duty_max.Value())};
+void CurrentControlIsr::ForceDuty(const unit::Ratio da, const unit::Ratio db, const unit::Ratio dc) noexcept {
+  const auto kClampDuty = [this](const unit::Ratio duty) noexcept {
+    return duty.Clamp(svm.duty_min, svm.duty_max);
   };
-  forced_duties.a = kClampDuty(da);
-  forced_duties.b = kClampDuty(db);
-  forced_duties.c = kClampDuty(dc);
-  force_duty_active = true;
+  forced_duties_.Write(system::ThreePhase<unit::Ratio>{kClampDuty(da), kClampDuty(db), kClampDuty(dc)});
+  force_duty_active_.store(true, std::memory_order_release);
 }
 
 // =============================================================================
@@ -234,8 +255,10 @@ void CurrentControlIsr::ForceDuty(float da, float db, float dc) noexcept {
 // =============================================================================
 
 void CurrentControlIsr::ReleaseForceDuty() noexcept {
-  force_duty_active = false;
-  cc.Reset();  // clear integrators before resuming closed-loop control
+  // Clear the integrators while the control cycle still bypasses the PI
+  // loop, then hand the loop back (release: the reset is seen first).
+  cc.Reset();
+  force_duty_active_.store(false, std::memory_order_release);
 }
 
 // =============================================================================
@@ -250,7 +273,7 @@ void CurrentControlIsr::SetAdcTriggerOffset(uint32_t offset) noexcept {
 }
 
 void CurrentControlIsr::SetOvercurrentLimit(const unit::Current limit) noexcept {
-  state.overcurrent_limit = limit.Value();
+  state.overcurrent_limit = limit;
   if (hardware_ != nullptr) {
     hardware_->SetOvercurrentLimit(limit);
   }

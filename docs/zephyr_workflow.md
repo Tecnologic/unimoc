@@ -1,7 +1,7 @@
 # Zephyr workflow (skeleton)
 
-Scope: Zephyr is the primary OS. Logging, shell, USB, Cyphal, settings and
-startup run in Zephyr threads. Only the FOC hot path (the sample ISR and the
+Scope: Zephyr is the primary OS. Logging, Cyphal, settings and startup run
+in Zephyr threads. Only the FOC hot path (the sample ISR and the
 control cycle it runs) runs in zero-latency IRQs; the observer runs in a
 software-pended normal-priority interrupt (`docs/hotpath_plan.md`).
 
@@ -23,6 +23,7 @@ uses the directory above the manifest repository):
     pip install west codechecker clang-format==22.1.1   # clang-format pinned: the output depends on the version
     west init -l unimoc && west update
     west packages pip --install                  # Zephyr's Python requirements
+    pip install -r unimoc/scripts/requirements-cyphal.txt   # Nunavut (DSDL code generation)
     west sdk install -t arm-zephyr-eabi          # Zephyr SDK 1.0.1; without GitHub API access:
     #   download zephyr-sdk-1.0.1_linux-x86_64_minimal.tar.xz from the sdk-ng release,
     #   unpack it and run ./setup.sh -t arm-zephyr-eabi -h -c
@@ -34,8 +35,14 @@ CMake >= 3.20 (Zephyr's minimum) and Ninja are required. The CI job
 
 ## Build
 
-    west build -b native_sim/native/64 unimoc/app -d unimoc/app/build/sim   # host simulation
+    west build -b native_sim/native/64 unimoc/app -d unimoc/app/build/sim   # host simulation (Cyphal: README.md)
     west build -b bcc unimoc/app -d unimoc/app/build/bcc                      # battery case controller
+
+CI builds both (workflow `build-firmware.yml`, one matrix row per target) and uploads them as the artifacts
+`unimoc-bcc` (`.elf`, `.hex`, `.bin`, `.map`) and `unimoc-native_sim` (the
+executable in a `.tar.gz`, which keeps its executable bit) of the workflow run.
+A merged `develop` to `main` pull request attaches them to a GitHub release (see
+[release_plan.md](release_plan.md)).
 
 ## Tests and static analysis
 
@@ -85,6 +92,46 @@ the cadence and the half periods each plan entry reaches,
 `tests/sim/closed_loop` runs current steps through the core against
 the plant.
 
+## Cyphal thread
+
+`main()` starts the Cyphal thread (`hardware/zephyr_common/cyphal_runtime.cpp`,
+priority `CONFIG_UNIMOC_CYPHAL_THREAD_PRIORITY`, below every interrupt). It
+wakes on each received frame and at least every millisecond and runs the node
+and the drive application (`src/drive/drive_node.cpp`). It reaches the
+control cycle only through `CurrentControlIsr::SetCurrentRef()`, reads its
+state for the telemetry and restarts the runtime (`StartRuntime()`) with new
+settings while the power stage is disabled. A restart first stops the cycle
+source (`HardwareInterface::Stop()`; BCC: both interrupts off, TIM8 and the
+duty DMA stopped, the injected sequences stopped and the ADCs disabled), so
+the control state is not rewritten under the running interrupts and the ADC
+calibration and `JSQR` writes of `Initialize()` meet the reference manual.
+
+| | BCC | native_sim |
+|---|---|---|
+| CAN interfaces | FDCAN3 (chosen `zephyr,canbus`), CAN FD frames at 1/1 Mbit/s (SN65HVD230), Rs pin low | SocketCAN `vcan0` (`--can-if`), plus slcan on `uart_1`..`uart_4` (pseudo terminals) |
+| Node-ID | `uavcan.node.id`, 0 = plug-and-play | 10 (sim profile), `--node-id=<n>` |
+| Unique-ID | hwinfo (STM32 UID) | hwinfo (`gethostid()`, `--device_id=<n>`) |
+| Restart | `sys_reboot()` | re-executes the process (`CONFIG_NATIVE_SIM_REBOOT`) |
+| Extra registers | none | `unimoc.sim.*`, `uavcan.pub.sim_plant.*` |
+
+Kconfig: `CONFIG_UNIMOC_CYPHAL` (app `prj.conf`), `..._CAN_FD`, `..._CAN_BRS`
+(off on the BCC), `..._ARENA_SIZE` (libcanard heap, 24 KB), `..._LOG_BACKEND`
+and `..._LOG_LEVEL` (log lines up to info as diagnostic records),
+`..._SLCAN` (native_sim); the traces have `CONFIG_UNIMOC_TRACE_BUFFER_BYTES`
+(8192), `..._VARS` (32) and `..._CHANNELS` (8). The simulation runs in real time
+(`CONFIG_NATIVE_SIM_SLOWDOWN_TO_REAL_TIME`, `app/boards/native_sim_native_64.conf`).
+Tests: `unimoc.lib.cyphal` (transport and node against a second libcanard
+node), `unimoc.lib.cymon` (cymon-lib with the Kconfig limits, captures and
+the generated `cymon.*` serialization), `unimoc.sim.cyphal_drive` (DriveNode with the plant) and
+`unimoc.app.cyphal_integration`: twister's pytest harness starts the real
+application, and pycyphal (`tests/integration/cyphal_sim/`) checks
+heartbeat, GetInfo, the port list, registers, arming, setpoints, telemetry,
+diagnostics, the simulation registers, trace captures (cymon) and a store
+across a restart over the
+first slcan pseudo terminal. The DSDL is compiled into
+`<tmp>/unimoc_pycyphal` on the first run; without pycyphal the tests are
+skipped.
+
 ## Power stage release
 
 `PowerStageInterface` (`hardware/power_stage_interface.hpp`): the outputs stay
@@ -112,7 +159,7 @@ the hardware layer, which trips the stage at the sample. The control cycle
 again before any control computation. Over the limit it calls
 `kPowerStage.Trip()`, latches
 `state.overcurrent_tripped` and holds the duties at 50 % until
-`ClearOvercurrentTrip()`. `HwStartup::RequestRun()` is the explicit
+`ClearTrips()`. `HwStartup::RequestRun()` is the explicit
 acknowledgement: it clears a latched break and the trip, then calls
 `Enable()`; without the external enable the run is not started and the FSM
 stays IDLE. While a run is active `RunOnce()` leaves for FAULT as soon as the
@@ -121,11 +168,24 @@ stage is no longer enabled (trip, external break, e-stop), and
 
 ## Known issues
 
-- Not integrated yet: the Cyphal stack and the USB CDC-ACM console. Logging goes to the Zephyr log; the BCC USB stays
-  disabled (`docs/zephyr_port_plan.md`, Phases 4 and 5).
+- Cyphal on the BCC is built only: FDCAN3 with PCLK1 (170 MHz) as kernel
+  clock, CAN FD frames without bit rate switch at 1 Mbit/s because the
+  SN65HVD230 is a classic CAN transceiver; a bus with classic-only adapters
+  needs `CONFIG_UNIMOC_CYPHAL_CAN_FD=n`. Bit timing, the Rs pin and the bus
+  are checked on the board.
+- The console and the log of the BCC are on SEGGER RTT. USB and the shell are
+  not used (the CDC-ACM console and the HSI48/CRS clock recovery were removed
+  on 2026-10-21); USB returns for DFU recovery.
+- The pytest scenario runs pytest with `-p no:platformdirs`
+  (`app/testcase.yaml`): platformdirs 4.13 registers a pytest plugin, and on
+  the CI runner (`pip --user` on the system Python) an older platformdirs on
+  the path makes its import fail before any test runs.
+- The app board files of the simulation are named for the 64-bit target
+  (`app/boards/native_sim_native_64.*`); the 32-bit `native_sim` build does
+  not pick them up.
 - Pins were taken from the KiCad netlist (Tecnologic/battery-case-controller).
   LEDs, CAN slope, break, hall and pulse signals are in the devicetree; FDCAN3
-  and USB have pinctrl but stay disabled until their steps. The gate drivers
+  is enabled for Cyphal; USB is not used. The gate drivers
   (LM5109B) have no enable pin. Not run on hardware yet.
 - Limits (BCC and sim profile): `max_phase_current` 60 A is the hard trip
   limit of the power stage (the INA240A2 chain saturates at about +-66 A, so
@@ -135,8 +195,8 @@ stage is no longer enabled (trip, external break, e-stop), and
 - Nothing watches the power stage after the startup run is DONE except the
   per-sample overcurrent trip; the hardware break still works. The board has no
   comparators on the current channels; the analog watchdog is not configured.
-- The schematic symbol of U43 is an STM32G491CxT, the firmware targets the
-  STM32G473CBT6 (FDCAN3 on PB3/PB4 and ADC4/ADC5 only exist there).
+- The schematic symbol of U43 is an STM32G491CxT, the board carries and the
+  firmware targets the STM32G473CET6 (512 KB flash, dual bank) (FDCAN3 on PB3/PB4 and ADC4/ADC5 only exist there).
 - The CAN transceiver is a SN65HVD230 (classic CAN, no CAN FD).
 - Settings persist through the Zephyr settings subsystem on ZMS
   (`hardware/zephyr_common/zephyr_settings_storage.cpp`): flash simulator on
@@ -147,4 +207,6 @@ stage is no longer enabled (trip, external break, e-stop), and
   ripple; the sim checks logic and timing contract, not the time budget.
 - The duty DMA, the CCR preload, the counter start at ARR/2 and the
   peak/valley detection are only build-tested, not run on the board.
-- `cymon` needs CMake 4 and is not linked yet. Its C++ standard is unverified.
+- The cymon traces sample at the end of the control cycle (`cymon::Device::Tick()`,
+  zero latency); its cost on the board is not measured yet (M0,
+  `docs/cymon_integration_plan.md`).

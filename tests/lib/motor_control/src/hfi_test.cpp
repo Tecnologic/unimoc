@@ -23,7 +23,7 @@ namespace {
 
 unimoc::observer::Hfi<float> MakeHfi() {
   unimoc::observer::Hfi<float> hfi;
-  hfi.v_inject = Voltage{2.0F};
+  hfi.v_inject = 2.0_V;
   return hfi;
 }
 
@@ -35,12 +35,12 @@ ZTEST(hfi, test_explicit_step_follows_the_four_step_pattern) {
   const Ratio kSinTh{0.0F};
   const Ratio kCosTh{1.0F};
 
-  UNIMOC_EXPECT_FLOAT_EQ(kHfi.GetInjectionVoltage(0, kSinTh, kCosTh).alpha.Value(), 2.0F);
-  UNIMOC_EXPECT_FLOAT_EQ(kHfi.GetInjectionVoltage(1, kSinTh, kCosTh).alpha.Value(), -2.0F);
-  UNIMOC_EXPECT_FLOAT_EQ(kHfi.GetInjectionVoltage(2, kSinTh, kCosTh).beta.Value(), 2.0F);
-  UNIMOC_EXPECT_FLOAT_EQ(kHfi.GetInjectionVoltage(3, kSinTh, kCosTh).beta.Value(), -2.0F);
-  UNIMOC_EXPECT_FLOAT_EQ(kHfi.GetInjectionVoltage(4, kSinTh, kCosTh).alpha.Value(), 0.0F);
-  UNIMOC_EXPECT_FLOAT_EQ(kHfi.GetInjectionVoltage(4, kSinTh, kCosTh).beta.Value(), 0.0F);
+  UNIMOC_EXPECT_FLOAT_EQ(kHfi.GetInjectionVoltage(0, kSinTh, kCosTh).alpha, 2.0_V);
+  UNIMOC_EXPECT_FLOAT_EQ(kHfi.GetInjectionVoltage(1, kSinTh, kCosTh).alpha, -2.0_V);
+  UNIMOC_EXPECT_FLOAT_EQ(kHfi.GetInjectionVoltage(2, kSinTh, kCosTh).beta, 2.0_V);
+  UNIMOC_EXPECT_FLOAT_EQ(kHfi.GetInjectionVoltage(3, kSinTh, kCosTh).beta, -2.0_V);
+  UNIMOC_EXPECT_FLOAT_EQ(kHfi.GetInjectionVoltage(4, kSinTh, kCosTh).alpha, 0.0_V);
+  UNIMOC_EXPECT_FLOAT_EQ(kHfi.GetInjectionVoltage(4, kSinTh, kCosTh).beta, 0.0_V);
 }
 
 ZTEST(hfi, test_implicit_step_matches_explicit_step) {
@@ -51,8 +51,8 @@ ZTEST(hfi, test_implicit_step_matches_explicit_step) {
     hfi.step = k;
     const auto kImplicit = hfi.GetInjectionVoltage(kSinTh, kCosTh);
     const auto kExplicit = hfi.GetInjectionVoltage(k, kSinTh, kCosTh);
-    UNIMOC_EXPECT_FLOAT_EQ(kImplicit.alpha.Value(), kExplicit.alpha.Value());
-    UNIMOC_EXPECT_FLOAT_EQ(kImplicit.beta.Value(), kExplicit.beta.Value());
+    UNIMOC_EXPECT_FLOAT_EQ(kImplicit.alpha, kExplicit.alpha);
+    UNIMOC_EXPECT_FLOAT_EQ(kImplicit.beta, kExplicit.beta);
   }
 }
 

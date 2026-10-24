@@ -15,7 +15,6 @@
  */
 #pragma once
 
-#include <cmath>
 #include <concepts>
 #include "units.hpp"
 
@@ -151,20 +150,19 @@ struct ExcitationController {
    */
   constexpr unit::Current Update(const unit::Current i_f_meas, const unit::Time dt) noexcept {
     // Convert setpoint to a current reference depending on the active mode.
-    T i_f_setpoint;
-    if (mode == ExcitationMode::kFluxMode && L_m.Value() > 1.0e-9F) {
-      i_f_setpoint = flux_setpoint.Value() / L_m.Value();
+    unit::Current i_f_setpoint;
+    if (mode == ExcitationMode::kFluxMode && L_m > 1.0e-9_H) {
+      i_f_setpoint = flux_setpoint / L_m;
     } else {
-      i_f_setpoint = current_setpoint.Value();
+      i_f_setpoint = current_setpoint;
     }
 
     // PI loop
-    const T kError = i_f_setpoint - i_f_meas.Value();
+    const unit::Current kError = i_f_setpoint - i_f_meas;
 
-    integrator = unit::Current{integrator.Value() + ki.Value() * kError * dt.Value()}.Clamp(i_f_min.Value(),
-                                                                                            i_f_max.Value());
+    integrator = (integrator + (ki * kError * dt)).Clamp(i_f_min, i_f_max);
 
-    i_f_ref = unit::Current{kp.Value() * kError + integrator.Value()}.Clamp(i_f_min.Value(), i_f_max.Value());
+    i_f_ref = ((kp * kError) + integrator).Clamp(i_f_min, i_f_max);
 
     return i_f_ref;
   }

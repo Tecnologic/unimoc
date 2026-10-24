@@ -15,7 +15,6 @@
  */
 #pragma once
 
-#include <cmath>
 #include <concepts>
 #include "units.hpp"
 
@@ -66,22 +65,22 @@ struct Mtpa {
    *             For SPMSM (L_d == L_q) or trivial flux this returns 0.
    */
   [[nodiscard]] constexpr unit::Current Calculate(const unit::Current i_s) const noexcept {
-    const T kDeltaL = L_d.Value() - L_q.Value();
+    const unit::Inductance kDeltaL = L_d - L_q;
 
     // Avoid division by zero (surface PMSM or no saliency)
-    if (std::abs(kDeltaL) < static_cast<T>(1e-9)) {
+    if (unit::Abs(kDeltaL) < 1e-9_H) {
       return unit::Current{};
     }
 
     // Half-saliency denominator term
-    const T kXi = flux_pm.Value() / (static_cast<T>(2) * kDeltaL);
-    const T kIS2 = i_s.Value() * static_cast<T>(0.5);
+    const unit::Current kXi = flux_pm / (static_cast<T>(2) * kDeltaL);
+    const unit::Current kIS2 = i_s * static_cast<T>(0.5);
 
-    // MTPA closed-form solution
-    const T kID = kXi - std::copysign(std::sqrt(kXi * kXi + kIS2 * kIS2), static_cast<T>(1));
+    // MTPA closed-form solution (the root is non-negative)
+    const unit::Current kID = kXi - unit::Hypot(kXi, kIS2);
 
     // Limit to current magnitude (i_d must not exceed i_s in absolute value)
-    return unit::Current{kID}.Clamp(-i_s.Value(), static_cast<T>(0));
+    return kID.Clamp(-i_s, unit::Current{});
   }
 };
 

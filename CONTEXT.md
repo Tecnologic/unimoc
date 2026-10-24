@@ -18,6 +18,8 @@ external API requires different wording.
 | **twister scenario** | One test application under `tests/` with a `testcase.yaml`, built and run by Zephyr's twister (ztest on `native_sim`, build-only on `bcc`). |
 | **SCA** | Zephyr static code analysis; here clang-tidy through CodeChecker (`scripts/twister_sca.sh`). |
 | **native_sim** | Zephyr's Linux simulation target. It runs the firmware application against the PMSM plant on the host. |
+| **unit type** | A `unit::Unit` of `lib/units/units.hpp` (`Current`, `Voltage`, ...): a `float` with a period and a **dimension**. Prefer it to a raw `float` for every physical quantity. |
+| **dimension** | The exponents of kg, m, s, A, K and rad of a unit type. Products and quotients derive it at compile time, so rad/s and Hz are different types and a gain has the type of its formula. Torque is N m/rad and inertia kg m^2/rad^2; the **electromechanical coupling** drops one radian where the electrical and the mechanical side meet (rad/s times Wb is V, Wb times A is N m/rad). |
 | **hardware layer** | Platform-specific code that connects the portable library to ADCs, PWM, timers, NVM, gate drivers, and other peripherals. Its platform is `zephyr_bcc` or `zephyr_sim`. |
 | **BCC** | The battery case controller: the STM32G473 board, built with `-b bcc`. |
 | **plant** | The simulated motor with its inverter, shaft and position sensor (`MotorSimulation` in `lib/sim/`). The firmware controls it on `native_sim`, including the ztest scenarios in `tests/sim/`. |
@@ -34,7 +36,7 @@ external API requires different wording.
 | **duty plan** | The four duty entries of one control cycle (`DutyPlan`). Entry 0 goes into the CCR preload, entries 1 to 3 are delivered by DMA at the next update events. |
 | **hot-path interface** | `hardware/hot_path_interface.hpp`: the hardware access of the control cycle (`hot_path::GetControlCycleSamples`, `SetDutyPlan`, `TripPowerStage`) and the two handlers the platform calls. Bound at link time per platform, no function pointers. |
 | **observer** | The flux observer, Kalman filter and HFI after each control cycle, in a software-pended normal-priority interrupt. It computes the angles of the next cycle. `SlowUpdate` in code. |
-| **Zephyr thread** | Any work outside the zero-latency IRQs: logging, shell, USB, Cyphal, settings, and startup sequencing. |
+| **Zephyr thread** | Any work outside the zero-latency IRQs: logging, the Cyphal thread, settings, and startup sequencing. |
 | **trip** | An overcurrent or fault stop that switches the power stage off. A trip latches a fault until it is cleared. |
 | **dead time** | The gap between the switching edges of a half-bridge that prevents shoot-through. It is set in the `foc0` devicetree node. |
 
@@ -85,8 +87,8 @@ external API requires different wording.
 |---|---|
 | **Cyphal** | The network protocol used by UNIMOC. Write **Cyphal (UAVCAN v1)** when introducing it; use **Cyphal** afterward. |
 | **node** | One networked drive on the Cyphal bus. |
-| **node ID** | The numeric Cyphal identity in the range `1..127`; `0` means that plug-and-play allocation is requested. |
-| **register** | A named, persistent configuration entry accessed through the Cyphal register service. |
+| **node ID** | The numeric Cyphal identity in the range `1..127`; `0` in `uavcan.node.id` means that plug-and-play allocation is requested. |
+| **register** | A named entry accessed through the Cyphal register service: a persistent setting, a port-ID, a read-only type name or a volatile simulation input. |
 | **subject** | A Cyphal publish/subscribe data channel. Use **input subject** for a subscribed command and **output subject** for published telemetry. |
 | **service** | A Cyphal request/response interaction, distinct from a subject. |
 | **setpoint subject** | An input subject carrying a runtime command such as torque, speed, position, or excitation. |
@@ -96,7 +98,52 @@ external API requires different wording.
 | **live settings** | The RAM copy of `NvmSettings` that the controller uses and that live tuning changes without any flash access. |
 | **save gate** | The `SettingsSaveGate` that allows writing settings to flash only while the power stage is disabled. |
 | **runtime value** | A value used during operation but not retained in NVM, such as a setpoint or telemetry sample. |
-| **factory default** | The known initial value restored when the NVM magic or layout version is invalid. |
+| **factory default** | The value of a register that is not stored: the factory profile of the platform. A register at its factory value is erased from flash on save. |
+| **engaged** | The drive state in which the power stage is released for the setpoint. Entered on readiness `ENGAGED` (`reg.udral.service.common.Readiness`), left on `SLEEP`/`STANDBY`, a readiness timeout, a trip or a power stage fault. Use **disengaged** for the opposite, not "disarmed". |
+| **re-arm** | After a trip or fault while engaged, the drive engages again only after a readiness other than `ENGAGED`. |
+| **command timeout** | `unimoc.control.command_timeout`: the drive disengages without readiness and falls back to zero current without setpoints for longer than this time. |
+| **cart drive** | A drive that follows the wheel command of the vehicle dynamics controller (**VDC**). It becomes one with the first wheel command after the engage and stays one until it disengages (`src/drive/cart_control.*`). |
+| **wheel command** | `unimoc.cart.WheelCommand`: the torque of every wheel from the VDC; a drive takes the entry of `unimoc.cart.wheel`. Torques and speeds of the cart messages are in the **cart frame** (positive drives the cart forward); `unimoc.cart.reversed` maps it to the rotor frame. |
+| **limp-home** | The cart drive mode without the VDC: the torque comes from the pedal state, brake pedal first, ramped and limited to `unimoc.cart.limp_home_torque`. The readiness timeout waits meanwhile; the VDC takes over again only at standstill. |
+| **e-bike control** | The local source of the engagement and of the torque of a BCC drive (`src/ebike/ebike_control.*`, `DriveNode::SetLocalControl()`): it combines the **pedal observer**, the **assist law** and the display link and asks for the drive **on demand**. With it the bus readiness `ENGAGED` no longer engages the drive. |
+| **pedal observer** | `ebike::PedalObserver`: crank angle and cadence from the cadence pulses (Kalman filter), the pedal torque averaged over half a crank revolution (no pedal-stroke ripple) and the pedal power. Its torque offset follows the reading at standstill within a small window. |
+| **assist level** | The base assist ratio selected on the display (0 is off; `unimoc.ebike.gain_1` to `gain_5`). The **assist ratio** is motor power over pedal power, raised exponentially with the pedal power. |
+| **engage on demand** | The e-bike asks for the engaged drive only while the crank turns at an assist level above 0 and for the engage hold afterwards; a fault latches it off until the pedals stood still (**re-arm** by the pedals). |
+| **bus-off** | The CAN fault confinement state in which a controller leaves the bus (`cyphal::CanBusState`). The controller recovers on its own; the drive treats a bus-off as the loss of every cart input. |
+| **CAN interface** | One CAN connection of a node behind `cyphal::CanMedia`: a CAN controller (FDCAN, SocketCAN) or the slcan pseudo terminals of the simulation. Several interfaces are redundant interfaces of one node. |
+| **DSDL** | The Cyphal data type definitions. Standard types come from the OpenCyphal public regulated data types, UNIMOC types from `dsdl/unimoc/`; Nunavut generates their C serialization. |
+| **trace** | A recording of drive signals over Cyphal with cymon (`src/trace/`, `lib/cymon`). Use **trace variable** for one registered float signal and **telemetry** for the periodic `unimoc.drive.Telemetry` subject, not "trace". |
+| **capture** | One cymon recording: up to `CONFIG_UNIMOC_TRACE_CHANNELS` trace variables, a sample period that is a multiple of the control cycle, a pre-trigger part and the samples after the trigger, read back with `cymon.ReadSamples`. |
+| **trigger** | The condition that ends the pre-trigger part of a capture: rising, falling, hysteresis or immediate on one trace variable, or a `cymon.TriggerEvent` of another node. |
+| **slcan** | The Lawicel ASCII serial-line CAN protocol; the simulation offers it on pseudo terminals for tools on hosts without `vcan`. |
+
+## Unit Boundaries
+
+Calculations stay in unit types (**unit type**, **dimension**). A raw `float`
+appears only where the value leaves or enters the typed world. Each boundary
+converts in one place, in the base unit (period 1: A, V, rad, rad/s, N m/rad,
+s), and keeps its count in `scripts/unit_escapes_baseline.txt`
+(`check_unit_escapes.py`). Anything else that unwraps a unit is a defect, not
+a boundary.
+
+| Boundary | Where | What crosses |
+|---|---|---|
+| **Bus (DSDL)** | `src/drive/drive_node.cpp`, `hardware/zephyr_sim/cyphal_platform.cpp` | `unimoc.drive.Telemetry`, `unimoc.sim.Plant`, the `uavcan.si.*` setpoints and the sim inputs: `float32` fields in base units, the electrical angle wrapped to [0, 2 pi). The cart messages (`unimoc.cart.*`) use `float16` fields in base units. |
+| **Registers** | `lib/settings/settings_registers.hpp`, `src/drive/settings_register_provider.cpp` | A unit setting is one `real32` register in its base unit (`EncodeRegisterValue()`/`DecodeRegisterValue()`). |
+| **Traces** | `src/trace/trace_signals.cpp`, the plant trace in `hardware/zephyr_sim/hardware_interface.cpp` | The cymon float mirror: one `float` per trace variable, sampled after the control cycle. |
+| **ADC and timer counts** | `hardware/zephyr_bcc/analog_scaling.hpp`, `hardware/zephyr_bcc/hardware_interface.cpp` | ADC counts in, units out (`CountsToCurrent()`, ...); the overcurrent limit back to ADC counts, a duty to compare counts. |
+| **Timer periods and timestamps** | `hardware/zephyr_bcc/foc_stm32g4.cpp`, `hardware/zephyr_sim/hardware_interface.cpp`, `src/current_control/current_control_isr.cpp`, `src/current_control/slow_update.cpp`, `src/drive/drive_node.cpp`, `hardware/zephyr_common/cyphal_runtime.cpp` | The PWM frequency in whole Hz for the timer setup, timestamp offsets in ticks, Hall edge times in ns, the telemetry and trace periods in us. |
+| **Fixed-point angle** | `lib/motor_control/src/rotor_angle.hpp`, `sin_cos.hpp`, `angle_wrap.hpp` | The Q1.31 phase of `RotorAngle`, the sine-table index, the wrap loops; their public API is typed. |
+| **Mixed-unit filter state** | `lib/motor_control/src/mechanical_observer.hpp`, `hall_fusion.hpp`, `slow_update.cpp` | The Kalman covariance and gain (one state vector of rad/s, rad and N m/rad) and the measurement noise variances stay `float`. |
+| **libm** | `lib/motor_control/src/asm_flux_observer.hpp` | `atan2` of the flux angle (not in the firmware yet). Sine and cosine come from `system::SinCos`. |
+| **Logs** | `src/startup/hw_startup.cpp`, test messages | `%f` arguments of the log and of ztest messages. |
+| **Electromechanical coupling in the plant** | `lib/sim/src/pmsm_model.hpp` | The electrical rotation per step enters the backward-Euler matrix as a plain number (the radian dropped once, as in the coupling rules). |
+| **Tests** | `tests/common/unimoc_test.hpp` | The float checks compare the plain values of two values of one unit; tests otherwise compare units (`UNIMOC_EXPECT_NEAR(i, 2.0_A, 1e-3_A)`). |
+
+Not a boundary, but still counted: `HwStartup` keeps its thresholds,
+calibration accumulators (`double`) and results in plain numbers (open in
+`TODO.md`), and some headers build constants with `unit::Ratio{0.5F}` where a
+literal would do.
 
 ## Naming Rules
 

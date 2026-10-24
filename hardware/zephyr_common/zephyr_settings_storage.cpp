@@ -14,6 +14,7 @@
  *    See the repository LICENSE file for details.
  */
 #include "zephyr_settings_storage.hpp"
+#include <zephyr/kernel.h>
 #include <zephyr/settings/settings.h>
 #include <algorithm>
 #include <array>
@@ -34,6 +35,8 @@ constexpr std::string_view kSubtree = "unimoc";
 constexpr std::size_t kNameBufferSize = 64U;
 
 bool g_initialized = false;
+
+K_MUTEX_DEFINE(g_settings_mutex);
 
 bool EnsureInitialized() noexcept {
   if (!g_initialized) {
@@ -116,6 +119,12 @@ SettingsStorageStatus Erase(void* /*context*/, const std::string_view key) noexc
 
 settings::SettingsStorage ZephyrSettingsStorage::Adapter() noexcept {
   return SettingsStorage{nullptr, LoadAll, Write, Erase};
+}
+
+settings::SettingsLock ZephyrSettingsStorage::Lock() noexcept {
+  return settings::SettingsLock{nullptr,
+                                [](void* /*unused*/) { (void)k_mutex_lock(&g_settings_mutex, K_FOREVER); },
+                                [](void* /*unused*/) { (void)k_mutex_unlock(&g_settings_mutex); }};
 }
 
 }  // namespace unimoc::hardware

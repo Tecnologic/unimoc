@@ -3,7 +3,7 @@
 UNIMOC is a platform-independent C++ motor-control library and Zephyr firmware
 for field-oriented control (FOC) of multi-phase electric motors. One drive
 typically controls one motor; multiple drives can be networked through Cyphal
-(UAVCAN v1) over CAN-FD on the STM32G4 and over UDP on the STM32H7.
+(UAVCAN v1) over CAN-FD on the STM32G4 (`docs/system_plan.md`).
 
 Read `README.md` for the supported motor types and public features, and
 `CONTEXT.md` for the project's domain vocabulary. The port decisions are in
@@ -12,8 +12,9 @@ Read `README.md` for the supported motor types and public features, and
 
 ## Runtime Scope
 
-- **Zephyr is the primary OS.** Logging, shell, USB, Cyphal, settings storage,
-  startup sequencing, and all other high-level code run in Zephyr threads.
+- **Zephyr is the primary OS.** Logging (RTT on the BCC), the Cyphal node,
+  settings storage, startup sequencing, and all other high-level code run in
+  Zephyr threads. USB and the shell are not used (USB returns for DFU).
   The same application runs on the battery case controller (BCC) and on
   `native_sim` for host simulation.
 - **Only the FOC hot path runs in zero-latency IRQs.** The hot path is the
@@ -23,6 +24,8 @@ Read `README.md` for the supported motor types and public features, and
   entry 0 into the CCR preload and entries 1 to 3 by DMA). The observer
   (`SlowUpdate`) runs after each control cycle in a software-pended
   normal-priority interrupt, not at zero latency (`docs/hotpath_plan.md`).
+  The trace sampling (`trace::OnControlCycle()`, cymon `Tick()`) runs right
+  after the control cycle (`docs/cymon_integration_plan.md`).
   Do not add other work to a zero-latency context.
 
 ## Project Layout
@@ -33,12 +36,23 @@ Read `README.md` for the supported motor types and public features, and
 - `lib/sim/` is the portable motor plant simulation (`MotorSimulation`: inverter,
   motor models, shaft, Hall sensors) for `native_sim`. It is not part of
   `unimoc_lib`.
+- `lib/ebike/` is the portable e-bike logic (pedal observer, assist law, Kunteng display codec, software UART
+  receiver; docs/ebike_plan.md); its tests are in `tests/lib/ebike/`. `src/ebike/` is the e-bike control that
+  the drive attaches (`tests/ebike/`).
 - `lib/settings/`, `lib/units/`, and `lib/cyphal/` are separate library
   dependencies. The Zephyr build links them through `unimoc_lib`
-  (`cmake/UnimocZephyr.cmake`).
+  (`cmake/UnimocZephyr.cmake`). `lib/cyphal/` is the portable Cyphal stack:
+  libcanard and O1Heap (west projects, `modules/lib/`), the C serialization
+  that Nunavut generates at configure time from the public regulated data
+  types and `dsdl/unimoc/`, the transport and the node services.
+- `dsdl/unimoc/` is the UNIMOC DSDL namespace (every message fits in one CAN
+  FD frame). Changing a type there changes the bus protocol.
 - `src/` contains the application core: `current_control/` (hot-path ISR and
-  slow update), `startup/` (startup FSM), and `main.cpp`. It stays free of
-  Zephyr headers.
+  slow update), `startup/` (startup FSM), `drive/` (the Cyphal application:
+  settings registers, arming, setpoints, telemetry, commands), `trace/` (the
+  cymon traces: float mirror sampled in the control cycle, the `cymon.*`
+  services) and `main.cpp`.
+  It stays free of Zephyr headers.
 - `zephyr/` makes the repository a Zephyr module: `module.yml` (board and
   devicetree roots, test roots), `Kconfig` (`CONFIG_UNIMOC`, the platform
   choice `CONFIG_UNIMOC_PLATFORM_*`, the log level) and `CMakeLists.txt`,
@@ -52,24 +66,39 @@ Read `README.md` for the supported motor types and public features, and
   holds the pinout, timers, ADC trigger, dead time, and sample times.
 - `hardware/zephyr_bcc/` is the BCC platform (STM32G4 hot-path bindings).
   `hardware/zephyr_sim/` is the `native_sim` platform. `hardware/zephyr_common/`
-  is the shared Zephyr glue (system interface, RAM settings storage).
-  `hardware/hardware_interface.hpp` and `hardware/power_stage_interface.hpp`
+  is the shared Zephyr glue (system interface, settings storage and lock, the
+  Cyphal thread, the CAN interface on the chosen `zephyr,canbus`, the log
+  backend to `uavcan.diagnostic.Record`). All Cyphal code is shared between
+  the platforms except `cyphal_platform.cpp` of each platform (BCC:
+  transceiver pin; sim: slcan pseudo terminals, `unimoc.sim.*` registers,
+  plant trace). `hardware/hardware_interface.hpp`,
+  `hardware/power_stage_interface.hpp` and `hardware/cyphal_platform.hpp`
   are the platform-independent boundaries.
 - `hardware/hot_path_interface.hpp` is the link-time bound hardware access of
   the zero-latency hot path.
-- `hardware/batterycasecontroller/` is the legacy firmware, pending removal once
-  the Zephyr BCC target is verified (`docs/zephyr_port_plan.md`). Do not extend it.
 - `tests/` contains all tests, as ztest suites run by twister:
   `tests/lib/<library>/` covers `lib/<library>`, `tests/sim/<name>/` runs the
   application core against the `native_sim` platform and the motor plant
-  (cycle cadence, overcurrent, closed loop). `tests/common/` holds the shared
-  float checks.
+  (cycle cadence, overcurrent, closed loop, the Cyphal drive),
+  `tests/drive/<name>/` tests parts of `src/drive/` alone (the cart control).
+  `tests/common/`
+  holds the shared float checks and the in-memory CAN bus of the Cyphal
+  tests. `tests/integration/cyphal_sim/` are pytest integration tests: twister
+  starts the real application on `native_sim` (scenario
+  `unimoc.app.cyphal_integration` in `app/testcase.yaml`, pytest harness) and
+  a pycyphal node drives it over an slcan pseudo terminal. They are skipped
+  without pycyphal (`scripts/requirements-cyphal-tools.txt`).
 - `scripts/` holds the validation scripts (`check_format.sh`,
-  `twister_sca.sh`) that CI runs as well.
+  `twister_sca.sh`) that CI runs as well (`check_format.sh` also runs the
+  unit-escape ratchet `check_unit_escapes.py` against
+  `unit_escapes_baseline.txt`), the Python requirements of the
+  Cyphal build (`requirements-cyphal.txt`, Nunavut) and tools
+  (`requirements-cyphal-tools.txt`, yakut), and `sim_yakut_env.sh`.
 - `docs/` contains the plans and the workflow notes. `TODO.md` lists open topics.
-- `lib/cymon/` is a submodule.
-  Do not modify `lib/cymon/` unless the task explicitly concerns that
-  dependency.
+- `lib/cymon/` is a submodule (cymon-lib, target `cymon`, linked into
+  `unimoc_lib`; limits from `CONFIG_UNIMOC_TRACE_*`). Its DSDL namespace
+  `cymon` is generated with the others. Do not modify `lib/cymon/` unless
+  the task explicitly concerns that dependency.
 
 ## Build And Test
 
@@ -97,7 +126,7 @@ Run from the west workspace root, which contains `unimoc/` and `zephyr/`
 (setup in `docs/zephyr_workflow.md`; on Windows in WSL2):
 
 ```sh
-unimoc/scripts/check_format.sh     # clang-format check (--fix to apply)
+unimoc/scripts/check_format.sh     # clang-format check (--fix to apply) and the unit-escape ratchet
 unimoc/scripts/twister_sca.sh      # all scenarios, native_sim + bcc, with clang-tidy
 ```
 
@@ -117,15 +146,25 @@ Earlier sessions lost time on these points; do them from the start:
 - **Set up the workspace first** when `west` or `zephyr/` is missing: a
   Python venv with `west`, `codechecker` and `clang-format==22.1.1` (pinned:
   `check_format.sh` refuses other versions), `west init -l unimoc && west
-  update` from the parent directory of the repository, then the Python
-  requirements (`zephyr/scripts/requirements-*.txt`) and the Zephyr SDK
+  update` from the parent directory of the repository (it also fetches
+  libcanard, O1Heap and the public regulated data types), then the Python
+  requirements (`zephyr/scripts/requirements-*.txt` and
+  `unimoc/scripts/requirements-cyphal.txt`: Nunavut, without it the
+  configuration fails) and the Zephyr SDK
   (minimal bundle plus `arm-zephyr-eabi`, `setup.sh -t arm-zephyr-eabi -h -c`).
   Initialize the `lib/cymon` submodule. Do not fall back to a hosted build.
+- **`check_format.sh` only checks files known to git** (`git ls-files`): run
+  clang-format on new files before they are added.
 - **Tests are ztest under twister.** Never add GoogleTest, a hosted CMake
-  target or a test that only runs outside twister. New tests go into the
+  target or a test that only runs outside twister. The one exception to ztest
+  is the twister pytest harness for black-box tests of the running
+  simulation over Cyphal (pycyphal); prefer it where a behavior is visible on
+  the bus. New tests go into the
   matching `tests/lib/<library>/src/` or a new `tests/<area>/<name>/`
   scenario. Use `zexpect_*`/`zassert_*`, plus `UNIMOC_EXPECT_FLOAT_EQ` /
-  `UNIMOC_EXPECT_NEAR` from `tests/common/unimoc_test.hpp` for floats.
+  `UNIMOC_EXPECT_NEAR` from `tests/common/unimoc_test.hpp` for floats; they
+  also take two values (and a tolerance) of one unit, e.g.
+  `UNIMOC_EXPECT_NEAR(current, 2.0_A, 1e-3_A)`, without `.Value()`.
 - **`twister_sca.sh` must pass** (clang-tidy included) and
   **`check_format.sh` must pass** before a change is done or a PR is opened.
   Do not treat a successful build or editor diagnostics as a substitute.
@@ -133,6 +172,12 @@ Earlier sessions lost time on these points; do them from the start:
   (also methods), `snake_case` variables, parameters and members (private
   members end in `_`), `kPascalCase` for every `const`/`constexpr` variable
   that is not a parameter (also locals) and for enumerators.
+- **Unit escapes may only go down:** a file with more `.Value()` calls or
+  raw unit constructions than its line in `scripts/unit_escapes_baseline.txt`
+  fails `check_format.sh`. Keep the calculation in the unit types; at a real
+  boundary (DSDL, cymon mirror, registers, ADC counts) raise the baseline
+  with `scripts/check_unit_escapes.py --update` in the same change, and run
+  `--update` after removing escapes to lock the reduction in.
 - **`NOLINT`** only with the check name and a reason in the same comment.
   The directory `.clang-tidy` files in `hardware/zephyr_*` and `tests/` only
   waive checks that Zephyr's own macros cannot meet; do not widen them.
@@ -174,7 +219,7 @@ Code reachable from a zero-latency IRQ (the sample ISR, the control cycle, and
 their callbacks) must not:
 
 - call Zephyr kernel or driver APIs, take locks, or allocate;
-- log, print, or touch the shell, USB, Cyphal, or settings;
+- log, print, or touch Cyphal, the CAN driver, or settings;
 - call libm functions (use `-fno-math-errno` and builtins) or use function
   pointers for the hot-path hardware access (`docs/hotpath_plan.md`).
 
@@ -186,9 +231,15 @@ link time per platform, no function pointers); the thread context uses the
 
 ## Git Safety
 
-- Do not stage or commit changes unless the user explicitly requests it.
-- Do not create branches, reset, checkout files, abort, or continue a merge or
-  rebase unless the user explicitly requests that operation.
+- Commit and push each finished working step on the agent's own working
+  branch (the branch the session was given, or one created for the task), so
+  no work is lost. Use clear commit messages; `check_format.sh` and
+  `twister_sca.sh` must pass before a PR, not before every working commit.
+- Never commit to or push `main`, `develop` or another person's branch; if the
+  session starts on one of them, create an own working branch first. Never
+  force-push, amend, or rebase pushed commits unless the user asks.
+- Do not reset, checkout files, abort, or continue a merge or rebase unless
+  the user explicitly requests that operation.
 - Leave the working tree and merge state available for the user when a workflow
   reaches a git lifecycle boundary.
 

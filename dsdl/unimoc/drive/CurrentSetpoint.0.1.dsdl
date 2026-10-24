@@ -1,0 +1,17 @@
+# Current setpoint of the drive in the rotor (d/q) frame of the controller.
+#
+# Subscribed by the drive on the port of the register uavcan.sub.current_setpoint.id.
+# The setpoint is applied while the drive is ENGAGED (reg.udral.service.common.Readiness)
+# and only as long as it is refreshed: without a new message for
+# unimoc.control.setpoint_timeout the drive falls back to zero current.
+# The q current is limited by unimoc.motor.limits.i_max.
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+float32 i_d
+# d-axis current [A]. Negative values weaken the field of a PMSM.
+
+float32 i_q
+# q-axis current [A], torque producing.
+
+@sealed

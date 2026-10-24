@@ -27,7 +27,8 @@
  *
  *  1. **Registers** (`uavcan.register.Access` / `uavcan.register.List`)
  *     — Named key/value pairs for persistent settings.  Writing a register
- *     updates the in-RAM copy and triggers an NVM flush.
+ *     updates the in-RAM copy; ExecuteCommand STORE_PERSISTENT_STATES saves
+ *     the changed registers to flash.
  *
  *  2. **Subjects** (publisher/subscriber port IDs)
  *     — Real-time data exchange: setpoints flow *in*, status/telemetry flow
@@ -38,9 +39,9 @@
  * =========================
  * If `uavcan.node.id` register equals 0 (NVM default for a fresh device)
  * the firmware participates in the Cyphal plug-and-play node-ID allocation
- * protocol (`uavcan.pnp.NodeIDAllocationData.2`).  Once an ID is allocated
- * it is written back to `uavcan.node.id` and persisted to NVM so that the
- * same ID is used after every subsequent reset.
+ * protocol (`uavcan.pnp.NodeIDAllocationData.1.0`, the Cyphal/CAN version).
+ * Once an ID is allocated it is written back to `uavcan.node.id` and
+ * persisted to NVM so that the same ID is used after every subsequent reset.
  *
  * Node identity
  * =============
@@ -65,10 +66,13 @@
  * All settings available via Cyphal
  * ==================================
  * Every field of NvmSettings has a corresponding register entry listed in the
- * `reg` namespace below.  Writing any of those registers over Cyphal updates
- * the parameter in RAM and schedules an NVM flush.  This means the complete
- * drive configuration (motor parameters, controller gains, limits, identity)
- * is accessible and persistent without physical access to the hardware.
+ * `reg` namespace below (the table is `ForEachRegister()` in
+ * settings_registers.hpp).  Writing any of those registers over Cyphal
+ * updates the parameter in RAM; a store command persists it.  The complete
+ * drive configuration (motor parameters, controller gains, limits, identity,
+ * ports) is accessible without physical access to the hardware. The
+ * `unimoc.startup.*` run/step/result registers of the startup FSM are served
+ * by the drive (src/drive/startup_registers.hpp); they are not persistent.
  */
 
 namespace unimoc::cyphal {
@@ -175,6 +179,28 @@ inline constexpr const char* kPmsmFluxObsCD = "unimoc.observer.pmsm_flux.C_d";
 /// PMSM flux observer q-axis anti-drift feedback gain C_q [1/s].
 /// Type: real32[1] (read/write, persistent)
 inline constexpr const char* kPmsmFluxObsCQ = "unimoc.observer.pmsm_flux.C_q";
+
+/// Speed weighting k of the flux angle measurement, R_flux = R + k / omega^2 [rad^2 (rad/s)^2].
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kPmsmFluxObsRSpeed = "unimoc.observer.pmsm_flux.R_speed";
+
+// --- Hall sensors ---
+
+/// 1 fuses the Hall sensors into the observer, 0 ignores them.
+/// Type: natural8[1] (read/write, persistent)
+inline constexpr const char* kHallEnable = "unimoc.observer.hall.enable";
+
+/// Electrical angle at which Hall A rises [rad].
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kHallOffset = "unimoc.observer.hall.offset";
+
+/// Measurement noise of a Hall edge [rad^2].
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kHallREdge = "unimoc.observer.hall.R_edge";
+
+/// Measurement noise of the Hall sector bound [rad^2].
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kHallRSector = "unimoc.observer.hall.R_sector";
 
 // --- ASM flux observer gains ---
 
@@ -288,6 +314,20 @@ inline constexpr const char* kExcitObsTau = "unimoc.observer.excitation.tau";
 /// Type: real32[1] (read/write, persistent)
 inline constexpr const char* kExcitObsLM = "unimoc.observer.excitation.L_m";
 
+// --- Speed controller ---
+
+/// Speed loop proportional gain [N m per rad/s of mechanical speed].
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kSpeedKp = "unimoc.control.speed.kp";
+
+/// Speed loop integral gain 1/T_i [1/s].
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kSpeedKi = "unimoc.control.speed.ki";
+
+/// Largest rate of change of the speed reference [rad/s^2]; 0: no ramp.
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kSpeedAccelLimit = "unimoc.control.speed.accel_limit";
+
 // --- Position controller ---
 
 /// Position loop proportional gain [rad/s per rad].
@@ -343,6 +383,14 @@ inline constexpr const char* kBatteryDriveIMax = "unimoc.battery.limits.drive_cu
 /// Maximum battery charge (regen) current [A].
 /// Type: real32[1] (read/write, persistent)
 inline constexpr const char* kBatteryChargeIMax = "unimoc.battery.limits.charge_current";
+
+/// DC-link voltage above which regenerative braking is derated [V].
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kBatteryRegenDerateVoltage = "unimoc.battery.limits.regen_derate_voltage";
+
+/// DC-link voltage at which the drive trips the power stage [V].
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kBatteryTripVoltage = "unimoc.battery.limits.trip_voltage";
 
 // --- PWM frequency ---
 
@@ -419,6 +467,36 @@ inline constexpr const char* kStartupAdcOffsetA = "unimoc.startup.adc_offset_a";
 /// Type: real32[1] (read-only after ADC_OFFSET_CAL step)
 inline constexpr const char* kStartupAdcOffsetB = "unimoc.startup.adc_offset_b";
 
+// =========================================================================
+// Execution times of the interrupts (M0, CONFIG_UNIMOC_HOT_PATH_TIMING)
+// =========================================================================
+
+/// Whole sample interrupt of a control boundary, including the control cycle:
+/// min, mean, max [timestamp-clock cycles] and the number of records.
+/// Type: natural32[4] (read-only)
+inline constexpr const char* kTimingSampleIsr = "unimoc.timing.sample_isr";
+
+/// The control cycle alone: min, mean, max [cycles], records.
+/// Type: natural32[4] (read-only)
+inline constexpr const char* kTimingControlCycle = "unimoc.timing.control_cycle";
+
+/// The observer alone: min, mean, max [cycles], records.
+/// Type: natural32[4] (read-only)
+inline constexpr const char* kTimingObserver = "unimoc.timing.observer";
+
+/// Duty plans applied late and control cycles that started while the
+/// observer still ran, since start.
+/// Type: natural32[2] (read-only)
+inline constexpr const char* kTimingOverruns = "unimoc.timing.overruns";
+
+/// Frequency of the timestamp clock the times count in [Hz].
+/// Type: natural32[1] (read-only)
+inline constexpr const char* kTimingClockHz = "unimoc.timing.clock_hz";
+
+/// Write 1: start new statistics (the overrun counters keep counting).
+/// Type: natural8[1] (read 0, write 1)
+inline constexpr const char* kTimingReset = "unimoc.timing.reset";
+
 // --- Phase current balance correction ---
 
 /// Phase-A ADC gain correction factor [dimensionless, ≈ 1.0].
@@ -434,6 +512,281 @@ inline constexpr const char* kBalanceGainB = "unimoc.motor.balance.gain_b";
 /// Phase-C ADC gain correction factor [dimensionless, ≈ 1.0].
 /// Type: real32[1] (read/write, persistent)
 inline constexpr const char* kBalanceGainC = "unimoc.motor.balance.gain_c";
+
+// --- Cyphal ports of the drive (standard port-ID registers) ---
+//
+// Port-ID registers follow the Cyphal convention `uavcan.<pub|sub>.<name>.id`
+// (natural16[1], 65535 = disabled) with a read-only `.type` companion that
+// names the data type. A changed port-ID takes effect after a restart.
+
+/// Readiness (arming) of the drive: SLEEP/STANDBY disable, ENGAGED enables.
+/// Data type: reg.udral.service.common.Readiness.0.1
+/// Type: natural16[1] (read/write, persistent)
+inline constexpr const char* kSubReadinessId = "uavcan.sub.readiness.id";
+/// Type name of the readiness subscription. Type: string (read-only)
+inline constexpr const char* kSubReadinessType = "uavcan.sub.readiness.type";
+
+/// d/q current setpoint of the drive.
+/// Data type: unimoc.drive.CurrentSetpoint.0.1
+/// Type: natural16[1] (read/write, persistent)
+inline constexpr const char* kSubCurrentSetpointId = "uavcan.sub.current_setpoint.id";
+/// Type name of the current setpoint subscription. Type: string (read-only)
+inline constexpr const char* kSubCurrentSetpointType = "uavcan.sub.current_setpoint.type";
+
+/// Torque setpoint, converted to i_q with the PMSM torque constant.
+/// Data type: uavcan.si.unit.torque.Scalar.1.0
+/// Type: natural16[1] (read/write, persistent)
+inline constexpr const char* kSubTorqueSetpointId = "uavcan.sub.torque_setpoint.id";
+/// Type name of the torque setpoint subscription. Type: string (read-only)
+inline constexpr const char* kSubTorqueSetpointType = "uavcan.sub.torque_setpoint.type";
+
+/// Mechanical speed setpoint (speed mode).
+/// Data type: uavcan.si.unit.angular_velocity.Scalar.1.0
+/// Type: natural16[1] (read/write, persistent)
+inline constexpr const char* kSubSpeedSetpointId = "uavcan.sub.speed_setpoint.id";
+/// Type name of the speed setpoint subscription. Type: string (read-only)
+inline constexpr const char* kSubSpeedSetpointType = "uavcan.sub.speed_setpoint.type";
+
+/// Mechanical position setpoint relative to home (position mode).
+/// Data type: uavcan.si.unit.angle.Scalar.1.0
+/// Type: natural16[1] (read/write, persistent)
+inline constexpr const char* kSubPositionSetpointId = "uavcan.sub.position_setpoint.id";
+/// Type name of the position setpoint subscription. Type: string (read-only)
+inline constexpr const char* kSubPositionSetpointType = "uavcan.sub.position_setpoint.type";
+
+/// UDRAL servo setpoint; the first finite kinematic field selects the mode.
+/// Data type: reg.udral.physics.dynamics.rotation.Planar.0.1
+/// Type: natural16[1] (read/write, persistent)
+inline constexpr const char* kSubServoSetpointId = "uavcan.sub.servo_setpoint.id";
+/// Type name of the servo setpoint subscription. Type: string (read-only)
+inline constexpr const char* kSubServoSetpointType = "uavcan.sub.servo_setpoint.type";
+
+/// Current-controller trace of the drive.
+/// Data type: unimoc.drive.Telemetry.0.1
+/// Type: natural16[1] (read/write, persistent)
+inline constexpr const char* kPubTelemetryId = "uavcan.pub.telemetry.id";
+/// Type name of the telemetry publication. Type: string (read-only)
+inline constexpr const char* kPubTelemetryType = "uavcan.pub.telemetry.type";
+
+/// Publication rate of the telemetry [Hz]; 0 stops it.
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kTelemetryRate = "unimoc.telemetry.rate";
+
+/// Time without a new readiness or setpoint message after which the drive
+/// disengages (readiness) or falls back to zero current (setpoints) [s].
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kCommandTimeout = "unimoc.control.command_timeout";
+
+// ---- Cart (docs/system_plan.md, sections 6.2 and 7) ----
+
+/// Wheel command of the vehicle dynamics controller (VDC).
+/// Data type: unimoc.cart.WheelCommand.0.1
+/// Type: natural16[1] (read/write, persistent)
+inline constexpr const char* kSubWheelCommandId = "uavcan.sub.wheel_command.id";
+/// Type name of the wheel command subscription. Type: string (read-only)
+inline constexpr const char* kSubWheelCommandType = "uavcan.sub.wheel_command.type";
+
+/// Pedals of the pedal unit, used in limp-home mode.
+/// Data type: unimoc.cart.PedalState.0.1
+/// Type: natural16[1] (read/write, persistent)
+inline constexpr const char* kSubPedalStateId = "uavcan.sub.pedal_state.id";
+/// Type name of the pedal state subscription. Type: string (read-only)
+inline constexpr const char* kSubPedalStateType = "uavcan.sub.pedal_state.type";
+
+/// Battery state and current limits of the BMS.
+/// Data type: unimoc.cart.BatteryStatus.0.1
+/// Type: natural16[1] (read/write, persistent)
+inline constexpr const char* kSubBatteryStatusId = "uavcan.sub.battery_status.id";
+/// Type name of the battery status subscription. Type: string (read-only)
+inline constexpr const char* kSubBatteryStatusType = "uavcan.sub.battery_status.type";
+
+/// State of the drive for the VDC.
+/// Data type: unimoc.cart.DriveStatus.0.1
+/// Type: natural16[1] (read/write, persistent)
+inline constexpr const char* kPubDriveStatusId = "uavcan.pub.drive_status.id";
+/// Type name of the drive status publication. Type: string (read-only)
+inline constexpr const char* kPubDriveStatusType = "uavcan.pub.drive_status.type";
+
+/// Wheel of this drive: 0 front left, 1 front right, 2 rear left, 3 rear right.
+/// Type: natural8[1] (read/write, persistent)
+inline constexpr const char* kCartWheel = "unimoc.cart.wheel";
+
+/// 1: positive rotor torque drives the cart backward (wheel mounted mirrored).
+/// Type: natural8[1] (read/write, persistent)
+inline constexpr const char* kCartReversed = "unimoc.cart.reversed";
+
+/// Time without a wheel command, pedal state or battery status after which
+/// the drive stops using it [s]; at most unimoc.control.command_timeout.
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kCartTimeout = "unimoc.cart.timeout";
+
+/// Publication rate of the drive status [Hz]; 0 stops it.
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kCartStatusRate = "unimoc.cart.status_rate";
+
+/// Rate at which the cart torque changes when the source changes (limp-home,
+/// stop) [N m/s].
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kCartTorqueRamp = "unimoc.cart.torque_ramp";
+
+/// Wheel torque of a fully pressed pedal in limp-home mode [N m].
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kCartLimpHomeTorque = "unimoc.cart.limp_home_torque";
+
+/// Wheel speed below which the cart counts as standing still [rad/s]: the
+/// limp-home brake fades out below it, and the drive returns from limp-home
+/// to the VDC only below it.
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kCartStandstillSpeed = "unimoc.cart.standstill_speed";
+
+/// Share of the BMS current limits this drive may use (0 to 1); the drives
+/// of one battery share its limits.
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kCartBatteryShare = "unimoc.cart.battery_share";
+
+/// Cadence pulses per crank revolution (poles of the sensor ring), 2 to 64.
+/// Type: uint8[1] (read/write, persistent)
+inline constexpr const char* kEbikePulsesPerRev = "unimoc.ebike.pulses_per_rev";
+
+/// Rolling circumference of the wheel [m]; the wheel size of the display has to match it.
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kEbikeWheelCircumference = "unimoc.ebike.wheel_circumference";
+
+/// Motor shaft revolutions per wheel revolution (1: hub motor).
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kEbikeGearRatio = "unimoc.ebike.gear_ratio";
+
+/// Series cells of the battery (battery bars of the display), 1 to 30.
+/// Type: uint8[1] (read/write, persistent)
+inline constexpr const char* kEbikeBatteryCells = "unimoc.ebike.battery_cells";
+
+/// Nominal battery voltage [V] the display is set to (24, 36, 48).
+/// Type: uint8[1] (read/write, persistent)
+inline constexpr const char* kEbikeNominalVoltage = "unimoc.ebike.nominal_voltage";
+
+/// Assist ratio (motor power / pedal power) of display level 1.
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kEbikeGain1 = "unimoc.ebike.gain_1";
+
+/// Assist ratio of display level 2.
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kEbikeGain2 = "unimoc.ebike.gain_2";
+
+/// Assist ratio of display level 3.
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kEbikeGain3 = "unimoc.ebike.gain_3";
+
+/// Assist ratio of display level 4.
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kEbikeGain4 = "unimoc.ebike.gain_4";
+
+/// Assist ratio of display level 5; levels 6 and 7 use it too.
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kEbikeGain5 = "unimoc.ebike.gain_5";
+
+/// The assist ratio grows with exp(pedal power / power_scale).
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kEbikePowerScale = "unimoc.ebike.power_scale";
+
+/// Upper limit of the total assist ratio.
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kEbikeMaxRatio = "unimoc.ebike.max_ratio";
+
+/// Motor torque per pedal torque at a standing motor (low-speed torque assist).
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kEbikeTorqueRatio = "unimoc.ebike.torque_ratio";
+
+/// Pedal torque below this gives no assist.
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kEbikeTorqueDeadband = "unimoc.ebike.torque_deadband";
+
+/// No assist below this crank speed.
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kEbikeMinCadence = "unimoc.ebike.min_cadence";
+
+/// The assist fades out over this motor speed range below the speed limit of the display.
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kEbikeSpeedTaper = "unimoc.ebike.speed_taper";
+
+/// Time to ramp the assist torque from zero to the torque limit.
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kEbikeRiseTime = "unimoc.ebike.rise_time";
+
+/// Time to ramp the assist torque from the torque limit to zero.
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kEbikeFallTime = "unimoc.ebike.fall_time";
+
+/// The drive stays engaged this long after the assist ended.
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kEbikeEngageHold = "unimoc.ebike.engage_hold";
+
+/// After a fault the pedals must stand still this long before the drive engages again.
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kEbikeRearmTime = "unimoc.ebike.rearm_time";
+
+/// Without a display request for this long the display counts as lost: no assist.
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kEbikeDisplayTimeout = "unimoc.ebike.display_timeout";
+
+/// Bus-off events of the CAN interfaces since start.
+/// Type: natural32[1] (read-only)
+inline constexpr const char* kCanBusOffCount = "unimoc.can.bus_off_count";
+
+// ---- Traces (cymon, docs/cymon_integration_plan.md) ----
+//
+// The cymon services have no fixed port-IDs. The host tool finds them through
+// uavcan.node.port.List and the `.type` registers.
+
+/// Variable list of the traces. Data type: cymon.GetVariableList.0.1
+/// Type: natural16[1] (read/write, persistent)
+inline constexpr const char* kSrvCymonVariablesId = "uavcan.srv.cymon_variables.id";
+/// Type name of the variable list service. Type: string (read-only)
+inline constexpr const char* kSrvCymonVariablesType = "uavcan.srv.cymon_variables.type";
+
+/// Capture limits. Data type: cymon.GetBufferInfo.0.1
+/// Type: natural16[1] (read/write, persistent)
+inline constexpr const char* kSrvCymonBufferInfoId = "uavcan.srv.cymon_buffer_info.id";
+/// Type name of the buffer info service. Type: string (read-only)
+inline constexpr const char* kSrvCymonBufferInfoType = "uavcan.srv.cymon_buffer_info.type";
+
+/// Capture setup. Data type: cymon.SetupCapture.0.1
+/// Type: natural16[1] (read/write, persistent)
+inline constexpr const char* kSrvCymonSetupId = "uavcan.srv.cymon_setup.id";
+/// Type name of the capture setup service. Type: string (read-only)
+inline constexpr const char* kSrvCymonSetupType = "uavcan.srv.cymon_setup.type";
+
+/// Arming of the capture trigger. Data type: cymon.ArmTrigger.0.1
+/// Type: natural16[1] (read/write, persistent)
+inline constexpr const char* kSrvCymonArmId = "uavcan.srv.cymon_arm.id";
+/// Type name of the arm service. Type: string (read-only)
+inline constexpr const char* kSrvCymonArmType = "uavcan.srv.cymon_arm.type";
+
+/// Capture status and read-out. Data type: cymon.ReadSamples.0.1
+/// Type: natural16[1] (read/write, persistent)
+inline constexpr const char* kSrvCymonReadId = "uavcan.srv.cymon_read.id";
+/// Type name of the read service. Type: string (read-only)
+inline constexpr const char* kSrvCymonReadType = "uavcan.srv.cymon_read.type";
+
+/// Trigger event of this node's captures. Data type: cymon.TriggerEvent.0.1
+/// Type: natural16[1] (read/write, persistent)
+inline constexpr const char* kPubCymonTriggerId = "uavcan.pub.cymon_trigger.id";
+/// Type name of the trigger publication. Type: string (read-only)
+inline constexpr const char* kPubCymonTriggerType = "uavcan.pub.cymon_trigger.type";
+
+/// Trigger events of other nodes that trigger this node's armed capture.
+/// Data type: cymon.TriggerEvent.0.1
+/// Type: natural16[1] (read/write, persistent)
+inline constexpr const char* kSubCymonTriggerId = "uavcan.sub.cymon_trigger.id";
+/// Type name of the trigger subscription. Type: string (read-only)
+inline constexpr const char* kSubCymonTriggerType = "uavcan.sub.cymon_trigger.type";
+
+/// Hardware unique-ID of the node (MCU UID). Type: unstructured (read-only)
+inline constexpr const char* kNodeUniqueId = "uavcan.node.unique_id";
+
+/// True while register writes wait for a restart of the controller (they
+/// need the drive disengaged; gains while engaged are applied at once).
+/// Type: bit[1] (read-only)
+inline constexpr const char* kSettingsPending = "unimoc.settings.pending";
 
 }  // namespace reg
 
@@ -453,22 +806,25 @@ inline constexpr const char* kBalanceGainC = "unimoc.motor.balance.gain_c";
 /// Port ID value meaning "port not configured / disabled".
 inline constexpr uint16_t kUnsetPortId = 0xFFFFU;
 
+/// Largest Cyphal service-ID (0..255 unregulated, 256..511 regulated).
+inline constexpr uint16_t kMaxServiceId = 511U;
+
 /// @defgroup sub_ports Subscriber (input) subjects — setpoints received by UNIMOC
 /// @{
 
-/// Torque (q-axis current) setpoint [A·m or normalised, depends on scale].
-/// Data type: uavcan.si.unit.torque.Scalar.1.0 or reg.udral.physics.dynamics.rotation.PlanarTs
-/// Register: `uavcan.sub.torque_sp.id`
+/// Torque setpoint [N m]; the drive converts it to i_q (PMSM torque constant).
+/// Data type: uavcan.si.unit.torque.Scalar.1.0
+/// Register: `uavcan.sub.torque_setpoint.id`
 inline constexpr uint16_t kSubTorqueSetpoint = 100U;
 
 /// Speed (mechanical angular velocity) setpoint [rad/s].
 /// Data type: uavcan.si.unit.angular_velocity.Scalar.1.0
-/// Register: `uavcan.sub.speed_sp.id`
+/// Register: `uavcan.sub.speed_setpoint.id`
 inline constexpr uint16_t kSubSpeedSetpoint = 101U;
 
 /// Position setpoint [rad], referenced to home.
 /// Data type: uavcan.si.unit.angle.Scalar.1.0
-/// Register: `uavcan.sub.position_sp.id`
+/// Register: `uavcan.sub.position_setpoint.id`
 inline constexpr uint16_t kSubPositionSetpoint = 102U;
 
 /// Legacy explicit control mode selection: 0=TORQUE, 1=SPEED, 2=POSITION.
@@ -482,10 +838,40 @@ inline constexpr uint16_t kSubControlMode = 103U;
 /// Register: `uavcan.sub.excitation_sp.id`
 inline constexpr uint16_t kSubExcitationSetpoint = 104U;
 
+/// Readiness (arming) of the drive.
+/// Data type: reg.udral.service.common.Readiness.0.1
+/// Register: `uavcan.sub.readiness.id`
+inline constexpr uint16_t kSubReadiness = 106U;
+
+/// d/q current setpoint.
+/// Data type: unimoc.drive.CurrentSetpoint.0.1
+/// Register: `uavcan.sub.current_setpoint.id`
+inline constexpr uint16_t kSubCurrentSetpoint = 107U;
+
+/// UDRAL servo setpoint (mechanical position, speed or torque).
+/// Data type: reg.udral.physics.dynamics.rotation.Planar.0.1
+/// Register: `uavcan.sub.servo_setpoint.id`
+inline constexpr uint16_t kSubServoSetpoint = 108U;
+
 /// Homing trigger: any value on this subject starts the homing sequence.
 /// Data type: uavcan.primitive.scalar.Bit.1.0
 /// Register: `uavcan.sub.homing_trigger.id`
 inline constexpr uint16_t kSubHomingTrigger = 105U;
+
+/// Wheel command of the vehicle dynamics controller.
+/// Data type: unimoc.cart.WheelCommand.0.1
+/// Register: `uavcan.sub.wheel_command.id`
+inline constexpr uint16_t kSubWheelCommand = 110U;
+
+/// Pedals of the pedal unit (limp-home mode).
+/// Data type: unimoc.cart.PedalState.0.1
+/// Register: `uavcan.sub.pedal_state.id`
+inline constexpr uint16_t kSubPedalState = 111U;
+
+/// Battery state and current limits of the BMS.
+/// Data type: unimoc.cart.BatteryStatus.0.1
+/// Register: `uavcan.sub.battery_status.id`
+inline constexpr uint16_t kSubBatteryStatus = 112U;
 
 /// @}
 
@@ -567,6 +953,37 @@ inline constexpr uint16_t kPubMeasPsi = 210U;
 /// Register: `uavcan.pub.meas_balance.id`
 inline constexpr uint16_t kPubMeasBalance = 211U;
 
+/// Current-controller trace.
+/// Data type: unimoc.drive.Telemetry.0.1
+/// Register: `uavcan.pub.telemetry.id`
+inline constexpr uint16_t kPubTelemetry = 212U;
+
+/// Plant state of the native_sim drive (simulation truth).
+/// Data type: unimoc.sim.Plant.0.1
+/// Register: `uavcan.pub.sim_plant.id` (native_sim only, not persistent)
+inline constexpr uint16_t kPubSimPlant = 213U;
+
+/// State of the drive for the vehicle dynamics controller.
+/// Data type: unimoc.cart.DriveStatus.0.1
+/// Register: `uavcan.pub.drive_status.id`
+inline constexpr uint16_t kPubDriveStatus = 214U;
+
+/// @}
+
+/// @defgroup trace_ports Trace services (cymon), unregulated service-IDs
+/// @{
+
+/// Register: `uavcan.srv.cymon_variables.id` (cymon.GetVariableList.0.1)
+inline constexpr uint16_t kSrvCymonVariables = 120U;
+/// Register: `uavcan.srv.cymon_buffer_info.id` (cymon.GetBufferInfo.0.1)
+inline constexpr uint16_t kSrvCymonBufferInfo = 121U;
+/// Register: `uavcan.srv.cymon_setup.id` (cymon.SetupCapture.0.1)
+inline constexpr uint16_t kSrvCymonSetup = 122U;
+/// Register: `uavcan.srv.cymon_arm.id` (cymon.ArmTrigger.0.1)
+inline constexpr uint16_t kSrvCymonArm = 123U;
+/// Register: `uavcan.srv.cymon_read.id` (cymon.ReadSamples.0.1)
+inline constexpr uint16_t kSrvCymonRead = 124U;
+
 /// @}
 
 // ============================================================================
@@ -636,22 +1053,24 @@ namespace cmd {
 /// The command was accepted and is being executed (or has completed).
 inline constexpr uint8_t kStatusSuccess = 0U;
 
-/// The command was rejected because the node is not in a state that allows
-/// the requested operation.
+/// The command could not be started or did not reach its outcome.
 inline constexpr uint8_t kStatusFailure = 1U;
 
-/// The command code is not supported by this node.
+/// The command was denied for lack of authorization.
 inline constexpr uint8_t kStatusNotAuthorized = 2U;
 
-/// The command is syntactically valid but cannot be executed in the current
-/// node state (e.g. motor still running when a calibration is requested).
-inline constexpr uint8_t kStatusBadState = 3U;
+/// The command code is unknown to or not supported by this node.
+inline constexpr uint8_t kStatusBadCommand = 3U;
 
 /// The supplied parameter is out of range or malformed.
 inline constexpr uint8_t kStatusBadParameter = 4U;
 
-/// The command code is unknown to this node.
-inline constexpr uint8_t kStatusBadCommand = 5U;
+/// The node is not in a state that allows the command (e.g. the drive is
+/// engaged when a flash save is requested).
+inline constexpr uint8_t kStatusBadState = 5U;
+
+/// The command should have succeeded but an unexpected failure occurred.
+inline constexpr uint8_t kStatusInternalError = 6U;
 
 // -------------------------------------------------------------------------
 // Standard Cyphal execute command codes (Cyphal specification §5.3.4)

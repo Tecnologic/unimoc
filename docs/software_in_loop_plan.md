@@ -1,10 +1,15 @@
 # Host Software-in-the-Loop Plan
 
-> **Status (2026-10-19):** partly superseded. The single-motor host runtime is
+> **Status (2026-10-21):** partly superseded. The single-motor host runtime is
 > the Zephyr `native_sim` platform (`hardware/zephyr_sim/`, see
-> `docs/zephyr_port_plan.md`, Phase 2), not `hardware/host/`. The portable
-> simulation library, the multi-motor coordinator and the Python GUI plans
-> still apply. Where this file says `hardware/host`, read `hardware/zephyr_sim`.
+> `docs/zephyr_port_plan.md`, Phase 2), not `hardware/host/`. The network
+> interface is **Cyphal/CAN**, not Cyphal/UDP: the simulation is a real-time
+> Cyphal node on SocketCAN `vcan0` or on slcan pseudo terminals, reachable
+> with pycyphal and yakut (README.md, "Simulation over Cyphal"). The
+> portable simulation library, the multi-motor coordinator, the
+> virtual-time simulation commands and the Python GUI plans still apply.
+> Where this file says `hardware/host`, read `hardware/zephyr_sim`; where it
+> says Cyphal/UDP, read Cyphal/CAN.
 
 ## Goal
 
@@ -233,7 +238,14 @@ Keep long simulation batches and Cyphal I/O outside the UI thread. The GUI shoul
 
 After the PMSM runtime and tests are stable:
 
-1. Add ASM and EESM plants behind the same contract.
+1. Add ASM and EESM plants behind the same contract, with the fourth half
+   bridge of the new 4850 hardware in the inverter model (field voltage for
+   the EESM, brake resistor for the PMSM) and a DC-link model (capacitor,
+   battery resistance, contactor) instead of the stiff source, so the
+   overvoltage trip, the body-diode charging and the chopper can be tested
+   (`docs/system_plan.md`, section 5.2.1; `TODO.md`, "Motor types"). The
+   runtime then needs the ASM and EESM control paths: today it runs the PMSM
+   path only.
 2. Add startup, observers, field weakening, homing, and control-mode transitions one scenario at a time.
 3. Add application models for shared batteries, wheels, differentials, road loads, and torque vectoring.
 4. Add fault injection and trace/replay tooling.

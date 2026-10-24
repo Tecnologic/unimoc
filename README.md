@@ -1,6 +1,8 @@
 # UNIMOC — Universal Motor Control
 
-[![CI](https://github.com/Tecnologic/unimoc/actions/workflows/ci.yml/badge.svg)](https://github.com/Tecnologic/unimoc/actions/workflows/ci.yml)
+[![Zephyr CI (main)](https://github.com/Tecnologic/unimoc/actions/workflows/ci-zephyr.yml/badge.svg?branch=main&event=push)](https://github.com/Tecnologic/unimoc/actions/workflows/ci-zephyr.yml?query=branch%3Amain+event%3Apush)
+[![Zephyr CI (develop)](https://github.com/Tecnologic/unimoc/actions/workflows/ci-zephyr.yml/badge.svg?branch=develop&event=push)](https://github.com/Tecnologic/unimoc/actions/workflows/ci-zephyr.yml?query=branch%3Adevelop+event%3Apush)
+[![Release](https://img.shields.io/github/v/release/Tecnologic/unimoc?include_prereleases)](https://github.com/Tecnologic/unimoc/releases/latest)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 [![C++ Standard](https://img.shields.io/badge/C%2B%2B-20-blue.svg)](https://en.cppreference.com/w/cpp/20)
 
@@ -11,7 +13,7 @@ embedded micro-controllers (STM32 series, first the STM32G473 battery case
 controller).  The algorithm code is portable and tested with Zephyr's ztest
 and twister on `native_sim`.
 
-Zephyr is the primary OS: logging, shell, USB, Cyphal, and settings run in
+Zephyr is the primary OS: logging, Cyphal/CAN FD, and settings run in
 Zephyr threads.  Only the FOC hot path runs in zero-latency interrupts.  The
 same firmware runs on Linux through Zephyr's `native_sim` with a motor
 simulation.
@@ -54,10 +56,10 @@ simulation.
 | **Control** | MTPA, field-weakening, ASM flux PI, EESM excitation PI (current or flux mode) |
 | **Position** | Absolute multi-turn tracker (±4096+ rev), cascaded P+PI position controller, homing state machine |
 | **Modulation** | Space Vector PWM (SVPWM), dead-time compensation |
-| **Network** | Cyphal (UAVCAN v1) register map — every setting configurable over the bus (planned, see [Cyphal](#cyphal-uavcan-v1-interface)) |
+| **Network** | Cyphal (UAVCAN v1) over CAN FD — every setting a register, arming, setpoints, telemetry, traces (cymon) and the log on the bus, also for the simulation (see [Cyphal](#cyphal-uavcan-v1-interface)) |
 | **Persistence** | Live RAM settings for tuning; one flash entry per changed register (Zephyr settings on ZMS); saving only while the power stage is disabled |
 | **Platform** | HAL-free algorithms; tested on Linux x86-64 with GTest; Zephyr firmware for the BCC (STM32G473) and `native_sim` |
-| **Runtime** | Zephyr threads for logging, shell, USB, Cyphal, and settings; zero-latency IRQs only for the FOC hot path |
+| **Runtime** | Zephyr threads for logging, Cyphal, and settings; zero-latency IRQs only for the FOC hot path |
 
 ---
 
@@ -101,12 +103,14 @@ lib/
 │   │   ├── position_tracker.hpp     # Absolute multi-turn position + homing
 │   │   └── *_system.hpp              # Rotor, stator, and three-phase coordinate systems
 ├── cyphal/
+│   ├── can_media.hpp             # CAN interface boundary (frames in and out)
+│   ├── canard_transport.hpp      # Cyphal/CAN transport on libcanard + O1Heap
 │   ├── control_mode.hpp          # Cyphal setpoint-to-control-mode mapping
-│   ├── cyphal_interface.hpp      # Register names + subject port IDs
-│   ├── heartbeat.hpp             # Heartbeat serialization
-│   ├── node.hpp                  # Transport-injected Cyphal node shell
+│   ├── cyphal_interface.hpp      # Register names + subject port IDs + command codes
+│   ├── node.hpp                  # Node services: heartbeat, GetInfo, registers, commands, PnP, log
 │   ├── node_identity.hpp         # Node name + hw/sw version
-│   └── transport.hpp             # UDP/CAN/test transport contract
+│   ├── register_value.hpp        # uavcan.register.Value helpers, register provider boundary
+│   └── transport.hpp             # Transfer-level transport contract (CAN, later UDP, tests)
 ├── settings/
 │   ├── nvm_settings.hpp          # Typed aggregate of NVM-backed parameters
 │   ├── settings_registers.hpp    # Register table + byte encoding of one register value
@@ -119,7 +123,7 @@ lib/
 │   ├── stator_system.hpp         # α/β stationary reference frame
 │   └── three_phase_system.hpp    # Three-phase (a/b/c) vector
 └── units/
-    └── units.hpp                 # SI unit wrappers
+    └── units.hpp                 # SI units with dimension exponents
 ```
 
 ---
@@ -134,7 +138,7 @@ contexts are (details in [`docs/hotpath_plan.md`](docs/hotpath_plan.md)):
 | Sample ISR (ADC end of injected sequence, every half PWM period, 64 kHz) | Raw current copy, overcurrent check on raw counts | Zero-latency IRQ |
 | Control cycle (every fourth sample, 16 kHz) | FOC hot path: mean current, Park, PI once, four duty entries (inverse Park, HFI step, SVM), entry 0 into the CCR preload, entries 1 to 3 by DMA | Zero-latency IRQ |
 | Observer (after each control cycle, 16 kHz) | Flux observer, Kalman, HFI, angles of the next cycle (`SlowUpdate`) | Software-pended normal-priority IRQ |
-| Zephyr threads | Speed and position control (about 2 kHz, planned), logging, shell, USB console, Cyphal, settings, startup sequencing | Normal scheduling |
+| Zephyr threads | Speed and position control (about 2 kHz, planned), logging (RTT), the Cyphal node, settings, startup sequencing | Normal scheduling |
 
 Zero-latency handlers may not call kernel APIs, log, or lock.  The
 hardware-specific parts are selected by the board and Kconfig, not by
@@ -144,151 +148,303 @@ hardware-specific parts are selected by the board and Kconfig, not by
 
 ## Cyphal (UAVCAN v1) Interface
 
-UNIMOC exposes its complete configuration and runtime control via
-[Cyphal](https://opencyphal.org/) (UAVCAN v1).  No physical access to the
-hardware is required after initial deployment.
+UNIMOC is configured, commanded and traced over
+[Cyphal](https://opencyphal.org/) v1.0 on CAN FD.  The same node code runs on
+the battery case controller (FDCAN3) and on `native_sim`; only the CAN
+interfaces and the simulation registers are platform specific.
 
-> **Status:** the Cyphal stack is not integrated in the Zephyr build yet.  The
-> repository has the identifiers, the register and subject names, and the
-> heartbeat serialization.  DSDL, the register service, plug-and-play, and
-> the CAN-FD and UDP transports are planned (`docs/zephyr_port_plan.md`,
-> Phases 5 and 6).  The sections below describe the target interface.
+> **Status:** integrated and tested on `native_sim` (ztest scenarios
+> `unimoc.lib.cyphal` and `unimoc.sim.cyphal_drive`, and by hand with yakut).
+> The BCC builds with the node on FDCAN3 but has not run on the board; its
+> SN65HVD230 is a classic CAN transceiver, so CAN FD frames run at 1 Mbit/s
+> without bit rate switch (`boards/unimoc/bcc/bcc.dts`).  Not implemented
+> yet: firmware update over Cyphal.  Speed, position and UDRAL servo
+> setpoints run the outer loop in the control thread; the startup FSM runs
+> over the `unimoc.startup.*` registers.  The cymon traces run on both
+> platforms; their cost in the control cycle is not yet measured on the board.
 
-### Node ID and Plug-and-Play
+### Stack
 
-If the `uavcan.node.id` register is **0** (the factory default for a blank
-device) the firmware automatically initiates the Cyphal plug-and-play
-node-ID allocation protocol
-(`uavcan.pnp.NodeIDAllocationData.2`).  Once an ID is granted by the
-allocator it is written back to `uavcan.node.id` and persisted to NVM so that
-the same ID is reused on every subsequent reset.
-
-Set a fixed node ID by writing the register:
-```
-uavcan.node.id = <1..127>
-```
-
-### Node Identity
-
-Each drive has a human-readable identity string (up to 50 UTF-8 bytes) that
-is returned in `uavcan.node.GetInfo` responses and stored in NVM.
-
-Set the node name via Cyphal:
-```
-uavcan.node.description = "unimoc.propulsion.left"
-```
-
-The `NodeIdentity` struct carries hardware and software version numbers
-(read-only). The 16-byte MCU unique-ID used during PnP allocation is read
-directly from hardware at runtime.
-
-### Settings via Registers
-
-Every parameter in `NvmSettings` is accessible as a named Cyphal register
-(`uavcan.register.Access` service, `uavcan.register.List` enumeration), so all
-in-RAM configuration values are traceable with tools like **Cymon**.
-Writing a register updates the in-RAM value and schedules an NVM flush.
-
-Full register name table (`lib/cyphal/cyphal_interface.hpp`):
-
-| Register | Type | Description |
+| Layer | Where | Content |
 |---|---|---|
-| `uavcan.node.id` | `uavcan.primitive.scalar.Natural16.1.0` | Node ID (0 = PnP) |
-| `uavcan.node.description` | `uavcan.primitive.String.1.0` | Human-readable node name |
-| `unimoc.motor.type` | `uavcan.primitive.scalar.Natural8.1.0` | 0=PMSM, 1=ASM, 2=EESM |
-| `unimoc.motor.pole_pairs` | `uavcan.primitive.scalar.Natural8.1.0` | Motor pole-pair count |
-| `unimoc.control.mode` | `uavcan.primitive.scalar.Natural8.1.0` | Boot control mode (0=TORQUE, 1=SPEED, 2=POSITION) |
-| `unimoc.motor.stator.R` | `uavcan.primitive.scalar.Real32.1.0` | Stator resistance [Ω] |
-| `unimoc.motor.stator.L` | `uavcan.primitive.scalar.Real32.1.0` | Stator inductance [H] |
-| `unimoc.motor.pmsm.flux_pm` | `uavcan.primitive.scalar.Real32.1.0` | PM flux linkage ψ_PM [Wb] |
-| `unimoc.motor.pmsm.L_d` | `uavcan.primitive.scalar.Real32.1.0` | d-axis inductance [H] |
-| `unimoc.motor.pmsm.L_q` | `uavcan.primitive.scalar.Real32.1.0` | q-axis inductance [H] |
-| `unimoc.motor.asm.R_r` | `uavcan.primitive.scalar.Real32.1.0` | ASM rotor resistance [Ω] |
-| `unimoc.motor.asm.R_s` | `uavcan.primitive.scalar.Real32.1.0` | ASM stator resistance [Ω] |
-| `unimoc.motor.asm.L_s` | `uavcan.primitive.scalar.Real32.1.0` | ASM stator inductance [H] |
-| `unimoc.motor.asm.L_r` | `uavcan.primitive.scalar.Real32.1.0` | ASM rotor inductance [H] |
-| `unimoc.motor.asm.L_m` | `uavcan.primitive.scalar.Real32.1.0` | ASM mutual inductance [H] |
-| `unimoc.observer.mech.g_i` | `uavcan.primitive.scalar.Real32.1.0` | Back-EMF observer current gain [1/s] |
-| `unimoc.observer.mech.g_e` | `uavcan.primitive.scalar.Real32.1.0` | Back-EMF observer EMF gain [V/(A·s)] |
-| `unimoc.observer.mech.pll_kp` | `uavcan.primitive.scalar.Real32.1.0` | PLL proportional gain |
-| `unimoc.observer.mech.pll_ki` | `uavcan.primitive.scalar.Real32.1.0` | PLL integral gain |
-| `unimoc.observer.asm_flux.g_i` | `uavcan.primitive.scalar.Real32.1.0` | ASM flux observer current gain [1/s] |
-| `unimoc.observer.asm_flux.g_flux` | `uavcan.primitive.scalar.Real32.1.0` | ASM flux observer flux gain [Wb/(A·s)] |
-| `unimoc.control.asm_flux.kp` | `uavcan.primitive.scalar.Real32.1.0` | ASM flux PI proportional gain [A/Wb] |
-| `unimoc.control.asm_flux.ki` | `uavcan.primitive.scalar.Real32.1.0` | ASM flux PI integral gain [A/(Wb·s)] |
-| `unimoc.control.asm_flux.i_d_min` | `uavcan.primitive.scalar.Real32.1.0` | ASM flux min d-axis current [A] |
-| `unimoc.control.asm_flux.i_d_max` | `uavcan.primitive.scalar.Real32.1.0` | ASM flux max d-axis current [A] |
-| `unimoc.control.fw.v_max` | `uavcan.primitive.scalar.Real32.1.0` | Field-weakening voltage limit (normalised) |
-| `unimoc.control.fw.ki` | `uavcan.primitive.scalar.Real32.1.0` | Field-weakening integrator gain [A/(V·s)] |
-| `unimoc.control.fw.i_d_min` | `uavcan.primitive.scalar.Real32.1.0` | Field-weakening min i_d [A] |
-| `unimoc.control.svm.duty_min` | `uavcan.primitive.scalar.Real32.1.0` | SVM minimum duty cycle |
-| `unimoc.control.svm.duty_max` | `uavcan.primitive.scalar.Real32.1.0` | SVM maximum duty cycle |
-| `unimoc.control.dtc.dead_time` | `uavcan.primitive.scalar.Real32.1.0` | Dead time [s] |
-| `unimoc.control.dtc.f_pwm` | `uavcan.primitive.scalar.Real32.1.0` | PWM frequency [Hz] |
-| `unimoc.control.dtc.i_threshold` | `uavcan.primitive.scalar.Real32.1.0` | Dead-time zero-crossing threshold [A] |
-| `unimoc.observer.hfi.v_inject` | `uavcan.primitive.scalar.Real32.1.0` | HFI injection voltage [V] |
-| `unimoc.observer.hfi.error_gain` | `uavcan.primitive.scalar.Real32.1.0` | HFI current-error to angle gain [rad/A] |
-| `unimoc.control.excitation.mode` | `uavcan.primitive.scalar.Natural8.1.0` | EESM excitation mode (0=current, 1=flux) |
-| `unimoc.control.excitation.L_m` | `uavcan.primitive.scalar.Real32.1.0` | EESM mutual inductance [H] |
-| `unimoc.control.excitation.kp` | `uavcan.primitive.scalar.Real32.1.0` | Excitation PI proportional gain [V/A] |
-| `unimoc.control.excitation.ki` | `uavcan.primitive.scalar.Real32.1.0` | Excitation PI integral gain [V/(A·s)] |
-| `unimoc.control.excitation.i_f_min` | `uavcan.primitive.scalar.Real32.1.0` | Min excitation current [A] |
-| `unimoc.control.excitation.i_f_max` | `uavcan.primitive.scalar.Real32.1.0` | Max excitation current [A] |
-| `unimoc.observer.excitation.tau` | `uavcan.primitive.scalar.Real32.1.0` | Excitation observer LPF time constant [s] |
-| `unimoc.observer.excitation.L_m` | `uavcan.primitive.scalar.Real32.1.0` | Excitation observer L_m [H] |
-| `unimoc.control.pos.kp` | `uavcan.primitive.scalar.Real32.1.0` | Position loop P gain [rad/s per rad] |
-| `unimoc.control.pos.kp_speed` | `uavcan.primitive.scalar.Real32.1.0` | Speed loop P gain |
-| `unimoc.control.pos.ki_speed` | `uavcan.primitive.scalar.Real32.1.0` | Speed loop I gain |
-| `unimoc.control.pos.speed_limit` | `uavcan.primitive.scalar.Real32.1.0` | Max velocity [rad/s] |
-| `unimoc.control.pos.accel_limit` | `uavcan.primitive.scalar.Real32.1.0` | Max acceleration [rad/s²] |
-| `unimoc.control.pos.position_tolerance` | `uavcan.primitive.scalar.Real32.1.0` | In-position threshold [rad] |
-| `unimoc.control.pos.speed_tolerance` | `uavcan.primitive.scalar.Real32.1.0` | In-position speed threshold [rad/s] |
-| `unimoc.control.pos.homing_speed` | `uavcan.primitive.scalar.Real32.1.0` | Homing search velocity [rad/s] |
-| `unimoc.startup.run` | `uavcan.primitive.scalar.Natural8.1.0` | Write `1` to start startup FSM, `0` to abort |
-| `unimoc.startup.step` | `uavcan.primitive.scalar.Natural8.1.0` | Write `1` to advance to the next step |
-| `unimoc.startup.ext_current_A` | `uavcan.primitive.scalar.Real32.1.0` | External clamp-meter reading [A] for current-sense calibration |
-| `unimoc.startup.ext_vdc_V` | `uavcan.primitive.scalar.Real32.1.0` | External voltmeter reading [V] for V_dc calibration |
-| `unimoc.startup.results` | `uavcan.primitive.scalar.Natural8[]` | Read-back: pass/fail per FSM step (1=pass, 0=fail/pending) |
-| `unimoc.startup.gain_a` | `uavcan.primitive.scalar.Real32.1.0` | Phase-A current-sense gain correction (written at DONE) |
-| `unimoc.startup.gain_b` | `uavcan.primitive.scalar.Real32.1.0` | Phase-B current-sense gain correction (written at DONE) |
-| `unimoc.startup.gain_vdc` | `uavcan.primitive.scalar.Real32.1.0` | V_dc ADC gain correction (written at DONE) |
-| `unimoc.startup.adc_offset_a` | `uavcan.primitive.scalar.Real32.1.0` | Phase-A current-sense zero offset [A] (written at DONE) |
-| `unimoc.startup.adc_offset_b` | `uavcan.primitive.scalar.Real32.1.0` | Phase-B current-sense zero offset [A] (written at DONE) |
+| DSDL | `dsdl/unimoc/`, `lib/cymon/dsdl/cymon/` + OpenCyphal public types | Vendor types `unimoc.drive.CurrentSetpoint.0.1`, `unimoc.drive.Telemetry.0.1`, `unimoc.sim.Plant.0.1`, the cart types `unimoc.cart.*.0.1`, the trace types `cymon.*.0.1`; Nunavut generates the C serialization at configure time |
+| Transport | `lib/cyphal/canard_transport.*` | libcanard 4.0 with an O1Heap arena, one TX queue per CAN interface (redundant interfaces, mixed MTU) |
+| Node | `lib/cyphal/node.*` | Heartbeat, `uavcan.node.port.List`, GetInfo, `uavcan.register.List/Access`, ExecuteCommand, plug-and-play (`uavcan.pnp.NodeIDAllocationData.1.0`), `uavcan.diagnostic.Record`, application services on register-assigned IDs (`AddServer()`) |
+| Drive application | `src/drive/` | Settings registers, arming, setpoints, telemetry, commands, the cart wheel drive (`cart_control.*`) |
+| Traces | `src/trace/`, `lib/cymon/` (cymon-lib 0.2) | cymon services, float mirror of the control state sampled in the control cycle |
+| Zephyr glue | `hardware/zephyr_common/` | Cyphal thread, CAN interface on the chosen `zephyr,canbus`, log backend to `uavcan.diagnostic.Record` |
+| Platform | `hardware/zephyr_bcc/`, `hardware/zephyr_sim/` | BCC: transceiver pin. Sim: slcan pseudo terminals, plant registers and plant trace |
 
-### Setpoints via Subjects
+libcanard, O1Heap and the public regulated data types are pinned in
+`west.yml`; Nunavut is a Python requirement
+(`pip install -r unimoc/scripts/requirements-cyphal.txt`).
 
-Runtime setpoints are **ephemeral** (not stored in NVM) and arrive via Cyphal
-publisher subjects each control cycle.  The active control mode determines
-which subjects are acted on. For UDRAL servo setpoints
-(`reg.udral.service.actuator.servo/_.0.1` + `reg.udral.physics.dynamics.rotation.Planar.0.1`),
-mode switching follows setpoint precedence: first finite kinematics field
-(`position` then `velocity`) selects the mode, otherwise finite `torque`
-falls back to torque mode.
+### Node ID, identity and plug-and-play
 
-| Subject | Default port ID | Direction | Description |
+`uavcan.node.id` is 0 on a fresh BCC: the node then requests an ID with
+`uavcan.pnp.NodeIDAllocationData.1.0` (an allocator such as
+`yakut monitor --plug-and-play <db>` answers) and stores the allocated ID.
+The simulation starts with node-ID 10 (`--node-id=<n>` overrides it per
+process).  GetInfo reports the name from `uavcan.node.description`, the
+hardware version of the platform, the software version from `app/VERSION`, the
+git hash as `software_vcs_revision_id` and the hwinfo device ID as unique-ID
+(also the register `uavcan.node.unique_id`).  A changed node-ID or port-ID
+takes effect after a restart.
+
+### Settings via registers
+
+Every persistent setting (`ForEachRegister()` in
+`lib/settings/settings_registers.hpp`, 95 registers) is a Cyphal register
+under the same name; `yakut rl <node>` lists them.  Units and floats are
+`real32[1]`, counts and enums `natural8[1]`, `uavcan.node.id` and the port-IDs
+`natural16[1]`, the name a string; writes accept any numeric type.  A write is
+validated against the hardware capabilities and changes the RAM settings
+only; a rejected write answers with the unchanged value.  The drive applies
+new settings to the controller while it is disengaged (at the latest when it
+engages).  While engaged, the gains of the current, speed and position loops
+(`unimoc.control.current.*`, `unimoc.control.speed.*`, the position gains,
+limits and tolerances), the telemetry rate and the command timeout take
+effect at once without a restart (live tuning); any other change waits for
+the disengage and also holds back live tuning until then.  Such a write is
+reported with a `uavcan.diagnostic.Record` warning ("settings wait for the
+disengage: <register>", then "waiting settings applied"), and the read-only
+`unimoc.settings.pending` (bit) reads 1 while changes wait.  `ExecuteCommand STORE_PERSISTENT_STATES` (65530) saves them to
+flash, refused (`BAD_STATE`) while the power stage is enabled.
+
+### Ports of the drive
+
+| Register | Default | Type | Function |
 |---|---|---|---|
-| `torque_sp` | 100 | → (subscribe) | Torque / q-axis current setpoint |
-| `speed_sp` | 101 | → (subscribe) | Speed setpoint [rad/s] |
-| `position_sp` | 102 | → (subscribe) | Position setpoint [rad] (requires homing) |
-| `control_mode` | 103 | → (subscribe) | Legacy explicit mode override (0/1/2) |
-| `excitation_sp` | 104 | → (subscribe) | EESM excitation setpoint (A or Wb) |
-| `homing_trigger` | 105 | → (subscribe) | Any message starts homing sequence |
+| `uavcan.sub.readiness.id` | 106 | `reg.udral.service.common.Readiness.0.1` | `ENGAGED` (3) releases the power stage, `SLEEP`/`STANDBY` disable it |
+| `uavcan.sub.current_setpoint.id` | 107 | `unimoc.drive.CurrentSetpoint.0.1` | d/q current setpoint [A] |
+| `uavcan.sub.torque_setpoint.id` | 100 | `uavcan.si.unit.torque.Scalar.1.0` | Torque [N m], converted to i_q with 3/2 p ψ_PM |
+| `uavcan.sub.speed_setpoint.id` | 101 | `uavcan.si.unit.angular_velocity.Scalar.1.0` | Mechanical speed [rad/s], speed loop of the control thread, limited to the motor speed range |
+| `uavcan.sub.position_setpoint.id` | 102 | `uavcan.si.unit.angle.Scalar.1.0` | Mechanical position [rad] from home (the estimate at start) |
+| `uavcan.sub.servo_setpoint.id` | 108 | `reg.udral.physics.dynamics.rotation.Planar.0.1` | UDRAL servo: the commanded (non-NaN) field selects position, speed or torque |
+| `uavcan.pub.telemetry.id` | 212 | `unimoc.drive.Telemetry.0.1` | Current controller trace at `unimoc.telemetry.rate` (20 Hz) |
+| `uavcan.sub.wheel_command.id` | 110 | `unimoc.cart.WheelCommand.0.1` | Cart: torque per wheel from the VDC; the drive takes `unimoc.cart.wheel` |
+| `uavcan.sub.pedal_state.id` | 111 | `unimoc.cart.PedalState.0.1` | Cart: pedals for limp-home mode |
+| `uavcan.sub.battery_status.id` | 112 | `unimoc.cart.BatteryStatus.0.1` | Cart: current limits of the BMS, replace `unimoc.battery.limits.*` while fresh |
+| `uavcan.pub.drive_status.id` | 214 | `unimoc.cart.DriveStatus.0.1` | Cart: wheel speed, torque, drive and brake torque limits, DC link, flags at `unimoc.cart.status_rate` (50 Hz) |
+| `uavcan.pub.sim_plant.id` (sim only) | 213 | `unimoc.sim.Plant.0.1` | Plant truth: phase currents, shaft angle and speed, torque, Hall code |
+| `uavcan.srv.cymon_variables.id` | 120 | `cymon.GetVariableList.0.1` | Trace variables: index -> name and unit |
+| `uavcan.srv.cymon_buffer_info.id` | 121 | `cymon.GetBufferInfo.0.1` | Capture limits and the tick period (62.5 us) |
+| `uavcan.srv.cymon_setup.id` | 122 | `cymon.SetupCapture.0.1` | Channels, sample period, samples, pre-trigger depth |
+| `uavcan.srv.cymon_arm.id` | 123 | `cymon.ArmTrigger.0.1` | Arm (rising, falling, hysteresis, immediate) or disarm |
+| `uavcan.srv.cymon_read.id` | 124 | `cymon.ReadSamples.0.1` | Capture state; once complete, the frames page by page |
+| `uavcan.pub.cymon_trigger.id` | 65535 | `cymon.TriggerEvent.0.1` | Published when a capture triggers (disabled by default) |
+| `uavcan.sub.cymon_trigger.id` | 65535 | `cymon.TriggerEvent.0.1` | Triggers the armed capture on another node's event (disabled by default) |
 
-Port IDs are reconfigurable via `uavcan.sub.<name>.id` registers.
-All input/output subjects can be inspected live in Cymon.
+Each port has a read-only `.type` register.  Two enabled ports may not share
+a subject-ID (or two services a service-ID): such a write is rejected, so to
+swap two IDs, disable one port (65535) first.  The cymon trigger is the
+exception: publishing and subscribing one shared trigger subject lets every
+node of a bus trigger the others.  Readiness and setpoints must be
+refreshed within `unimoc.control.command_timeout` (0.5 s): a missing
+readiness disengages the drive, a missing setpoint falls back to zero
+current.  The current vector is limited to `unimoc.motor.limits.i_max`.
 
-### Telemetry Subjects
+The battery current is limited as well, in every mode: the drive estimates
+it from the mechanical power of the q current (k_t i_q ω / V_dc, losses
+ignored) and scales i_q to `unimoc.battery.limits.drive_current` when
+motoring and to `unimoc.battery.limits.charge_current` when braking.  The
+charge limit falls linearly from `unimoc.battery.limits.regen_derate_voltage`
+(55 V) to zero at `unimoc.battery.limits.trip_voltage` (58 V, at most the
+hardware's 60 V), where the control cycle trips the power stage.  The trip
+switches all transistors off: above the line-to-line back-EMF peak the
+motor still feeds the DC link through the body diodes, so the trip level
+must stay above the battery voltage and a brake chopper has to hold the
+DC link (section 7.1 of `docs/system_plan.md`).  The BCC has none (an
+accepted risk); the new 4850 hardware gets a fourth half bridge that
+drives a brake resistor with a PMSM or the excitation winding of an EESM
+(section 5.2.1).  The BCC voltages
+are accepted values, to be checked against its schematic during bring-up.
 
-| Subject | Default port ID | Direction | Description |
-|---|---|---|---|
-| `rotor_angle` | 200 | ← (publish) | Estimated electrical angle [rad] |
-| `rotor_speed` | 201 | ← (publish) | Estimated electrical angular velocity [rad/s] |
-| `shaft_position` | 202 | ← (publish) | Absolute shaft position referenced to home [rad] |
-| `in_position` | 203 | ← (publish) | In-position flag |
-| `homing_state` | 204 | ← (publish) | Homing FSM state (0–4) |
-| `dc_voltage` | 205 | ← (publish) | DC-link voltage [V] |
-| `phase_current` | 206 | ← (publish) | Phase current magnitude [A] |
-| `excitation_current` | 207 | ← (publish) | EESM rotor excitation current î_f [A] |
+### Cart wheel drive
+
+The cart messages (`dsdl/unimoc/cart/`, section 6.2 of
+`docs/system_plan.md`) make the drive one wheel of the cart:
+
+- **Wheel command.** The first wheel command after the engage makes the
+  drive a cart drive until it disengages: the torque of its wheel
+  (`unimoc.cart.wheel`, 0 front left to 3 rear right; `unimoc.cart.reversed`
+  for a mirrored wheel) replaces the other setpoints and applies on
+  reception, limited like a torque setpoint.  Arming stays with the readiness.
+- **Limp-home.** Without a wheel command for `unimoc.cart.timeout` (0.1 s,
+  at most the command timeout) the torque comes from the pedal state:
+  brake pedal first, against the motion and fading out below
+  `unimoc.cart.standstill_speed` (1 rad/s), drive pedal forward only, both
+  up to `unimoc.cart.limp_home_torque` (5 N m) and ramped at
+  `unimoc.cart.torque_ramp` (50 N m/s).  The readiness timeout waits during
+  limp-home.  Without the pedals too the torque ramps to zero and then the
+  readiness timeout disengages.  A fresh wheel command takes over again
+  only at standstill.
+- **Battery limits.** A fresh battery status replaces
+  `unimoc.battery.limits.drive_current` and `.charge_current` by the BMS
+  limits times `unimoc.cart.battery_share` (the drives of one battery share
+  them); with the contactor open or precharging the drive takes no battery
+  current.  Without the BMS the registers apply again.
+- **Drive status.** Wheel speed and torque estimate in the cart frame, the
+  torque the drive can apply now with and against the motion (motor
+  current limit and battery power window), DC-link voltage and estimated
+  battery current, temperatures in K (NaN when not measured), the power
+  stage, engaged, limp-home, regen derated and trip flags.
+- **Bus-off.** The CAN controller leaves bus-off on its own; the drive
+  drops every cart input at once (the torque ramps to zero), counts it in
+  `unimoc.can.bus_off_count` and logs the return to the bus.
+
+An overcurrent or overvoltage trip or a power stage fault while engaged disengages the drive;
+it engages again only after a readiness other than `ENGAGED` (re-arm).
+`STANDBY` while disengaged acknowledges a latched trip or fault without
+releasing the outputs; the settings can only be stored without one.
+
+### E-bike (battery case controller)
+
+With `CONFIG_UNIMOC_EBIKE=y` (off by default) the drive becomes the motor of a
+pedal-assist e-bike ([`docs/ebike_plan.md`](docs/ebike_plan.md)). The crank torque and cadence sensor (E-Rider
+T9N) and the display (KT-LCD8, Kunteng protocol) feed the assist law (`lib/ebike/`, `src/ebike/`):
+
+- Low speed: the motor torque follows the pedal torque (`unimoc.ebike.torque_ratio`); above the crossover speed
+  the motor power follows the pedal power. The assist ratio is the base ratio of the display level
+  (`unimoc.ebike.gain_1` to `gain_5`) times `exp(pedal power / unimoc.ebike.power_scale)`, limited to
+  `unimoc.ebike.max_ratio`. It fades out below the speed limit of the display, stays within the torque limit of
+  the drive and ramps (`rise_time`, `fall_time`).
+- The e-bike control engages the drive on demand: while the crank turns at a display level above 0, and for
+  `unimoc.ebike.engage_hold` afterwards. The readiness `ENGAGED` of the bus no longer engages it; `SLEEP` and
+  `STANDBY` release it and keep it released until the pedals stood still for `unimoc.ebike.rearm_time`, as a trip
+  or a refused engage do. Without a display request for `unimoc.ebike.display_timeout` the level counts as 0.
+- Registers (all persistent): `unimoc.ebike.pulses_per_rev`, `wheel_circumference` [m], `gear_ratio`,
+  `battery_cells`, `nominal_voltage`, `gain_1` to `gain_5`, `power_scale`, `max_ratio`, `torque_ratio`,
+  `torque_deadband`, `min_cadence`, `speed_taper`, `rise_time`, `fall_time`, `engage_hold`, `rearm_time`,
+  `display_timeout`; the direction is `unimoc.cart.reversed`. A change while engaged waits for the disengage. The
+  defaults are untuned starting values: try them on the bench first.
+- BCC wiring (from the schematic): the display transmit line is PB10 (USART3_TX); the display receive line is
+  on PB15, which has no UART receiver on the STM32G473, so TIM15 channel 2 captures its edges and a software
+  receiver decodes the bytes; the cadence pulse is PA5; the crank torque is a channel of the injected ADC
+  sequence behind a 2/3 divider.
+- `native_sim`: a simulated rider and display (`hardware/zephyr_sim/sim_ebike.hpp`) drive the control in the
+  tests (`sim_cyphal_drive` attaches the control itself); the simulation app keeps the bus readiness for the
+  pytest integration tests, so `CONFIG_UNIMOC_EBIKE` is off there too.
+
+### Commands (uavcan.node.ExecuteCommand)
+
+| Command | Effect |
+|---|---|
+| 65535 RESTART | Disengages and restarts (the simulation re-executes itself) |
+| 65532 FACTORY_RESET | Factory settings in RAM and flash; refused while engaged |
+| 65531 EMERGENCY_STOP | Disengages; engaging is refused until a restart |
+| 65530 STORE_PERSISTENT_STATES | Saves the RAM settings to flash; refused while engaged |
+
+### Traces (cymon)
+
+The drive records up to 8 signals of the control cycle into a RAM ring
+buffer (8 KB, `CONFIG_UNIMOC_TRACE_*`) and a tool reads the capture back over
+the bus: the cymon protocol of [cymon-lib](lib/cymon) (`lib/cymon`, 0.2),
+driven by the **Scope** page of the host tool
+[cymon](https://github.com/Tecnologic/cymon).  The control cycle copies its
+state into a float mirror (`src/trace/trace_signals.hpp`) and samples it with
+`cymon::Device::Tick()` at 16 kHz (zero latency: no lock, no kernel call, no
+function pointer); the services run in the Cyphal thread
+(`src/trace/trace_node.*`).
+
+| IDs | Variables |
+|---|---|
+| 0..11 | `i_d`, `i_q`, `i_d_ref`, `i_q_ref` [A], `u_d`, `u_q` [V], `electrical_angle` [rad, 0 to 2 pi], `electrical_speed` [rad/s] (observer, one cycle late), `dc_link_voltage` [V], `i_a`, `i_b`, `i_c` [A] (newest sample) |
+| 12.. (sim only) | Plant truth: `sim.i_a`..`sim.i_c`, `sim.i_d`, `sim.i_q`, `sim.electrical_angle`, `sim.electrical_speed`, `sim.mechanical_speed`, `sim.torque` |
+
+The sample period is a whole multiple of the control cycle; a capture of
+8 channels by 256 frames takes about 0.4 s of bus time at 1 Mbit/s.
+
+### Interrupt timing (M0)
+
+With `CONFIG_UNIMOC_HOT_PATH_TIMING=y` the platform measures the sample
+interrupt of each control boundary (including the control cycle), the control
+cycle alone and the observer in cycles of the DWT counter (170 MHz on the
+BCC; `hardware/hot_path_timing.hpp`).  Read-only registers:
+
+| Register | Type | Content |
+|---|---|---|
+| `unimoc.timing.sample_isr`, `.control_cycle`, `.observer` | natural32[4] | min, mean, max [cycles], number of records |
+| `unimoc.timing.overruns` | natural32[2] | duty plans applied late, control cycles that started while the observer still ran |
+| `unimoc.timing.clock_hz` | natural32[1] | the timestamp clock |
+| `unimoc.timing.reset` | natural8[1] | write 1: new statistics |
+
+```sh
+west build -b bcc unimoc/app -d unimoc/app/build/bcc -- -DCONFIG_UNIMOC_HOT_PATH_TIMING=y
+yakut call 10 uavcan.register.access '{name: {name: unimoc.timing.control_cycle}}'
+```
+
+The times start at the first instruction of the handler (the 12 cycles of
+the exception entry are not included).  On `native_sim` the counts are real,
+the times are 0: simulated time stands still inside a cycle.
+
+```sh
+cymon serve -i socketcan:vcan0 --dsdl unimoc/dsdl/unimoc --open      # simulation
+cymon serve -i canable:/dev/ttyACM0 --dsdl unimoc/dsdl/unimoc --open # BCC, CANable 2.0
+```
+
+### Logging
+
+The bench log of the BCC goes to SEGGER RTT; USB and the shell are not used.
+Every Zephyr log line up to `CONFIG_UNIMOC_CYPHAL_LOG_LEVEL` (info) and the
+drive events (engaged, disengaged and why) are also published as
+`uavcan.diagnostic.Record`.
+
+### Simulation over Cyphal
+
+The simulation (`native_sim`) runs in real time with the PMSM plant and has
+two kinds of CAN interfaces:
+
+- **SocketCAN `vcan0`** (CAN FD), the same Zephyr CAN driver path as the
+  board.  Needs the `vcan` kernel module; `--can-if=<name>` selects another
+  interface.
+- **slcan pseudo terminals** (classic CAN), for hosts without `vcan` (WSL2
+  kernels without CAN): `uart_1` to `uart_4`, one tool process each; the
+  terminals form one bus.
+
+```sh
+pip install -r unimoc/scripts/requirements-cyphal-tools.txt   # yakut, python-can
+west build -b native_sim/native/64 unimoc/app -d unimoc/app/build/sim
+
+# with vcan (once, as root): modprobe vcan; ip link add vcan0 type vcan;
+#                            ip link set vcan0 mtu 72 up
+unimoc/app/build/sim/zephyr/zephyr.exe        # prints "uart_1 connected to pseudotty: /dev/pts/N"
+
+. unimoc/scripts/sim_yakut_env.sh             # vcan0, or: . unimoc/scripts/sim_yakut_env.sh /dev/pts/N
+yakut call 10 uavcan.node.getinfo
+yakut rl 10                                   # all registers
+yakut reg 10 unimoc.sim.shaft_mode 1          # imposed speed (0 rad/s: locked rotor)
+yakut pub --period 0.05 106:reg.udral.service.common.Readiness '{value: 3}' \
+              107:unimoc.drive.CurrentSetpoint '{i_d: 0, i_q: 5}'    # second terminal
+yakut sub 212:unimoc.drive.Telemetry 213:unimoc.sim.Plant           # third terminal
+yakut sub uavcan.diagnostic.Record
+yakut cmd 10 65530                            # store the settings (flash.bin in the working directory)
+```
+
+With slcan, each yakut process needs its own terminal (`/dev/pts/N`,
+`N+1`, ...); the terminal numbers can change when the simulation restarts.
+Simulation registers (volatile): `unimoc.sim.shaft_mode` (0 free, 1 imposed
+speed), `unimoc.sim.imposed_speed` [rad/s], `unimoc.sim.load_torque` [N m],
+`unimoc.sim.dc_link_voltage` [V], `unimoc.sim.external_enable`, and
+`unimoc.sim.plant_follows_settings` (the plant takes the motor parameters of
+the settings when they are applied).
+
+Deterministic runs: `unimoc.sim.paused` (bit) stops the cycle timer, also
+across a settings restart of the controller; then a write of
+`unimoc.sim.advance` (natural32, at most 16000 = 1 s) runs that many control
+cycles before the response.  `unimoc.sim.cycle_count` and
+`unimoc.sim.cycle_period_ns` (62500 at 32 kHz PWM) give the virtual time; the
+count restarts with the controller.  A write of 1 to `unimoc.sim.reset`
+(refused while the power stage is enabled) puts the plant back to
+standstill, the virtual time to 0 and restarts the controller with the
+applied settings; register inputs and a pause stay.  The drive's readiness and setpoint
+timeouts still run in real time, so keep publishing the readiness while
+paused.
+
+The rotor angle of the controller comes from its observer only (the Hall
+fusion is milestone M5/M6 of `docs/hotpath_plan.md`); at standstill the
+estimate drifts, so the current loop is meaningful in the controller frame
+(telemetry), not yet as a torque on the simulated shaft.
 
 ---
 
@@ -311,6 +467,13 @@ All settings are aggregated in `unimoc::settings::NvmSettings`
   stage is disabled, because a flash write can stall the zero-latency control
   cycle. A register that is not stored has its factory value, so new firmware can
   add registers without invalidating stored settings.
+- **Factory motor** — the motor defaults describe the cart wheel: a 6.5"
+  36 V hoverboard hub motor with a 3.50-6 pneumatic tyre (15 pole pairs,
+  0.15 Ω, 0.35 mH, ψ 23 mWb, k_t 0.52 N m/A, 15 A, current PI at about
+  320 Hz). These are typical values, not a measurement of the actual motor;
+  the platform profiles leave them as they are and only set the power stage
+  limits. The simulation runs this motor too; the sim tests that were written
+  for a smaller motor load it from `tests/common/sim_test_motor.hpp`.
 - **Platform-agnostic** — the hardware layer supplies an immutable profile and
    a key/value storage adapter. The Zephyr platforms use the settings
    subsystem on ZMS in the `storage_partition` (`hardware/zephyr_common/
@@ -353,10 +516,10 @@ to raise those capabilities.
 
 ## Hardware Bring-Up Guide
 
-> **Status:** not runnable yet.  The procedure needs the Cyphal registers and the
-> USB console, and neither is integrated in the Zephyr build yet
-> (`docs/zephyr_port_plan.md`).  The steps below describe the target behavior.
-> Log lines go to the Zephyr log, shown on the USB CDC-ACM console once it is enabled.
+> **Status:** runs on `native_sim` (ztest `unimoc.sim.cyphal_drive` and the
+> pycyphal integration test); not yet run on the board.  The FSM is driven by
+> the `unimoc.startup.*` registers and stepped in the Cyphal thread.  Log lines go to the
+> Zephyr log on SEGGER RTT and as `uavcan.diagnostic.Record` on the bus.
 
 `HwStartup` is a step-by-step bring-up wizard for commissioning a new UNIMOC
 board.  It verifies the ADC signal chain, gate drivers, and DC-link voltage
@@ -722,9 +885,11 @@ The BCC has not run on hardware yet.
 
 ### Running the Tests
 
-All tests are ztest suites run by twister on `native_sim`; there is no hosted
-test build. `tests/lib/<library>/` covers the libraries, `tests/sim/` runs the
-application core against the simulated drive. From the west workspace root:
+All tests run under twister on `native_sim`; there is no hosted test build.
+`tests/lib/<library>/` (ztest) covers the libraries, `tests/sim/` (ztest) runs
+the application core against the simulated drive, and
+`tests/integration/cyphal_sim/` (pytest with pycyphal) drives the running
+simulation over Cyphal. From the west workspace root:
 
 ```bash
 # All scenarios on native_sim and bcc, with clang-tidy as static analysis (as in CI)
@@ -733,9 +898,45 @@ unimoc/scripts/twister_sca.sh
 # clang-format check of all C/C++ sources (--fix to apply)
 unimoc/scripts/check_format.sh
 
+# pycyphal integration tests of the simulation (needs scripts/requirements-cyphal-tools.txt)
+west twister -T unimoc/app -p native_sim/native/64 --scenario unimoc.app.cyphal_integration
+
 # One suite without static analysis, while iterating
 west twister -T unimoc/tests/lib/motor_control -p native_sim/native/64
 ```
+
+Prebuilt firmware: every CI run uploads the BCC image (`unimoc-bcc`) and the
+`native_sim` executable (`unimoc-native_sim`) as artifacts of the
+[Zephyr workflow](https://github.com/Tecnologic/unimoc/actions/workflows/ci-zephyr.yml).
+Releases (below) attach the same files with checksums, the twister report and
+the API documentation.
+
+### Releases
+
+A release is made by merging a pull request from `develop` into `main` (merge
+commit). Nothing is tagged by hand ([docs/release_plan.md](docs/release_plan.md)):
+
+- The version is in the Zephyr version file `app/VERSION`. While the
+  `develop` to `main` pull request is open, the *Release prepare* workflow
+  commits the next version and `CHANGELOG.md` to `develop` and comments the
+  release on the pull request. The label `release-as:X.Y.Z` forces a version.
+- Versions follow [semantic versioning](https://semver.org) and come from the
+  [conventional commits](https://www.conventionalcommits.org) of the squash
+  merges into `develop` (the pull request title is checked):
+
+  | Title | Version (below 1.0) |
+  |---|---|
+  | `fix: ...`, `perf: ...`, `refactor: ...` | patch |
+  | `feat: ...`, `feat!: ...` | minor |
+  | `docs:`, `test:`, `ci:`, `build:`, `chore:` | none |
+
+  A change of the DSDL types or of register and subject IDs is always `feat!`
+  or `fix!`, because it changes the bus protocol.
+- The merge runs the Zephyr workflow on `main`. After the tests and all
+  firmware builds passed, its `release` job creates the tag `vX.Y.Z` and the
+  GitHub release with the change log and every build (BCC, `native_sim`,
+  later ones), `SHA256SUMS`, the twister report and the Doxygen HTML. The
+  release is a step of that CI run, so the badge of `main` shows it.
 
 `twister_sca.sh` needs `clang-tidy` (LLVM 18) and CodeChecker
 (`pip install codechecker`) in addition to the Zephyr setup;

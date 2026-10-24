@@ -52,4 +52,8 @@ inline constexpr bool kMotorTemperatureAvailable = true;
 //             cycle. It is preempted by the sample interrupt.
 inline constexpr uint8_t kHalfPeriodsPerCycle = 4U;
 
+// Timestamps of the control boundary and the Hall edges: the DWT cycle
+// counter at the 170 MHz core clock (bcc.dts), wrapping every 25 s.
+inline constexpr uint32_t kTimestampFrequency = 170'000'000U;
+
 }  // namespace unimoc::hardware

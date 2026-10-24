@@ -22,6 +22,10 @@
  *        the new plan, entry 3 carries over. Each half period ends with a
  *        current sample and the per-sample overcurrent check.
  *
+ *    Timestamps are nanoseconds of virtual time. A change of the simulated
+ *    Hall code is queued with the time of the edge, as the EXTI capture of
+ *    the BCC does (HardwareInterface::PopHallEvent()).
+ *
  *    SPDX-License-Identifier: GPL-3.0-or-later
  *
  *    This file is part of UNIMOC and is licensed under GPL-3.0-or-later.
@@ -33,7 +37,9 @@
 #include <array>
 #include <cmath>
 #include <limits>
+#include <optional>
 #include "hot_path_interface.hpp"
+#include "hot_path_timing.hpp"
 #include "motor_simulation.hpp"
 #include "power_stage_interface.hpp"
 #include "sim_control.hpp"
@@ -49,17 +55,26 @@ static_assert(kHalfPeriodsPerCycle == 4U, "sim::AppliedDuties() returns four ent
 
 const settings::SettingsProfile kSettingsProfile = [] {
   settings::SettingsProfile profile{};
+  // A fixed Cyphal node-ID, so tools reach a fresh simulation without a
+  // plug-and-play allocator (--node-id overrides it per process).
+  profile.factory_settings.node_id = 10U;
   profile.factory_settings.pwm_frequency = 32.0_kHz;  // 16 kHz control cycle
   // Same duty range as the BCC (sampling window and minimum pulse, see there).
   profile.factory_settings.svm_duty_min = 0.03_ratio;
   profile.factory_settings.svm_duty_max = 0.97_ratio;
-  profile.factory_settings.motor_i_max = 50.0_A;  // current controller limit
+  // The simulated Hall sensors are ideal and aligned (offset 0): fuse them,
+  // and weight the flux observer down at low speed.
+  profile.factory_settings.hall_enable = 1U;
+  profile.factory_settings.pmsm_flux_obs_r_speed = 1.0F;
   profile.factory_settings.battery_drive_current_max = 50.0_A;
   profile.factory_settings.battery_charge_current_max = 20.0_A;
   profile.capabilities.max_phase_current = 60.0_A;  // hard trip limit of the power stage
   profile.capabilities.max_motor_current = 50.0_A;
   profile.capabilities.max_battery_drive_current = 50.0_A;
   profile.capabilities.max_battery_charge_current = 20.0_A;
+  profile.factory_settings.dc_link_regen_derate_start = 55.0_V;  // as the BCC
+  profile.factory_settings.dc_link_trip = 58.0_V;
+  profile.capabilities.max_dc_link_voltage = 60.0_V;
   return profile;
 }();
 
@@ -83,6 +98,12 @@ bool PowerStageEnable() noexcept {
     return false;
   }
   g_power_stage.enabled = true;
+  // As on the BCC: a trip of the cycle interrupt between the check and the
+  // release must not be undone.
+  if (g_power_stage.fault) {
+    g_power_stage.enabled = false;
+    return false;
+  }
   return true;
 }
 
@@ -110,8 +131,10 @@ PowerStageState GetPowerStageState() noexcept {
 
 using Duties = system::ThreePhase<Ratio>;
 constexpr Duties kNeutral{0.5_ratio, 0.5_ratio, 0.5_ratio};
+constexpr bool kTiming = IS_ENABLED(CONFIG_UNIMOC_HOT_PATH_TIMING);
 
 ::unimoc::sim::MotorSimulation g_plant;
+sim::PlantTrace g_plant_trace;
 
 bool g_initialized = false;
 Time g_half_period{};
@@ -120,13 +143,19 @@ ControlCycleSamples g_samples{};  // samples of the cycle that just ended
 DutyPlan g_plan{};                // written by the control cycle
 Duties g_carry = kNeutral;        // entry 3 of the last plan: first half period of the next cycle
 std::array<Duties, kHalfPeriodsPerCycle> g_applied{kNeutral, kNeutral, kNeutral, kNeutral};
-float g_overcurrent_limit = std::numeric_limits<float>::infinity();
+Current g_overcurrent_limit{std::numeric_limits<float>::infinity()};
 bool g_current_override = false;
 system::ThreePhase<Current> g_override_currents{};
 uint32_t g_cycle_count = 0U;
 
+observer::HallEventQueue<16U> g_hall_events;
+uint8_t g_last_hall_code = 0U;             // last queued code
+std::optional<uint8_t> g_hall_override{};  // fault injection: the code the sensors report
+uint64_t g_half_period_ns = 0U;
+
 struct k_timer g_cycle_timer;
 bool g_free_running = false;
+bool g_paused = false;       // SetPaused(): Initialize() leaves the timer stopped
 uint64_t g_cycle_ns = 0U;    // exact cycle period
 uint64_t g_elapsed_ns = 0U;  // ideal time of the last expiry since the start
 uint64_t g_elapsed_us = 0U;  // the same, rounded down to the 1 us kernel tick
@@ -135,10 +164,47 @@ system::ThreePhase<Current> MeasuredCurrents() noexcept {
   return g_current_override ? g_override_currents : g_plant.Output().phase_currents;
 }
 
+uint8_t MeasuredHallCode() noexcept { return g_hall_override.value_or(g_plant.Output().hall.code); }
+
+/// Queues the Hall code when it changed; @p time_ns is the end of the half period just simulated.
+void CaptureHall(const uint64_t time_ns) noexcept {
+  const uint8_t kCode = MeasuredHallCode();
+  if (kCode == g_last_hall_code) {
+    return;
+  }
+  uint64_t edge_ns = time_ns;
+  const auto& hall = g_plant.Output().hall;
+  if (!g_hall_override.has_value() && hall.edge) {
+    edge_ns -= static_cast<uint64_t>(hall.edge_age.Value() * 1.0e9F);
+  }
+  g_last_hall_code = kCode;
+  (void)g_hall_events.Push(observer::HallEvent{kCode, static_cast<uint32_t>(edge_ns)});
+}
+
+/// Starts the Hall capture again: the queue holds only the present code.
+void RestartHallCapture() noexcept {
+  g_hall_events.Clear();
+  g_last_hall_code = 0U;
+  CaptureHall(static_cast<uint64_t>(g_cycle_count) * g_cycle_ns);
+}
+
 bool Exceeds(const system::ThreePhase<Current>& currents) noexcept {
-  const float kLimit = g_overcurrent_limit;
-  return std::abs(currents.a.Value()) > kLimit || std::abs(currents.b.Value()) > kLimit ||
-         std::abs(currents.c.Value()) > kLimit;
+  const Current kLimit = g_overcurrent_limit;
+  return Abs(currents.a) > kLimit || Abs(currents.b) > kLimit || Abs(currents.c) > kLimit;
+}
+
+/// Copies the plant truth for the traces; the next control cycle samples it with its own state.
+void UpdatePlantTrace() noexcept {
+  const auto& output = g_plant.Output();
+  g_plant_trace.i_a = output.phase_currents.a.Value();
+  g_plant_trace.i_b = output.phase_currents.b.Value();
+  g_plant_trace.i_c = output.phase_currents.c.Value();
+  g_plant_trace.i_d = output.rotor_current.d.Value();
+  g_plant_trace.i_q = output.rotor_current.q.Value();
+  g_plant_trace.electrical_angle = output.electrical_angle.AngleInRevolution().Value();
+  g_plant_trace.electrical_speed = output.electrical_speed.Value();
+  g_plant_trace.mechanical_speed = output.mechanical_speed.Value();
+  g_plant_trace.torque = output.electromagnetic_torque.Value();
 }
 
 // Runs in the (simulated) timer interrupt, like the BCC interrupts: no kernel
@@ -147,9 +213,22 @@ void RunCycle() noexcept {
   if (!g_initialized) {
     return;
   }
-  ControlCycleHandler();
-  ObserverHandler();
+  if constexpr (kTiming) {
+    // Simulated time stands still inside a cycle: the times are 0, the counts are real.
+    const uint32_t kStart = k_cycle_get_32();
+    ControlCycleHandler();
+    const uint32_t kControlEnd = k_cycle_get_32();
+    ObserverHandler();
+    const uint32_t kObserverEnd = k_cycle_get_32();
+    timing::ProbeOf(timing::Section::kControlCycle).Record(kControlEnd - kStart);
+    timing::ProbeOf(timing::Section::kSampleIsr).Record(kControlEnd - kStart);
+    timing::ProbeOf(timing::Section::kObserver).Record(kObserverEnd - kControlEnd);
+  } else {
+    ControlCycleHandler();
+    ObserverHandler();
+  }
 
+  const uint64_t kStartNs = static_cast<uint64_t>(g_cycle_count) * g_cycle_ns;
   ControlCycleSamples next{};
   for (uint8_t k = 0U; k < kHalfPeriodsPerCycle; ++k) {
     const Duties& duty = (k == 0U) ? g_carry : g_plan.duties[k - 1U];
@@ -157,6 +236,7 @@ void RunCycle() noexcept {
     g_plant.SetBridgeEnabled(g_power_stage.enabled);
     g_plant.SetPhaseDuties(duty);
     (void)g_plant.Step(g_half_period);
+    CaptureHall(kStartNs + (k + 1U) * g_half_period_ns);
 
     // Sample at the end of the half period, then the per-sample check.
     next.phase_currents[k] = MeasuredCurrents();
@@ -166,8 +246,10 @@ void RunCycle() noexcept {
     }
   }
   next.dc_link = g_plant.Output().dc_link_voltage;
+  next.timestamp = static_cast<uint32_t>(kStartNs + kHalfPeriodsPerCycle * g_half_period_ns);
   g_carry = g_plan.duties[kHalfPeriodsPerCycle - 1U];
   g_samples = next;
+  UpdatePlantTrace();
   ++g_cycle_count;
 }
 
@@ -229,10 +311,21 @@ bool Initialize(Frequency pwm_frequency, uint32_t /*unused*/) noexcept {
   g_initialized = true;
   g_half_period = Time{1.0F / (2.0F * pwm_frequency.Value())};
   g_cycle_ns = (kHalfPeriodsPerCycle * 1'000'000'000ULL) / (2U * kPwmHz);
+  g_half_period_ns = 1'000'000'000ULL / (2U * kPwmHz);
   ResetCycleState();
+  RestartHallCapture();
 
-  StartTimer();
+  if (!g_paused) {
+    StartTimer();
+  }
   return true;
+}
+
+// The cycle timer runs the control cycle and the observer: stopped, neither runs.
+void Stop() noexcept {
+  if (g_initialized) {
+    StopTimer();
+  }
 }
 
 system::ThreePhase<Current> GetPhaseCurrents() noexcept { return MeasuredCurrents(); }
@@ -241,13 +334,19 @@ system::ThreePhase<Voltage> GetPhaseVoltages() noexcept { return g_plant.Output(
 
 TemperatureMeasurements GetTemperatureMeasurements() noexcept { return {}; }
 
-void SetOvercurrentLimit(const Current limit) noexcept { g_overcurrent_limit = limit.Value(); }
+void SetOvercurrentLimit(const Current limit) noexcept { g_overcurrent_limit = limit; }
 
 void SetAdcTriggerOffset(uint32_t /*unused*/) noexcept {}
 
 uint32_t GetTimerClockFrequency() noexcept { return 170'000'000U; }
 
+// The observer is the only consumer; it runs in the cycle timer like the producer.
+bool PopHallEvent(observer::HallEvent& event) noexcept { return g_hall_events.Pop(event); }
+
 }  // namespace
+
+// The simulation applies every plan in time.
+uint32_t timing::DutyOverruns() noexcept { return 0U; }
 
 namespace hot_path {
 
@@ -277,7 +376,21 @@ void SetPhaseCurrentOverride(const float a, const float b, const float c) noexce
 
 void ClearPhaseCurrentOverride() noexcept { g_current_override = false; }
 
+void SetHallCodeOverride(const uint8_t code) noexcept {
+  const unsigned int kIrqKey = irq_lock();
+  g_hall_override = code;
+  irq_unlock(kIrqKey);
+}
+
+void ClearHallCodeOverride() noexcept {
+  const unsigned int kIrqKey = irq_lock();
+  g_hall_override.reset();
+  irq_unlock(kIrqKey);
+}
+
 ::unimoc::sim::MotorSimulation& Plant() noexcept { return g_plant; }
+
+const PlantTrace& PlantTraceSignals() noexcept { return g_plant_trace; }
 
 void SetFreeRunning(const bool running) noexcept {
   if (running == g_free_running) {
@@ -289,6 +402,15 @@ void SetFreeRunning(const bool running) noexcept {
     StopTimer();
   }
 }
+
+void SetPaused(const bool paused) noexcept {
+  g_paused = paused;
+  SetFreeRunning(!paused && g_initialized);
+}
+
+bool IsPaused() noexcept { return g_paused; }
+
+uint64_t CyclePeriodNs() noexcept { return g_cycle_ns; }
 
 void StepCycle() noexcept {
   const unsigned int kIrqKey = irq_lock();
@@ -305,6 +427,7 @@ void Reset() noexcept {
   g_power_stage.enabled = false;
   g_power_stage.fault = !g_power_stage.external_enable;
   ResetCycleState();
+  RestartHallCapture();
   irq_unlock(kIrqKey);
 }
 
@@ -333,14 +456,16 @@ const PowerStageInterface kPowerStage{PowerStageEnable,
                                       PowerStageClearFault,
                                       GetPowerStageState};
 
-const HardwareSettingsInterface kSettings{kSettingsProfile, kSettingsStorage};
+const HardwareSettingsInterface kSettings{kSettingsProfile, kSettingsStorage, ZephyrSettingsStorage::Lock()};
 
 const std::array<HardwareInterface, kMotorCount> kMotors = {HardwareInterface(Initialize,
+                                                                              Stop,
                                                                               GetPhaseCurrents,
                                                                               GetPhaseVoltages,
                                                                               GetTemperatureMeasurements,
                                                                               SetOvercurrentLimit,
                                                                               SetAdcTriggerOffset,
-                                                                              GetTimerClockFrequency)};
+                                                                              GetTimerClockFrequency,
+                                                                              PopHallEvent)};
 
 }  // namespace unimoc::hardware

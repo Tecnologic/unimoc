@@ -52,17 +52,17 @@ Ctrl MakeFluxMode() {
 // --- CurrentMode: zero setpoint, zero measurement → zero output
 ZTEST(excitation_controller, test_current_mode_zero_error) {
   auto c = MakeCurrentMode();
-  const float kOut = c.Update(unimoc::unit::Current{}, 100_us).Value();
-  UNIMOC_EXPECT_FLOAT_EQ(kOut, 0.0F);
+  const Current kOut = c.Update(Current{}, 100_us);
+  UNIMOC_EXPECT_FLOAT_EQ(kOut, 0.0_A);
 }
 
 // --- CurrentMode: positive setpoint drives positive output
 ZTEST(excitation_controller, test_current_mode_positive_setpoint) {
   auto c = MakeCurrentMode();
   c.current_setpoint = 5.0_A;
-  const float kOut = c.Update(unimoc::unit::Current{}, 100_us).Value();
-  zexpect_true((kOut) > (0.0F));
-  zexpect_true((kOut) <= (c.i_f_max.Value()));
+  const Current kOut = c.Update(Current{}, 100_us);
+  zexpect_true(kOut > 0.0_A);
+  zexpect_true(kOut <= c.i_f_max);
 }
 
 // --- CurrentMode: integrator saturates at i_f_max
@@ -72,8 +72,8 @@ ZTEST(excitation_controller, test_current_mode_integrator_clamp) {
   for (int i = 0; i < 1000; ++i) {
     c.Update(unimoc::unit::Current{}, 1_ms);
   }
-  UNIMOC_EXPECT_FLOAT_EQ(c.i_f_ref.Value(), c.i_f_max.Value());
-  zexpect_true((c.integrator.Value()) <= (c.i_f_max.Value()));
+  UNIMOC_EXPECT_FLOAT_EQ(c.i_f_ref, c.i_f_max);
+  zexpect_true(c.integrator <= c.i_f_max);
 }
 
 // --- CurrentMode: output never goes below i_f_min
@@ -83,7 +83,7 @@ ZTEST(excitation_controller, test_current_mode_min_clamp) {
   for (int i = 0; i < 1000; ++i) {
     c.Update(unimoc::unit::Current{}, 1_ms);
   }
-  UNIMOC_EXPECT_FLOAT_EQ(c.i_f_ref.Value(), c.i_f_min.Value());
+  UNIMOC_EXPECT_FLOAT_EQ(c.i_f_ref, c.i_f_min);
 }
 
 // --- FluxMode: ψ_f* / L_m = correct current reference
@@ -93,7 +93,7 @@ ZTEST(excitation_controller, test_flux_mode_conversion) {
   for (int i = 0; i < 5000; ++i) {
     c.Update(unimoc::unit::Current{}, 100_us);
   }
-  UNIMOC_EXPECT_FLOAT_EQ(c.i_f_ref.Value(), c.i_f_max.Value());
+  UNIMOC_EXPECT_FLOAT_EQ(c.i_f_ref, c.i_f_max);
 }
 
 // --- reset() clears integrator and output
@@ -104,22 +104,22 @@ ZTEST(excitation_controller, test_reset_clears_state) {
     c.Update(unimoc::unit::Current{}, 1_ms);
   }
   c.Reset();
-  UNIMOC_EXPECT_FLOAT_EQ(c.integrator.Value(), 0.0F);
-  UNIMOC_EXPECT_FLOAT_EQ(c.i_f_ref.Value(), 0.0F);
+  UNIMOC_EXPECT_FLOAT_EQ(c.integrator, 0.0_A);
+  UNIMOC_EXPECT_FLOAT_EQ(c.i_f_ref, 0.0_A);
 }
 
 // --- Output converges to setpoint when feedback equals reference
 ZTEST(excitation_controller, test_current_mode_converges) {
   auto c = MakeCurrentMode();
   c.current_setpoint = 3.0_A;
-  float meas = 0.0F;
+  Current meas;
 
   for (int i = 0; i < 5000; ++i) {
-    const float kRef = c.Update(unimoc::unit::Current{meas}, 100_us).Value();
+    const Current kRef = c.Update(meas, 100_us);
     // Simulate first-order plant: meas tracks ref slowly
     meas += 0.01F * (kRef - meas);
   }
-  UNIMOC_EXPECT_NEAR(meas, 3.0F, 0.1F);
+  UNIMOC_EXPECT_NEAR(meas, 3.0_A, 0.1_A);
 }
 
 }  // namespace unimoc::control::test

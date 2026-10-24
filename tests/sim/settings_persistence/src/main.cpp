@@ -42,7 +42,8 @@ namespace sim = unimoc::hardware::sim;
 SettingsStore MakeStore() {
   return SettingsStore{unimoc::hardware::kSettings.GetSettingsProfile(),
                        ZephyrSettingsStorage::Adapter(),
-                       unimoc::settings::PowerStageSaveGate(kPowerStage)};
+                       unimoc::settings::PowerStageSaveGate(kPowerStage),
+                       unimoc::hardware::kSettings.GetSettingsLock()};
 }
 
 // Removes every register from the storage: each test starts from an empty flash.
@@ -106,7 +107,7 @@ ZTEST(sim_settings_persistence, test_saved_registers_survive_a_new_store) {
   const NvmSettings& loaded = kSnapshot.Get();
   zexpect_equal(loaded.pole_pairs, 7U);
   zexpect_equal(loaded.node_id, 42U);
-  zexpect_equal(loaded.stator_r.Value(), 0.07F);
+  zexpect_equal(loaded.stator_r, 0.07_Ohm);
   zexpect_equal(loaded.identity.GetName(), std::string_view{"zms.node"});
 }
 
@@ -132,6 +133,23 @@ ZTEST(sim_settings_persistence, test_saving_needs_the_power_stage_disabled) {
   zexpect_equal(operations.SaveToFlash(), SettingsStatus::kPersistBlocked);
   kPowerStage.ClearFault();
   zexpect_equal(operations.SaveToFlash(), SettingsStatus::kSuccess);
+}
+
+ZTEST(sim_settings_persistence, test_enable_is_held_off_while_a_save_runs) {
+  const auto kGate = unimoc::settings::PowerStageSaveGate(kPowerStage);
+  zassert_equal(kPowerStage.GetState(), PowerStageState::kDisabled);
+
+  zassert_true(kGate.TryBegin());
+  zexpect_false(kGate.TryBegin());  // one save at a time
+  zexpect_false(kPowerStage.Enable());
+  zexpect_equal(kPowerStage.GetState(), PowerStageState::kDisabled);
+  kGate.End();
+
+  zassert_true(kPowerStage.Enable());
+  zexpect_false(kGate.TryBegin());  // enabled: refused, and Enable() is not held off
+  kPowerStage.Disable();
+  zassert_true(kPowerStage.Enable());
+  kPowerStage.Disable();
 }
 
 ZTEST(sim_settings_persistence, test_register_back_at_factory_value_leaves_the_flash) {
@@ -167,8 +185,8 @@ ZTEST(sim_settings_persistence, test_undecodable_entry_is_reported_and_healed) {
 
   auto store = MakeStore();
   zexpect_equal(store.Load(), SettingsStatus::kInvalidImage);
-  zexpect_equal(store.GetSnapshot().Get().motor_i_max.Value(),
-                unimoc::hardware::kSettings.GetSettingsProfile().factory_settings.motor_i_max.Value());
+  zexpect_equal(store.GetSnapshot().Get().motor_i_max,
+                unimoc::hardware::kSettings.GetSettingsProfile().factory_settings.motor_i_max);
 
   zexpect_equal(store.GetOperations().SaveToFlash(), SettingsStatus::kSuccess);
   zexpect_equal(StoredEntries(), 0U);
@@ -194,7 +212,7 @@ ZTEST(sim_settings_persistence, test_all_registers_fit_and_survive_rewrites) {
         },
         kSettings);
   }
-  zexpect_equal(StoredEntries(), 71U);
+  zexpect_equal(StoredEntries(), 130U);
 }
 
 ZTEST_SUITE(sim_settings_persistence, nullptr, nullptr, Before, nullptr, nullptr);

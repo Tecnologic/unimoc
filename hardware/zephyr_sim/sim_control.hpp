@@ -37,6 +37,17 @@ void SetPhaseCurrentOverride(float a, float b, float c) noexcept;
 void ClearPhaseCurrentOverride() noexcept;
 
 /**
+ * @brief Replaces the Hall code the simulated sensors report (sensor fault injection).
+ *
+ * The change is captured like an edge at the end of the next half period;
+ * 0 or 7 is a broken or unpowered sensor set.
+ */
+void SetHallCodeOverride(uint8_t code) noexcept;
+
+/// Reports the Hall code of the plant again.
+void ClearHallCodeOverride() noexcept;
+
+/**
  * @brief The simulated drive (inverter, motor, shaft, Hall sensors).
  *
  * Initialize() configures it from the factory settings when it is not yet
@@ -47,6 +58,21 @@ void ClearPhaseCurrentOverride() noexcept;
 
 /// Starts (default after Initialize()) or stops the free-running cycle timer.
 void SetFreeRunning(bool running) noexcept;
+
+/**
+ * @brief Pauses the simulation for deterministic runs (`unimoc.sim.paused`).
+ *
+ * Unlike SetFreeRunning(false) the pause holds across Initialize(): a
+ * settings restart of the controller does not start the cycle timer again.
+ * Paused, only StepCycle()/AdvanceCycles() run cycles.
+ */
+void SetPaused(bool paused) noexcept;
+
+/// True while SetPaused(true) holds the simulation.
+[[nodiscard]] bool IsPaused() noexcept;
+
+/// Duration of one control cycle in virtual time [ns]; 0 before Initialize().
+[[nodiscard]] uint64_t CyclePeriodNs() noexcept;
 
 /**
  * @brief Runs one control cycle synchronously.
@@ -90,5 +116,21 @@ void AdvanceCycles(uint32_t count) noexcept;
 
 /// Control cycles run since Initialize().
 [[nodiscard]] uint32_t CycleCount() noexcept;
+
+/// Plant truth as plain floats for the traces (SI units); updated at the end of every cycle.
+struct PlantTrace {
+  float i_a{0.0F};               ///< Phase current a [A].
+  float i_b{0.0F};               ///< Phase current b [A].
+  float i_c{0.0F};               ///< Phase current c [A].
+  float i_d{0.0F};               ///< d current in the true rotor frame [A].
+  float i_q{0.0F};               ///< q current in the true rotor frame [A].
+  float electrical_angle{0.0F};  ///< True electrical angle, [-pi, pi) [rad].
+  float electrical_speed{0.0F};  ///< True electrical speed [rad/s].
+  float mechanical_speed{0.0F};  ///< Shaft speed [rad/s].
+  float torque{0.0F};            ///< Electromagnetic torque [N m].
+};
+
+/// The plant truth the control cycle of the next cycle sees; read by the trace device only.
+[[nodiscard]] const PlantTrace& PlantTraceSignals() noexcept;
 
 }  // namespace unimoc::hardware::sim

@@ -39,7 +39,7 @@ constexpr float kTrigTolerance = 2.0e-5F;
 // Compile-time usability of the whole interface.
 static_assert(RotorAngle{}.Raw() == 0);
 static_assert(RotorAngle{}.Revolutions() == 0);
-static_assert(RotorAngle{}.Cos().Value() == 1.0F);
+static_assert(RotorAngle{}.Cos() == 1.0_ratio);
 static_assert(RotorAngle::FromRaw(0x4000'0000).Raw() == 0x4000'0000);
 static_assert(RotorAngle::FromAngle(Angle{kTwoPi + 0.1F}).Revolutions() == 1);
 static_assert(RotorAngle{} == RotorAngle::FromRaw(0));
@@ -49,16 +49,20 @@ ZTEST(rotor_angle, test_default_constructor_is_zero) {
   zexpect_equal(kAngle.Raw(), 0);
   zexpect_equal(kAngle.Revolutions(), 0);
   zexpect_equal(kAngle.AbsoluteRaw(), 0);
-  UNIMOC_EXPECT_FLOAT_EQ(kAngle.AngleInRevolution().Value(), 0.0F);
-  UNIMOC_EXPECT_NEAR(kAngle.Sin().Value(), 0.0F, kTrigTolerance);
-  UNIMOC_EXPECT_NEAR(kAngle.Cos().Value(), 1.0F, kTrigTolerance);
+  UNIMOC_EXPECT_FLOAT_EQ(kAngle.AngleInRevolution(), 0.0_rad);
+  UNIMOC_EXPECT_NEAR(kAngle.Sin(), 0.0_ratio, kTrigTolerance * 1.0_ratio);
+  UNIMOC_EXPECT_NEAR(kAngle.Cos(), 1.0_ratio, kTrigTolerance * 1.0_ratio);
 }
 
 ZTEST(rotor_angle, test_raw_scale_maps_full_range_to_one_revolution) {
-  UNIMOC_EXPECT_NEAR(RotorAngle::FromRaw(INT32_MIN).AngleInRevolution().Value(), -kPi, 1.0e-6F);
-  UNIMOC_EXPECT_NEAR(RotorAngle::FromRaw(-0x4000'0000).AngleInRevolution().Value(), -kPi / 2.0F, 1.0e-6F);
-  UNIMOC_EXPECT_NEAR(RotorAngle::FromRaw(0x4000'0000).AngleInRevolution().Value(), kPi / 2.0F, 1.0e-6F);
-  UNIMOC_EXPECT_NEAR(RotorAngle::FromRaw(INT32_MAX).AngleInRevolution().Value(), kPi, 1.0e-6F);
+  UNIMOC_EXPECT_NEAR(RotorAngle::FromRaw(INT32_MIN).AngleInRevolution(), (-kPi) * 1.0_rad, 1.0e-6_rad);
+  UNIMOC_EXPECT_NEAR(RotorAngle::FromRaw(-0x4000'0000).AngleInRevolution(),
+                     (-kPi / 2.0F) * 1.0_rad,
+                     1.0e-6_rad);
+  UNIMOC_EXPECT_NEAR(RotorAngle::FromRaw(0x4000'0000).AngleInRevolution(),
+                     (kPi / 2.0F) * 1.0_rad,
+                     1.0e-6_rad);
+  UNIMOC_EXPECT_NEAR(RotorAngle::FromRaw(INT32_MAX).AngleInRevolution(), kPi * 1.0_rad, 1.0e-6_rad);
 }
 
 ZTEST(rotor_angle, test_from_angle_round_trips_within_resolution) {
@@ -66,7 +70,7 @@ ZTEST(rotor_angle, test_from_angle_round_trips_within_resolution) {
     const float kExpected = (static_cast<float>(i) * kPi) / 180.0F;
     const RotorAngle kAngle = RotorAngle::FromAngle(Angle{kExpected});
     zexpect_equal(kAngle.Revolutions(), 0);
-    UNIMOC_EXPECT_NEAR(kAngle.AngleInRevolution().Value(), kExpected, 1.0e-6F);
+    UNIMOC_EXPECT_NEAR(kAngle.AngleInRevolution(), kExpected * 1.0_rad, 1.0e-6_rad);
   }
 }
 
@@ -75,14 +79,14 @@ ZTEST(rotor_angle, test_sine_and_cosine_match_standard_library) {
   for (int i = 0; i < kSamples; ++i) {
     const float kExpected = -kPi + ((kTwoPi * static_cast<float>(i)) / static_cast<float>(kSamples));
     const RotorAngle kAngle = RotorAngle::FromAngle(Angle{kExpected});
-    UNIMOC_EXPECT_NEAR(kAngle.Sin().Value(),
-                       std::sin(kExpected),
-                       kTrigTolerance,
+    UNIMOC_EXPECT_NEAR(kAngle.Sin(),
+                       (std::sin(kExpected)) * 1.0_ratio,
+                       kTrigTolerance * 1.0_ratio,
                        "i=%d",
                        static_cast<int>(i));
-    UNIMOC_EXPECT_NEAR(kAngle.Cos().Value(),
-                       std::cos(kExpected),
-                       kTrigTolerance,
+    UNIMOC_EXPECT_NEAR(kAngle.Cos(),
+                       (std::cos(kExpected)) * 1.0_ratio,
+                       kTrigTolerance * 1.0_ratio,
                        "i=%d",
                        static_cast<int>(i));
   }
@@ -92,9 +96,9 @@ ZTEST(rotor_angle, test_sine_and_cosine_follow_raw_wrap) {
   // The seam at +-pi must not introduce a sign flip.
   const RotorAngle kBelow = RotorAngle::FromRaw(INT32_MAX);
   const RotorAngle kAbove = RotorAngle::FromRaw(INT32_MIN);
-  UNIMOC_EXPECT_NEAR(kBelow.Sin().Value(), kAbove.Sin().Value(), 1.0e-5F);
-  UNIMOC_EXPECT_NEAR(kBelow.Cos().Value(), kAbove.Cos().Value(), 1.0e-5F);
-  UNIMOC_EXPECT_NEAR(kAbove.Cos().Value(), -1.0F, kTrigTolerance);
+  UNIMOC_EXPECT_NEAR(kBelow.Sin(), kAbove.Sin(), 1.0e-5_ratio);
+  UNIMOC_EXPECT_NEAR(kBelow.Cos(), kAbove.Cos(), 1.0e-5_ratio);
+  UNIMOC_EXPECT_NEAR(kAbove.Cos(), -1.0_ratio, kTrigTolerance * 1.0_ratio);
 }
 
 ZTEST(rotor_angle, test_advance_counts_positive_wrap) {
@@ -103,8 +107,8 @@ ZTEST(rotor_angle, test_advance_counts_positive_wrap) {
 
   angle.Advance(0.2_rad);
   zexpect_equal(angle.Revolutions(), 1);
-  UNIMOC_EXPECT_NEAR(angle.AngleInRevolution().Value(), -kPi + 0.1F, 1.0e-5F);
-  UNIMOC_EXPECT_NEAR(angle.AbsoluteAngle().Value(), kPi + 0.1F, 1.0e-5F);
+  UNIMOC_EXPECT_NEAR(angle.AngleInRevolution(), (-kPi + 0.1F) * 1.0_rad, 1.0e-5_rad);
+  UNIMOC_EXPECT_NEAR(angle.AbsoluteAngle(), (kPi + 0.1F) * 1.0_rad, 1.0e-5_rad);
 }
 
 ZTEST(rotor_angle, test_advance_counts_negative_wrap) {
@@ -113,15 +117,15 @@ ZTEST(rotor_angle, test_advance_counts_negative_wrap) {
 
   angle.Advance(-0.2_rad);
   zexpect_equal(angle.Revolutions(), -1);
-  UNIMOC_EXPECT_NEAR(angle.AngleInRevolution().Value(), kPi - 0.1F, 1.0e-5F);
-  UNIMOC_EXPECT_NEAR(angle.AbsoluteAngle().Value(), -kPi - 0.1F, 1.0e-5F);
+  UNIMOC_EXPECT_NEAR(angle.AngleInRevolution(), (kPi - 0.1F) * 1.0_rad, 1.0e-5_rad);
+  UNIMOC_EXPECT_NEAR(angle.AbsoluteAngle(), (-kPi - 0.1F) * 1.0_rad, 1.0e-5_rad);
 }
 
 ZTEST(rotor_angle, test_advance_accepts_many_revolutions_at_once) {
   RotorAngle angle;
   angle.Advance(100.5_rad * kTwoPi);
   zexpect_equal(angle.Revolutions(), 101);
-  UNIMOC_EXPECT_NEAR(angle.AngleInRevolution().Value(), -kPi, 1.0e-3F);
+  UNIMOC_EXPECT_NEAR(angle.AngleInRevolution(), (-kPi) * 1.0_rad, 1.0e-3_rad);
 
   angle.Advance(-100.5_rad * kTwoPi);
   zexpect_equal(angle.Revolutions(), 0);
@@ -159,21 +163,21 @@ ZTEST(rotor_angle, test_absolute_raw_matches_absolute_angle) {
   const RotorAngle kAngle = RotorAngle::FromAngle(7.0_rad);
   const double kExpected = static_cast<double>(kAngle.AbsoluteRaw()) *
                            (2.0 * std::numbers::pi_v<double> / static_cast<double>(kCountsPerRevolution));
-  UNIMOC_EXPECT_NEAR(kAngle.AbsoluteAngle().Value(), static_cast<float>(kExpected), 1.0e-5F);
+  UNIMOC_EXPECT_NEAR(kAngle.AbsoluteAngle(), (static_cast<float>(kExpected)) * 1.0_rad, 1.0e-5_rad);
 }
 
 ZTEST(rotor_angle, test_difference_takes_shortest_path) {
   const RotorAngle kAhead = RotorAngle::FromAngle(Angle{kPi - 0.1F});
   const RotorAngle kBehind = RotorAngle::FromAngle(Angle{-kPi + 0.1F});
 
-  UNIMOC_EXPECT_NEAR((kBehind - kAhead).Value(), 0.2F, 1.0e-5F);
-  UNIMOC_EXPECT_NEAR((kAhead - kBehind).Value(), -0.2F, 1.0e-5F);
+  UNIMOC_EXPECT_NEAR((kBehind - kAhead), 0.2_rad, 1.0e-5_rad);
+  UNIMOC_EXPECT_NEAR((kAhead - kBehind), -0.2_rad, 1.0e-5_rad);
 }
 
 ZTEST(rotor_angle, test_difference_ignores_revolution_counter) {
   const RotorAngle kFirst = RotorAngle::FromRaw(0x2000'0000, 3);
   const RotorAngle kSecond = RotorAngle::FromRaw(0x2000'0000, -7);
-  UNIMOC_EXPECT_FLOAT_EQ((kFirst - kSecond).Value(), 0.0F);
+  UNIMOC_EXPECT_FLOAT_EQ((kFirst - kSecond), 0.0_rad);
 }
 
 ZTEST(rotor_angle, test_offset_operators) {
@@ -181,12 +185,12 @@ ZTEST(rotor_angle, test_offset_operators) {
 
   RotorAngle mutated = kBase;
   mutated += 0.5_rad;
-  UNIMOC_EXPECT_NEAR(mutated.AngleInRevolution().Value(), 1.5F, 1.0e-5F);
+  UNIMOC_EXPECT_NEAR(mutated.AngleInRevolution(), 1.5_rad, 1.0e-5_rad);
   mutated -= 0.5_rad;
   zexpect_equal(mutated, kBase);
 
-  UNIMOC_EXPECT_NEAR((kBase + 0.25_rad).AngleInRevolution().Value(), 1.25F, 1.0e-5F);
-  UNIMOC_EXPECT_NEAR((kBase - 0.25_rad).AngleInRevolution().Value(), 0.75F, 1.0e-5F);
+  UNIMOC_EXPECT_NEAR((kBase + 0.25_rad).AngleInRevolution(), 1.25_rad, 1.0e-5_rad);
+  UNIMOC_EXPECT_NEAR((kBase - 0.25_rad).AngleInRevolution(), 0.75_rad, 1.0e-5_rad);
   zexpect_equal(kBase, RotorAngle::FromAngle(1.0_rad));
 }
 
@@ -223,9 +227,7 @@ ZTEST(rotor_angle, test_from_absolute_raw_scales_mechanical_to_electrical_exactl
   const RotorAngle kMechanical = RotorAngle::FromAngle(Angle{(3.0F * kTwoPi) + 0.3F});
   const RotorAngle kElectrical = RotorAngle::FromAbsoluteRaw(kMechanical.AbsoluteRaw() * kPolePairs);
   zexpect_equal(kElectrical.AbsoluteRaw(), kMechanical.AbsoluteRaw() * kPolePairs);
-  UNIMOC_EXPECT_NEAR(kElectrical.AbsoluteAngle().Value(),
-                     kMechanical.AbsoluteAngle().Value() * 7.0F,
-                     1.0e-4F);
+  UNIMOC_EXPECT_NEAR(kElectrical.AbsoluteAngle(), kMechanical.AbsoluteAngle() * 7.0F, 1.0e-4_rad);
 }
 
 ZTEST_SUITE(rotor_angle, nullptr, nullptr, nullptr, nullptr, nullptr);

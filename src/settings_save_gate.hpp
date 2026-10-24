@@ -25,16 +25,28 @@ namespace unimoc::settings {
  *
  * `PowerStageState::kDisabled` only: with a latched fault or a missing
  * external enable the stage is off too, but saving then waits until the
- * state is cleared, like every other transition.
+ * state is cleared, like every other transition. While a save runs,
+ * `PowerStageInterface::Enable()` is held off and fails.
  *
  * @param power_stage Power stage to watch; it must outlive the gate.
  * @return Gate for `SettingsStore`.
  */
 [[nodiscard]] inline SettingsSaveGate PowerStageSaveGate(
     const hardware::PowerStageInterface& power_stage) noexcept {
-  return SettingsSaveGate{const_cast<hardware::PowerStageInterface*>(&power_stage), [](void* context) {
-                            return static_cast<const hardware::PowerStageInterface*>(context)->GetState() ==
-                                   hardware::PowerStageState::kDisabled;
+  return SettingsSaveGate{const_cast<hardware::PowerStageInterface*>(&power_stage),
+                          [](void* context) {
+                            const auto& stage = *static_cast<const hardware::PowerStageInterface*>(context);
+                            if (!stage.HoldOffEnable()) {
+                              return false;
+                            }
+                            if (stage.GetState() != hardware::PowerStageState::kDisabled) {
+                              stage.ReleaseEnable();
+                              return false;
+                            }
+                            return true;
+                          },
+                          [](void* context) {
+                            static_cast<const hardware::PowerStageInterface*>(context)->ReleaseEnable();
                           }};
 }
 

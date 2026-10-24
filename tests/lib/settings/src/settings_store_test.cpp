@@ -16,7 +16,9 @@
 
 #include "settings_store.hpp"
 #include <zephyr/ztest.h>
+#include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstddef>
 #include <string_view>
 #include <type_traits>
@@ -73,7 +75,7 @@ ZTEST(settings_store, test_snapshot_exposes_only_const_settings) {
 ZTEST(settings_store, test_empty_storage_uses_factory_defaults_and_writes_nothing) {
   Fixture ctx;
   zexpect_equal(ctx.store.Load(), SettingsStatus::kFactoryDefaults);
-  zexpect_equal(ctx.store.GetSnapshot().Get().motor_i_max.Value(), 30.0F);
+  zexpect_equal(ctx.store.GetSnapshot().Get().motor_i_max, 30.0_A);
   zexpect_equal(ctx.backend.Writes(), 0U);
   zexpect_equal(ctx.backend.Erases(), 0U);
   zexpect_equal(ctx.backend.Count(), 0U);
@@ -85,7 +87,7 @@ ZTEST(settings_store, test_live_update_changes_ram_only) {
   auto operations = ctx.store.GetOperations();
 
   zexpect_equal(operations.SetMotorCurrentLimit(20.0_A), SettingsStatus::kSuccess);
-  zexpect_equal(ctx.store.GetSnapshot().Get().motor_i_max.Value(), 20.0F);
+  zexpect_equal(ctx.store.GetSnapshot().Get().motor_i_max, 20.0_A);
   zexpect_equal(operations.UnsavedCount(), 1U);
   zexpect_equal(ctx.backend.Writes(), 0U);
   zexpect_equal(ctx.backend.Count(), 0U);
@@ -133,12 +135,12 @@ ZTEST(settings_store, test_saved_registers_load_over_the_factory_profile) {
   zexpect_equal(reloaded.Load(), SettingsStatus::kSuccess);
   const auto kSnapshot = reloaded.GetSnapshot();
   const NvmSettings& loaded = kSnapshot.Get();
-  zexpect_equal(loaded.motor_i_max.Value(), 20.0F);
-  zexpect_equal(loaded.stator_r.Value(), 0.23_Ohm .Value());
-  zexpect_equal(loaded.pwm_frequency.Value(), 32000.0F);
+  zexpect_equal(loaded.motor_i_max, 20.0_A);
+  zexpect_equal(loaded.stator_r, 0.23_Ohm);
+  zexpect_equal(loaded.pwm_frequency, 32000.0_Hz);
   zexpect_equal(loaded.motor_type, system::MotorType::kAsm);
   zexpect_equal(loaded.pole_pairs, 7U);
-  zexpect_equal(loaded.battery_drive_current_max.Value(), 12.0F);  // not stored: factory
+  zexpect_equal(loaded.battery_drive_current_max, 12.0_A);  // not stored: factory
   zexpect_equal(reloaded.GetOperations().UnsavedCount(), 0U);
 }
 
@@ -164,7 +166,7 @@ ZTEST(settings_store, test_reset_to_factory_is_live_and_erases_on_save) {
   zassert_equal(operations.SaveToFlash(), SettingsStatus::kSuccess);
 
   zexpect_equal(operations.ResetToFactoryDefaults(), SettingsStatus::kSuccess);
-  zexpect_equal(ctx.store.GetSnapshot().Get().motor_i_max.Value(), 30.0F);
+  zexpect_equal(ctx.store.GetSnapshot().Get().motor_i_max, 30.0_A);
   zexpect_true(ctx.backend.Contains(reg::kMotorIMax));  // flash is untouched until saved
   zexpect_equal(operations.UnsavedCount(), 1U);
 
@@ -182,7 +184,7 @@ ZTEST(settings_store, test_save_is_refused_while_the_gate_is_closed) {
   zexpect_equal(operations.SaveToFlash(), SettingsStatus::kPersistBlocked);
   zexpect_equal(ctx.backend.Writes(), 0U);
   zexpect_equal(operations.UnsavedCount(), 1U);
-  zexpect_equal(ctx.store.GetSnapshot().Get().motor_i_max.Value(), 20.0F);  // live tuning still works
+  zexpect_equal(ctx.store.GetSnapshot().Get().motor_i_max, 20.0_A);  // live tuning still works
 
   g_save_allowed = true;
   zexpect_equal(operations.SaveToFlash(), SettingsStatus::kSuccess);
@@ -205,8 +207,104 @@ ZTEST(settings_store, test_capability_violation_leaves_settings_unchanged) {
   auto operations = ctx.store.GetOperations();
 
   zexpect_equal(operations.SetMotorCurrentLimit(31.0_A), SettingsStatus::kOutOfRange);
-  zexpect_equal(ctx.store.GetSnapshot().Get().motor_i_max.Value(), 30.0F);
+  zexpect_equal(ctx.store.GetSnapshot().Get().motor_i_max, 30.0_A);
   zexpect_equal(operations.UnsavedCount(), 0U);
+}
+
+ZTEST(settings_store, test_dc_link_voltages_are_ordered_and_within_the_capability) {
+  Fixture ctx;
+  zassert_equal(ctx.store.Load(), SettingsStatus::kFactoryDefaults);
+  auto operations = ctx.store.GetOperations();
+  const auto kSet = [&operations](const Voltage derate_start, const Voltage trip) {
+    return operations.Update([derate_start, trip](NvmSettings& settings) {
+      settings.dc_link_regen_derate_start = derate_start;
+      settings.dc_link_trip = trip;
+    });
+  };
+  zexpect_equal(kSet(50.0_V, 56.0_V), SettingsStatus::kSuccess);
+  zexpect_equal(kSet(56.0_V, 56.0_V), SettingsStatus::kOutOfRange);  // no derating range
+  zexpect_equal(kSet(50.0_V, 61.0_V), SettingsStatus::kOutOfRange);  // above the 60 V capability
+  zexpect_equal(kSet(0.0_V, 56.0_V), SettingsStatus::kOutOfRange);
+  zexpect_equal(ctx.store.GetSnapshot().Get().dc_link_trip, 56.0_V);
+}
+
+ZTEST(settings_store, test_cart_settings_are_validated) {
+  Fixture ctx;
+  zassert_equal(ctx.store.Load(), SettingsStatus::kFactoryDefaults);
+  auto operations = ctx.store.GetOperations();
+  const auto kSet = [&operations](const auto& change) { return operations.Update(change); };
+
+  zexpect_equal(kSet([](NvmSettings& settings) { settings.cart_wheel = 3U; }), SettingsStatus::kSuccess);
+  zexpect_equal(kSet([](NvmSettings& settings) { settings.cart_wheel = 4U; }),
+                SettingsStatus::kInvalidSettings);
+  zexpect_equal(kSet([](NvmSettings& settings) { settings.cart_reversed = 2U; }),
+                SettingsStatus::kInvalidSettings);
+  // Limp-home has to start before the readiness times out.
+  zexpect_equal(kSet([](NvmSettings& settings) { settings.cart_timeout = settings.command_timeout; }),
+                SettingsStatus::kSuccess);
+  zexpect_equal(kSet([](NvmSettings& settings) {
+                  settings.cart_timeout = settings.command_timeout + 0.001_s;
+                }),
+                SettingsStatus::kOutOfRange);
+  zexpect_equal(kSet([](NvmSettings& settings) { settings.cart_timeout = 0.0_s; }),
+                SettingsStatus::kOutOfRange);
+  zexpect_equal(kSet([](NvmSettings& settings) { settings.cart_battery_share = 1.5_ratio; }),
+                SettingsStatus::kOutOfRange);
+  zexpect_equal(kSet([](NvmSettings& settings) { settings.cart_limp_home_torque = -1.0_Nm; }),
+                SettingsStatus::kOutOfRange);
+  zexpect_equal(kSet([](NvmSettings& settings) { settings.cart_torque_ramp = 0.0_Nm / 1.0_s; }),
+                SettingsStatus::kOutOfRange);
+  // The cart subjects take part in the port-ID check.
+  zexpect_equal(kSet([](NvmSettings& settings) {
+                  settings.sub_pedal_state_id = settings.sub_wheel_command_id;
+                }),
+                SettingsStatus::kInvalidSettings);
+  zexpect_equal(kSet([](NvmSettings& settings) { settings.pub_drive_status_id = settings.pub_telemetry_id; }),
+                SettingsStatus::kInvalidSettings);
+  zexpect_equal(ctx.store.GetSnapshot().Get().cart_wheel, 3U);
+}
+
+ZTEST(settings_store, test_two_ports_on_one_port_id_are_rejected) {
+  Fixture ctx;
+  zassert_equal(ctx.store.Load(), SettingsStatus::kFactoryDefaults);
+  auto operations = ctx.store.GetOperations();
+  const auto kSet = [&operations](uint16_t NvmSettings::* port, const uint16_t port_id) {
+    return operations.Update([port, port_id](NvmSettings& settings) { settings.*port = port_id; });
+  };
+  const NvmSettings& factory = MakeProfile().factory_settings;
+
+  // Two subscriptions, or a publication on a subscribed subject.
+  zexpect_equal(kSet(&NvmSettings::sub_speed_setpoint_id, factory.sub_torque_setpoint_id),
+                SettingsStatus::kInvalidSettings);
+  zexpect_equal(kSet(&NvmSettings::pub_telemetry_id, factory.sub_readiness_id),
+                SettingsStatus::kInvalidSettings);
+  zexpect_equal(kSet(&NvmSettings::sub_cymon_trigger_id, factory.sub_current_setpoint_id),
+                SettingsStatus::kInvalidSettings);
+  zexpect_equal(kSet(&NvmSettings::pub_cymon_trigger_id, factory.pub_telemetry_id),
+                SettingsStatus::kInvalidSettings);
+  // Two services on one service-ID.
+  zexpect_equal(kSet(&NvmSettings::srv_cymon_read_id, factory.srv_cymon_arm_id),
+                SettingsStatus::kInvalidSettings);
+  zexpect_equal(operations.UnsavedCount(), 0U);
+
+  // A subject-ID may equal a service-ID, and disabled ports never collide.
+  zexpect_equal(kSet(&NvmSettings::srv_cymon_setup_id, factory.sub_torque_setpoint_id),
+                SettingsStatus::kSuccess);
+  zexpect_equal(kSet(&NvmSettings::sub_speed_setpoint_id, cyphal::kUnsetPortId), SettingsStatus::kSuccess);
+  zexpect_equal(kSet(&NvmSettings::sub_position_setpoint_id, cyphal::kUnsetPortId), SettingsStatus::kSuccess);
+  // The cymon trigger may publish and subscribe one shared subject.
+  zexpect_equal(kSet(&NvmSettings::pub_cymon_trigger_id, 300U), SettingsStatus::kSuccess);
+  zexpect_equal(kSet(&NvmSettings::sub_cymon_trigger_id, 300U), SettingsStatus::kSuccess);
+}
+
+ZTEST(settings_store, test_stored_port_id_collision_falls_back_to_factory) {
+  Fixture ctx;
+  std::size_t size = 0U;
+  const auto kBytes = Bytes(uint16_t{cyphal::kSubTorqueSetpoint}, size);
+  ctx.backend.Put(reg::kSubSpeedSetpointId, std::span<const std::byte>{kBytes.data(), size});
+
+  zexpect_equal(ctx.store.Load(), SettingsStatus::kInvalidSettings);
+  zexpect_equal(ctx.store.GetSnapshot().Get().sub_speed_setpoint_id, cyphal::kSubSpeedSetpoint);
 }
 
 ZTEST(settings_store, test_write_failure_keeps_the_register_unsaved_and_a_retry_saves_it) {
@@ -218,7 +316,7 @@ ZTEST(settings_store, test_write_failure_keeps_the_register_unsaved_and_a_retry_
   ctx.backend.FailWrites(true);
   zexpect_equal(operations.SaveToFlash(), SettingsStatus::kStorageError);
   zexpect_equal(operations.UnsavedCount(), 1U);
-  zexpect_equal(ctx.store.GetSnapshot().Get().motor_i_max.Value(), 20.0F);
+  zexpect_equal(ctx.store.GetSnapshot().Get().motor_i_max, 20.0_A);
 
   ctx.backend.FailWrites(false);
   zexpect_equal(operations.SaveToFlash(), SettingsStatus::kSuccess);
@@ -253,7 +351,7 @@ ZTEST(settings_store, test_undecodable_entry_falls_back_to_factory_and_a_save_re
   ctx.backend.Put(reg::kMotorIMax, kBadSize);
 
   zexpect_equal(ctx.store.Load(), SettingsStatus::kInvalidImage);
-  zexpect_equal(ctx.store.GetSnapshot().Get().motor_i_max.Value(), 30.0F);
+  zexpect_equal(ctx.store.GetSnapshot().Get().motor_i_max, 30.0_A);
 
   zexpect_equal(ctx.store.GetOperations().SaveToFlash(), SettingsStatus::kSuccess);
   zexpect_false(ctx.backend.Contains(reg::kMotorIMax));
@@ -267,7 +365,7 @@ ZTEST(settings_store, test_stored_value_beyond_the_capability_is_rejected) {
   ctx.backend.Put(reg::kMotorIMax, std::span<const std::byte>{kBytes.data(), size});
 
   zexpect_equal(ctx.store.Load(), SettingsStatus::kOutOfRange);
-  zexpect_equal(ctx.store.GetSnapshot().Get().motor_i_max.Value(), 30.0F);
+  zexpect_equal(ctx.store.GetSnapshot().Get().motor_i_max, 30.0_A);
 }
 
 ZTEST(settings_store, test_unknown_keys_are_ignored) {
@@ -281,7 +379,7 @@ ZTEST(settings_store, test_unavailable_storage_is_reported) {
   Fixture ctx;
   ctx.backend.SetUnavailable(true);
   zexpect_equal(ctx.store.Load(), SettingsStatus::kStorageUnavailable);
-  zexpect_equal(ctx.store.GetSnapshot().Get().motor_i_max.Value(), 30.0F);
+  zexpect_equal(ctx.store.GetSnapshot().Get().motor_i_max, 30.0_A);
 }
 
 ZTEST(settings_store, test_empty_node_name_is_stored_not_deleted) {
@@ -295,6 +393,163 @@ ZTEST(settings_store, test_empty_node_name_is_stored_not_deleted) {
   SettingsStore reloaded{MakeProfile(), ctx.backend.Adapter(), MakeGate()};
   zexpect_equal(reloaded.Load(), SettingsStatus::kSuccess);
   zexpect_equal(reloaded.GetSnapshot().Get().identity.GetName().size(), 0U);
+}
+
+// Records how the store uses the gate and the lock.
+struct Probe {
+  int lock_depth{0};
+  int max_lock_depth{0};
+  int locks{0};
+  int gate_begins{0};
+  int gate_ends{0};
+  bool gate_held{false};
+  bool gate_taken_under_lock{true};
+  bool gate_allowed{true};
+};
+
+Probe g_probe{};
+
+SettingsSaveGate MakeProbeGate() {
+  return SettingsSaveGate{nullptr,
+                          [](void* /*unused*/) {
+                            ++g_probe.gate_begins;
+                            g_probe.gate_taken_under_lock =
+                                g_probe.gate_taken_under_lock && g_probe.lock_depth == 1;
+                            g_probe.gate_held = g_probe.gate_allowed;
+                            return g_probe.gate_allowed;
+                          },
+                          [](void* /*unused*/) {
+                            ++g_probe.gate_ends;
+                            g_probe.gate_held = false;
+                          }};
+}
+
+SettingsLock MakeProbeLock() {
+  return SettingsLock{nullptr,
+                      [](void* /*unused*/) {
+                        ++g_probe.locks;
+                        ++g_probe.lock_depth;
+                        g_probe.max_lock_depth = std::max(g_probe.max_lock_depth, g_probe.lock_depth);
+                      },
+                      [](void* /*unused*/) { --g_probe.lock_depth; }};
+}
+
+ZTEST(settings_store, test_gate_is_held_once_for_the_whole_save) {
+  g_probe = Probe{};
+  RamSettingsStorage backend{};
+  SettingsStore store{MakeProfile(), backend.Adapter(), MakeProbeGate(), MakeProbeLock()};
+  zassert_equal(store.Load(), SettingsStatus::kFactoryDefaults);
+  auto operations = store.GetOperations();
+
+  // Nothing to write: the gate is not even asked.
+  zexpect_equal(operations.SaveToFlash(), SettingsStatus::kSuccess);
+  zexpect_equal(g_probe.gate_begins, 0);
+
+  zassert_equal(operations.SetNodeId(9U), SettingsStatus::kSuccess);
+  zassert_equal(operations.SetMotorCurrentLimit(20.0_A), SettingsStatus::kSuccess);
+  zassert_equal(operations.SetNodeName("probe"), SettingsStatus::kSuccess);
+  zexpect_equal(operations.SaveToFlash(), SettingsStatus::kSuccess);
+  zexpect_equal(backend.Writes(), 3U);
+  zexpect_equal(g_probe.gate_begins, 1);
+  zexpect_equal(g_probe.gate_ends, 1);
+  zexpect_false(g_probe.gate_held);
+  zexpect_true(g_probe.gate_taken_under_lock);
+}
+
+ZTEST(settings_store, test_refused_gate_is_not_released) {
+  g_probe = Probe{};
+  RamSettingsStorage backend{};
+  SettingsStore store{MakeProfile(), backend.Adapter(), MakeProbeGate(), MakeProbeLock()};
+  zassert_equal(store.Load(), SettingsStatus::kFactoryDefaults);
+  auto operations = store.GetOperations();
+  zassert_equal(operations.SetNodeId(9U), SettingsStatus::kSuccess);
+
+  g_probe.gate_allowed = false;
+  zexpect_equal(operations.SaveToFlash(), SettingsStatus::kPersistBlocked);
+  zexpect_equal(g_probe.gate_begins, 1);
+  zexpect_equal(g_probe.gate_ends, 0);
+  zexpect_equal(backend.Writes(), 0U);
+}
+
+ZTEST(settings_store, test_every_operation_runs_under_the_lock) {
+  g_probe = Probe{};
+  RamSettingsStorage backend{};
+  SettingsStore store{MakeProfile(), backend.Adapter(), MakeProbeGate(), MakeProbeLock()};
+  auto operations = store.GetOperations();
+
+  int expected = 0;
+  const auto kCheck = [&expected]() {
+    ++expected;
+    zexpect_equal(g_probe.locks, expected);
+    zexpect_equal(g_probe.lock_depth, 0);
+  };
+  zassert_equal(store.Load(), SettingsStatus::kFactoryDefaults);
+  kCheck();
+  (void)store.GetSnapshot();
+  kCheck();
+  zassert_equal(operations.Update([](NvmSettings& settings) {
+    // The operation itself runs under the lock.
+    zexpect_equal(g_probe.lock_depth, 1);
+    settings.node_id = 4U;
+  }),
+                SettingsStatus::kSuccess);
+  kCheck();
+  zassert_equal(operations.SetNodeId(5U), SettingsStatus::kSuccess);
+  kCheck();
+  zexpect_equal(operations.UnsavedCount(), 1U);
+  kCheck();
+  zexpect_equal(operations.SaveToFlash(), SettingsStatus::kSuccess);
+  kCheck();
+  zassert_equal(operations.ResetToFactoryDefaults(), SettingsStatus::kSuccess);
+  kCheck();
+  zexpect_equal(g_probe.max_lock_depth, 1);  // never taken twice (the lock need not be recursive)
+}
+
+ZTEST(settings_store, test_ebike_settings_are_validated) {
+  Fixture ctx;
+  zassert_equal(ctx.store.Load(), SettingsStatus::kFactoryDefaults);
+  auto operations = ctx.store.GetOperations();
+  const auto kSet = [&operations](const auto& change) { return operations.Update(change); };
+  zexpect_equal(kSet([](NvmSettings& settings) { settings.ebike_pulses_per_rev = 18U; }),
+                SettingsStatus::kSuccess);
+  zexpect_equal(kSet([](NvmSettings& settings) { settings.ebike_pulses_per_rev = 1U; }),
+                SettingsStatus::kOutOfRange);
+  zexpect_equal(kSet([](NvmSettings& settings) { settings.ebike_pulses_per_rev = 65U; }),
+                SettingsStatus::kOutOfRange);
+  zexpect_equal(kSet([](NvmSettings& settings) { settings.ebike_wheel_circumference = 2.2F; }),
+                SettingsStatus::kSuccess);
+  zexpect_equal(kSet([](NvmSettings& settings) { settings.ebike_wheel_circumference = 0.2F; }),
+                SettingsStatus::kOutOfRange);
+  zexpect_equal(kSet([](NvmSettings& settings) { settings.ebike_wheel_circumference = 5.0F; }),
+                SettingsStatus::kOutOfRange);
+  zexpect_equal(kSet([](NvmSettings& settings) { settings.ebike_gear_ratio = 0.0_ratio; }),
+                SettingsStatus::kOutOfRange);
+  zexpect_equal(kSet([](NvmSettings& settings) { settings.ebike_battery_cells = 0U; }),
+                SettingsStatus::kOutOfRange);
+  zexpect_equal(kSet([](NvmSettings& settings) { settings.ebike_battery_cells = 31U; }),
+                SettingsStatus::kOutOfRange);
+  zexpect_equal(kSet([](NvmSettings& settings) { settings.ebike_nominal_voltage = 0U; }),
+                SettingsStatus::kOutOfRange);
+  zexpect_equal(kSet([](NvmSettings& settings) { settings.ebike_gain_3 = -0.1_ratio; }),
+                SettingsStatus::kOutOfRange);
+  zexpect_equal(kSet([](NvmSettings& settings) { settings.ebike_gain_5 = 25.0_ratio; }),
+                SettingsStatus::kOutOfRange);
+  zexpect_equal(kSet([](NvmSettings& settings) { settings.ebike_power_scale = 0.0_W; }),
+                SettingsStatus::kOutOfRange);
+  zexpect_equal(kSet([](NvmSettings& settings) { settings.ebike_torque_deadband = -1.0_Nm; }),
+                SettingsStatus::kOutOfRange);
+  zexpect_equal(kSet([](NvmSettings& settings) { settings.ebike_speed_taper = 0.0_rad_per_s; }),
+                SettingsStatus::kOutOfRange);
+  zexpect_equal(kSet([](NvmSettings& settings) { settings.ebike_rise_time = 0.0_s; }),
+                SettingsStatus::kOutOfRange);
+  zexpect_equal(kSet([](NvmSettings& settings) { settings.ebike_fall_time = 0.0_s; }),
+                SettingsStatus::kOutOfRange);
+  zexpect_equal(kSet([](NvmSettings& settings) { settings.ebike_display_timeout = 0.0_s; }),
+                SettingsStatus::kOutOfRange);
+  zexpect_equal(kSet([](NvmSettings& settings) { settings.ebike_engage_hold = 0.0_s; }),
+                SettingsStatus::kSuccess);
+  zexpect_equal(kSet([](NvmSettings& settings) { settings.ebike_wheel_circumference = std::nanf(""); }),
+                SettingsStatus::kInvalidSettings);
 }
 
 }  // namespace unimoc::settings::test

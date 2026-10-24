@@ -18,17 +18,20 @@
 #include "current_control_isr.hpp"
 #include "hardware_interface.hpp"
 #include "nvm_settings.hpp"
+#include "outer_loop.hpp"
 #include "slow_update.hpp"
 #include "units.hpp"
 
 namespace unimoc::current_control {
 
 /**
- * @brief Initializes the control cycle and the observer and starts the motor's cycle source.
+ * @brief Initializes the control cycle, the observer and the outer loop and starts the motor's cycle source.
  *
  * Shared by the application and the native_sim scenarios, so that both run
  * the same start sequence. Calling it again restarts the controller from its
- * initial state with new settings.
+ * initial state with new settings: the hardware is stopped first, so the
+ * control state is not rewritten under the running interrupts. The power
+ * stage must be disabled.
  *
  * @param settings Motor and controller settings.
  * @param motor Hardware access of the motor.
@@ -40,8 +43,11 @@ namespace unimoc::current_control {
                                        const unit::Current overcurrent_limit) noexcept {
   auto& current_control = CurrentControlIsr::Instance();
   auto& slow_update = SlowUpdate::Instance();
+  // A restart: no control cycle or observer may run while their state is rewritten.
+  motor.Stop();
   current_control.Init(settings, motor, motor.GetTimerClockFrequency());
-  slow_update.Init(settings, current_control);
+  slow_update.Init(settings, current_control, motor);
+  OuterLoop::Instance().Init(settings, current_control);
   current_control.SetOvercurrentLimit(overcurrent_limit);
   return motor.Initialize(settings.pwm_frequency, current_control.state.adc_trigger_offset);
 }

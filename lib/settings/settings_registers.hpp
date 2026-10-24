@@ -57,6 +57,8 @@ void ForEachRegister(const Visitor& visit, Settings&... settings) {
   visit(reg::kMotorOmegaMin, settings.motor_omega_min...);
   visit(reg::kBatteryDriveIMax, settings.battery_drive_current_max...);
   visit(reg::kBatteryChargeIMax, settings.battery_charge_current_max...);
+  visit(reg::kBatteryRegenDerateVoltage, settings.dc_link_regen_derate_start...);
+  visit(reg::kBatteryTripVoltage, settings.dc_link_trip...);
   visit(reg::kPmsmFluxPm, settings.flux_pm...);
   visit(reg::kPmsmLD, settings.l_d...);
   visit(reg::kPmsmLQ, settings.l_q...);
@@ -70,6 +72,11 @@ void ForEachRegister(const Visitor& visit, Settings&... settings) {
   visit(reg::kMechObsR, settings.mech_obs_r...);
   visit(reg::kPmsmFluxObsCD, settings.pmsm_flux_obs_c_d...);
   visit(reg::kPmsmFluxObsCQ, settings.pmsm_flux_obs_c_q...);
+  visit(reg::kPmsmFluxObsRSpeed, settings.pmsm_flux_obs_r_speed...);
+  visit(reg::kHallEnable, settings.hall_enable...);
+  visit(reg::kHallOffset, settings.hall_offset...);
+  visit(reg::kHallREdge, settings.hall_r_edge...);
+  visit(reg::kHallRSector, settings.hall_r_sector...);
   visit(reg::kAsmObsGI, settings.asm_obs_g_i...);
   visit(reg::kAsmObsGFlux, settings.asm_obs_g_flux...);
   visit(reg::kAsmFluxKp, settings.asm_flux_kp...);
@@ -100,6 +107,9 @@ void ForEachRegister(const Visitor& visit, Settings&... settings) {
   visit(reg::kExcitIFMax, settings.excitation_i_f_max...);
   visit(reg::kExcitObsTau, settings.excitation_obs_tau...);
   visit(reg::kExcitObsLM, settings.excitation_obs_l_m...);
+  visit(reg::kSpeedKp, settings.speed_kp...);
+  visit(reg::kSpeedKi, settings.speed_ki...);
+  visit(reg::kSpeedAccelLimit, settings.speed_accel_limit...);
   visit(reg::kPosKp, settings.pos_kp_pos...);
   visit(reg::kPosKpSpeed, settings.pos_kp_speed...);
   visit(reg::kPosKiSpeed, settings.pos_ki_speed...);
@@ -116,6 +126,55 @@ void ForEachRegister(const Visitor& visit, Settings&... settings) {
   visit(reg::kBalanceGainA, settings.phase_balance_a...);
   visit(reg::kBalanceGainB, settings.phase_balance_b...);
   visit(reg::kBalanceGainC, settings.phase_balance_c...);
+  visit(reg::kSubReadinessId, settings.sub_readiness_id...);
+  visit(reg::kSubCurrentSetpointId, settings.sub_current_setpoint_id...);
+  visit(reg::kSubTorqueSetpointId, settings.sub_torque_setpoint_id...);
+  visit(reg::kSubSpeedSetpointId, settings.sub_speed_setpoint_id...);
+  visit(reg::kSubPositionSetpointId, settings.sub_position_setpoint_id...);
+  visit(reg::kSubServoSetpointId, settings.sub_servo_setpoint_id...);
+  visit(reg::kPubTelemetryId, settings.pub_telemetry_id...);
+  visit(reg::kSrvCymonVariablesId, settings.srv_cymon_variables_id...);
+  visit(reg::kSrvCymonBufferInfoId, settings.srv_cymon_buffer_info_id...);
+  visit(reg::kSrvCymonSetupId, settings.srv_cymon_setup_id...);
+  visit(reg::kSrvCymonArmId, settings.srv_cymon_arm_id...);
+  visit(reg::kSrvCymonReadId, settings.srv_cymon_read_id...);
+  visit(reg::kPubCymonTriggerId, settings.pub_cymon_trigger_id...);
+  visit(reg::kSubCymonTriggerId, settings.sub_cymon_trigger_id...);
+  visit(reg::kTelemetryRate, settings.telemetry_rate...);
+  visit(reg::kCommandTimeout, settings.command_timeout...);
+  visit(reg::kSubWheelCommandId, settings.sub_wheel_command_id...);
+  visit(reg::kSubPedalStateId, settings.sub_pedal_state_id...);
+  visit(reg::kSubBatteryStatusId, settings.sub_battery_status_id...);
+  visit(reg::kPubDriveStatusId, settings.pub_drive_status_id...);
+  visit(reg::kCartWheel, settings.cart_wheel...);
+  visit(reg::kCartReversed, settings.cart_reversed...);
+  visit(reg::kCartTimeout, settings.cart_timeout...);
+  visit(reg::kCartStatusRate, settings.cart_status_rate...);
+  visit(reg::kCartTorqueRamp, settings.cart_torque_ramp...);
+  visit(reg::kCartLimpHomeTorque, settings.cart_limp_home_torque...);
+  visit(reg::kCartStandstillSpeed, settings.cart_standstill_speed...);
+  visit(reg::kCartBatteryShare, settings.cart_battery_share...);
+  visit(reg::kEbikePulsesPerRev, settings.ebike_pulses_per_rev...);
+  visit(reg::kEbikeWheelCircumference, settings.ebike_wheel_circumference...);
+  visit(reg::kEbikeGearRatio, settings.ebike_gear_ratio...);
+  visit(reg::kEbikeBatteryCells, settings.ebike_battery_cells...);
+  visit(reg::kEbikeNominalVoltage, settings.ebike_nominal_voltage...);
+  visit(reg::kEbikeGain1, settings.ebike_gain_1...);
+  visit(reg::kEbikeGain2, settings.ebike_gain_2...);
+  visit(reg::kEbikeGain3, settings.ebike_gain_3...);
+  visit(reg::kEbikeGain4, settings.ebike_gain_4...);
+  visit(reg::kEbikeGain5, settings.ebike_gain_5...);
+  visit(reg::kEbikePowerScale, settings.ebike_power_scale...);
+  visit(reg::kEbikeMaxRatio, settings.ebike_max_ratio...);
+  visit(reg::kEbikeTorqueRatio, settings.ebike_torque_ratio...);
+  visit(reg::kEbikeTorqueDeadband, settings.ebike_torque_deadband...);
+  visit(reg::kEbikeMinCadence, settings.ebike_min_cadence...);
+  visit(reg::kEbikeSpeedTaper, settings.ebike_speed_taper...);
+  visit(reg::kEbikeRiseTime, settings.ebike_rise_time...);
+  visit(reg::kEbikeFallTime, settings.ebike_fall_time...);
+  visit(reg::kEbikeEngageHold, settings.ebike_engage_hold...);
+  visit(reg::kEbikeRearmTime, settings.ebike_rearm_time...);
+  visit(reg::kEbikeDisplayTimeout, settings.ebike_display_timeout...);
 }
 
 namespace settings_registers_internal {
@@ -144,7 +203,8 @@ inline void PutFloat(const float value, std::span<std::byte, 4> out) noexcept {
  * @brief Encodes one register value (little endian).
  *
  * Units and floats are 4 byte IEEE floats, `uint8_t` and 8 bit enums one
- * byte, the node name its characters and a terminator. No value is empty:
+ * byte, `uint16_t` (port-IDs) two bytes, the node name its characters and a
+ * terminator. No value is empty:
  * the Zephyr settings subsystem treats an empty value as a deletion.
  *
  * @param value Register field.
@@ -167,6 +227,10 @@ template <typename T>
   } else if constexpr (kIsEnumByte<T>) {
     out[0] = static_cast<std::byte>(value);
     return 1U;
+  } else if constexpr (std::is_same_v<T, uint16_t>) {
+    out[0] = static_cast<std::byte>(value & 0xFFU);
+    out[1] = static_cast<std::byte>(value >> 8U);
+    return 2U;
   } else {
     // Node name: characters up to the first terminator, then the terminator.
     static_assert(std::is_same_v<T, std::array<char, cyphal::kNodeNameMaxLen + 1U>>);
@@ -208,6 +272,13 @@ template <typename T>
       return false;
     }
     value = static_cast<T>(stored[0]);
+    return true;
+  } else if constexpr (std::is_same_v<T, uint16_t>) {
+    if (stored.size() != 2U) {
+      return false;
+    }
+    value =
+        static_cast<uint16_t>(static_cast<uint16_t>(stored[0]) | (static_cast<uint16_t>(stored[1]) << 8U));
     return true;
   } else {
     static_assert(std::is_same_v<T, std::array<char, cyphal::kNodeNameMaxLen + 1U>>);

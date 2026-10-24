@@ -1,5 +1,5 @@
 /*
- * UNIMOC Battery Case Controller (BCC), STM32G473CBT6.
+ * UNIMOC Battery Case Controller (BCC), STM32G473CET6 (512 KB flash, 128 KB SRAM).
  *
  * Pin assignment taken from the KiCad netlist of Tecnologic/battery-case-controller.
  * Note: the schematic symbol U43 is an STM32G491CxT, but CAN on PB3/PB4 is FDCAN3
@@ -13,7 +13,7 @@
  */
 
 /dts-v1/;
-#include <st/g4/stm32g473Xb.dtsi>
+#include <st/g4/stm32g473Xe.dtsi>
 #include <st/g4/stm32g473c(b-c-e)tx-pinctrl.dtsi>
 
 / {
@@ -24,6 +24,7 @@
 		zephyr,sram = &sram0;
 		zephyr,flash = &flash0;
 		zephyr,code-partition = &slot0_partition;
+		zephyr,canbus = &fdcan3;
 	};
 
 	/* Status LEDs, anode at the MCU pin through 470 R, cathode at GND. */
@@ -58,6 +59,26 @@
 			     <&gpioc 15 GPIO_ACTIVE_HIGH>;
 		/* Pulse inputs: PULSE_CRK (crank), PULSE_MOT (motor aux). */
 		pulse-gpios = <&gpioa 5 GPIO_ACTIVE_HIGH>, <&gpiob 2 GPIO_ACTIVE_HIGH>;
+	};
+
+	/*
+	 * E-bike inputs (docs/ebike_plan.md); the crank torque is a channel of foc0.
+	 *
+	 * DISP_RX (J32 pin 5, display TX to the MCU) is on PB15, which has no UART
+	 * receiver on the STM32G473: the edges are captured by TIM15 channel 2 and
+	 * decoded in software. DISP_TX (J32 pin 4) is PB10, USART3_TX. PB11, the
+	 * receive pin of USART3, is the second break input.
+	 */
+	ebike0: ebike {
+		compatible = "unimoc,ebike";
+		status = "okay";
+		/* J38 pin 2 PULSE_CRK_IN through 3k3, 2n2, with a 1k pull-up to 3V3. */
+		crank-pulse-gpios = <&gpioa 5 GPIO_ACTIVE_HIGH>;
+		display-rx-gpios = <&gpiob 15 GPIO_ACTIVE_HIGH>;
+		display-rx-timer = <&timers15>;
+		display-uart = <&usart3>;
+		pinctrl-0 = <&tim15_ch2_pb15>;
+		pinctrl-names = "default";
 	};
 
 	/*
@@ -165,22 +186,41 @@
 	status = "okay";
 };
 
-/*
- * CAN: SN65HVD230 on FDCAN3 (PB3 RX, PB4 TX). That transceiver is a classic
- * CAN part (up to 1 Mbit/s), not a CAN FD transceiver. The controller is
- * enabled in the CAN step; it needs a PLLQ based FDCAN clock first.
- */
-&fdcan3 {
-	pinctrl-0 = <&fdcan3_rx_pb3 &fdcan3_tx_pb4>;
-	pinctrl-names = "default";
-	status = "disabled";
+/* Used by the ebike0 driver (display receive line capture). */
+&timers15 {
+	status = "okay";
 };
 
-/* USB full speed on PA11/PA12 (debug connector J42). Enabled in the USB step. */
-&usb {
-	pinctrl-0 = <&usb_dm_pa11 &usb_dp_pa12>;
+/* Transmit line to the display; the receiver pin is not connected to the display. */
+&usart3 {
+	pinctrl-0 = <&usart3_tx_pb10>;
 	pinctrl-names = "default";
-	status = "disabled";
+	current-speed = <9600>;
+	status = "okay";
+};
+
+/*
+ * CAN: SN65HVD230 on FDCAN3 (PB3 RX, PB4 TX), the Cyphal/CAN interface. That
+ * transceiver is a classic CAN part (up to 1 Mbit/s), not a CAN FD
+ * transceiver: CAN FD frames run at 1 Mbit/s in both phases (no bit rate
+ * switch). The kernel clock is PCLK1 (170 MHz): 1 and 2 Mbit/s divide
+ * evenly, 4 Mbit/s does not (needs another clock with a CAN FD transceiver).
+ * The Rs pin (can-slope-gpios) is driven low by the application. Not run on
+ * the board yet.
+ *
+ * USB (PA11/PA12, debug connector J42) is not used by the firmware until the
+ * DFU recovery path exists; the bench log is on RTT.
+ */
+&fdcan3 {
+	clocks = <&rcc STM32_CLOCK(APB1, 25)>,
+		 <&rcc STM32_SRC_PCLK FDCAN_SEL(2)>;
+	pinctrl-0 = <&fdcan3_rx_pb3 &fdcan3_tx_pb4>;
+	pinctrl-names = "default";
+	bitrate = <1000000>;
+	sample-point = <875>;
+	bitrate-data = <1000000>;
+	sample-point-data = <875>;
+	status = "okay";
 };
 
 &flash0 {
@@ -189,15 +229,23 @@
 		#address-cells = <1>;
 		#size-cells = <1>;
 
+		/*
+		 * Dual-bank mode (option bit DBANK = 1, the factory default):
+		 * bank 1 is 0x00000 to 0x3ffff, bank 2 is 0x40000 to 0x7ffff, 2 KB pages.
+		 * Image and settings share bank 1; a settings save runs only with the
+		 * power stage disabled (SettingsSaveGate), so its stall of the
+		 * instruction fetch is harmless. Bank 2 stays free for the image of a
+		 * firmware update over Cyphal, written while bank 1 runs.
+		 */
 		slot0_partition: partition@0 {
 			label = "image-0";
-			reg = <0x00000000 DT_SIZE_K(120)>;
+			reg = <0x00000000 DT_SIZE_K(240)>;
 		};
 
 		/* Settings: one ZMS entry per register that differs from the factory profile. */
-		storage_partition: partition@1e000 {
+		storage_partition: partition@3c000 {
 			label = "storage";
-			reg = <0x0001e000 DT_SIZE_K(16)>;
+			reg = <0x0003c000 DT_SIZE_K(16)>;
 		};
 	};
 };

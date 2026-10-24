@@ -21,13 +21,15 @@
  * protection. It never advances automatically; each step waits for an
  * explicit operation request from the application or Cyphal service.
  *
- * Usage from the main application loop:
+ * The drive runs it from the Cyphal thread (drive::DriveNode, registers
+ * `unimoc.startup.*`, drive::StartupRegisters): RunOnce() once per spin
+ * while IsActive(), one ADC sample per call. The drive refuses to engage
+ * while it runs and a run while engaged.
+ *
  * @code
  * HwStartup hw_startup{cc_isr, settings_store.GetOperations()};
  * if (hw_startup.IsActive())
  *     hw_startup.RunOnce();
- * else
- *     slow_update.RunOnce();
  * @endcode
  */
 
@@ -73,11 +75,11 @@ class HwStartup {
   /// Duty fraction applied in forced-duty steps (offset from 0.5).
   ///   LOW  → 0.5 − duty_step_fraction
   ///   HIGH → 0.5 + duty_step_fraction
-  float duty_step_fraction{0.45F};  ///< gives 5 % / 95 % by default
+  unit::Ratio duty_step_fraction{0.45F};  ///< gives 5 % / 95 % by default
 
   /// Voltage injection fraction for CURRENT_SENSE_CALIBRATION
   /// (fraction of ARR; tiny to avoid destroying low-Rs windings).
-  float v_cal_fraction{0.002F};
+  unit::Ratio v_cal_fraction{0.002F};
 
   /// Number of ADC samples to average for offset/noise/gain calibrations.
   static constexpr uint32_t kNCal = 1024U;
@@ -125,7 +127,7 @@ class HwStartup {
   // Control interface (called from Cyphal register handlers)
   // =========================================================================
 
-  /// Start the FSM from IDLE.  No-op if already running.
+  /// Start the FSM from IDLE, DONE or FAULT (a new run).  No-op while running.
   void RequestRun() noexcept;
 
   /// Advance the FSM one step (only valid while step_done_ is true).
@@ -149,8 +151,8 @@ class HwStartup {
   /// Returns the current FSM state.
   [[nodiscard]] FsmState State() const noexcept { return state_; }
 
-  /// Main polling function — call once per samples_ready pulse
-  /// (i.e. at the same rate as SlowUpdate::RunOnce(); ~10 kHz).
+  /// Polling function: consumes one samples_ready pulse of the control cycle
+  /// per call (the drive calls it once per Cyphal spin, about 1 kHz).
   void RunOnce() noexcept;
 
  private:
@@ -165,7 +167,7 @@ class HwStartup {
 
   void RunAdcOffsetCal() noexcept;
   void RunAdcNoiseFloor() noexcept;
-  void RunDutyForce(float duty) noexcept;
+  void RunDutyForce(unit::Ratio duty) noexcept;
   void RunDcLinkVoltageCheck() noexcept;
   void RunGateDriverEnableCheck() noexcept;
   void RunConnectMotorWait() noexcept;

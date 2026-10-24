@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# clang-format check of all UNIMOC C/C++ sources (vendored code excluded).
+# clang-format check of all UNIMOC C/C++ sources (vendored code excluded),
+# then the ratchet on the unit-type escapes (scripts/check_unit_escapes.py).
 #   scripts/check_format.sh         report files that are not formatted (exit 1)
 #   scripts/check_format.sh --fix   format them in place
 #
@@ -20,10 +21,12 @@ if ! "$clang_format" --version 2>/dev/null | grep -q "version ${required_version
 fi
 
 mapfile -t files < <(git ls-files '*.c' '*.cpp' '*.h' '*.hpp' |
-  grep -v -e '^lib/cymon/' -e '^hardware/batterycasecontroller/')
+  grep -v -e '^lib/cymon/')
 
 if [[ "${1:-}" == "--fix" ]]; then
   "$clang_format" -i "${files[@]}"
 else
   "$clang_format" --dry-run --Werror "${files[@]}"
 fi
+
+python3 scripts/check_unit_escapes.py

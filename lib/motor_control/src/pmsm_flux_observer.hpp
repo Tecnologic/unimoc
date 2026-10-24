@@ -17,6 +17,7 @@
 
 #include <cmath>
 #include <concepts>
+#include <optional>
 #include "mechanical_observer.hpp"
 #include "nvm_settings.hpp"
 #include "rotor_system.hpp"
@@ -77,11 +78,17 @@ namespace unimoc::observer {
  * This prevents integrator wind-up in steady state and pulls the estimate
  * towards the known PM flux magnitude.
  *
- * Feeding the MechanicalObserver Kalman filter
- * ---------------------------------------------
- * The estimated angle error derived from the flux vector is injected into
- * the MechanicalObserver via InjectAngleError(), so both estimators share
- * the same rotor-angle reference.
+ * Angle measurement for the MechanicalObserver Kalman filter
+ * ----------------------------------------------------------
+ * The PM flux lies on the d axis when the angle estimate is right. Its q
+ * component in the estimated frame is ψ_q_PM ≈ |ψ_set| · sin(θ − θ̂), so
+ *
+ *   ε = ψ_q_PM / ψ_set_d   [rad]
+ *
+ * is the innovation of an angle measurement. Calculate() returns it; the
+ * caller feeds it to MechanicalObserver::UpdateAngle() with a noise that
+ * grows at low speed, where the back-EMF carries no angle information
+ * (docs/hotpath_plan.md, sections 5 and 6, D2).
  *
  * @tparam T  Floating-point type (float by default).
  */
@@ -159,29 +166,29 @@ struct PmsmFluxObserver {
   }
 
   /**
-   * @brief Run one observer step and feed the angle correction to the
-   *        MechanicalObserver Kalman filter.
+   * @brief Run one observer step and return the angle error of the estimate.
    *
-   * Call this once per PWM/control interrupt.  The MechanicalObserver must
-   * have already been updated via predict() before this call so that
-   * sin_theta / cos_theta reflect the latest angle estimate.
+   * Call this once per control cycle with the estimate the cycle used
+   * (sin_theta / cos_theta of @p mech_obs).
    *
    * @param u_dq     Applied rotor-frame voltage vector [V].
    * @param i_dq     Measured rotor-frame current vector [A].
    * @param set_flux Desired PM flux in the rotor frame [Wb]
    *                 (typically { ψ_PM, 0 } for SPMSM).
    * @param dt       Control period [s].
-   * @param mech_obs MechanicalObserver whose Kalman filter receives the
-   *                 flux-derived angle correction.
+   * @param mech_obs MechanicalObserver whose angle estimate frames the step.
+   * @return The angle error ε = θ − θ̂ [rad], or nothing when the set flux
+   *         is not positive (no permanent magnet configured).
    */
-  constexpr void Calculate(const system::Rotor<unit::Voltage>& u_dq,
-                           const system::Rotor<unit::Current>& i_dq,
-                           const system::Rotor<unit::MagneticFlux>& set_flux,
-                           const unit::Time dt,
-                           MechanicalObserver<T>& mech_obs) noexcept {
+  [[nodiscard]] constexpr std::optional<unit::Angle> Calculate(
+      const system::Rotor<unit::Voltage>& u_dq,
+      const system::Rotor<unit::Current>& i_dq,
+      const system::Rotor<unit::MagneticFlux>& set_flux,
+      const unit::Time dt,
+      const MechanicalObserver<T>& mech_obs) noexcept {
     // Snapshot sin/cos from the mechanical observer
-    const T kSn = mech_obs.sin_theta.Value();
-    const T kCs = mech_obs.cos_theta.Value();
+    const unit::Ratio kSn = mech_obs.sin_theta;
+    const unit::Ratio kCs = mech_obs.cos_theta;
 
     // -----------------------------------------------------------------
     // Rotor-frame back-EMF (voltage model + feedback)
@@ -194,8 +201,8 @@ struct PmsmFluxObserver {
     //   e_α = bemf_d · cos θ̂ − bemf_q · sin θ̂
     //   e_β = bemf_d · sin θ̂ + bemf_q · cos θ̂
     // -----------------------------------------------------------------
-    const unit::Voltage kBemfAlpha{kBemfD.Value() * kCs - kBemfQ.Value() * kSn};
-    const unit::Voltage kBemfBeta{kBemfD.Value() * kSn + kBemfQ.Value() * kCs};
+    const unit::Voltage kBemfAlpha = (kBemfD * kCs) - (kBemfQ * kSn);
+    const unit::Voltage kBemfBeta = (kBemfD * kSn) + (kBemfQ * kCs);
 
     // -----------------------------------------------------------------
     // Stator-frame flux integration
@@ -208,8 +215,8 @@ struct PmsmFluxObserver {
     //   ψ_d =  ψ_α · cos θ̂ + ψ_β · sin θ̂
     //   ψ_q = −ψ_α · sin θ̂ + ψ_β · cos θ̂
     // -----------------------------------------------------------------
-    const unit::MagneticFlux kPsiD{psi_alpha.Value() * kCs + psi_beta.Value() * kSn};
-    const unit::MagneticFlux kPsiQ{-psi_alpha.Value() * kSn + psi_beta.Value() * kCs};
+    const unit::MagneticFlux kPsiD = (psi_alpha * kCs) + (psi_beta * kSn);
+    const unit::MagneticFlux kPsiQ = (-psi_alpha * kSn) + (psi_beta * kCs);
 
     // -----------------------------------------------------------------
     // Subtract inductance-induced flux to get PM flux estimate
@@ -224,16 +231,15 @@ struct PmsmFluxObserver {
     fb_q = C_q * (set_flux.q - psi_pm_q);
 
     // -----------------------------------------------------------------
-    // Inject angle error into the MechanicalObserver Kalman filter.
-    //
-    // The PM flux should align with the d-axis when the angle estimate
-    // is correct (ψ_q_PM ≈ 0).  The q-axis component is a signed angle
-    // error signal: positive means the d-axis estimate lags the flux.
-    //
-    // We negate it so the convention matches: positive ε → advance θ̂.
+    // Angle error. The PM flux lies on the d axis when the estimate is
+    // right (ψ_q_PM ≈ 0). A positive ψ_q_PM means the flux leads the
+    // estimate: the estimate lags and must advance (positive ε).
     // -----------------------------------------------------------------
-    const unit::Angle kAngleError{-psi_pm_q.Value()};
-    mech_obs.InjectAngleError(kAngleError, dt);
+    if (!(set_flux.d > unit::MagneticFlux{})) {
+      return std::nullopt;
+    }
+    // The small-angle tangent ψ_q_PM / ψ_d is the angle in radians.
+    return (psi_pm_q / set_flux.d) * 1.0_rad;
   }
 
   /**

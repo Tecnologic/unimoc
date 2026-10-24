@@ -7,3 +7,43 @@ tests:
       - native_sim/native/64
       - bcc
     tags: unimoc app
+  # The M0 timing probes in the interrupts (CONFIG_UNIMOC_HOT_PATH_TIMING).
+  unimoc.app.build.timing:
+    build_only: true
+    platform_allow:
+      - bcc
+    extra_configs:
+      - CONFIG_UNIMOC_HOT_PATH_TIMING=y
+    tags: unimoc app
+  # The e-bike control and its hardware (BCC: cadence capture, display line, UART; native_sim: the
+  # simulated rider) compiled in (CONFIG_UNIMOC_EBIKE). The pytest scenario below runs without it:
+  # with the e-bike the bus readiness no longer engages the drive.
+  unimoc.app.build.ebike:
+    build_only: true
+    platform_allow:
+      - native_sim/native/64
+      - bcc
+    extra_configs:
+      - CONFIG_UNIMOC_EBIKE=y
+    tags: unimoc app
+  # The simulation as a Cyphal node, tested from pycyphal over its slcan
+  # pseudo terminal (tests/integration/cyphal_sim). Needs pycyphal, python-can
+  # and pyserial (scripts/requirements-cyphal-tools.txt); skipped without them.
+  unimoc.app.cyphal_integration:
+    harness: pytest
+    platform_allow:
+      - native_sim/native/64
+    integration_platforms:
+      - native_sim/native/64
+    harness_config:
+      pytest_root:
+        - "../tests/integration/cyphal_sim"
+      pytest_dut_scope: session
+      # platformdirs >= 4.13 registers a pytest plugin; with a second, older
+      # platformdirs on the path (pip --user on the CI runner's system
+      # Python) its entry point fails to import and pytest aborts at start.
+      pytest_args:
+        - "-p"
+        - "no:platformdirs"
+    timeout: 300
+    tags: unimoc app cyphal

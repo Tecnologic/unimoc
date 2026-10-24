@@ -26,6 +26,8 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <type_traits>
+#include "units.hpp"
 
 namespace unimoc::test {
 
@@ -75,28 +77,56 @@ inline constexpr int32_t kMaxUlps = 4;
   return kNear;
 }
 
+/**
+ * @brief Float equality of two numbers or of two values of the same unit.
+ *
+ * A unit compares only with the same unit: a raw number on one side does not
+ * compile, so a test cannot hide a unit mismatch behind Value().
+ */
+template <typename Actual, typename Expected>
+[[nodiscard]] bool FloatEqAny(const Actual& actual, const Expected& expected) noexcept {
+  if constexpr (unit::UnitLike<Actual> || unit::UnitLike<Expected>) {
+    static_assert(std::is_same_v<Actual, Expected>, "compare a unit with the same unit");
+    return FloatEq(actual.Value(), expected.Value());
+  } else {
+    return FloatEq(static_cast<float>(actual), static_cast<float>(expected));
+  }
+}
+
+/**
+ * @brief Absolute tolerance check of two numbers or of two values (and the tolerance) of one unit.
+ */
+template <typename Actual, typename Expected, typename Tolerance>
+[[nodiscard]] bool NearAny(const Actual& actual,
+                           const Expected& expected,
+                           const Tolerance& tolerance) noexcept {
+  if constexpr (unit::UnitLike<Actual> || unit::UnitLike<Expected> || unit::UnitLike<Tolerance>) {
+    static_assert(std::is_same_v<Actual, Expected> && std::is_same_v<Actual, Tolerance>,
+                  "compare a unit with the same unit and tolerance");
+    return Near(static_cast<double>(actual.Value()),
+                static_cast<double>(expected.Value()),
+                static_cast<double>(tolerance.Value()));
+  } else {
+    return Near(static_cast<double>(actual), static_cast<double>(expected), static_cast<double>(tolerance));
+  }
+}
+
 }  // namespace unimoc::test
 
 // NOLINTBEGIN(cppcoreguidelines-macro-usage): assertion macros must expand at the call site,
 // so that ztest reports the file and line of the check.
 
-/// Float equality within 4 ULP; marks the test as failed and continues.
-#define UNIMOC_EXPECT_FLOAT_EQ(actual, expected, ...)                                             \
-  zexpect_true(::unimoc::test::FloatEq(static_cast<float>(actual), static_cast<float>(expected)), \
-               ##__VA_ARGS__)
+/// Float equality within 4 ULP of two numbers or two values of one unit; marks the test as failed and
+/// continues.
+#define UNIMOC_EXPECT_FLOAT_EQ(actual, expected, ...) \
+  zexpect_true(::unimoc::test::FloatEqAny((actual), (expected)), ##__VA_ARGS__)
 
-/// Absolute tolerance; marks the test as failed and continues.
-#define UNIMOC_EXPECT_NEAR(actual, expected, tolerance, ...)         \
-  zexpect_true(::unimoc::test::Near(static_cast<double>(actual),     \
-                                    static_cast<double>(expected),   \
-                                    static_cast<double>(tolerance)), \
-               ##__VA_ARGS__)
+/// Absolute tolerance (numbers, or values and tolerance of one unit); marks the test as failed and continues.
+#define UNIMOC_EXPECT_NEAR(actual, expected, tolerance, ...) \
+  zexpect_true(::unimoc::test::NearAny((actual), (expected), (tolerance)), ##__VA_ARGS__)
 
-/// Absolute tolerance; ends the test on failure.
-#define UNIMOC_ASSERT_NEAR(actual, expected, tolerance, ...)         \
-  zassert_true(::unimoc::test::Near(static_cast<double>(actual),     \
-                                    static_cast<double>(expected),   \
-                                    static_cast<double>(tolerance)), \
-               ##__VA_ARGS__)
+/// Absolute tolerance (numbers, or values and tolerance of one unit); ends the test on failure.
+#define UNIMOC_ASSERT_NEAR(actual, expected, tolerance, ...) \
+  zassert_true(::unimoc::test::NearAny((actual), (expected), (tolerance)), ##__VA_ARGS__)
 
 // NOLINTEND(cppcoreguidelines-macro-usage)
