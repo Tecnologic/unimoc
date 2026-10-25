@@ -82,28 +82,20 @@ constexpr std::array<InfoRegister, 19> kInfoRegisters{{
 /**
  * @brief Copies the registers that may change while engaged (live tuning).
  *
- * The gains of the current, speed and position loops, the telemetry rate
- * and the command timeout: the running loops take them without a restart.
+ * The settings `ForEachRegister()` describes as `RegisterEffect::kImmediate`
+ * (`settings::Tunable()`): the gains of the current, speed and position
+ * loops, the telemetry and drive status rates, the command timeout and the
+ * cart torque settings; the running loops take them without a restart.
  */
 void CopyTunable(const settings::NvmSettings& source, settings::NvmSettings& target) noexcept {
-  target.current_kp_d = source.current_kp_d;
-  target.current_ki_d = source.current_ki_d;
-  target.current_kp_q = source.current_kp_q;
-  target.current_ki_q = source.current_ki_q;
-  target.speed_kp = source.speed_kp;
-  target.speed_ki = source.speed_ki;
-  target.speed_accel_limit = source.speed_accel_limit;
-  target.pos_kp_pos = source.pos_kp_pos;
-  target.pos_speed_limit = source.pos_speed_limit;
-  target.pos_accel_limit = source.pos_accel_limit;
-  target.pos_position_tolerance = source.pos_position_tolerance;
-  target.pos_speed_tolerance = source.pos_speed_tolerance;
-  target.telemetry_rate = source.telemetry_rate;
-  target.command_timeout = source.command_timeout;
-  target.cart_status_rate = source.cart_status_rate;
-  target.cart_torque_ramp = source.cart_torque_ramp;
-  target.cart_limp_home_torque = source.cart_limp_home_torque;
-  target.cart_standstill_speed = source.cart_standstill_speed;
+  settings::ForEachRegister(
+      [](const settings::RegisterEntry& entry, const auto& source_field, auto& target_field) {
+        if (entry.description.effect == cyphal::RegisterEffect::kImmediate) {
+          target_field = source_field;
+        }
+      },
+      source,
+      target);
 }
 
 /// The first register in which @p live differs from @p applied outside the tunable ones; empty: none.
@@ -212,6 +204,19 @@ cyphal::RegisterFlags DriveInfoRegisters::Read(const std::size_t index,
     cyphal::SetString(value, kInfoRegisters[index].type);
   }
   return {false, false};
+}
+
+cyphal::RegisterDescription DriveInfoRegisters::Describe(const std::size_t index) const noexcept {
+  cyphal::RegisterDescription description{};
+  if (index == kInfoRegisters.size()) {
+    description.help = "1 while written settings wait for the disengage";
+  } else if (index == kInfoRegisters.size() + 1U) {
+    description.help = "CAN bus-off events since the start";
+  } else if (index < kInfoRegisters.size()) {
+    description.help = kInfoRegisters[index].type.empty() ? "Unique-ID of the node (also in GetInfo)"
+                                                          : "DSDL type of the port";
+  }
+  return description;
 }
 
 cyphal::RegisterWriteResult DriveInfoRegisters::Write(std::size_t /*index*/,

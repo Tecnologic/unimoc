@@ -23,18 +23,22 @@
  */
 
 #include "cyphal_platform.hpp"
+#include <posix_board_if.h>
 #include <unimoc/sim/Plant_0_1.h>
 #include <zephyr/device.h>
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
+#include <algorithm>
 #include <array>
 #include <cmath>
+#include <limits>
 #include <numbers>
 #include <string_view>
 #include <tuple>
 #include "current_control_runtime.hpp"
 #include "cyphal/register_value.hpp"
 #include "power_stage_interface.hpp"
+#include "register_file.hpp"
 #include "sim_cmdline.h"
 #include "sim_control.hpp"
 #include "slcan_media.hpp"
@@ -111,6 +115,52 @@ constexpr std::array<std::string_view, 13> kNames{
     "unimoc.sim.reset",
 };
 
+constexpr float kInf = std::numeric_limits<float>::infinity();
+using cyphal::RegisterEffect;
+constexpr std::array<cyphal::RegisterDescription, kNames.size()> kDescriptions{{
+    {{}, 0.0F, 1.0F, RegisterEffect::kImmediate, "Shaft of the plant: 0 free (load torque), 1 imposed speed"},
+    {"rad/s", -kInf, kInf, RegisterEffect::kImmediate, "Mechanical speed of the shaft in imposed-speed mode"},
+    {"N m",
+     -kInf,
+     kInf,
+     RegisterEffect::kImmediate,
+     "Load torque on the free shaft; positive opposes positive rotation"},
+    {"V", 0.0F, kInf, RegisterEffect::kImmediate, "DC-link voltage of the simulated battery"},
+    {{},
+     -kInf,
+     kInf,
+     RegisterEffect::kImmediate,
+     "External enable of the power stage (the E-stop loop); 0 blocks it"},
+    {{},
+     -kInf,
+     kInf,
+     RegisterEffect::kImmediate,
+     "1: the simulated motor takes the motor parameters of the settings"},
+    {{},
+     0.0F,
+     65535.0F,
+     RegisterEffect::kImmediate,
+     "Plant truth subject (unimoc.sim.Plant.0.1); 65535: off"},
+    {{}, -kInf, kInf, RegisterEffect::kImmediate, "DSDL type of the port"},
+    {{},
+     -kInf,
+     kInf,
+     RegisterEffect::kImmediate,
+     "1 stops the control cycles (virtual time); readiness timeouts run on"},
+    {"cycles",
+     0.0F,
+     16000.0F,
+     RegisterEffect::kImmediate,
+     "Runs this many control cycles of a paused simulation"},
+    {"cycles", -kInf, kInf, RegisterEffect::kImmediate, "Control cycles since the start (virtual time)"},
+    {"ns", -kInf, kInf, RegisterEffect::kImmediate, "Virtual duration of one control cycle"},
+    {{},
+     1.0F,
+     1.0F,
+     RegisterEffect::kImmediate,
+     "1: plant to standstill, virtual time 0, controller restarted"},
+}};
+
 /**
  * @brief Back to the state after the start: plant at standstill, virtual time 0, controller restarted.
  *
@@ -137,6 +187,10 @@ class SimRegisters final : public cyphal::RegisterProvider {
 
   [[nodiscard]] std::string_view Name(const std::size_t index) const noexcept override {
     return index < kNames.size() ? kNames[index] : std::string_view{};
+  }
+
+  [[nodiscard]] cyphal::RegisterDescription Describe(const std::size_t index) const noexcept override {
+    return index < kDescriptions.size() ? kDescriptions[index] : cyphal::RegisterDescription{};
   }
 
   [[nodiscard]] RegisterFlags Read(const std::size_t index, RegisterValue& value) const noexcept override {
@@ -277,10 +331,17 @@ void SetPlantRate(const settings::NvmSettings& settings) noexcept {
 
 }  // namespace
 
-uint8_t CyphalPlatformNodeIdOverride() noexcept {
+void CyphalPlatformSettingsOverrides(settings::NvmSettings& settings) noexcept {
+  // Out-of-range values are passed on, so the validation rejects them with a warning.
   const int32_t kNodeId = UnimocSimNodeIdOption();
-  return (kNodeId >= 0 && kNodeId <= cyphal::kNodeIdMax) ? static_cast<uint8_t>(kNodeId)
-                                                         : cyphal::kNodeIdUnset;
+  if (kNodeId >= 0) {
+    settings.node_id = static_cast<uint8_t>(std::min<int32_t>(kNodeId, std::numeric_limits<uint8_t>::max()));
+  }
+  const int32_t kWheel = UnimocSimCartWheelOption();
+  if (kWheel >= 0) {
+    settings.cart_wheel =
+        static_cast<uint8_t>(std::min<int32_t>(kWheel, std::numeric_limits<uint8_t>::max()));
+  }
 }
 
 void CyphalPlatformInit() noexcept {
@@ -302,6 +363,21 @@ void CyphalPlatformStart(cyphal::CyphalNode& node, const settings::NvmSettings& 
   g_applied_settings = settings;
   SetPlantRate(settings);
   ApplyInputs();
+}
+
+void CyphalPlatformReady(const cyphal::CyphalNode& node, const cyphal::NodeInfo& info) noexcept {
+  const char* const kPath = UnimocSimDescribeRegistersOption();
+  if (kPath == nullptr) {
+    return;
+  }
+  const bool kWritten = sim::WriteRegisterFile(node, info, kPath);
+  if (kWritten) {
+    LOG_INF("register description file written: %s", kPath);
+  } else {
+    LOG_ERR("register description file not written: %s", kPath);
+  }
+  k_msleep(50);  // let the log thread drain
+  posix_exit(kWritten ? 0 : 1);
 }
 
 void CyphalPlatformTraceSignals(cymon::Device& device) noexcept {

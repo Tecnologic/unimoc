@@ -15,7 +15,6 @@
  */
 #pragma once
 
-#include <array>
 #include <cstddef>
 #include <string_view>
 #include "cyphal/register_value.hpp"
@@ -39,9 +38,6 @@ namespace unimoc::drive {
  */
 class SettingsRegisterProvider final : public cyphal::RegisterProvider {
  public:
-  /// Largest number of registers the provider can hold.
-  static constexpr std::size_t kCapacity = 128U;
-
   /// @param store Settings store shared with the rest of the firmware; must outlive the provider.
   explicit SettingsRegisterProvider(settings::SettingsStore& store) noexcept;
 
@@ -51,14 +47,15 @@ class SettingsRegisterProvider final : public cyphal::RegisterProvider {
                                            cyphal::RegisterValue& value) const noexcept override;
   [[nodiscard]] cyphal::RegisterWriteResult Write(std::size_t index,
                                                   const cyphal::RegisterValue& value) noexcept override;
+  /// The entry of `ForEachRegister()` with the unit of the field's type when it names none.
+  [[nodiscard]] cyphal::RegisterDescription Describe(std::size_t index) const noexcept override;
 
   /// Number of accepted writes since construction; tells the application to apply them.
   [[nodiscard]] uint32_t WriteCount() const noexcept { return write_count_; }
 
  private:
   settings::SettingsStore* store_;
-  std::array<std::string_view, kCapacity> names_{};
-  std::size_t count_{0U};
+  std::size_t count_{SettingsRegisterCount()};
   uint32_t write_count_{0U};
 };
 

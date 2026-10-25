@@ -21,6 +21,7 @@
 #include <optional>
 #include <span>
 #include <string_view>
+#include "cyphal/register_description.hpp"
 
 namespace unimoc::cyphal {
 
@@ -116,6 +117,13 @@ class RegisterProvider {
    * @return The outcome; the node answers with the value after the write.
    */
   [[nodiscard]] virtual RegisterWriteResult Write(std::size_t index, const RegisterValue& value) noexcept = 0;
+
+  /**
+   * @brief Describes one register for the register description file.
+   * @param index Register index below Count().
+   * @return Unit, limits, effect and help; empty when the provider has none.
+   */
+  [[nodiscard]] virtual RegisterDescription Describe(std::size_t /*index*/) const noexcept { return {}; }
 };
 
 }  // namespace unimoc::cyphal

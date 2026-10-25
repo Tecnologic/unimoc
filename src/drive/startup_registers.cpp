@@ -17,6 +17,7 @@
 #include "startup_registers.hpp"
 #include <array>
 #include <cmath>
+#include <limits>
 #include <optional>
 #include "cyphal/cyphal_interface.hpp"
 #include "cyphal/register_value.hpp"
@@ -35,12 +36,34 @@ constexpr std::array<std::string_view, 5> kNames{
     cyphal::reg::kStartupResults,
 };
 
+using cyphal::RegisterEffect;
+constexpr float kInf = std::numeric_limits<float>::infinity();
+constexpr std::array<cyphal::RegisterDescription, kNames.size()> kDescriptions{{
+    {{},
+     0.0F,
+     1.0F,
+     RegisterEffect::kImmediate,
+     "1 starts the startup aid (refused while engaged), 0 aborts it"},
+    {{}, 1.0F, 1.0F, RegisterEffect::kImmediate, "Startup aid step; 1 continues with the next step"},
+    {"A", -kInf, kInf, RegisterEffect::kImmediate, "Externally measured current of the running step"},
+    {"V", -kInf, kInf, RegisterEffect::kImmediate, "Externally measured DC-link voltage of the running step"},
+    {{},
+     -kInf,
+     kInf,
+     RegisterEffect::kImmediate,
+     "Startup aid result per step: 1 passed, 0 failed or not run"},
+}};
+
 }  // namespace
 
 std::size_t StartupRegisters::Count() const noexcept { return kNames.size(); }
 
 std::string_view StartupRegisters::Name(const std::size_t index) const noexcept {
   return index < kNames.size() ? kNames[index] : std::string_view{};
+}
+
+cyphal::RegisterDescription StartupRegisters::Describe(const std::size_t index) const noexcept {
+  return index < kDescriptions.size() ? kDescriptions[index] : cyphal::RegisterDescription{};
 }
 
 cyphal::RegisterFlags StartupRegisters::Read(const std::size_t index,

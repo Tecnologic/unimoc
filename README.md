@@ -109,14 +109,16 @@ lib/
 │   ├── cyphal_interface.hpp      # Register names + subject port IDs + command codes
 │   ├── node.hpp                  # Node services: heartbeat, GetInfo, registers, commands, PnP, log
 │   ├── node_identity.hpp         # Node name + hw/sw version
+│   ├── register_description.hpp  # Unit, limits, effect and help of a register (registers.json)
 │   ├── register_value.hpp        # uavcan.register.Value helpers, register provider boundary
 │   └── transport.hpp             # Transfer-level transport contract (CAN, later UDP, tests)
 ├── settings/
 │   ├── nvm_settings.hpp          # Typed aggregate of NVM-backed parameters
-│   ├── settings_registers.hpp    # Register table + byte encoding of one register value
+│   ├── settings_registers.hpp    # Register table with descriptions + byte encoding of one value
 │   ├── settings_profile.hpp      # Immutable target capabilities and defaults
 │   ├── settings_storage.hpp      # Platform key/value storage contract
-│   └── settings_store.hpp        # Live settings, snapshot, save gate, authorized mutation API
+│   ├── settings_store.hpp        # Live settings, snapshot, save gate, authorized mutation API
+│   └── unit_symbol.hpp           # SI symbol of a unit type (registers.json)
 ├── system/
 │   ├── rotor_angle.hpp           # Q1.31 electrical angle + revolution counter, sin/cos LUT
 │   ├── rotor_system.hpp          # d/q rotating reference frame
@@ -173,7 +175,7 @@ interfaces and the simulation registers are platform specific.
 | Drive application | `src/drive/` | Settings registers, arming, setpoints, telemetry, commands, the cart wheel drive (`cart_control.*`) |
 | Traces | `src/trace/`, `lib/cymon/` (cymon-lib 0.2) | cymon services, float mirror of the control state sampled in the control cycle |
 | Zephyr glue | `hardware/zephyr_common/` | Cyphal thread, CAN interface on the chosen `zephyr,canbus`, log backend to `uavcan.diagnostic.Record` |
-| Platform | `hardware/zephyr_bcc/`, `hardware/zephyr_sim/` | BCC: transceiver pin. Sim: slcan pseudo terminals, plant registers and plant trace |
+| Platform | `hardware/zephyr_bcc/`, `hardware/zephyr_sim/` | BCC: transceiver pin. Sim: slcan pseudo terminals, plant registers and plant trace, the register description file (`register_file.cpp`) |
 
 libcanard, O1Heap and the public regulated data types are pinned in
 `west.yml`; Nunavut is a Python requirement
@@ -185,7 +187,7 @@ libcanard, O1Heap and the public regulated data types are pinned in
 `uavcan.pnp.NodeIDAllocationData.1.0` (an allocator such as
 `yakut monitor --plug-and-play <db>` answers) and stores the allocated ID.
 The simulation starts with node-ID 10 (`--node-id=<n>` overrides it per
-process).  GetInfo reports the name from `uavcan.node.description`, the
+process, `--cart-wheel=<n>` the cart wheel).  GetInfo reports the name from `uavcan.node.description`, the
 hardware version of the platform, the software version from `app/VERSION`, the
 git hash as `software_vcs_revision_id` and the hwinfo device ID as unique-ID
 (also the register `uavcan.node.unique_id`).  A changed node-ID or port-ID
@@ -194,7 +196,7 @@ takes effect after a restart.
 ### Settings via registers
 
 Every persistent setting (`ForEachRegister()` in
-`lib/settings/settings_registers.hpp`, 95 registers) is a Cyphal register
+`lib/settings/settings_registers.hpp`, 130 registers) is a Cyphal register
 under the same name; `yakut rl <node>` lists them.  Units and floats are
 `real32[1]`, counts and enums `natural8[1]`, `uavcan.node.id` and the port-IDs
 `natural16[1]`, the name a string; writes accept any numeric type.  A write is
@@ -210,6 +212,30 @@ reported with a `uavcan.diagnostic.Record` warning ("settings wait for the
 disengage: <register>", then "waiting settings applied"), and the read-only
 `unimoc.settings.pending` (bit) reads 1 while changes wait.  `ExecuteCommand STORE_PERSISTENT_STATES` (65530) saves them to
 flash, refused (`BAD_STATE`) while the power stage is enabled.
+
+### Register description file
+
+Every register is described next to its definition: the settings in
+`ForEachRegister()`, the other registers in their provider
+(`RegisterProvider::Describe()`). The description holds the unit (taken from
+the unit type of a setting where it has one), the limits of the validation
+that hold for the register alone, when a write takes effect (`immediate`,
+also while engaged; `disengaged`; `restart`) and one line of help. The
+simulation writes all of it as JSON and exits:
+
+```sh
+unimoc/app/build/sim/zephyr/zephyr.exe -flash=/tmp/fresh.bin --describe-registers=registers.json
+```
+
+One entry per register in the order of `uavcan.register.List`: name, value
+type and size, `mutable`, `persistent`, the value of a fresh simulated node as
+`default`, `unit`, `min`, `max`, `applies` and `help`; the schema is in
+`docs/settings_plan.md`. The firmware CI and every release attach it as
+`unimoc-registers-<version>.json`. Tools such as
+[cypilot](https://github.com/Tecnologic/cypilot) pick it by the software
+version and VCS revision of GetInfo. The limits are a hint: the node's
+validation decides, also on limits between registers or of the hardware
+(named in the help).
 
 ### Ports of the drive
 
@@ -446,6 +472,12 @@ yakut sub 212:unimoc.drive.Telemetry 213:unimoc.sim.Plant           # third term
 yakut sub uavcan.diagnostic.Record
 yakut cmd 10 65530                            # store the settings (flash.bin in the working directory)
 ```
+
+Several drives on one bus: `unimoc/scripts/sim_cluster.sh` starts N drives
+(default 4) on `vcan0`, drive k with node-ID 10 + k, its own flash file and
+unique-ID, and cart wheel k mod 4 (`--cart-wheel=<n>`, like `--node-id`, sets
+`unimoc.cart.wheel` of one process); `--setup-vcan` creates the interface
+with sudo, `--help` lists the options. Ctrl+C stops all of them.
 
 With slcan, each yakut process needs its own terminal (`/dev/pts/N`,
 `N+1`, ...); the terminal numbers can change when the simulation restarts.
