@@ -138,10 +138,10 @@ void CyphalThread(void* /*unused*/, void* /*unused*/, void* /*unused*/) {
   }
   static cyphal::CyphalNode node{transport};
 
-  const uint8_t kNodeIdOverride = CyphalPlatformNodeIdOverride();
-  if (kNodeIdOverride <= cyphal::kNodeIdMax &&
-      g_store->GetOperations().SetNodeId(kNodeIdOverride) != settings::SettingsStatus::kSuccess) {
-    LOG_WRN("node-ID %u from the command line rejected", static_cast<unsigned>(kNodeIdOverride));
+  if (g_store->GetOperations().Update([](settings::NvmSettings& settings) {
+        CyphalPlatformSettingsOverrides(settings);
+      }) != settings::SettingsStatus::kSuccess) {
+    LOG_WRN("settings from the command line rejected");
   }
   (void)hwinfo_get_device_id(g_unique_id.data(), g_unique_id.size());
   const settings::SettingsSnapshot kSnapshot = g_store->GetSnapshot();
@@ -185,6 +185,7 @@ void CyphalThread(void* /*unused*/, void* /*unused*/, void* /*unused*/) {
   if (!drive.Start(NowUs())) {
     LOG_WRN("not all Cyphal ports could be subscribed");
   }
+  CyphalPlatformReady(node, info);
   LOG_INF("Cyphal node %u on %u interface(s)",
           static_cast<unsigned>(node.NodeId()),
           static_cast<unsigned>(kCount));

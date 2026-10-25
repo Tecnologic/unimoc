@@ -88,7 +88,7 @@ simulation, done 2026-10-24). [docs/gui_plan.md](docs/gui_plan.md) keeps the
 contract with the firmware. The firmware side, in this repository:
 
  - [x] F1 (2026-10-24): vendor status bits 4 to 7 (trip latched, E-stop latched, settings pending, local control) in the heartbeat; the readiness subject follows the node-ID (65534: 1024 + node-ID) until written; ztest and pytest. The GetInfo name convention was dropped (the name is the user's role label, `docs/gui_plan.md`, section 6).
- - [ ] F2: register description file: unit, limits, default, live-tunable flag and help next to each register, `registers.json` from the build, a twister check against the registers on the bus, a CI and release asset; `scripts/sim_cluster.sh` for N drives on `vcan0`.
+ - [x] F2 (2026-10-24): register description file: unit, limits, effect (live-tunable, disengaged, restart) and help next to each register, `--describe-registers` of the simulation, ztests of the descriptions, a pytest against the registers on the bus, the CI and release asset `unimoc-registers-<version>.json`; `scripts/sim_cluster.sh` for N drives on `vcan0` (`--cart-wheel`). Fixed with it: the register list ended at 128 settings, so `unimoc.ebike.rearm_time` and `unimoc.ebike.display_timeout` were not on the bus.
  - [ ] F3: serve the description file over `uavcan.file.Read` (with the Cyphal file service of the firmware update).
  - [ ] Decide the license of `dsdl/unimoc/` (proposed: permissive, so the GUI repository can carry it; plan section 2.1).
 

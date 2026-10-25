@@ -33,7 +33,7 @@ const struct gpio_dt_spec kCanSlope = GPIO_DT_SPEC_GET(DT_PATH(zephyr_user), can
 
 }  // namespace
 
-uint8_t CyphalPlatformNodeIdOverride() noexcept { return cyphal::kNodeIdUnset; }
+void CyphalPlatformSettingsOverrides(settings::NvmSettings& /*settings*/) noexcept {}
 
 void CyphalPlatformInit() noexcept {
   // Rs low: high-speed mode (high would be standby, the transceiver only listens).
@@ -54,5 +54,7 @@ void CyphalPlatformTraceSignals(cymon::Device& /*device*/) noexcept {}
 void CyphalPlatformSpin(cyphal::CyphalNode& /*node*/, uint64_t /*now_us*/) noexcept {}
 
 void CyphalPlatformSettingsApplied(const settings::NvmSettings& /*settings*/) noexcept {}
+
+void CyphalPlatformReady(const cyphal::CyphalNode& /*node*/, const cyphal::NodeInfo& /*info*/) noexcept {}
 
 }  // namespace unimoc::hardware
