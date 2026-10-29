@@ -116,15 +116,13 @@ ZTEST(cyphal_interface, test_meas_result_port_ids_above_telemetry) {
   zexpect_true((kPubMeasRs) > (kPubExcitationCurrent));
   zexpect_true((kPubMeasLdLq) > (kPubExcitationCurrent));
   zexpect_true((kPubMeasPsi) > (kPubExcitationCurrent));
-  zexpect_true((kPubMeasBalance) > (kPubExcitationCurrent));
 }
 
 ZTEST(cyphal_interface, test_meas_result_port_ids_unique) {
-  const std::array<uint16_t, 4> kPorts = {
+  const std::array<uint16_t, 3> kPorts = {
       kPubMeasRs,
       kPubMeasLdLq,
       kPubMeasPsi,
-      kPubMeasBalance,
   };
   constexpr std::size_t kCount = kPorts.size();
   for (std::size_t i = 0; i < kCount; ++i) {
@@ -144,7 +142,6 @@ ZTEST(cyphal_interface, test_identification_commands_in_vendor_range) {
   zexpect_true((cmd::kCmdMeasureRs) < (0x8000U));
   zexpect_true((cmd::kCmdMeasureLdLq) < (0x8000U));
   zexpect_true((cmd::kCmdMeasurePsi) < (0x8000U));
-  zexpect_true((cmd::kCmdMeasureBalance) < (0x8000U));
 }
 
 ZTEST(cyphal_interface, test_identification_commands_in_expected_subrange) {
@@ -152,19 +149,16 @@ ZTEST(cyphal_interface, test_identification_commands_in_expected_subrange) {
   zexpect_true((cmd::kCmdMeasureRs) >= (0x0100U));
   zexpect_true((cmd::kCmdMeasureLdLq) >= (0x0100U));
   zexpect_true((cmd::kCmdMeasurePsi) >= (0x0100U));
-  zexpect_true((cmd::kCmdMeasureBalance) >= (0x0100U));
   zexpect_true((cmd::kCmdMeasureRs) <= (0x01FFU));
   zexpect_true((cmd::kCmdMeasureLdLq) <= (0x01FFU));
   zexpect_true((cmd::kCmdMeasurePsi) <= (0x01FFU));
-  zexpect_true((cmd::kCmdMeasureBalance) <= (0x01FFU));
 }
 
 ZTEST(cyphal_interface, test_identification_commands_unique) {
-  const std::array<uint16_t, 4> kCodes = {
+  const std::array<uint16_t, 3> kCodes = {
       cmd::kCmdMeasureRs,
       cmd::kCmdMeasureLdLq,
       cmd::kCmdMeasurePsi,
-      cmd::kCmdMeasureBalance,
   };
   constexpr std::size_t kCount = kCodes.size();
   for (std::size_t i = 0; i < kCount; ++i) {
@@ -190,11 +184,10 @@ ZTEST(cyphal_interface, test_identification_commands_dont_overlap_get_commands) 
       cmd::kCmdGetPhaseCurrent,
       cmd::kCmdGetExcitationCurrent,
   };
-  const std::array<uint16_t, 4> kMeasureCodes = {
+  const std::array<uint16_t, 3> kMeasureCodes = {
       cmd::kCmdMeasureRs,
       cmd::kCmdMeasureLdLq,
       cmd::kCmdMeasurePsi,
-      cmd::kCmdMeasureBalance,
   };
   for (auto get_code : kGetCodes) {
     for (auto measure_code : kMeasureCodes) {

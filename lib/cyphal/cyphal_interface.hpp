@@ -505,22 +505,6 @@ inline constexpr const char* kTimingClockHz = "unimoc.timing.clock_hz";
 /// Type: natural8[1] (read 0, write 1)
 inline constexpr const char* kTimingReset = "unimoc.timing.reset";
 
-// --- Phase current balance correction ---
-
-/// Phase-A ADC gain correction factor [dimensionless, ≈ 1.0].
-/// Applied to the raw phase-A current sample to compensate hardware offset/gain
-/// mismatch between ADC channels.  Identified by CMD_MEASURE_BALANCE.
-/// Type: real32[1] (read/write, persistent)
-inline constexpr const char* kBalanceGainA = "unimoc.motor.balance.gain_a";
-
-/// Phase-B ADC gain correction factor [dimensionless, ≈ 1.0].
-/// Type: real32[1] (read/write, persistent)
-inline constexpr const char* kBalanceGainB = "unimoc.motor.balance.gain_b";
-
-/// Phase-C ADC gain correction factor [dimensionless, ≈ 1.0].
-/// Type: real32[1] (read/write, persistent)
-inline constexpr const char* kBalanceGainC = "unimoc.motor.balance.gain_c";
-
 // --- Cyphal ports of the drive (standard port-ID registers) ---
 //
 // Port-ID registers follow the Cyphal convention `uavcan.<pub|sub>.<name>.id`
@@ -989,13 +973,6 @@ inline constexpr uint16_t kPubMeasLdLq = 209U;
 /// Register: `uavcan.pub.meas_psi.id`
 inline constexpr uint16_t kPubMeasPsi = 210U;
 
-/// Measured phase current balance correction factors [gain_a, gain_b, gain_c]
-/// [dimensionless, ≈ 1.0] as a 3-element real array.
-/// Published at the end of a CMD_MEASURE_BALANCE run.
-/// Data type: uavcan.primitive.array.Real32.1.0 (length 3: [gain_a, gain_b, gain_c])
-/// Register: `uavcan.pub.meas_balance.id`
-inline constexpr uint16_t kPubMeasBalance = 211U;
-
 /// Current-controller trace.
 /// Data type: unimoc.drive.Telemetry.0.1
 /// Register: `uavcan.pub.telemetry.id`
@@ -1209,13 +1186,6 @@ inline constexpr uint16_t kCmdMeasureLdLq = 0x0101U;
 /// Result published on PUB_MEAS_PSI (port 210).
 /// If successful, `flux_pm` is updated per `parameter` bitmask.
 inline constexpr uint16_t kCmdMeasurePsi = 0x0102U;
-
-/// Measure phase current balance by injecting equal test currents and
-/// comparing ADC readings across all three phases (motor at rest).
-/// Result published on PUB_MEAS_BALANCE (port 211) as
-/// [gain_a, gain_b, gain_c].
-/// If successful, `phase_balance_a/b/c` are updated per `parameter` bitmask.
-inline constexpr uint16_t kCmdMeasureBalance = 0x0103U;
 
 }  // namespace cmd
 

@@ -117,14 +117,12 @@ template <unit::UnitLike U>
          unit::IsFinite(settings.adc_offset_a) && unit::IsFinite(settings.adc_offset_b) &&
          unit::IsFinite(settings.adc_offset_c) && unit::IsFinite(settings.adc_gain_c) &&
          unit::IsFinite(settings.adc_gain_a) && unit::IsFinite(settings.adc_gain_b) &&
-         unit::IsFinite(settings.adc_gain_vdc) && unit::IsFinite(settings.phase_balance_a) &&
-         unit::IsFinite(settings.phase_balance_b) && unit::IsFinite(settings.phase_balance_c) &&
-         unit::IsFinite(settings.telemetry_rate) && unit::IsFinite(settings.command_timeout) &&
-         unit::IsFinite(settings.dc_link_regen_derate_start) && unit::IsFinite(settings.dc_link_trip) &&
-         unit::IsFinite(settings.cart_timeout) && unit::IsFinite(settings.cart_status_rate) &&
-         unit::IsFinite(settings.cart_torque_ramp) && unit::IsFinite(settings.cart_limp_home_torque) &&
-         unit::IsFinite(settings.cart_standstill_speed) && unit::IsFinite(settings.cart_battery_share) &&
-         IsFiniteEbike(settings);
+         unit::IsFinite(settings.adc_gain_vdc) && unit::IsFinite(settings.telemetry_rate) &&
+         unit::IsFinite(settings.command_timeout) && unit::IsFinite(settings.dc_link_regen_derate_start) &&
+         unit::IsFinite(settings.dc_link_trip) && unit::IsFinite(settings.cart_timeout) &&
+         unit::IsFinite(settings.cart_status_rate) && unit::IsFinite(settings.cart_torque_ramp) &&
+         unit::IsFinite(settings.cart_limp_home_torque) && unit::IsFinite(settings.cart_standstill_speed) &&
+         unit::IsFinite(settings.cart_battery_share) && IsFiniteEbike(settings);
 }
 
 [[nodiscard]] inline bool IsValidEnumValues(const NvmSettings& settings) noexcept {
@@ -286,10 +284,7 @@ template <std::size_t kCount>
       settings.svm_duty_min > settings.svm_duty_max || settings.adc_gain_a <= ZeroOf(settings.adc_gain_a) ||
       settings.adc_gain_b <= ZeroOf(settings.adc_gain_b) ||
       settings.adc_gain_c <= ZeroOf(settings.adc_gain_c) ||
-      settings.adc_gain_vdc <= ZeroOf(settings.adc_gain_vdc) ||
-      settings.phase_balance_a <= ZeroOf(settings.phase_balance_a) ||
-      settings.phase_balance_b <= ZeroOf(settings.phase_balance_b) ||
-      settings.phase_balance_c <= ZeroOf(settings.phase_balance_c)) {
+      settings.adc_gain_vdc <= ZeroOf(settings.adc_gain_vdc)) {
     return SettingsStatus::kOutOfRange;
   }
 

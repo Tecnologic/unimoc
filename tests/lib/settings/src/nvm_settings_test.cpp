@@ -104,44 +104,6 @@ ZTEST(nvm_settings, test_default_excitation_mode) {
   zexpect_equal(settings.excitation_mode, 0U);  // CurrentMode
 }
 
-// --- Phase current balance defaults ---
-
-ZTEST(nvm_settings, test_default_phase_balance_a) {
-  NvmSettings settings;
-  UNIMOC_EXPECT_FLOAT_EQ(settings.phase_balance_a, 1.0_ratio);
-}
-
-ZTEST(nvm_settings, test_default_phase_balance_b) {
-  NvmSettings settings;
-  UNIMOC_EXPECT_FLOAT_EQ(settings.phase_balance_b, 1.0_ratio);
-}
-
-ZTEST(nvm_settings, test_default_phase_balance_c) {
-  NvmSettings settings;
-  UNIMOC_EXPECT_FLOAT_EQ(settings.phase_balance_c, 1.0_ratio);
-}
-
-ZTEST(nvm_settings, test_phase_balance_can_be_modified) {
-  NvmSettings settings;
-  settings.phase_balance_a = 1.02_ratio;
-  settings.phase_balance_b = 0.98_ratio;
-  settings.phase_balance_c = 1.00_ratio;
-  UNIMOC_EXPECT_FLOAT_EQ(settings.phase_balance_a, 1.02_ratio);
-  UNIMOC_EXPECT_FLOAT_EQ(settings.phase_balance_b, 0.98_ratio);
-  UNIMOC_EXPECT_FLOAT_EQ(settings.phase_balance_c, 1.00_ratio);
-}
-
-ZTEST(nvm_settings, test_reset_restores_phase_balance_defaults) {
-  NvmSettings settings;
-  settings.phase_balance_a = 1.05_ratio;
-  settings.phase_balance_b = 0.95_ratio;
-  settings.phase_balance_c = 0.99_ratio;
-  settings.ResetToDefaults();
-  UNIMOC_EXPECT_FLOAT_EQ(settings.phase_balance_a, 1.0_ratio);
-  UNIMOC_EXPECT_FLOAT_EQ(settings.phase_balance_b, 1.0_ratio);
-  UNIMOC_EXPECT_FLOAT_EQ(settings.phase_balance_c, 1.0_ratio);
-}
-
 }  // namespace unimoc::settings::test
 
 ZTEST_SUITE(nvm_settings, nullptr, nullptr, nullptr, nullptr, nullptr);

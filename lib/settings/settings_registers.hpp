@@ -213,9 +213,6 @@ void ForEachRegister(const Visitor& visit, Settings&... settings) {
   visit(Setting(reg::kStartupGainB, "Gain correction of the phase B current sense", AtLeast(0.0F)), settings.adc_gain_b...);
   visit(Setting(reg::kStartupGainC, "Gain correction of the phase C current sense", AtLeast(0.0F)), settings.adc_gain_c...);
   visit(Setting(reg::kStartupGainVdc, "Gain correction of the DC-link voltage sense", AtLeast(0.0F)), settings.adc_gain_vdc...);
-  visit(Setting(reg::kBalanceGainA, "Balance correction of phase A, about 1", AtLeast(0.0F)), settings.phase_balance_a...);
-  visit(Setting(reg::kBalanceGainB, "Balance correction of phase B, about 1", AtLeast(0.0F)), settings.phase_balance_b...);
-  visit(Setting(reg::kBalanceGainC, "Balance correction of phase C, about 1", AtLeast(0.0F)), settings.phase_balance_c...);
   visit(AfterRestart(reg::kSubReadinessId, "Readiness subject; 65534: 1024 + node-ID, 65535: off", kPortId), settings.sub_readiness_id...);
   visit(AfterRestart(reg::kSubCurrentSetpointId, "Current setpoint subject; 65535: off", kPortId), settings.sub_current_setpoint_id...);
   visit(AfterRestart(reg::kSubTorqueSetpointId, "Torque setpoint subject; 65535: off", kPortId), settings.sub_torque_setpoint_id...);

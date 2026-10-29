@@ -535,27 +535,6 @@ struct NvmSettings {
   unit::Ratio adc_gain_vdc{1.0_ratio};
 
   // =========================================================================
-  // Phase current balance correction
-  //
-  // Per-phase ADC gain correction factors, dimensionless (nominal value 1.0).
-  // Applied to the raw phase-current ADC reading of each channel to
-  // compensate for hardware gain/offset mismatch between the three current
-  // sense paths.  Identified by CMD_MEASURE_BALANCE.
-  // =========================================================================
-
-  /// Phase-A ADC gain correction factor [dimensionless, ≈ 1.0].
-  /// Register: `unimoc.motor.balance.gain_a`
-  unit::Ratio phase_balance_a{1.0_ratio};
-
-  /// Phase-B ADC gain correction factor [dimensionless, ≈ 1.0].
-  /// Register: `unimoc.motor.balance.gain_b`
-  unit::Ratio phase_balance_b{1.0_ratio};
-
-  /// Phase-C ADC gain correction factor [dimensionless, ≈ 1.0].
-  /// Register: `unimoc.motor.balance.gain_c`
-  unit::Ratio phase_balance_c{1.0_ratio};
-
-  // =========================================================================
   // Cyphal ports and timing
   //
   // Port-IDs are applied at the next start; 65535 (cyphal::kUnsetPortId)
