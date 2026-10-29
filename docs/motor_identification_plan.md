@@ -1,7 +1,8 @@
 # Motor Identification Plan
 
-Status: plan (2026-10-29), nothing implemented. The open decisions are in
-section 9.
+Status: plan (2026-10-29), nothing implemented. Decisions 1 to 5 of
+section 9 were taken on 2026-10-29; decision 6 (the startup aid on the same
+bus contract) is open.
 
 UNIMOC needs the electrical and mechanical parameters of the connected
 motor: the current loop, the observers, the field weakening and the speed
@@ -36,10 +37,9 @@ cypilot.
 | Inertia J, friction | `unimoc.motor.mechanics.J` (friction: new, optional) | mechanical observer, speed PI | M6 |
 | Current and speed PI gains | `unimoc.control.current.kp_d` ..., `unimoc.control.speed.kp`, `.ki` | the loops | derived (M7) |
 
-`unimoc.motor.balance.gain_a/b/c` (`phase_balance_*`, "identified by
-CMD_MEASURE_BALANCE") are unused; the startup aid now measures the gain of
-each phase (`unimoc.startup.gain_a/b/c`, applied in the control cycle). See
-decision 2.
+The phase-balance registers `unimoc.motor.balance.gain_a/b/c` were never
+applied and are removed (decision 2): the startup aid measures the gain of
+each phase (`unimoc.startup.gain_a/b/c`, applied in the control cycle).
 
 ## 3. The old firmware
 
@@ -111,28 +111,48 @@ test against the plant truth (`lib/sim`, section 7).
 - Optional: L_d at three d bias levels (saturation), reported, not stored.
 - Check: R from M2 within 20 % of M1 (both measure the same winding).
 
-### 4.3 M3: flux linkage (shaft free)
+### 4.3 M3: flux linkage by coast-down (shaft free)
 
-- I/f spin-up: current control at a forced angle whose speed rises along a
-  ramp, i_q = 30 % of the limit, up to three speeds (20, 35 and 50 % of the
-  speed limit, at most 25 % of the DC-link voltage as back-EMF).
-- At each speed, held steady: the back-EMF in the forced frame
-  e = u - R_s i - j w L i (L_d = L_q assumed for the vector; the error of a
-  salient motor is small at the low load angle of I/f) and psi = |e| / w.
-  The regression over the three speeds (|e| over w) cancels a constant error.
-- Alternative with the phase-voltage sense (decision 4): spin up, switch
-  the outputs off and measure the line-to-line back-EMF directly from `va`,
-  `vb`, `vc` while the shaft coasts; no R, L or current involved.
-- Then the rotor is slowed with the ramp and the outputs stop at standstill.
-- Check: the loaded speed follows the forced speed (a stall shows as a back-
-  EMF far below the expectation and aborts).
+The fixed-angle (I/f) estimate of the old firmware was inaccurate on the
+bench: it rests on R and L and on the load angle of a rotor that lags the
+forced angle (decision 4). M3 measures the back-EMF itself instead:
 
-### 4.4 M4: pole pairs (shaft free, operator assisted)
+- Spin-up: I/f (current control at a forced angle with a speed ramp,
+  i_q = 30 % of the limit) to the speed where the line-to-line back-EMF is
+  about 25 % of the DC link, at most 50 % of the speed limit.
+- Coast: the outputs off (all switches open, `PowerStageInterface::Disable()`;
+  on the BCC MOE = 0 drives the idle levels OIS = 0 of active-high outputs, so
+  both gates of each leg are low: check the gate-driver polarity on the bench,
+  a driven low side would short the motor instead of letting it coast).
+  The motor terminals then carry the back-EMF alone; the phase-voltage sense
+  (`va`, `vb`, `vc` of the BCC, section 5.2) samples them at the PWM rate as
+  before (the timer runs on, only the outputs are off).
+- Per electrical period: the frequency from the zero crossings of the line-to-
+  line voltages (no pole pairs, no speed estimate needed) and the amplitude of
+  the line-to-line fundamental (Goertzel at the measured frequency over whole
+  periods). psi = U_ll,peak / (sqrt(3) w_e), from each period while the shaft
+  slows; the mean over the periods above 10 % of the start speed is the result,
+  their spread the check (within 3 %).
+- The speed decay of the same coast is the friction data of M6.
+- Below the threshold speed the run waits for standstill (the outputs stay off).
+- Check: no current flows while coasting (the body diodes conduct only above
+  the DC link: the spin-up speed keeps the back-EMF at 25 % of it).
 
-- The pole pairs are entered (data sheet or counted magnets). The check: a
-  slow forced rotation of exactly p electrical revolutions at a d current;
-  the operator confirms in cypilot that the shaft turned exactly once (a mark
-  on the shaft). With Hall sensors the drive also counts 6 p Hall edges.
+### 4.4 M4: pole pairs, measured or entered and checked (shaft free, operator assisted)
+
+Both ways (decision 3); the operator chooses in cypilot:
+
+- **Measured:** the operator marks the shaft. The drive turns a slow forced
+  angle (one electrical revolution per second, d current at 30 % of the
+  limit) and counts the electrical revolutions; the operator confirms when the
+  mark is back (cypilot sends the confirmation, section 5.3), and p is the
+  count rounded. With Hall sensors the drive also counts the Hall edges
+  (6 p per mechanical revolution) and reports a mismatch.
+- **Entered and checked:** the operator enters p (data sheet, counted
+  magnets); the drive turns exactly p electrical revolutions and stops; the
+  operator confirms that the shaft turned exactly once (Yes, No, Repeat).
+
+Both end with p in the results; apply writes `unimoc.motor.pole_pairs`.
 
 ### 4.5 M5: Hall offset and order (shaft free)
 
@@ -148,11 +168,13 @@ test against the plant truth (`lib/sim`, section 7).
 
 ### 4.6 M6: inertia and friction (shaft free)
 
-- With the observer running (psi known from M3, or Hall from M5) and the
-  speed loop off: torque steps of +T, 0 and -T (T from 20 % of the current
-  limit) between two speeds, and a coast-down with zero torque.
-- Least squares on w(t): J dw/dt = T - B w - T_c sign(w); the coast-down gives
-  B and T_c, the steps J. The speed stays below 30 % of its limit.
+- Friction from the coast-down of M3: the speed from the back-EMF frequency,
+  least squares on J dw/dt = -B w - T_c gives B / J and T_c / J.
+- J from torque steps: with the observer running (psi known from M3, or Hall
+  from M5) and the speed loop off, +T and -T (T from 20 % of the current limit)
+  between two speeds; J dw/dt = T - B w - T_c sign(w) with B / J and T_c / J
+  from the coast gives J, then B and T_c. The speed stays below 30 % of its
+  limit.
 - Check: J of the acceleration and of the deceleration within 15 %.
 
 ### 4.7 M7: derived settings
@@ -195,7 +217,7 @@ angle buffers instead of the mechanical observer's. The zero-latency control
 cycle does not change. The observer keeps running in the background (M6 needs
 it, and its estimate can be compared with the forced angle).
 
-### 5.2 Recording
+### 5.2 Recording and the phase-voltage sense
 
 The estimators need per-cycle data (16 kHz): means of u and i (M1, M3), the
 Goertzel terms of u and i at f_inj (M2), w(t) (M6). A buffer of 2048 cycles
@@ -205,6 +227,19 @@ multiply-adds per cycle in the observer interrupt, not at zero latency) into a
 small result block the FSM reads in the Cyphal thread once the window is
 complete; M6 decimates w(t) to 1 kHz (2 s in 8 KB). cymon traces of the
 same signals show the run in cypilot's scope.
+
+**Phase voltages (M3).** The BCC samples `va`, `vb`, `vc` with every
+conversion (`foc_stm32g4::RawSamples`), but the platform interface does not
+pass them on. M3 adds them to `ControlCycleSamples` (scaled like the DC link,
+33k/1k) and `SlowUpdate` evaluates them during the coast (zero crossings,
+Goertzel per period). Their gain is calibrated by the startup aid: in
+DUTY_FORCE_LOW/MID/HIGH the phase voltage must be the duty times the
+calibrated DC link, which also turns the manual scope check of those steps
+into a measured one (`unimoc.startup.gain_va/vb/vc`, new persistent
+registers). The simulation needs the terminal voltages of a motor with open
+outputs (`lib/sim`: back-EMF plus the star point, the inverter without
+conduction while the back-EMF stays below the DC link). The 4850 board's
+voltage sense is open (TODO.md, cart system).
 
 M2's injection is the one change of the control cycle: the HFI injection
 already adds a voltage per duty entry (`hfi.GetInjectionVoltage()` in
@@ -218,39 +253,78 @@ to f_pwm / 8 is possible; 500 Hz leaves 32 cycles per period for Goertzel.
 `src/identification/` (`MotorIdentification`), in the style of `HwStartup`:
 steps, results, one sample per FSM run in the Cyphal thread, the outputs
 released by the FSM and never while engaged, the overcurrent limit of the run,
-abort on run = 0, on the E-stop and on a trip. The estimators (regression,
-Goertzel, the least squares of M6) are portable code in
-`lib/motor_control/src/identification/` with ztests.
+abort on the abort command, on the E-stop and on a trip. The estimators
+(regression, Goertzel, zero crossings, the least squares of M6) are portable
+code in `lib/motor_control/src/identification/` with ztests.
 
-Registers (`unimoc.identify.*`, not persistent):
+### 5.4 Bus interface: commands, a status message and registers
 
-| Register | Type | Meaning |
+How does a tool know that a step has measured, waits for the operator, has
+finished or has failed? Registers alone (as the startup aid today) give the
+state only when polled, cannot tell "measuring" from "waiting for the
+operator", and answer a refused write with the unchanged value, which looks
+like an accepted one (the startup aid's `step` register answers with the
+step, not with the written 1). The `CMD_MEASURE_*` commands of the older
+design answered "started" and published one result message at the end, but
+had no progress, no operator input and nothing for a client that joins late.
+So each of the three Cyphal mechanisms does what it is good at (decision 1):
+
+**Actions: `uavcan.node.ExecuteCommand`** (vendor codes 0x0200 .. 0x02FF,
+replacing `CMD_MEASURE_RS/LD_LQ/PSI` 0x0100 .. 0x0102). The answer says at
+once whether the action was taken, with the reason in `output` (46 bytes):
+SUCCESS; BAD_STATE (engaged, another procedure runs, a precondition is
+missing); BAD_PARAMETER (a reading out of range, an unknown confirmation);
+FAILURE (the power stage was not released).
+
+| Code | Command | Parameter |
 |---|---|---|
-| `run` | natural8 | 1 runs, 0 aborts (as the startup aid) |
-| `select` | natural8 (bit mask) | M1 .. M6 to run (default all that the preconditions allow) |
-| `step` | natural8 | the step; write 1 continues (the operator confirmations of section 6) |
-| `results` | natural8[] | per step: 0 not run, 1 passed, 2 failed a check |
-| `result.R`, `result.L_d`, `result.L_q`, `result.flux_pm`, `result.J`, `result.friction`, `result.hall_offset`, `result.dead_time` | real32 | the measured values, base units |
-| `result.current_kp` ... | real32 | the derived gains (M7) |
-| `apply` | natural8 | write 1: the results to the settings (validated, one transaction); then Store |
-| `pole_pairs_turned` | natural8 | M4: the operator's confirmation |
+| 0x0200 | START_STARTUP_AID | - (decision 6) |
+| 0x0201 | START_IDENTIFICATION | the measurements, e.g. `M1,M2,M3,M4,M5,M6`; `p=15` for M4 "entered" |
+| 0x0202 | CONTINUE | the confirmation the step waits for: `motor-connected`, `shaft-free`, `one-turn`, `not-one-turn` |
+| 0x0203 | SET_READING | `vdc=48.1`, `current=0.85` (the meter readings of the startup aid) |
+| 0x0204 | ABORT | - (also from a client without the control lease) |
+| 0x0205 | APPLY_IDENTIFICATION | the results to apply, e.g. `R,L,psi,p,hall,J,gains`; validated, one transaction |
 
-The ExecuteCommand codes `CMD_MEASURE_RS/LD_LQ/PSI/BALANCE` (0x0100 ..
-0x0103) and the result subjects 208 .. 211 (`uavcan.pub.meas_*`) of
-`lib/cyphal/cyphal_interface.hpp` are an older design that nothing
-implements; decision 1.
+**Progress and completion: a status message** `unimoc.drive.CommissioningStatus.0.1`
+(new DSDL type, one CAN FD frame, subject `uavcan.pub.commissioning.id`),
+published on every change of state and at 2 Hz while a procedure runs, so a
+tool reacts without polling and a client that joins late has the state within
+0.5 s:
 
-### 5.4 Results and apply
+```
+uint8 procedure        # NONE, STARTUP_AID, IDENTIFICATION
+uint8 step             # the step of the procedure
+uint8 state            # IDLE, MEASURING, WAITING (for CONTINUE), NEEDS_READING, DONE, FAILED, ABORTED
+uint8 needs            # NONE, DC_LINK_VOLTAGE, PHASE_CURRENT, MOTOR_CONNECTED, SHAFT_FREE, ONE_TURN
+uint8 progress         # 0 .. 100 % of the step
+uint32 passed          # one bit per step
+uint32 failed          # one bit per step: a check did not hold
+uint8 fault            # NONE, OVERCURRENT, TRIP, ENABLE_LOST, ABORTED, E_STOP, CHECK_FAILED, TIMEOUT
+uint32 counter         # electrical revolutions of M4, events of the step
+```
 
-The run writes nothing to the settings by itself (unlike the startup aid at
-DONE): the operator compares the results with the present settings in
-cypilot and applies them (`apply` = 1), then stores them. Applying while
-engaged waits for the disengage, as every motor setting does.
+**Values: registers** (`unimoc.identify.result.*`, real32 in base units, read
+only, not persistent: `R`, `L_d`, `L_q`, `flux_pm`, `pole_pairs`,
+`hall_offset`, `J`, `friction_viscous`, `friction_coulomb`, `dead_time`, the
+derived gains), readable at any time with units and descriptions from the
+register description file, so a review, a profile or a script does not depend
+on having seen a message.
+
+The `uavcan.pub.meas_*` subjects 208 .. 210 are removed with the old codes.
+
+### 5.5 Results and apply
+
+The run writes nothing to the settings by itself (decision 5): the cypilot
+operator reviews the results, compares them with the present settings and
+approves them; cypilot sends APPLY_IDENTIFICATION with the approved values,
+then STORE. Applying while engaged waits for the disengage, as every motor
+setting does.
 
 ## 6. The flow in cypilot
 
 A "Motor identification" card next to the startup aid (the Control view, or
-a "Commissioning" view holding both), on the registers of section 5.3, with
+a "Commissioning" view holding both), on the interface of section 5.4 (actions as commands, the status message
+for progress and completion, the result registers for the review), with
 the same safety rules: the operator's control lease, stop all, the E-stop and
 a lost lease abort the run, the abort is open to every client, the
 preconditions are confirmed per step. `cypilot-ctl identify NODE [run|abort|
@@ -265,11 +339,15 @@ status|apply]` is the same at the terminal.
    as a chart.
 3. **Free shaft (M3 to M6):** "The motor will spin up to <speed>. Remove the
    load, keep the area clear." A separate confirmation before the first
-   rotation, like CONNECT_MOTOR of the startup aid. M4 asks "did the shaft turn
-   exactly once?" with Yes, No and Repeat.
+   rotation, like CONNECT_MOTOR of the startup aid. M4: "Measure" (mark the
+   shaft, press Stop when the mark is back; cypilot shows the counted
+   electrical revolutions) or "Enter and check" (enter p, then "did the shaft
+   turn exactly once?" with Yes, No and Repeat). M3 shows the coast-down: the
+   back-EMF amplitude over the frequency and psi per period.
 4. **Review:** a table of each value with the present setting, the
-   difference and the checks; the derived gains. Apply, then Store, and
-   "save as profile" (the profile of a motor type, `cypilot` profiles).
+   difference and the checks; the derived gains. The operator approves the
+   values one by one or all; Apply, then Store, and "save as profile" (the
+   profile of a motor type, `cypilot` profiles).
 5. **Several drives:** identify one drive per motor type, copy the profile to
    the others (the profile copy of cypilot), run M5 (Hall) on each.
 
@@ -282,38 +360,48 @@ status|apply]` is the same at the terminal.
   known R, L_d != L_q, psi, J, friction and Hall offset: within 2 % (R, L,
   psi), 5 % (J), 2 degrees (Hall). The inverter model of `lib/sim` has no dead
   time yet; M1's dead-time estimate needs it (a dead-time voltage in
-  `InverterModel`).
-- `tests/sim/cyphal_drive` and the pycyphal integration test: the registers,
-  run, abort, apply; cypilot: unit tests on the demo device, a sim test on the
-  real simulation (as the startup aid).
+  `InverterModel`). M3 needs the terminal voltages of the motor with open
+  outputs in the plant (section 5.2).
+- `tests/sim/cyphal_drive` and the pycyphal integration test: the commands
+  with their refusals, the status message (every change, 2 Hz, a late
+  subscriber), the result registers, abort and apply; cypilot: unit tests on
+  the demo device, a sim test on the real simulation (as the startup aid).
 
 ## 8. Milestones
 
 | | Content | Needs |
 |---|---|---|
-| I0 | Forced angle in `SlowUpdate`, recording buffer, FSM skeleton with run/step/abort/results, registers, cypilot card and CLI with the confirmations | - |
+| C0 | The bus contract of section 5.4: the command codes, `unimoc.drive.CommissioningStatus.0.1` and its publisher; the startup aid on it (decision 6); cypilot event-driven on the status message | decision 6 |
+| I0 | Forced angle in `SlowUpdate`, the online accumulation, the identification FSM skeleton on C0, the result registers, the cypilot card and `cypilot-ctl identify` | C0 |
 | I1 | M1 R_s and dead-time voltage; dead time in the sim inverter | I0 |
 | I2 | M2 L_d, L_q | I0 |
-| I3 | M3 psi (I/f), M4 pole-pair check | I1, I2 |
-| I4 | M5 Hall offset | I3 (the I/f rotation) |
-| I5 | M6 J and friction | I3 |
-| I6 | M7 derived gains, apply, review in cypilot, profile | I1 .. I5 |
+| I3 | Phase voltages in `ControlCycleSamples` (BCC and sim plant with open outputs), their calibration in the startup aid's DUTY_FORCE steps; M3 psi by coast-down | I0 |
+| I4 | M4 pole pairs (measured, entered and checked); M5 Hall offset | I0 (the forced rotation) |
+| I5 | M6 J and friction (the coast of M3, the torque steps) | I3 |
+| I6 | M7 derived gains; review, approval and apply in cypilot; profile | I1 .. I5 |
 | I7 | Bench: the hoverboard motor (data sheet values) and the 4850 motor; compare with an LCR meter (L), a 4-wire measurement (R), a coast-down on the scope (psi) | board access |
 
 ## 9. Decisions
 
-1. **Registers instead of ExecuteCommand.** Recommended: the register FSM of
-   section 5.3, like the startup aid (one flow, steps with confirmations,
-   readable state for several clients); remove `CMD_MEASURE_*` and the
-   `uavcan.pub.meas_*` ports 208 .. 211 from `cyphal_interface.hpp`.
-2. **`phase_balance_*`:** remove the registers (the startup aid's per-phase
-   gains replace them), or keep them as a second, motor-side balance.
-   Recommended: remove.
-3. **Pole pairs:** entered and checked (M4, recommended), or counted with
-   the Hall sensors alone.
-4. **Phase-voltage sense for psi:** use `va`, `vb`, `vc` of the BCC for a
-   coast-down back-EMF (more exact, needs the voltage channels in the
-   platform interface and their calibration) or stay with the I/f estimate.
-   The 4850 board's voltage sense is open (TODO.md, cart system).
-5. **Apply:** reviewed in cypilot and applied by the operator (recommended),
-   or written at the end of the run like the startup aid.
+Taken on 2026-10-29:
+
+1. **Bus interface:** actions as ExecuteCommand with their status codes,
+   progress and completion as the status message, values as registers
+   (section 5.4). The old `CMD_MEASURE_*` codes and the `meas_*` subjects go.
+2. **`phase_balance_*`:** removed (done 2026-10-29, with CMD_MEASURE_BALANCE
+   and subject 211).
+3. **Pole pairs:** both, measured or entered and checked (M4).
+4. **psi:** coast-down on the phase-voltage sense (M3); the fixed-angle
+   estimate was inaccurate.
+5. **Apply:** reviewed, compared and approved by the cypilot operator
+   (section 5.5).
+
+Open:
+
+6. **The startup aid on the same contract** (milestone C0): its run, step,
+   ext_current_A and ext_vdc_V registers become the START_STARTUP_AID,
+   CONTINUE and SET_READING commands and the status message (today a tool
+   cannot tell "measuring" from "waiting for Next", and a refused step write
+   looks accepted); the results and the calibration stay registers. Changes
+   the bus contract that cypilot uses since its startup card; recommended
+   before the identification, so both procedures share one interface.

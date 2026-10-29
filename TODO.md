@@ -73,14 +73,15 @@ In this order; all without hardware unless marked.
 
 Plan: [docs/motor_identification_plan.md](docs/motor_identification_plan.md) (algorithms of the old firmware carried over, an assisted flow in cypilot like the startup aid). Decisions in its section 9 first.
 
- - [ ] I0: forced angle in `SlowUpdate`, online accumulation of the measurement windows, `MotorIdentification` FSM with `unimoc.identify.*` (run, step, results, apply), cypilot card and `cypilot-ctl identify`.
+ - [ ] C0: the commissioning bus contract (plan section 5.4): ExecuteCommand codes 0x0200 .. 0x0205 for the actions, `unimoc.drive.CommissioningStatus.0.1` for progress and completion, the old `CMD_MEASURE_*` and `meas_*` subjects removed; the startup aid on it (decision 6, open); cypilot event-driven.
+ - [ ] I0: forced angle in `SlowUpdate`, online accumulation of the measurement windows, `MotorIdentification` FSM on C0 with the result registers `unimoc.identify.result.*`, cypilot card and `cypilot-ctl identify`.
  - [ ] I1: M1 stator resistance and dead-time voltage (regression over current levels at three angles); dead time in the sim inverter.
  - [ ] I2: M2 L_d and L_q (sine injection per axis, Goertzel impedance).
- - [ ] I3: M3 flux linkage (I/f at three speeds), M4 pole-pair check.
- - [ ] I4: M5 Hall offset and order.
- - [ ] I5: M6 inertia and friction.
- - [ ] I6: M7 derived gains, review and apply in cypilot, motor profiles.
- - [ ] I7 (hardware): bench comparison with LCR meter, 4-wire R and a coast-down.
+ - [ ] I3: phase voltages in `ControlCycleSamples` (BCC, the sim plant with open outputs), their calibration in the startup aid's DUTY_FORCE steps; M3 flux linkage by coast-down.
+ - [ ] I4: M4 pole pairs (measured, or entered and checked); M5 Hall offset and order.
+ - [ ] I5: M6 inertia and friction (the coast of M3, torque steps).
+ - [ ] I6: M7 derived gains; review, comparison and approval in cypilot, apply and store, motor profiles.
+ - [ ] I7 (hardware): bench comparison with LCR meter, 4-wire R and a scope coast-down; the gate-driver idle polarity for the coast.
 
 ## Cart system
 
