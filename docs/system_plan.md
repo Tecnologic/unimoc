@@ -452,8 +452,8 @@ the simulation, not on hardware):
   chopper limits the voltage, and each drive still needs its own
   overvoltage limit in the current controller and a hard trip, verified on
   the bench with the chopper disconnected. Implemented in the drive
-  (2026-10-22): regenerative derating from 55 V, trip at 58 V (BCC). The
-  trip switches all transistors off, so at high speed the motor still
+  (2026-10-22): regenerative derating from 55 V, trip at 58 V (BCC),
+  checked in every sample interrupt (2026-10-29). The trip switches all transistors off, so at high speed the motor still
   charges the DC link through the body diodes; accepted as a known risk on
   the BCC. The new 4850 hardware mitigates it with the fourth half bridge as
   a local brake chopper (PMSM) or by de-exciting the field (EESM), section

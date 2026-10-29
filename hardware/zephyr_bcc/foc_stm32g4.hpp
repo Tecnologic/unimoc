@@ -130,6 +130,7 @@ struct CycleRaw {
   std::array<RawCurrents, kHalfPeriodsPerCycle> currents;  ///< oldest first
   uint32_t vdc;                                            ///< of the last sample
   bool overcurrent;                                        ///< a sample left the window
+  bool overvoltage;                                        ///< a DC-link sample reached the threshold
   uint32_t timestamp;                                      ///< Timestamp() at the last sample
 };
 
@@ -156,6 +157,14 @@ struct CycleRaw {
  * low = 0 and high = 4095 disable the check.
  */
 void SetOvercurrentWindow(uint32_t low, uint32_t high) noexcept;
+
+/**
+ * @brief Raw threshold of the per-sample DC-link overvoltage check.
+ *
+ * A DC-link conversion at or above @p threshold trips the power stage.
+ * 4096 and above disable the check.
+ */
+void SetOvervoltageThreshold(uint32_t threshold) noexcept;
 
 /// Raw injected results (12 bit, unsigned, right aligned) of the last sequence.
 struct RawSamples {

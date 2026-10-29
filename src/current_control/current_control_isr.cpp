@@ -50,6 +50,7 @@ void CurrentControlIsr::Init(const settings::NvmSettings& settings,
   state.adc_trigger_offset = static_cast<uint32_t>(std::roundf(1e-6F * static_cast<float>(timer_clock_hz)));
 
   state.dc_link_trip = settings.dc_link_trip;
+  hardware.SetOvervoltageLimit(settings.dc_link_trip);
   hfi.Init(settings);
   dtc.Init(settings);
   svm.Init(settings);
@@ -156,8 +157,10 @@ void CurrentControlIsr::OnControlCycle() noexcept {
     }
   }
   // 1c. DC-link overvoltage: no braking current can be taken any more; the
-  //     outer loop has derated regenerative braking before this level.
-  if (!state.overvoltage_tripped && !(kSamples.dc_link < state.dc_link_trip)) {
+  //     outer loop has derated regenerative braking before this level. The
+  //     hardware has checked every sample and tripped the stage already; this
+  //     repeats the check on the scaled voltage of the last sample.
+  if (!state.overvoltage_tripped && (kSamples.overvoltage || !(kSamples.dc_link < state.dc_link_trip))) {
     hardware::hot_path::TripPowerStage();
     state.overvoltage_tripped = true;
   }

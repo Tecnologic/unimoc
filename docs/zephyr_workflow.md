@@ -164,7 +164,11 @@ acknowledgement: it clears a latched break and the trip, then calls
 `Enable()`; without the external enable the run is not started and the FSM
 stays IDLE. While a run is active `RunOnce()` leaves for FAULT as soon as the
 stage is no longer enabled (trip, external break, e-stop), and
-`EnterFault()` calls `Disable()`. `tests/sim/overcurrent` covers these paths.
+`EnterFault()` calls `Disable()`. The DC-link trip voltage of the settings
+works the same way: `CurrentControlIsr::Init()` sets the per-sample
+overvoltage check of the hardware layer (`SetOvervoltageLimit()`), the
+control cycle latches `state.overvoltage_tripped`. `tests/sim/overcurrent`
+covers these paths.
 
 ## Known issues
 
@@ -193,7 +197,7 @@ stage is no longer enabled (trip, external break, e-stop), and
   `motor_i_max` 50 A limit the current controller. The battery current limits
   are still the old values.
 - Nothing watches the power stage after the startup run is DONE except the
-  per-sample overcurrent trip; the hardware break still works. The board has no
+  per-sample overcurrent and overvoltage trips; the hardware break still works. The board has no
   comparators on the current channels; the analog watchdog is not configured.
 - The schematic symbol of U43 is an STM32G491CxT, the board carries and the
   firmware targets the STM32G473CET6 (512 KB flash, dual bank) (FDCAN3 on PB3/PB4 and ADC4/ADC5 only exist there).

@@ -212,11 +212,12 @@ whole number of 1 µs ticks):
 
 1. control callback and observer callback on the samples of the cycle that ended,
 2. the plant over the next four half periods: the first with entry 3 of the previous plan, the next three
-   with entries 0..2 of the new plan; after each half period a sample and the overcurrent check.
+   with entries 0..2 of the new plan; after each half period a sample and the overcurrent and
+   overvoltage checks.
 
 That is the timing of variant B. The sim checks the control logic and this timing contract, not the
 time budget, ADC noise, quantization or dead time (the inverter model has none). Tests:
-`sim_irq_cadence` (cadence and plan timing), `sim_overcurrent` (per-sample trip), `sim_closed_loop`
+`sim_irq_cadence` (cadence and plan timing), `sim_overcurrent` (per-sample trips), `sim_closed_loop`
 (current steps on a locked rotor through the real control core).
 
 ## 8. Milestones
@@ -253,7 +254,9 @@ functions and `memset`. No libm function (`sqrtf` was there before
   sample times and simultaneous triggers on all ADCs (as before).
 - **Overcurrent only in software.** The board has no comparators on the current channels; the check is
   per sample in the zero-latency interrupt (reaction within about 1 µs plus the half period until the
-  next sample). The analog watchdog of the ADCs is a possible addition.
+  next sample). The analog watchdog of the ADCs is a possible addition. The DC-link overvoltage is
+  checked the same way (raw threshold on ADC4 rank 0 in every sample interrupt, since 2026-10-29); its
+  conversion ends before the ADC1 sequence only as long as the sample times of `bcc.dts` keep it short.
 - **Observer overrun.** If the observer does not finish within one cycle, the control cycle reuses the
   old angles (and the sample buffer can race); counted, to be measured in M0.
 - **FPU in zero-latency ISRs.** Lazy stacking costs cycles when a thread uses the FPU. Measure in M0.

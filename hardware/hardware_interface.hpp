@@ -42,6 +42,9 @@ struct ControlCycleSamples {
   /// A sample of this cycle exceeded the overcurrent limit. The hardware layer
   /// has already tripped the power stage when this is set.
   bool overcurrent{false};
+  /// The DC-link voltage of a sample of this cycle reached the overvoltage
+  /// limit. The hardware layer has already tripped the power stage when this is set.
+  bool overvoltage{false};
   /// Time of the last sample (the control boundary) in ticks of the
   /// timestamp clock (kTimestampFrequency), the clock of the Hall events.
   uint32_t timestamp{0U};
@@ -109,8 +112,9 @@ class HardwareSystemInterface {
  * zero-latency hot path does not use them: it reaches the hardware through
  * hot_path_interface.hpp, bound at link time. Interrupt layout (see
  * docs/hotpath_plan.md):
- *  - The hardware samples the currents once per PWM half period and checks
- *    each sample against the overcurrent limit itself.
+ *  - The hardware samples the currents and the DC-link voltage once per PWM
+ *    half period and checks each sample against the overcurrent and the
+ *    overvoltage limit itself.
  *  - After kHalfPeriodsPerCycle samples it calls ControlCycleHandler() in the
  *    zero-latency context.
  *  - Then it runs ObserverHandler() in a lower-priority interrupt that may be
@@ -124,6 +128,7 @@ class HardwareInterface {
   using GetPhaseVoltagesCallback = system::ThreePhase<unit::Voltage> (*)() noexcept;
   using GetTemperatureMeasurementsCallback = TemperatureMeasurements (*)() noexcept;
   using SetOvercurrentLimitCallback = void (*)(unit::Current) noexcept;
+  using SetOvervoltageLimitCallback = void (*)(unit::Voltage) noexcept;
   using SetAdcTriggerOffsetCallback = void (*)(uint32_t) noexcept;
   using GetTimerClockFrequencyCallback = uint32_t (*)() noexcept;
   using PopHallEventCallback = bool (*)(observer::HallEvent&) noexcept;
@@ -137,6 +142,7 @@ class HardwareInterface {
    * @param get_phase_voltages Reads the three phase voltages.
    * @param get_temperature_measurements Reads optional temperature channels.
    * @param set_overcurrent_limit Sets the per-sample overcurrent limit.
+   * @param set_overvoltage_limit Sets the per-sample DC-link overvoltage limit.
    * @param set_adc_trigger_offset Updates the ADC trigger compare value.
    * @param get_timer_clock_frequency Returns the timer input clock in Hz.
    * @param pop_hall_event Takes the oldest captured change of the Hall code.
@@ -147,6 +153,7 @@ class HardwareInterface {
                     GetPhaseVoltagesCallback get_phase_voltages,
                     GetTemperatureMeasurementsCallback get_temperature_measurements,
                     SetOvercurrentLimitCallback set_overcurrent_limit,
+                    SetOvervoltageLimitCallback set_overvoltage_limit,
                     SetAdcTriggerOffsetCallback set_adc_trigger_offset,
                     GetTimerClockFrequencyCallback get_timer_clock_frequency,
                     PopHallEventCallback pop_hall_event)
@@ -156,6 +163,7 @@ class HardwareInterface {
         get_phase_voltages_(get_phase_voltages),
         get_temperature_measurements_(get_temperature_measurements),
         set_overcurrent_limit_(set_overcurrent_limit),
+        set_overvoltage_limit_(set_overvoltage_limit),
         set_adc_trigger_offset_(set_adc_trigger_offset),
         get_timer_clock_frequency_(get_timer_clock_frequency),
         pop_hall_event_(pop_hall_event) {}
@@ -218,6 +226,17 @@ class HardwareInterface {
   void SetOvercurrentLimit(unit::Current limit) const noexcept { set_overcurrent_limit_(limit); }
 
   /**
+   * @brief Sets the limit of the per-sample DC-link overvoltage check.
+   *
+   * The hardware compares the DC-link voltage of every sample against it (in
+   * raw ADC counts where possible) and trips the power stage at once when it
+   * reaches the limit.
+   *
+   * @param limit DC-link voltage; infinity disables the check.
+   */
+  void SetOvervoltageLimit(unit::Voltage limit) const noexcept { set_overvoltage_limit_(limit); }
+
+  /**
    * @brief Updates the timer compare value that triggers ADC conversion.
    * @param offset Trigger offset in timer ticks.
    */
@@ -250,6 +269,7 @@ class HardwareInterface {
   GetPhaseVoltagesCallback get_phase_voltages_;
   GetTemperatureMeasurementsCallback get_temperature_measurements_;
   SetOvercurrentLimitCallback set_overcurrent_limit_;
+  SetOvervoltageLimitCallback set_overvoltage_limit_;
   SetAdcTriggerOffsetCallback set_adc_trigger_offset_;
   GetTimerClockFrequencyCallback get_timer_clock_frequency_;
   PopHallEventCallback pop_hall_event_;

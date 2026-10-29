@@ -167,8 +167,10 @@ struct CurrentControlState {
   /// stays frozen at neutral duties until ClearTrips().
   volatile bool overcurrent_tripped{false};
 
-  /// DC-link voltage at which the control cycle trips the power stage; set by
-  /// Init() from the settings. Infinity disables the check.
+  /// DC-link voltage at which the power stage trips; set by Init() from the
+  /// settings. The hardware checks every sample against it and trips the
+  /// power stage; the control cycle checks the last sample of the cycle
+  /// again. Infinity disables the check.
   unit::Voltage dc_link_trip{std::numeric_limits<float>::infinity()};
 
   /// Set by the control cycle when the DC link reached `dc_link_trip`; the

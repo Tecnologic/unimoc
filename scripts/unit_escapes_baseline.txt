@@ -3,7 +3,7 @@
 4 hardware/zephyr_bcc/analog_scaling.hpp
 1 hardware/zephyr_bcc/ebike_io.cpp
 1 hardware/zephyr_bcc/foc_stm32g4.cpp
-2 hardware/zephyr_bcc/hardware_interface.cpp
+3 hardware/zephyr_bcc/hardware_interface.cpp
 1 hardware/zephyr_common/cyphal_runtime.cpp
 12 hardware/zephyr_sim/cyphal_platform.cpp
 2 hardware/zephyr_sim/ebike_io.cpp

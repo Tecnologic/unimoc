@@ -248,6 +248,17 @@ void SetOvercurrentLimit(const Current limit) noexcept {
   foc_stm32g4::SetOvercurrentWindow(kZero - kWindow, kZero + kWindow);
 }
 
+// Trips at the first count at or above the limit, like the control cycle's
+// check of the scaled voltage.
+void SetOvervoltageLimit(const Voltage limit) noexcept {
+  const float kCounts = (limit / analog::kVoltagePerCount).Value();  // a Ratio: counts from zero
+  if (!(kCounts < analog::kAdcResolution)) {
+    foc_stm32g4::SetOvervoltageThreshold(static_cast<uint32_t>(analog::kAdcResolution));  // no check
+    return;
+  }
+  foc_stm32g4::SetOvervoltageThreshold(static_cast<uint32_t>(std::ceil(std::max(kCounts, 0.0F))));
+}
+
 void SetAdcTriggerOffset(uint32_t offset) noexcept {
   foc_stm32g4::SetTriggerLead(offset);
   UpdateGuard();
@@ -273,6 +284,7 @@ ControlCycleSamples GetControlCycleSamples() noexcept {
   }
   samples.dc_link = analog::CountsToVoltage(raw.vdc);
   samples.overcurrent = raw.overcurrent;
+  samples.overvoltage = raw.overvoltage;
   samples.timestamp = raw.timestamp;
   return samples;
 }
@@ -306,6 +318,7 @@ const std::array<HardwareInterface, kMotorCount> kMotors = {HardwareInterface(In
                                                                               GetPhaseVoltages,
                                                                               GetTemperatureMeasurements,
                                                                               SetOvercurrentLimit,
+                                                                              SetOvervoltageLimit,
                                                                               SetAdcTriggerOffset,
                                                                               GetTimerClockFrequency,
                                                                               PopHallEvent)};

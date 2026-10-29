@@ -6,7 +6,8 @@
  *    \____/_/ |_/___/_/  /_/\____/\____/
  *
  *    @file main.cpp
- *    @brief Per-sample overcurrent trip, loop freeze and startup acknowledgement on native_sim.
+ *    @brief Per-sample overcurrent and overvoltage trips, loop freeze and startup
+ *           acknowledgement on native_sim.
  *
  *    SPDX-License-Identifier: GPL-3.0-or-later
  *
@@ -157,6 +158,25 @@ ZTEST_F(sim_overcurrent, test_dc_link_overvoltage_trips_and_freezes_the_loop) {
   zassert_true(isr.state.overvoltage_tripped, "latched until acknowledged");
   isr.ClearTrips();
   zassert_false(isr.Tripped());
+}
+
+ZTEST_F(sim_overcurrent, test_dc_link_sample_check_trips_at_once) {
+  CurrentControlIsr& isr = CurrentControlIsr::Instance();
+  zassert_true(kPowerStage.Enable());
+  // Only the per-sample check of the hardware layer may latch the trip here.
+  const Voltage kTrip = isr.state.dc_link_trip;
+  isr.state.dc_link_trip = 1000.0_V;
+
+  sim::Plant().SetDcLinkVoltage(58.5_V);
+  RunCycles(1);
+  // The hardware layer tripped at the sample, before any control cycle saw it.
+  zassert_equal(kPowerStage.GetState(), PowerStageState::kFault);
+  zassert_false(isr.state.overvoltage_tripped);
+
+  RunCycles(1);  // the control cycle with these samples latches the trip from the flag
+  zassert_true(isr.state.overvoltage_tripped);
+  zassert_false(isr.state.overcurrent_tripped);
+  isr.state.dc_link_trip = kTrip;
 }
 
 ZTEST_F(sim_overcurrent, test_startup_needs_external_enable) {

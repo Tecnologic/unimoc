@@ -20,7 +20,7 @@
  *        with the timing of the BCC: the first half period still uses the
  *        last entry of the previous plan, the next three use entries 0..2 of
  *        the new plan, entry 3 carries over. Each half period ends with a
- *        current sample and the per-sample overcurrent check.
+ *        sample and the per-sample overcurrent and overvoltage checks.
  *
  *    Timestamps are nanoseconds of virtual time. A change of the simulated
  *    Hall code is queued with the time of the edge, as the EXTI capture of
@@ -144,6 +144,7 @@ DutyPlan g_plan{};                // written by the control cycle
 Duties g_carry = kNeutral;        // entry 3 of the last plan: first half period of the next cycle
 std::array<Duties, kHalfPeriodsPerCycle> g_applied{kNeutral, kNeutral, kNeutral, kNeutral};
 Current g_overcurrent_limit{std::numeric_limits<float>::infinity()};
+Voltage g_overvoltage_limit{std::numeric_limits<float>::infinity()};
 bool g_current_override = false;
 system::ThreePhase<Current> g_override_currents{};
 uint32_t g_cycle_count = 0U;
@@ -238,11 +239,15 @@ void RunCycle() noexcept {
     (void)g_plant.Step(g_half_period);
     CaptureHall(kStartNs + (k + 1U) * g_half_period_ns);
 
-    // Sample at the end of the half period, then the per-sample check.
+    // Sample at the end of the half period, then the per-sample checks.
     next.phase_currents[k] = MeasuredCurrents();
     if (Exceeds(next.phase_currents[k])) {
       PowerStageTrip();
       next.overcurrent = true;
+    }
+    if (!(g_plant.Output().dc_link_voltage < g_overvoltage_limit)) {
+      PowerStageTrip();
+      next.overvoltage = true;
     }
   }
   next.dc_link = g_plant.Output().dc_link_voltage;
@@ -335,6 +340,8 @@ system::ThreePhase<Voltage> GetPhaseVoltages() noexcept { return g_plant.Output(
 TemperatureMeasurements GetTemperatureMeasurements() noexcept { return {}; }
 
 void SetOvercurrentLimit(const Current limit) noexcept { g_overcurrent_limit = limit; }
+
+void SetOvervoltageLimit(const Voltage limit) noexcept { g_overvoltage_limit = limit; }
 
 void SetAdcTriggerOffset(uint32_t /*unused*/) noexcept {}
 
@@ -464,6 +471,7 @@ const std::array<HardwareInterface, kMotorCount> kMotors = {HardwareInterface(In
                                                                               GetPhaseVoltages,
                                                                               GetTemperatureMeasurements,
                                                                               SetOvercurrentLimit,
+                                                                              SetOvervoltageLimit,
                                                                               SetAdcTriggerOffset,
                                                                               GetTimerClockFrequency,
                                                                               PopHallEvent)};
