@@ -131,7 +131,6 @@ The tags were replaced by dimension exponents (decision 4); the remaining
 escapes are counted in `scripts/unit_escapes_baseline.txt` and may only go
 down. The boundaries are documented in `CONTEXT.md` ("Unit Boundaries").
 
- - [ ] P1: Observers in units, open: the Kalman covariance and correction of `mechanical_observer` (mixed-unit state vector, stays `float`), the `atan2` of `asm_flux_observer::flux_angle` (libm; see "Motor types"), `hall_fusion` (sector timing as `Time`, noise variances), `slow_update` noise. Effort S.
  - [ ] P1: Application state in units, open: `HwStartup` thresholds and results (offsets and noise in A, gains as `Ratio`; the `double` accumulators to `float` or a documented exception), `StartupRegisters::ext_current_`/`ext_vdc_`. Effort M.
 
 ## Software-in-the-loop simulation
@@ -196,6 +195,7 @@ down. The boundaries are documented in `CONTEXT.md` ("Unit Boundaries").
  - [x] Dimension exponents instead of tags (decision 4): `unit::Dimension` (kg, m, s, A, K, rad), one generic `operator*` and `operator/`, the electromechanical coupling as the only explicit rule; zero runtime cost.
  - [x] Frames and transforms, controller gains, the observers except the items above (`mechanical_observer` torque balance, `asm_flux_observer` equations, `excitation_observer`, `field_weakening`, `mtpa`, `OuterLoop::LimitCurrent()`; no `sinf`/`cosf` in the BCC firmware), the hardware conversions, `settings_store_internal::Validate()`, `CurrentControlState` and `DriveNode` in units.
  - [x] Typed test checks: `UNIMOC_EXPECT_FLOAT_EQ`/`UNIMOC_EXPECT_NEAR` take two values of one unit; test escapes from 780 to 118.
+ - [x] P1: Observers in units (2026-10-29): the measurement noise as typed variances (`unit::AngleVariance`, `unit::AngularVelocityVariance`, `unit::AngleVarianceSpeedWeight`, literals `_rad2`, `_rad4_per_s2`) in `MechanicalObserver::UpdateAngle()`/`UpdateSpeed()` and `R`, in `hall_fusion` (with the sector timing as `unit::Time`) and in `SlowUpdate::FluxNoise()`; the settings `mech_obs_r`, `hall_r_edge`, `hall_r_sector`, `pmsm_flux_obs_r_speed` in units (same register and storage encoding). Bit-identical results; unit escapes 314 to 311. Stays as it is: the Kalman covariance of `mechanical_observer` (mixed-unit state vector, `float`), the `atan2` of `asm_flux_observer::flux_angle` (libm; see "Motor types").
 
 ### Software-in-the-loop simulation
 

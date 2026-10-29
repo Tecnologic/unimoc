@@ -197,6 +197,10 @@ hardware layer does not expose the Hall signals yet (M5).
 - **D2** `MechanicalObserver`: separate covariance prediction and measurement update
   (`PredictCovariance(dt)`, `UpdateAngle(ε, R)`); `PmsmFluxObserver::calculate()` returns the angle
   error; optional `SinCos` table in the observer. The flux observer runs always, also with an encoder.
+  Each measurement carries its noise as a typed variance (`unit::AngleVariance` for an angle,
+  `unit::AngularVelocityVariance` for the Hall speed bound R_sector/τ², checked against the unit of the
+  innovation at compile time); the covariance P stays `float` (mixed-unit state vector). The Hall
+  timing (tick period, edge age, time since the last change) is `unit::Time` (2026-10-29).
 - **D3** Decoupling from the mean current of the cycle.
 - **D4** Dedicated angle table for the output side (`sc_out`), delay as a parameter.
 - **Integer arithmetic: no.** On Cortex-M4F float add and multiply cost one cycle; the time goes into
