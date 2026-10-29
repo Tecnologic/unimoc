@@ -494,6 +494,10 @@ struct NvmSettings {
   /// Register: `unimoc.control.pos.homing_speed`
   unit::AngularVelocity pos_homing_speed{5.0_rad_per_s};
 
+  /// Current bound of the homing run [A]; 0: homing off.
+  /// Register: `unimoc.control.pos.homing_current`
+  unit::Current pos_homing_current{2.0_A};
+
   // =========================================================================
   // ADC calibration (populated by the hardware startup aid)
   //
@@ -632,6 +636,10 @@ struct NvmSettings {
   /// Commissioning status publication (unimoc.drive.CommissioningStatus.0.1).
   /// Register: `uavcan.pub.commissioning.id`
   uint16_t pub_commissioning_id{cyphal::kPubCommissioning};
+
+  /// Homing state publication (uavcan.primitive.scalar.Natural8.1.0).
+  /// Register: `uavcan.pub.homing_state.id`
+  uint16_t pub_homing_state_id{cyphal::kPubHomingState};
 
   /// Wheel of this drive (unimoc.cart.WheelCommand.WHEEL_*), 0 to 3.
   /// Register: `unimoc.cart.wheel`

@@ -126,13 +126,17 @@ class DriveInfoRegisters final : public cyphal::RegisterProvider {
  * while it runs: the drive does not engage then, and a run is refused while
  * engaged. When it ends, the controller restarts with its calibration.
  *
+ * START_HOMING hands a homing run to the outer loop (`OuterLoop::StartHoming()`)
+ * while engaged in position control; the drive publishes its state.
+ * RESET_TIMING starts new run time statistics.
+ *
  * Settings registers change the RAM settings. They are applied to the
  * controller (`current_control::StartRuntime()`) while the drive is
  * disengaged, at the latest when it engages; ExecuteCommand
  * STORE_PERSISTENT_STATES saves them to flash.
  *
  * Runs in the Cyphal thread; it reaches the control only through
- * `OuterLoop::SetSetpoint()` and reads the controller state for the trace.
+ * `OuterLoop::SetSetpoint()` and `StartHoming()` and reads the controller state for the trace.
  */
 class DriveNode final : public cyphal::MessageListener,
                         public cyphal::CommandHandler,
@@ -220,6 +224,10 @@ class DriveNode final : public cyphal::MessageListener,
   void PublishTelemetry() noexcept;
   void PublishDriveStatus() noexcept;
   void PublishCommissioning(uint64_t now_us) noexcept;
+  /// START_HOMING: checks the state and hands the run to the outer loop.
+  [[nodiscard]] cyphal::CommandResult StartHoming() noexcept;
+  /// The homing state on every change, at 2 Hz while searching and 0.5 Hz otherwise.
+  void PublishHoming(uint64_t now_us) noexcept;
   void UpdateStatus() noexcept;
 
   cyphal::CyphalNode* node_;
@@ -260,6 +268,12 @@ class DriveNode final : public cyphal::MessageListener,
   uint64_t next_telemetry_us_{0U};
   cyphal::Publisher drive_status_{};
   cyphal::Publisher commissioning_publisher_{};
+  cyphal::Publisher homing_publisher_{};
+  static constexpr uint64_t kHomingActivePeriodUs = 500'000U;
+  static constexpr uint64_t kHomingIdlePeriodUs = 2'000'000U;
+  control::HomingState last_homing_{control::HomingState::kIdle};
+  bool homing_published_{false};
+  uint64_t next_homing_us_{0U};
   uint64_t next_drive_status_us_{0U};
 
   CartControl cart_{};

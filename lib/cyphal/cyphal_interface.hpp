@@ -363,6 +363,11 @@ inline constexpr const char* kPosSpeedTol = "unimoc.control.pos.speed_tolerance"
 /// Type: real32[1] (read/write, persistent)
 inline constexpr const char* kPosHomingSpeed = "unimoc.control.pos.homing_speed";
 
+/// Current bound of the homing run [A]; reached at the stop, it ends the
+/// search. 0: homing off (START_HOMING refused).
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kPosHomingCurrent = "unimoc.control.pos.homing_current";
+
 // --- Motor operating limits ---
 
 /// Maximum motor (resultant stator vector) current [A].
@@ -590,6 +595,13 @@ inline constexpr const char* kPubDriveStatusType = "uavcan.pub.drive_status.type
 inline constexpr const char* kPubCommissioningId = "uavcan.pub.commissioning.id";
 /// Type name of the commissioning status publication. Type: string (read-only)
 inline constexpr const char* kPubCommissioningType = "uavcan.pub.commissioning.type";
+
+/// Homing state publication (0 IDLE, 1 SEARCHING, 2 ZEROING, 3 DONE, 4 FAULT).
+/// Data type: uavcan.primitive.scalar.Natural8.1.0
+/// Type: natural16[1] (read/write, persistent)
+inline constexpr const char* kPubHomingStateId = "uavcan.pub.homing_state.id";
+/// Type name of the homing state publication. Type: string (read-only)
+inline constexpr const char* kPubHomingStateType = "uavcan.pub.homing_state.type";
 
 /// Wheel of this drive: 0 front left, 1 front right, 2 rear left, 3 rear right.
 /// Type: natural8[1] (read/write, persistent)
@@ -872,10 +884,8 @@ inline constexpr uint16_t kSubCurrentSetpoint = 107U;
 /// Register: `uavcan.sub.servo_setpoint.id`
 inline constexpr uint16_t kSubServoSetpoint = 108U;
 
-/// Homing trigger: any value on this subject starts the homing sequence.
-/// Data type: uavcan.primitive.scalar.Bit.1.0
-/// Register: `uavcan.sub.homing_trigger.id`
-inline constexpr uint16_t kSubHomingTrigger = 105U;
+// Homing starts with ExecuteCommand cmd::kCmdStartHoming (subject 105 held
+// the former homing trigger, never subscribed).
 
 /// Wheel command of the vehicle dynamics controller.
 /// Data type: unimoc.cart.WheelCommand.0.1
@@ -917,7 +927,8 @@ inline constexpr uint16_t kPubShaftPosition = 202U;
 /// Register: `uavcan.pub.in_position.id`
 inline constexpr uint16_t kPubInPosition = 203U;
 
-/// Homing state: 0=IDLE, 1=SEARCHING, 2=ZEROING, 3=DONE, 4=FAULT.
+/// Homing state: 0=IDLE, 1=SEARCHING, 2=ZEROING, 3=DONE, 4=FAULT, on every
+/// change, at 2 Hz while searching and 0.5 Hz otherwise.
 /// Data type: uavcan.primitive.scalar.Natural8.1.0
 /// Register: `uavcan.pub.homing_state.id`
 inline constexpr uint16_t kPubHomingState = 204U;
@@ -1010,6 +1021,12 @@ inline constexpr uint16_t kSrvCymonRead = 124U;
 // -------------------------------------
 // Actions on the diagnostics of the drive, allowed in every state; the
 // values themselves stay read-only registers.
+//
+// Motion commands (0x0400..0x04FF)
+// --------------------------------
+// One-shot motions of the engaged drive; the answer says whether the motion
+// started (the reason of a refusal in `output`), the progress is a status
+// subject. Enabling stays on the readiness subject.
 // ============================================================================
 
 /// @defgroup exec_commands uavcan.node.ExecuteCommand constants
@@ -1072,6 +1089,16 @@ inline constexpr uint16_t kCommandStorePersistentStates = 65530U;
 /// Start new run time statistics of `unimoc.timing.*` (min, mean, max and
 /// count); the overrun counters keep counting. The parameter is ignored.
 inline constexpr uint16_t kCmdResetTiming = 0x0300U;
+
+// -------------------------------------------------------------------------
+// Vendor-specific motion commands
+// -------------------------------------------------------------------------
+
+/// Start a homing run: the shaft runs at `unimoc.control.pos.homing_speed`
+/// against its stop, where `unimoc.control.pos.homing_current` ends the
+/// search and the position becomes zero. Only engaged in position control;
+/// the state is kPubHomingState. The parameter is ignored.
+inline constexpr uint16_t kCmdStartHoming = 0x0400U;
 
 }  // namespace cmd
 

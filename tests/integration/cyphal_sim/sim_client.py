@@ -19,6 +19,7 @@ import uavcan.diagnostic
 import uavcan.node
 import uavcan.node.port
 import uavcan.primitive.array
+import uavcan.primitive.scalar
 import uavcan.register
 import uavcan.si.unit.angle
 import uavcan.si.unit.angular_acceleration
@@ -49,6 +50,7 @@ PORT_PEDAL_STATE = 111
 PORT_BATTERY_STATUS = 112
 PORT_DRIVE_STATUS = 214
 PORT_COMMISSIONING = 215
+PORT_HOMING_STATE = 204
 
 # Trace services (cymon), defaults of the uavcan.srv.cymon_*.id registers.
 PORT_CYMON_VARIABLES = 120
@@ -117,6 +119,7 @@ class SimClient:
         self.plant = self.node.make_subscriber(unimoc.sim.Plant_0_1, PORT_PLANT)
         self.drive_status = self.node.make_subscriber(unimoc.cart.DriveStatus_0_1, PORT_DRIVE_STATUS)
         self.commissioning = self.node.make_subscriber(unimoc.drive.CommissioningStatus_0_1, PORT_COMMISSIONING)
+        self.homing = self.node.make_subscriber(uavcan.primitive.scalar.Natural8_1_0, PORT_HOMING_STATE)
         self.port_list = self.node.make_subscriber(uavcan.node.port.List_1_0)
         self.diagnostic = self.node.make_subscriber(uavcan.diagnostic.Record_1_1)
         self.diagnostic.receive_in_background(self._on_record)

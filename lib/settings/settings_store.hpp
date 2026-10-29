@@ -114,15 +114,16 @@ template <unit::UnitLike U>
          unit::IsFinite(settings.pos_ki_speed) && unit::IsFinite(settings.pos_speed_limit) &&
          unit::IsFinite(settings.pos_accel_limit) && unit::IsFinite(settings.pos_position_tolerance) &&
          unit::IsFinite(settings.pos_speed_tolerance) && unit::IsFinite(settings.pos_homing_speed) &&
-         unit::IsFinite(settings.adc_offset_a) && unit::IsFinite(settings.adc_offset_b) &&
-         unit::IsFinite(settings.adc_offset_c) && unit::IsFinite(settings.adc_gain_c) &&
-         unit::IsFinite(settings.adc_gain_a) && unit::IsFinite(settings.adc_gain_b) &&
-         unit::IsFinite(settings.adc_gain_vdc) && unit::IsFinite(settings.telemetry_rate) &&
-         unit::IsFinite(settings.command_timeout) && unit::IsFinite(settings.dc_link_regen_derate_start) &&
-         unit::IsFinite(settings.dc_link_trip) && unit::IsFinite(settings.cart_timeout) &&
-         unit::IsFinite(settings.cart_status_rate) && unit::IsFinite(settings.cart_torque_ramp) &&
-         unit::IsFinite(settings.cart_limp_home_torque) && unit::IsFinite(settings.cart_standstill_speed) &&
-         unit::IsFinite(settings.cart_battery_share) && IsFiniteEbike(settings);
+         unit::IsFinite(settings.pos_homing_current) && unit::IsFinite(settings.adc_offset_a) &&
+         unit::IsFinite(settings.adc_offset_b) && unit::IsFinite(settings.adc_offset_c) &&
+         unit::IsFinite(settings.adc_gain_c) && unit::IsFinite(settings.adc_gain_a) &&
+         unit::IsFinite(settings.adc_gain_b) && unit::IsFinite(settings.adc_gain_vdc) &&
+         unit::IsFinite(settings.telemetry_rate) && unit::IsFinite(settings.command_timeout) &&
+         unit::IsFinite(settings.dc_link_regen_derate_start) && unit::IsFinite(settings.dc_link_trip) &&
+         unit::IsFinite(settings.cart_timeout) && unit::IsFinite(settings.cart_status_rate) &&
+         unit::IsFinite(settings.cart_torque_ramp) && unit::IsFinite(settings.cart_limp_home_torque) &&
+         unit::IsFinite(settings.cart_standstill_speed) && unit::IsFinite(settings.cart_battery_share) &&
+         IsFiniteEbike(settings);
 }
 
 [[nodiscard]] inline bool IsValidEnumValues(const NvmSettings& settings) noexcept {
@@ -203,7 +204,7 @@ template <std::size_t kCount>
       (settings.node_id == 0U && settings.sub_readiness_id == cyphal::kReadinessFollowsNodeId)
           ? cyphal::kUnsetPortId
           : cyphal::EffectiveReadinessId(settings.sub_readiness_id, settings.node_id);
-  const std::array<uint16_t, 12U> kSubjects{kReadiness,
+  const std::array<uint16_t, 13U> kSubjects{kReadiness,
                                             settings.sub_current_setpoint_id,
                                             settings.sub_torque_setpoint_id,
                                             settings.sub_speed_setpoint_id,
@@ -214,7 +215,8 @@ template <std::size_t kCount>
                                             settings.sub_pedal_state_id,
                                             settings.sub_battery_status_id,
                                             settings.pub_drive_status_id,
-                                            settings.pub_commissioning_id};
+                                            settings.pub_commissioning_id,
+                                            settings.pub_homing_state_id};
   const std::array<uint16_t, 5U> kServices{settings.srv_cymon_variables_id,
                                            settings.srv_cymon_buffer_info_id,
                                            settings.srv_cymon_setup_id,
@@ -263,7 +265,8 @@ template <std::size_t kCount>
       settings.dtc_f_pwm <= ZeroOf(settings.dtc_f_pwm) ||
       settings.excitation_obs_tau <= ZeroOf(settings.excitation_obs_tau) ||
       settings.pos_position_tolerance < ZeroOf(settings.pos_position_tolerance) ||
-      settings.pos_speed_tolerance < ZeroOf(settings.pos_speed_tolerance)) {
+      settings.pos_speed_tolerance < ZeroOf(settings.pos_speed_tolerance) ||
+      settings.pos_homing_current < ZeroOf(settings.pos_homing_current)) {
     return SettingsStatus::kOutOfRange;
   }
 
@@ -308,7 +311,7 @@ template <std::size_t kCount>
   // Cart: limp-home must start before the readiness times out.
   if (!kIsSubjectId(settings.sub_wheel_command_id) || !kIsSubjectId(settings.sub_pedal_state_id) ||
       !kIsSubjectId(settings.sub_battery_status_id) || !kIsSubjectId(settings.pub_drive_status_id) ||
-      !kIsSubjectId(settings.pub_commissioning_id) ||
+      !kIsSubjectId(settings.pub_commissioning_id) || !kIsSubjectId(settings.pub_homing_state_id) ||
       settings.cart_timeout <= ZeroOf(settings.cart_timeout) ||
       settings.cart_timeout > settings.command_timeout ||
       settings.cart_status_rate < ZeroOf(settings.cart_status_rate) ||

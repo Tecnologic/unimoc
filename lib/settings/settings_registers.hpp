@@ -206,6 +206,7 @@ void ForEachRegister(const Visitor& visit, Settings&... settings) {
   visit(Tunable(reg::kPosPosTol, "Position tolerance of in-position", AtLeast(0.0F)), settings.pos_position_tolerance...);
   visit(Tunable(reg::kPosSpeedTol, "Speed tolerance of in-position", AtLeast(0.0F)), settings.pos_speed_tolerance...);
   visit(Setting(reg::kPosHomingSpeed, "Speed of the homing run"), settings.pos_homing_speed...);
+  visit(Setting(reg::kPosHomingCurrent, "Current bound of the homing run, reached at the stop; 0: homing off", AtLeast(0.0F)), settings.pos_homing_current...);
   visit(Setting(reg::kStartupAdcOffsetA, "Zero offset of the phase A current sense (from the startup aid)"), settings.adc_offset_a...);
   visit(Setting(reg::kStartupAdcOffsetB, "Zero offset of the phase B current sense (from the startup aid)"), settings.adc_offset_b...);
   visit(Setting(reg::kStartupAdcOffsetC, "Zero offset of the phase C current sense (from the startup aid)"), settings.adc_offset_c...);
@@ -234,6 +235,7 @@ void ForEachRegister(const Visitor& visit, Settings&... settings) {
   visit(AfterRestart(reg::kSubBatteryStatusId, "Cart battery status subject; 65535: off", kPortId), settings.sub_battery_status_id...);
   visit(AfterRestart(reg::kPubDriveStatusId, "Cart drive status subject; 65535: off", kPortId), settings.pub_drive_status_id...);
   visit(AfterRestart(reg::kPubCommissioningId, "Commissioning status subject (startup aid); 65535: off", kPortId), settings.pub_commissioning_id...);
+  visit(AfterRestart(reg::kPubHomingStateId, "Homing state subject; 65535: off", kPortId), settings.pub_homing_state_id...);
   visit(Setting(reg::kCartWheel, "Cart wheel of this drive (WheelCommand.WHEEL_*)", Between(0.0F, 3.0F)), settings.cart_wheel...);
   visit(Setting(reg::kCartReversed, "1: positive rotor torque drives the cart backward", Between(0.0F, 1.0F)), settings.cart_reversed...);
   visit(Setting(reg::kCartTimeout, "Timeout of wheel command, pedal state and battery status; at most the command timeout", AtLeast(0.0F)), settings.cart_timeout...);

@@ -143,7 +143,7 @@ def test_registers_json_describes_every_register_on_the_bus(dut, sim: SimClient,
 
     # The persistent settings, among them the e-bike registers past the 128th.
     settings = [entry for entry in entries if entry["persistent"] and entry["mutable"]]
-    assert len(settings) == 130
+    assert len(settings) == 132
     assert "unimoc.ebike.display_timeout" in by_name
 
 
@@ -278,6 +278,49 @@ def test_speed_setpoint_runs_the_speed_loop(sim: SimClient):
 
     sim.hold(0.3, SLEEP)
     assert sim.write("unimoc.sim.shaft_mode", natural8(1)) == 1  # locked again (imposed 0 rad/s)
+
+
+START_HOMING = 0x0400
+HOMING_SEARCHING = 1
+HOMING_DONE = 3
+
+
+def test_homing_runs_against_the_stop(sim: SimClient):
+    # The motor and speed loop settings of the test above; the homing current bounds the push.
+    status, output = sim.command_output(START_HOMING)
+    assert status == 5 and "position control" in output  # not engaged
+    assert sim.write("unimoc.control.pos.homing_current", real(3.0)) == pytest.approx(3.0)
+    assert sim.write("unimoc.sim.shaft_mode", natural8(0)) == 0  # free shaft
+    sim.hold(0.2, STANDBY)  # the settings apply while disengaged
+    sim.hold(0.5, ENGAGED, sim.speed_setpoint(0.0))
+    status, output = sim.command_output(START_HOMING)
+    assert status == 5 and "position control" in output  # speed mode
+
+    sim.hold(0.5, ENGAGED, sim.position_setpoint(0.0))
+    assert sim.command(START_HOMING) == 0
+    sim.hold(0.5, ENGAGED, sim.position_setpoint(0.0))
+    assert sim.latest(sim.homing).value == HOMING_SEARCHING
+    assert sim.latest(sim.plant, settle=0.0).mechanical_speed == pytest.approx(5.0, abs=1.0)
+    status, output = sim.command_output(START_HOMING)
+    assert status == 5 and "runs already" in output
+
+    # The stop: a locked shaft. The run pushes with the homing current and takes the stop as zero.
+    assert sim.write("unimoc.sim.shaft_mode", natural8(1)) == 1
+    stop = sim.latest(sim.plant, settle=0.0).mechanical_angle
+    sim.hold(0.5, ENGAGED, sim.position_setpoint(0.0))
+    assert sim.latest(sim.homing).value == HOMING_DONE
+    assert abs(sim.latest(sim.telemetry, settle=0.0).i_q) <= 3.0 + 0.3
+
+    # The drive holds the home until the setpoint changes, then moves in the new frame.
+    assert sim.write("unimoc.sim.shaft_mode", natural8(0)) == 0
+    sim.hold(0.5, ENGAGED, sim.position_setpoint(0.0))
+    assert sim.latest(sim.plant, settle=0.0).mechanical_angle - stop == pytest.approx(0.0, abs=0.1)
+    sim.hold(1.5, ENGAGED, sim.position_setpoint(-2.0))
+    assert sim.latest(sim.plant, settle=0.0).mechanical_angle - stop == pytest.approx(-2.0, abs=0.1)
+
+    sim.hold(0.3, SLEEP)
+    assert sim.latest(sim.homing).value == HOMING_DONE  # the home holds across a disengage
+    assert sim.write("unimoc.sim.shaft_mode", natural8(1)) == 1
 
 
 def test_timing_registers_without_the_probes(sim: SimClient):

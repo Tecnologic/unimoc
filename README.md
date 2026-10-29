@@ -245,13 +245,14 @@ validation decides, also on limits between registers or of the hardware
 | `uavcan.sub.current_setpoint.id` | 107 | `unimoc.drive.CurrentSetpoint.0.1` | d/q current setpoint [A] |
 | `uavcan.sub.torque_setpoint.id` | 100 | `uavcan.si.unit.torque.Scalar.1.0` | Torque [N m], converted to i_q with 3/2 p ψ_PM |
 | `uavcan.sub.speed_setpoint.id` | 101 | `uavcan.si.unit.angular_velocity.Scalar.1.0` | Mechanical speed [rad/s], speed loop of the control thread, limited to the motor speed range |
-| `uavcan.sub.position_setpoint.id` | 102 | `uavcan.si.unit.angle.Scalar.1.0` | Mechanical position [rad] from home (the estimate at start) |
+| `uavcan.sub.position_setpoint.id` | 102 | `uavcan.si.unit.angle.Scalar.1.0` | Mechanical position [rad] from home (the estimate at start, or the stop of the last homing run) |
 | `uavcan.sub.servo_setpoint.id` | 108 | `reg.udral.physics.dynamics.rotation.Planar.0.1` | UDRAL servo: the commanded (non-NaN) field selects position, speed or torque |
 | `uavcan.pub.telemetry.id` | 212 | `unimoc.drive.Telemetry.0.1` | Current controller trace at `unimoc.telemetry.rate` (20 Hz) |
 | `uavcan.sub.wheel_command.id` | 110 | `unimoc.cart.WheelCommand.0.1` | Cart: torque per wheel from the VDC; the drive takes `unimoc.cart.wheel` |
 | `uavcan.sub.pedal_state.id` | 111 | `unimoc.cart.PedalState.0.1` | Cart: pedals for limp-home mode |
 | `uavcan.sub.battery_status.id` | 112 | `unimoc.cart.BatteryStatus.0.1` | Cart: current limits of the BMS, replace `unimoc.battery.limits.*` while fresh |
 | `uavcan.pub.drive_status.id` | 214 | `unimoc.cart.DriveStatus.0.1` | Cart: wheel speed, torque, drive and brake torque limits, DC link, flags at `unimoc.cart.status_rate` (50 Hz) |
+| `uavcan.pub.homing_state.id` | 204 | `uavcan.primitive.scalar.Natural8.1.0` | Homing: 0 IDLE, 1 SEARCHING, 3 DONE, 4 FAULT; on every change, 2 Hz while searching, 0.5 Hz otherwise ([Homing](#homing)) |
 | `uavcan.pub.sim_plant.id` (sim only) | 213 | `unimoc.sim.Plant.0.1` | Plant truth: phase currents, shaft angle and speed, torque, Hall code |
 | `uavcan.srv.cymon_variables.id` | 120 | `cymon.GetVariableList.0.1` | Trace variables: index -> name and unit |
 | `uavcan.srv.cymon_buffer_info.id` | 121 | `cymon.GetBufferInfo.0.1` | Capture limits and the tick period (62.5 us) |
@@ -387,14 +388,29 @@ without any other subscription (`cyphal::vendor_status`,
 | 65531 EMERGENCY_STOP | Disengages; engaging is refused until a restart |
 | 65530 STORE_PERSISTENT_STATES | Saves the RAM settings to flash; refused while engaged |
 | 768 (`0x0300`) RESET_TIMING | New statistics of the interrupt timing (below), in every state |
+| 1024 (`0x0400`) START_HOMING | Starts a homing run ([Homing](#homing)); refused unless engaged in position control |
 | 512..517 (`0x0200`..`0x0205`) | The commissioning commands of the startup aid and the motor identification ([Commands and Status](#commands-and-status)) |
 
 Codes below `0x8000` are UNIMOC's own: `0x0200`..`0x02FF` commissioning,
-`0x0300`..`0x03FF` diagnostics; `0x0001`..`0x01FF` held the former
+`0x0300`..`0x03FF` diagnostics, `0x0400`..`0x04FF` motions; `0x0001`..`0x01FF` held the former
 `CMD_GET_*` and `CMD_MEASURE_*` codes and are not reused.  A one-shot action is a command, not a
 register write; enabling stays on the readiness subject, which the drive
 needs refreshed (a lost master disengages it), and stopping is
 EMERGENCY_STOP or readiness SLEEP.
+
+### Homing
+
+The position counts from the estimate at the start until a homing run sets
+the home at a mechanical stop.  START_HOMING (`yakut cmd 10 1024`), while
+engaged in position control, runs the shaft at `unimoc.control.pos.homing_speed`
+(5 rad/s; the sign is the direction) with at most
+`unimoc.control.pos.homing_current` (2 A; 0 turns homing off).  When the
+shaft stalls against the stop, 0.1 s at that current below half the homing
+speed, the stop becomes position zero and the drive holds it until the
+position setpoint changes; the next setpoint is in the new frame.  A
+disengage or another control mode ends a run in FAULT; a new run may start
+at any time.  A restart of the controller (settings applied, power cycle)
+returns the home to the start position (IDLE).
 
 ### Traces (cymon)
 

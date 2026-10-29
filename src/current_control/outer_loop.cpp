@@ -40,6 +40,8 @@ void OuterLoop::Init(const settings::NvmSettings& settings, CurrentControlIsr& i
                                             .trip = settings.dc_link_trip};
   parameters.speed_min = settings.motor_omega_min / kPolePairs;
   parameters.speed_max = settings.motor_omega_max / kPolePairs;
+  parameters.homing_speed = settings.pos_homing_speed;
+  parameters.homing_current = settings.pos_homing_current;
   parameters.gains = GainsFrom(settings);
   parameters_.Write(parameters);
   SetGains(parameters.gains);  // live gains handed over before are older than these
@@ -133,6 +135,8 @@ void OuterLoop::Step() noexcept {
   status.torque_max = unit::Min(kTorqueRange.upper, kMotorTorque);
   status.regen_derated = dc_link.AllowedChargeCurrent(kDcLink) < active_.dc_link.charge_current_max;
 
+  UpdateHoming(kSetpoint, kSpeed);
+
   // -------------------------------------------------------------------------
   // 2. Current reference of the active mode. A new mode or a new engagement
   //    starts the controllers from the measured speed.
@@ -163,14 +167,10 @@ void OuterLoop::Step() noexcept {
         current = TorqueToCurrent(speed_.Update(kTarget, kSpeed, active_.dt));
         break;
       }
-      case cyphal::ControlMode::kPosition: {
-        position_.pos_ref_rad = kSetpoint.position;
-        const AngularVelocity kDemand = position_.SpeedDemand(tracker_.PositionRad(), kSpeed, active_.dt)
-                                            .Clamp(active_.speed_min, active_.speed_max);
-        current = TorqueToCurrent(speed_.Track(kDemand, kSpeed, active_.dt));
+      case cyphal::ControlMode::kPosition:
+        current = TorqueToCurrent(PositionTorque(kSetpoint.position, kSpeed, kTorqueRange));
         status.in_position = position_.in_position;
         break;
-      }
     }
   }
   current = dc_link.Limit(LimitCurrent(current), active_.torque_constant, kSpeed, kDcLink);
@@ -181,6 +181,7 @@ void OuterLoop::Step() noexcept {
   status.speed_reference = speed_.reference;
   status.torque_reference = speed_.output;
   status.current_reference = current;
+  status.homing = homing_;
   status_.Write(status);
 }
 
@@ -196,6 +197,8 @@ void OuterLoop::LoadParameters(const Parameters& parameters) noexcept {
   // again at zero, so the position is counted anew from here.
   tracking_ = false;
   was_active_ = false;
+  homing_ = control::HomingState::kIdle;  // the home is the position at the restart again
+  hold_home_ = false;
 }
 
 void OuterLoop::ApplyGains(const Gains& gains) noexcept {
@@ -214,6 +217,75 @@ void OuterLoop::Restart(const AngularVelocity speed) noexcept {
   speed_.Reset(speed);
   position_.pos_ref_rad = tracker_.PositionRad();
   position_.Reset();
+}
+
+Torque OuterLoop::PositionTorque(const Angle setpoint,
+                                 const AngularVelocity speed,
+                                 const control::DcLinkLimit::TorqueRange& range) noexcept {
+  if (homing_ == control::HomingState::kSearching) {
+    return SearchHome(speed, range, setpoint);
+  }
+  if (hold_home_ && setpoint != held_setpoint_) {
+    hold_home_ = false;  // a new target in the frame of the new home
+  }
+  position_.pos_ref_rad = hold_home_ ? Angle{} : setpoint;
+  const AngularVelocity kDemand = position_.SpeedDemand(tracker_.PositionRad(), speed, active_.dt)
+                                      .Clamp(active_.speed_min, active_.speed_max);
+  return speed_.Track(kDemand, speed, active_.dt);
+}
+
+void OuterLoop::UpdateHoming(const OuterSetpoint& setpoint, const AngularVelocity speed) noexcept {
+  // A homing run lives in the engaged position mode only.
+  const uint32_t kRequests = homing_requests_.load(std::memory_order_acquire);
+  if (kRequests != applied_homing_requests_) {
+    applied_homing_requests_ = kRequests;
+    TakeHomingRequest(setpoint, speed);
+  }
+  const bool kPositionMode = setpoint.active && setpoint.mode == cyphal::ControlMode::kPosition;
+  if (homing_ == control::HomingState::kSearching && !kPositionMode) {
+    homing_ = control::HomingState::kFault;
+  }
+  if (!setpoint.active) {
+    hold_home_ = false;
+  }
+}
+
+void OuterLoop::TakeHomingRequest(const OuterSetpoint& setpoint, const AngularVelocity speed) noexcept {
+  if (!setpoint.active || setpoint.mode != cyphal::ControlMode::kPosition) {
+    homing_ = control::HomingState::kFault;  // the drive checked it; the setpoint changed since
+    return;
+  }
+  homing_ = control::HomingState::kSearching;
+  blocked_steps_ = 0U;
+  hold_home_ = false;
+  speed_.Reset(speed);
+}
+
+Torque OuterLoop::SearchHome(const AngularVelocity speed,
+                             const control::DcLinkLimit::TorqueRange& range,
+                             const Angle setpoint) noexcept {
+  const Torque kHomingTorque = active_.torque_constant * active_.homing_current;
+  speed_.torque_min = unit::Max(range.lower, -kHomingTorque);
+  speed_.torque_max = unit::Min(range.upper, kHomingTorque);
+  const Torque kTorque = speed_.Update(active_.homing_speed, speed, active_.dt);
+
+  // Stalled against the stop: at the torque bound in the direction of the run, and slow.
+  const bool kForward = active_.homing_speed > AngularVelocity{};
+  const Torque kBound = kForward ? unit::Min(speed_.torque_limit, speed_.torque_max)
+                                 : -unit::Max(-speed_.torque_limit, speed_.torque_min);
+  const Torque kPush = kForward ? kTorque : -kTorque;
+  const bool kStalled = kBound > Torque{} && kPush >= 0.99F * kBound &&
+                        unit::Abs(speed) < 0.5F * unit::Abs(active_.homing_speed);
+  blocked_steps_ = kStalled ? blocked_steps_ + 1U : 0U;
+  if (static_cast<float>(blocked_steps_) * active_.dt < kHomingBlockTime) {
+    return kTorque;
+  }
+  tracker_.SetHome();
+  homing_ = control::HomingState::kDone;
+  hold_home_ = true;
+  held_setpoint_ = setpoint;
+  Restart(speed);  // the position loop starts at zero, the new home
+  return speed_.output;
 }
 
 system::Rotor<Current> OuterLoop::TorqueToCurrent(const Torque torque) const noexcept {

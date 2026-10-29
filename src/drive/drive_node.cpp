@@ -18,6 +18,7 @@
 #include "drive_node.hpp"
 #include <reg/udral/physics/dynamics/rotation/Planar_0_1.h>
 #include <reg/udral/service/common/Readiness_0_1.h>
+#include <uavcan/primitive/scalar/Natural8_1_0.h>
 #include <uavcan/si/unit/angle/Scalar_1_0.h>
 #include <uavcan/si/unit/angular_velocity/Scalar_1_0.h>
 #include <uavcan/si/unit/torque/Scalar_1_0.h>
@@ -58,7 +59,7 @@ struct InfoRegister {
   std::string_view type;  ///< Empty: the unique-ID register.
 };
 
-constexpr std::array<InfoRegister, 20> kInfoRegisters{{
+constexpr std::array<InfoRegister, 21> kInfoRegisters{{
     {cyphal::reg::kSubReadinessType, "reg.udral.service.common.Readiness.0.1"},
     {cyphal::reg::kSubCurrentSetpointType, "unimoc.drive.CurrentSetpoint.0.1"},
     {cyphal::reg::kSubTorqueSetpointType, "uavcan.si.unit.torque.Scalar.1.0"},
@@ -71,6 +72,7 @@ constexpr std::array<InfoRegister, 20> kInfoRegisters{{
     {cyphal::reg::kSubBatteryStatusType, "unimoc.cart.BatteryStatus.0.1"},
     {cyphal::reg::kPubDriveStatusType, "unimoc.cart.DriveStatus.0.1"},
     {cyphal::reg::kPubCommissioningType, "unimoc.drive.CommissioningStatus.0.1"},
+    {cyphal::reg::kPubHomingStateType, "uavcan.primitive.scalar.Natural8.1.0"},
     {cyphal::reg::kSrvCymonVariablesType, "cymon.GetVariableList.0.1"},
     {cyphal::reg::kSrvCymonBufferInfoType, "cymon.GetBufferInfo.0.1"},
     {cyphal::reg::kSrvCymonSetupType, "cymon.SetupCapture.0.1"},
@@ -262,6 +264,7 @@ bool DriveNode::Start(const uint64_t now_us) noexcept {
   // After the wheel command (VDC) and with the pedal state (system plan section 6.2).
   drive_status_ = cyphal::Publisher{live.pub_drive_status_id, cyphal::Priority::kFast, 0U};
   commissioning_publisher_ = cyphal::Publisher{live.pub_commissioning_id, cyphal::Priority::kNominal, 0U};
+  homing_publisher_ = cyphal::Publisher{live.pub_homing_state_id, cyphal::Priority::kNominal, 0U};
   // The runtime was started by main() with these settings.
   applied_writes_ = settings_registers_.WriteCount();
   checked_writes_ = applied_writes_;
@@ -301,6 +304,7 @@ bool DriveNode::Start(const uint64_t now_us) noexcept {
   subscribed = node_->AddPublisher(telemetry_) && subscribed;
   subscribed = node_->AddPublisher(drive_status_) && subscribed;
   subscribed = node_->AddPublisher(commissioning_publisher_) && subscribed;
+  subscribed = node_->AddPublisher(homing_publisher_) && subscribed;
   node_->SetCommandHandler(*this);
   node_->SetNodeIdListener(*this);
 
@@ -346,6 +350,7 @@ void DriveNode::Spin(const uint64_t now_us) noexcept {
   if (Due(drive_status_period_us_, now_us, next_drive_status_us_)) {
     PublishDriveStatus();
   }
+  PublishHoming(now_us);
 
   if (restart_requested_ && now_us >= restart_at_us_ && hooks_.restart != nullptr) {
     restart_requested_ = false;
@@ -793,6 +798,8 @@ cyphal::CommandResult DriveNode::OnCommand(const uint16_t command,
     case cyphal::cmd::kCmdResetTiming:
       TimingRegisters::ResetStatistics();
       return {cyphal::cmd::kStatusSuccess, ""};
+    case cyphal::cmd::kCmdStartHoming:
+      return StartHoming();
     case cyphal::cmd::kCommandStorePersistentStates: {
       const settings::SettingsStatus kStatus = operations.SaveToFlash();
       if (kStatus == settings::SettingsStatus::kSuccess) {
@@ -911,6 +918,45 @@ void DriveNode::PublishDriveStatus() noexcept {
   if (unimoc_cart_DriveStatus_0_1_serialize_(&status, reinterpret_cast<uint8_t*>(buffer.data()), &size) >=
       0) {
     (void)node_->Publish(drive_status_, std::span<const std::byte>{buffer.data(), size});
+  }
+}
+
+cyphal::CommandResult DriveNode::StartHoming() noexcept {
+  if (!engaged_ || setpoint_.mode != cyphal::ControlMode::kPosition) {
+    return {cyphal::cmd::kStatusBadState, "engage in position control first"};
+  }
+  if (!(applied_settings_.pos_homing_current > unit::Current{})) {
+    return {cyphal::cmd::kStatusBadState, "homing off: homing_current is 0"};
+  }
+  if (!(unit::Abs(applied_settings_.pos_homing_speed) > unit::AngularVelocity{})) {
+    return {cyphal::cmd::kStatusBadState, "homing off: homing_speed is 0"};
+  }
+  if (OuterLoop::Instance().Status().homing == control::HomingState::kSearching) {
+    return {cyphal::cmd::kStatusBadState, "homing runs already"};
+  }
+  OuterLoop::Instance().StartHoming();
+  (void)node_->Log(cyphal::Severity::kInfo, "homing started");
+  return {cyphal::cmd::kStatusSuccess, ""};
+}
+
+void DriveNode::PublishHoming(const uint64_t now_us) noexcept {
+  const control::HomingState kState = OuterLoop::Instance().Status().homing;
+  if (homing_published_ && kState == last_homing_ && now_us < next_homing_us_) {
+    return;
+  }
+  const bool kSearching = kState == control::HomingState::kSearching;
+  next_homing_us_ = now_us + (kSearching ? kHomingActivePeriodUs : kHomingIdlePeriodUs);
+  last_homing_ = kState;
+  homing_published_ = true;
+
+  uavcan_primitive_scalar_Natural8_1_0 message{};
+  message.value = static_cast<uint8_t>(kState);
+  std::array<std::byte, uavcan_primitive_scalar_Natural8_1_0_SERIALIZATION_BUFFER_SIZE_BYTES_> buffer{};
+  std::size_t size = buffer.size();
+  if (uavcan_primitive_scalar_Natural8_1_0_serialize_(&message,
+                                                      reinterpret_cast<uint8_t*>(buffer.data()),
+                                                      &size) >= 0) {
+    (void)node_->Publish(homing_publisher_, std::span<const std::byte>{buffer.data(), size});
   }
 }
 

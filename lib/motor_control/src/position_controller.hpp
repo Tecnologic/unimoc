@@ -104,9 +104,9 @@ enum class HomingState : unsigned char {
  * ----------------
  * - pos_ref_rad is written from a Cyphal subscription callback each time a
  *   new position setpoint arrives on the bus.
- * - A Cyphal service call invokes StartHoming() to initiate the sequence.
- * - HomingState, in_position, and home-relative position are published as Cyphal
- *   subjects at a reduced rate by the application layer.
+ * - The drive's outer loop (current_control::OuterLoop) uses SpeedDemand()
+ *   and runs its own homing on HomingState (ExecuteCommand START_HOMING); the
+ *   drive publishes the state on `uavcan.pub.homing_state`.
  *
  * @tparam T  Floating-point type (float by default).
  */
