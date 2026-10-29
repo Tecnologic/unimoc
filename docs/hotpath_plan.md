@@ -116,7 +116,12 @@ wake the control thread every eighth cycle).
 ### Control cycle (target 1500 cycles, 9 µs)
 
 1. Samples of the cycle from the hardware (scaled, the disturbed phase
-   reconstructed). Repeat of the overcurrent check, latch, neutral plan.
+   reconstructed), then the calibration of the startup aid on every sample:
+   i = (i_raw - offset) · gain per phase, v = v_raw · gain_vdc (2026-10-29;
+   the raw sample stays in `raw_phase_currents` for the startup aid). Repeat
+   of the overcurrent check on the calibrated currents, latch, neutral plan.
+   The per-sample check of the sample interrupt stays on raw counts: it is
+   off by at most the offset and the gain error.
 2. Clarke and Park per sample with `sc[k]`, mean.
 3. PI with decoupling once per cycle (dt = 62.5 µs).
 4. Four entries: inverse Park with `sc_out[k]`, plus HFI step k, dead-time

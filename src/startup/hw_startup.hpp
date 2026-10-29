@@ -206,6 +206,7 @@ class HwStartup {
   // digits when a current flows (alignment sweep).
   double accum_a_{0.0};
   double accum_b_{0.0};
+  double accum_c_{0.0};  ///< Phase C: offset and gain only, no noise.
   double accum_sq_a_{0.0};
   double accum_sq_b_{0.0};
 

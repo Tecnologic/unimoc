@@ -874,9 +874,16 @@ calibration through its authorized `SettingsOperations` capability:
    |---|---|
    | `adc_offset_a` | Mean phase-A ADC reading at zero current |
    | `adc_offset_b` | Mean phase-B ADC reading at zero current |
+   | `adc_offset_c` | Mean phase-C ADC reading at zero current |
    | `adc_gain_vdc` | `1 / gain_vdc` computed in DC_LINK_VOLTAGE_CHECK |
    | `adc_gain_a` | `1 / gain_a` computed in CURRENT_SENSE_CALIBRATION |
    | `adc_gain_b` | `1 / gain_b` computed in CURRENT_SENSE_CALIBRATION |
+   | `adc_gain_c` | `1 / gain_c` computed in CURRENT_SENSE_CALIBRATION |
+
+   The control cycle applies them to every sample from the next settings
+   restart (the next engage): `i = (i_raw - adc_offset) * adc_gain` per phase,
+   `v = v_raw * adc_gain_vdc`. The aid itself measures the raw samples, so a
+   second run measures from scratch instead of correcting the first.
 
 2. Validates the candidate and applies it to the live settings as one
    transaction. A rejected candidate leaves the active settings unchanged and puts

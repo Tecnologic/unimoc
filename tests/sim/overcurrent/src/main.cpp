@@ -225,6 +225,7 @@ ZTEST_F(sim_overcurrent, test_startup_results_are_in_units) {
   StartupStep(startup, HwStartup::kNCal, 0.2F, -0.1F, 0.01F);
   UNIMOC_EXPECT_NEAR(startup.results.adc_offset_a, 0.2_A, 1e-5_A);
   UNIMOC_EXPECT_NEAR(startup.results.adc_offset_b, -0.1_A, 1e-5_A);
+  UNIMOC_EXPECT_NEAR(startup.results.adc_offset_c, -0.1_A, 1e-5_A);
   zexpect_true(startup.results.passed[static_cast<uint8_t>(FsmState::kAdcOffsetCal)]);
   StartupStep(startup, HwStartup::kNCal, 0.2F, -0.1F, 0.01F);
   UNIMOC_EXPECT_NEAR(startup.results.adc_noise_rms_a, 0.01_A, 1e-5_A);
@@ -259,6 +260,7 @@ ZTEST_F(sim_overcurrent, test_startup_results_are_in_units) {
   // step is still the last one of the alignment (1/1024 of 1 A off).
   UNIMOC_EXPECT_NEAR(startup.results.gain_a, 0.64_ratio, 1e-3_ratio);
   UNIMOC_EXPECT_NEAR(startup.results.gain_b, 0.64_ratio, 1e-3_ratio);
+  UNIMOC_EXPECT_NEAR(startup.results.gain_c, 0.64_ratio, 1e-3_ratio);
   zexpect_false(startup.results.passed[static_cast<uint8_t>(FsmState::kCurrentSenseCalibration)],
                 "36 %% gain error");
   zassert_equal(kPowerStage.GetState(), PowerStageState::kEnabled);
@@ -275,12 +277,13 @@ ZTEST_F(sim_overcurrent, test_startup_results_are_in_units) {
     UNIMOC_EXPECT_FLOAT_EQ(settings.adc_offset_b, startup.results.adc_offset_b);
     UNIMOC_EXPECT_FLOAT_EQ(settings.adc_gain_a, 1.0_ratio / startup.results.gain_a);
     UNIMOC_EXPECT_FLOAT_EQ(settings.adc_gain_b, 1.0_ratio / startup.results.gain_b);
+    UNIMOC_EXPECT_FLOAT_EQ(settings.adc_offset_c, startup.results.adc_offset_c);
+    UNIMOC_EXPECT_FLOAT_EQ(settings.adc_gain_c, 1.0_ratio / startup.results.gain_c);
     UNIMOC_EXPECT_FLOAT_EQ(settings.adc_gain_vdc, 1.0_ratio / startup.results.gain_vdc);
   }
 
   isr.SetAdcTriggerOffset(kTriggerOffset);  // the sweep moved it
-  zassert_equal(fixture->store.GetOperations()
-                    .ApplyAdcCalibration(Current{}, Current{}, 1.0_ratio, 1.0_ratio, 1.0_ratio),
+  zassert_equal(fixture->store.GetOperations().ApplyAdcCalibration(unimoc::settings::AdcCalibration{}),
                 unimoc::settings::SettingsStatus::kSuccess);
 }
 

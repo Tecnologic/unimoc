@@ -251,6 +251,7 @@ void HwStartup::TransitionTo(FsmState next) noexcept {
   sample_count_ = 0U;
   accum_a_ = 0.0;
   accum_b_ = 0.0;
+  accum_c_ = 0.0;
   accum_sq_a_ = 0.0;
   accum_sq_b_ = 0.0;
 
@@ -337,6 +338,7 @@ bool HwStartup::CollectSample(uint32_t n_samples) noexcept {
   const auto kIb = static_cast<double>(cc_->state.raw_phase_currents.b.Value());
   accum_a_ += kIa;
   accum_b_ += kIb;
+  accum_c_ += static_cast<double>(cc_->state.raw_phase_currents.c.Value());
   accum_sq_a_ += kIa * kIa;
   accum_sq_b_ += kIb * kIb;
   ++sample_count_;
@@ -377,18 +379,22 @@ void HwStartup::RunAdcOffsetCal() noexcept {
     if (CollectSample(kNCal)) {
       const unit::Current kMeanA = MeanCurrent(accum_a_, kNCal);
       const unit::Current kMeanB = MeanCurrent(accum_b_, kNCal);
+      const unit::Current kMeanC = MeanCurrent(accum_c_, kNCal);
 
       results.adc_offset_a = kMeanA;
       results.adc_offset_b = kMeanB;
+      results.adc_offset_c = kMeanC;
 
-      const bool kPass = (unit::Abs(kMeanA) < offset_threshold) && (unit::Abs(kMeanB) < offset_threshold);
+      const bool kPass = (unit::Abs(kMeanA) < offset_threshold) && (unit::Abs(kMeanB) < offset_threshold) &&
+                         (unit::Abs(kMeanC) < offset_threshold);
 
       results.passed[static_cast<uint8_t>(FsmState::kAdcOffsetCal)] = kPass;
 
       LogFormatted(hardware::LogLevel::kInfo,
-                   "[STARTUP] ADC_OFFSET_CAL: offset_a=%f A, offset_b=%f A  %s\n",
+                   "[STARTUP] ADC_OFFSET_CAL: offset_a=%f A, offset_b=%f A, offset_c=%f A  %s\n",
                    LogValue(kMeanA),
                    LogValue(kMeanB),
+                   LogValue(kMeanC),
                    kPass ? "PASS" : "FAIL");
 
       if (!kPass) {
@@ -576,6 +582,9 @@ void HwStartup::RunGateDriverEnableCheck() noexcept {
       sample_count_ = 0U;
       accum_a_ = 0.0;
       accum_b_ = 0.0;
+      accum_c_ = 0.0;
+      accum_c_ = 0.0;
+      accum_c_ = 0.0;
       accum_sq_a_ = 0.0;
       accum_sq_b_ = 0.0;
       gate_phase_disabled_ = false;
@@ -741,6 +750,8 @@ void HwStartup::RunPhaseAdcAlignment() noexcept {
     sample_count_ = 0U;
     accum_a_ = 0.0;
     accum_b_ = 0.0;
+    accum_c_ = 0.0;
+    accum_c_ = 0.0;
     accum_sq_a_ = 0.0;
     accum_sq_b_ = 0.0;
 
@@ -772,41 +783,50 @@ void HwStartup::RunCurrentSenseCalibration() noexcept {
     // Measurement complete
     const unit::Current kMeanIa = MeanCurrent(accum_a_, kNCal);
     const unit::Current kMeanIb = MeanCurrent(accum_b_, kNCal);
+    const unit::Current kMeanIc = MeanCurrent(accum_c_, kNCal);
 
     LogFormatted(hardware::LogLevel::kInfo,
-                 "[STARTUP] CURRENT_SENSE_CALIBRATION: mean_ia=%f A, mean_ib=%f A\n",
+                 "[STARTUP] CURRENT_SENSE_CALIBRATION: mean_ia=%f A, mean_ib=%f A, mean_ic=%f A\n",
                  LogValue(kMeanIa),
-                 LogValue(kMeanIb));
+                 LogValue(kMeanIb),
+                 LogValue(kMeanIc));
 
     if (ext_current_ >= 1e-3_A) {
       // gain = adc_reading / ext_reference; ideal = 1.0. The reading less the
-      // zero offset of ADC_OFFSET_CAL: the measurement chain does not apply it.
+      // zero offset of ADC_OFFSET_CAL: the raw samples do not carry the
+      // calibration. Phases B and C each carry -I/2.
       const unit::Current kSignalA = kMeanIa - results.adc_offset_a;
       const unit::Current kSignalB = kMeanIb - results.adc_offset_b;
+      const unit::Current kSignalC = kMeanIc - results.adc_offset_c;
+      const unit::Current kHalfReturn = -ext_current_ * 0.5F;
       results.gain_a = (unit::Abs(kSignalA) > 1e-4_A) ? (kSignalA / ext_current_) : unit::Ratio{};
-      results.gain_b = (unit::Abs(kSignalB) > 1e-4_A) ? (kSignalB / (-ext_current_ * 0.5F)) : unit::Ratio{};
+      results.gain_b = (unit::Abs(kSignalB) > 1e-4_A) ? (kSignalB / kHalfReturn) : unit::Ratio{};
+      results.gain_c = (unit::Abs(kSignalC) > 1e-4_A) ? (kSignalC / kHalfReturn) : unit::Ratio{};
 
-      const bool kPass =
-          (unit::Abs(results.gain_a - 1.0_ratio) < gain_tolerance) &&
-          (results.gain_b > 1e-4_ratio && unit::Abs(results.gain_b - 1.0_ratio) < gain_tolerance);
+      const auto kWithin = [this](const unit::Ratio gain) {
+        return gain > 1e-4_ratio && unit::Abs(gain - 1.0_ratio) < gain_tolerance;
+      };
+      const bool kPass = kWithin(results.gain_a) && kWithin(results.gain_b) && kWithin(results.gain_c);
 
       results.passed[static_cast<uint8_t>(FsmState::kCurrentSenseCalibration)] = kPass;
 
       LogFormatted(hardware::LogLevel::kInfo,
-                   "[STARTUP] CURRENT_SENSE_CALIBRATION: ext=%f A, gain_a=%f, gain_b=%f  %s\n",
+                   "[STARTUP] CURRENT_SENSE_CALIBRATION: ext=%f A, gain_a=%f, gain_b=%f, gain_c=%f  %s\n",
                    LogValue(ext_current_),
                    LogValue(results.gain_a),
                    LogValue(results.gain_b),
+                   LogValue(results.gain_c),
                    kPass ? "PASS" : "FAIL");
 
       if (!kPass) {
         LogFormatted(hardware::LogLevel::kWarning,
                      "[STARTUP] Gain error exceeds %f %%. Check voltage-divider and op-amp gain resistors "
                      "for current-sense channels.\n"
-                     "[STARTUP] Correction factors: adc_gain_a=%f, adc_gain_b=%f\n",
+                     "[STARTUP] Correction factors: adc_gain_a=%f, adc_gain_b=%f, adc_gain_c=%f\n",
                      LogValue(gain_tolerance * 100.0F),
                      LogValue(1.0_ratio / results.gain_a),
-                     LogValue(1.0_ratio / results.gain_b));
+                     LogValue(1.0_ratio / results.gain_b),
+                     LogValue(1.0_ratio / results.gain_c));
       }
 
     } else {
@@ -833,16 +853,18 @@ void HwStartup::RunDone() noexcept {
   hardware::kPowerStage.Disable();
   cc_->ReleaseForceDuty();
 
-  const unit::Ratio kGainA = (results.gain_a > 1e-4_ratio) ? (1.0_ratio / results.gain_a) : 1.0_ratio;
-  const unit::Ratio kGainB = (results.gain_b > 1e-4_ratio) ? (1.0_ratio / results.gain_b) : 1.0_ratio;
-  const unit::Ratio kGainVdc = (results.gain_vdc > 1e-4_ratio) ? (1.0_ratio / results.gain_vdc) : 1.0_ratio;
-
-  const settings::SettingsStatus kCommitStatus =
-      settings_operations_.ApplyAdcCalibration(results.adc_offset_a,
-                                               results.adc_offset_b,
-                                               kGainA,
-                                               kGainB,
-                                               kGainVdc);
+  // A gain that was not measured (0) keeps the correction at 1.
+  const auto kCorrection = [](const unit::Ratio gain) {
+    return (gain > 1e-4_ratio) ? (1.0_ratio / gain) : 1.0_ratio;
+  };
+  const settings::SettingsStatus kCommitStatus = settings_operations_.ApplyAdcCalibration(
+      settings::AdcCalibration{.offset_a = results.adc_offset_a,
+                               .offset_b = results.adc_offset_b,
+                               .offset_c = results.adc_offset_c,
+                               .gain_a = kCorrection(results.gain_a),
+                               .gain_b = kCorrection(results.gain_b),
+                               .gain_c = kCorrection(results.gain_c),
+                               .gain_vdc = kCorrection(results.gain_vdc)});
   if (kCommitStatus != settings::SettingsStatus::kSuccess) {
     EnterFault("failed to apply calibration settings");
     return;
@@ -878,21 +900,25 @@ void HwStartup::LogSummary() noexcept {
   LogFormatted(hardware::LogLevel::kInfo,
                "[STARTUP] adc_offset_a  = %f A\n"
                "[STARTUP] adc_offset_b  = %f A\n"
+               "[STARTUP] adc_offset_c  = %f A\n"
                "[STARTUP] adc_noise_a   = %f A\n"
                "[STARTUP] adc_noise_b   = %f A\n"
                "[STARTUP] gain_vdc      = %f\n"
                "[STARTUP] gain_a        = %f\n"
                "[STARTUP] gain_b        = %f\n"
+               "[STARTUP] gain_c        = %f\n"
                "[STARTUP] adc_trig_opt  = %u ticks\n"
                "[STARTUP] NVM calibration fields updated.\n"
                "[STARTUP] ====================================================\n\n",
                LogValue(results.adc_offset_a),
                LogValue(results.adc_offset_b),
+               LogValue(results.adc_offset_c),
                LogValue(results.adc_noise_rms_a),
                LogValue(results.adc_noise_rms_b),
                LogValue(results.gain_vdc),
                LogValue(results.gain_a),
                LogValue(results.gain_b),
+               LogValue(results.gain_c),
                static_cast<unsigned int>(results.adc_trigger_offset_optimal));
 }
 

@@ -30,7 +30,7 @@
 1 src/drive/settings_register_provider.cpp
 4 src/drive/startup_registers.cpp
 8 src/ebike/ebike_control.cpp
-7 src/startup/hw_startup.cpp
+8 src/startup/hw_startup.cpp
 12 src/trace/trace_signals.cpp
 5 tests/common/unimoc_test.hpp
 4 tests/drive/cart_control/src/main.cpp

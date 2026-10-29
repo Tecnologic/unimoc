@@ -169,7 +169,7 @@ template <std::size_t kSize>
 /// Measured current in the rotor frame of the observer angle (a snapshot without locking the control cycle).
 [[nodiscard]] system::Rotor<unit::Current> MeasuredCurrent(const CurrentControlIsr& isr) noexcept {
   const system::SinCos<unit::Ratio> kSinCos(isr.mech_obs.theta);
-  return isr.state.raw_phase_currents.ToStator().ToRotor(kSinCos);
+  return isr.state.phase_currents.ToStator().ToRotor(kSinCos);
 }
 
 }  // namespace
@@ -361,10 +361,10 @@ void DriveNode::SpinLocalControl(const uint64_t now_us) noexcept {
   vehicle.motor_speed = kOuter.speed;
   vehicle.torque_min = kOuter.torque_min;
   vehicle.torque_max = kOuter.torque_max;
-  vehicle.dc_link = isr.state.raw_vdc;
+  vehicle.dc_link = isr.state.dc_link;
   // Battery current from the mechanical power, as in the drive status.
   vehicle.battery_current =
-      (isr.state.raw_vdc > unit::Voltage{}) ? (kTorque * kOuter.speed) / isr.state.raw_vdc : unit::Current{};
+      (isr.state.dc_link > unit::Voltage{}) ? (kTorque * kOuter.speed) / isr.state.dc_link : unit::Current{};
   vehicle.motor_temperature = motor_->GetTemperatureMeasurements().motor.value_or(unit::Temperature{});
   vehicle.engaged = engaged_;
   vehicle.faulted = rearm_required_;
@@ -843,7 +843,7 @@ void DriveNode::PublishTelemetry() noexcept {
   telemetry.u_q = state.u_dq_last.q.Value();
   telemetry.electrical_angle = observer::WrapAnglePositive(kAngle).Value();
   telemetry.electrical_speed = isr.mech_obs.omega.Value();
-  telemetry.dc_link_voltage = state.raw_vdc.Value();
+  telemetry.dc_link_voltage = state.dc_link.Value();
   telemetry.power_stage = static_cast<uint8_t>(kPowerStage.GetState());
   telemetry.overcurrent_tripped = state.overcurrent_tripped;
   telemetry.engaged = engaged_;
@@ -877,10 +877,10 @@ void DriveNode::PublishDriveStatus() noexcept {
   status.estimated_torque = cart_.ToCart(kTorque).Value();
   status.drive_torque_limit = kDriveLimit.Value();
   status.brake_torque_limit = kBrakeLimit.Value();
-  status.dc_link_voltage = state.raw_vdc.Value();
+  status.dc_link_voltage = state.dc_link.Value();
   // Battery current from the mechanical power (the estimate of control::DcLinkLimit).
-  status.dc_link_current = (state.raw_vdc > unit::Voltage{})
-                               ? ((kTorque * kOuter.speed) / state.raw_vdc).Value()
+  status.dc_link_current = (state.dc_link > unit::Voltage{})
+                               ? ((kTorque * kOuter.speed) / state.dc_link).Value()
                                : std::numeric_limits<float>::quiet_NaN();
   status.power_stage_temperature = Kelvin(kTemperatures.bridge);
   status.motor_temperature = Kelvin(kTemperatures.motor);

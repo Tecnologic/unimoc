@@ -75,6 +75,7 @@ struct StartupResults {
   // ---- ADC_OFFSET_CAL results --------------------------------------------
   unit::Current adc_offset_a;  ///< Measured phase-A zero offset.
   unit::Current adc_offset_b;  ///< Measured phase-B zero offset.
+  unit::Current adc_offset_c;  ///< Measured phase-C zero offset.
 
   // ---- ADC_NOISE_FLOOR results -------------------------------------------
   unit::Current adc_noise_rms_a;  ///< Phase-A ADC noise RMS.
@@ -86,6 +87,7 @@ struct StartupResults {
   // ---- CURRENT_SENSE_CALIBRATION results ---------------------------------
   unit::Ratio gain_a{1.0_ratio};  ///< Phase-A current-sense gain correction.
   unit::Ratio gain_b{1.0_ratio};  ///< Phase-B current-sense gain correction.
+  unit::Ratio gain_c{1.0_ratio};  ///< Phase-C current-sense gain correction.
 
   // ---- PHASE_ADC_ALIGNMENT results ----------------------------------------
   uint32_t adc_trigger_offset_optimal{168U};  ///< Optimal trigger offset [timer ticks].

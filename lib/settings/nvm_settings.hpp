@@ -498,9 +498,10 @@ struct NvmSettings {
   // ADC calibration (populated by the hardware startup aid)
   //
   // These values are measured by HwStartup and stored here for persistence.
-  // The hardware-specific adc_read_injected() implementation should apply
-  // them as:  i_cal = (i_raw - adc_offset_X) * adc_gain_X
-  //           v_cal = v_raw * adc_gain_vdc
+  // The control cycle applies them to every sample (CurrentControlIsr):
+  //   i_cal = (i_raw - adc_offset_X) * adc_gain_X   (X = a, b, c)
+  //   v_cal = v_raw * adc_gain_vdc
+  // HwStartup itself measures the uncalibrated values.
   // =========================================================================
 
   /// Phase-A current-sense ADC zero offset [A].
@@ -511,6 +512,10 @@ struct NvmSettings {
   /// Register: `unimoc.startup.adc_offset_b`
   unit::Current adc_offset_b{0.0_A};
 
+  /// Phase-C current-sense ADC zero offset [A].
+  /// Register: `unimoc.startup.adc_offset_c`
+  unit::Current adc_offset_c{0.0_A};
+
   /// Phase-A current-sense ADC gain correction factor [dimensionless].
   /// Apply as: i_cal_a = (i_raw_a - adc_offset_a) * adc_gain_a.
   /// Register: `unimoc.startup.gain_a`
@@ -519,6 +524,10 @@ struct NvmSettings {
   /// Phase-B current-sense ADC gain correction factor [dimensionless].
   /// Register: `unimoc.startup.gain_b`
   unit::Ratio adc_gain_b{1.0_ratio};
+
+  /// Phase-C current-sense ADC gain correction factor [dimensionless].
+  /// Register: `unimoc.startup.gain_c`
+  unit::Ratio adc_gain_c{1.0_ratio};
 
   /// DC-link voltage ADC gain correction factor [dimensionless].
   /// Apply as: v_cal = v_raw * adc_gain_vdc.

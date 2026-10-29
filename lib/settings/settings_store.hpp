@@ -50,6 +50,17 @@ enum class SettingsStatus : uint8_t {
   kPersistBlocked,
 };
 
+/// Calibration of the current and DC-link sense (the startup aid, `unimoc.startup.*`).
+struct AdcCalibration {
+  unit::Current offset_a;           ///< Zero offset of phase A.
+  unit::Current offset_b;           ///< Zero offset of phase B.
+  unit::Current offset_c;           ///< Zero offset of phase C.
+  unit::Ratio gain_a{1.0_ratio};    ///< Gain correction of phase A.
+  unit::Ratio gain_b{1.0_ratio};    ///< Gain correction of phase B.
+  unit::Ratio gain_c{1.0_ratio};    ///< Gain correction of phase C.
+  unit::Ratio gain_vdc{1.0_ratio};  ///< Gain correction of the DC link.
+};
+
 namespace settings_store_internal {
 
 /// The zero of a value's unit, for sign checks without Value().
@@ -104,6 +115,7 @@ template <unit::UnitLike U>
          unit::IsFinite(settings.pos_accel_limit) && unit::IsFinite(settings.pos_position_tolerance) &&
          unit::IsFinite(settings.pos_speed_tolerance) && unit::IsFinite(settings.pos_homing_speed) &&
          unit::IsFinite(settings.adc_offset_a) && unit::IsFinite(settings.adc_offset_b) &&
+         unit::IsFinite(settings.adc_offset_c) && unit::IsFinite(settings.adc_gain_c) &&
          unit::IsFinite(settings.adc_gain_a) && unit::IsFinite(settings.adc_gain_b) &&
          unit::IsFinite(settings.adc_gain_vdc) && unit::IsFinite(settings.phase_balance_a) &&
          unit::IsFinite(settings.phase_balance_b) && unit::IsFinite(settings.phase_balance_c) &&
@@ -273,6 +285,7 @@ template <std::size_t kCount>
       !kIsRatio(settings.svm_duty_min) || !kIsRatio(settings.svm_duty_max) ||
       settings.svm_duty_min > settings.svm_duty_max || settings.adc_gain_a <= ZeroOf(settings.adc_gain_a) ||
       settings.adc_gain_b <= ZeroOf(settings.adc_gain_b) ||
+      settings.adc_gain_c <= ZeroOf(settings.adc_gain_c) ||
       settings.adc_gain_vdc <= ZeroOf(settings.adc_gain_vdc) ||
       settings.phase_balance_a <= ZeroOf(settings.phase_balance_a) ||
       settings.phase_balance_b <= ZeroOf(settings.phase_balance_b) ||
@@ -502,18 +515,10 @@ class SettingsOperations {
 
   /**
    * @brief Commits ADC calibration results as one transaction.
-   * @param offset_a Phase-A current offset.
-   * @param offset_b Phase-B current offset.
-   * @param gain_a Phase-A current-sense gain.
-   * @param gain_b Phase-B current-sense gain.
-   * @param gain_vdc DC-link voltage-sense gain.
+   * @param calibration Offsets and gain corrections of the startup aid.
    * @return The validation result.
    */
-  [[nodiscard]] SettingsStatus ApplyAdcCalibration(unit::Current offset_a,
-                                                   unit::Current offset_b,
-                                                   unit::Ratio gain_a,
-                                                   unit::Ratio gain_b,
-                                                   unit::Ratio gain_vdc) const;
+  [[nodiscard]] SettingsStatus ApplyAdcCalibration(const AdcCalibration& calibration) const;
 
   /**
    * @brief Returns the immutable hardware capabilities used for validation.
@@ -788,17 +793,15 @@ inline SettingsStatus SettingsOperations::SetNodeName(std::string_view name) con
   return Update([name](NvmSettings& settings) { settings.identity.SetName(name); });
 }
 
-inline SettingsStatus SettingsOperations::ApplyAdcCalibration(unit::Current offset_a,
-                                                              unit::Current offset_b,
-                                                              unit::Ratio gain_a,
-                                                              unit::Ratio gain_b,
-                                                              unit::Ratio gain_vdc) const {
-  return Update([=](NvmSettings& settings) {
-    settings.adc_offset_a = offset_a;
-    settings.adc_offset_b = offset_b;
-    settings.adc_gain_a = gain_a;
-    settings.adc_gain_b = gain_b;
-    settings.adc_gain_vdc = gain_vdc;
+inline SettingsStatus SettingsOperations::ApplyAdcCalibration(const AdcCalibration& calibration) const {
+  return Update([&calibration](NvmSettings& settings) {
+    settings.adc_offset_a = calibration.offset_a;
+    settings.adc_offset_b = calibration.offset_b;
+    settings.adc_offset_c = calibration.offset_c;
+    settings.adc_gain_a = calibration.gain_a;
+    settings.adc_gain_b = calibration.gain_b;
+    settings.adc_gain_c = calibration.gain_c;
+    settings.adc_gain_vdc = calibration.gain_vdc;
   });
 }
 

@@ -208,8 +208,10 @@ void ForEachRegister(const Visitor& visit, Settings&... settings) {
   visit(Setting(reg::kPosHomingSpeed, "Speed of the homing run"), settings.pos_homing_speed...);
   visit(Setting(reg::kStartupAdcOffsetA, "Zero offset of the phase A current sense (from the startup aid)"), settings.adc_offset_a...);
   visit(Setting(reg::kStartupAdcOffsetB, "Zero offset of the phase B current sense (from the startup aid)"), settings.adc_offset_b...);
+  visit(Setting(reg::kStartupAdcOffsetC, "Zero offset of the phase C current sense (from the startup aid)"), settings.adc_offset_c...);
   visit(Setting(reg::kStartupGainA, "Gain correction of the phase A current sense", AtLeast(0.0F)), settings.adc_gain_a...);
   visit(Setting(reg::kStartupGainB, "Gain correction of the phase B current sense", AtLeast(0.0F)), settings.adc_gain_b...);
+  visit(Setting(reg::kStartupGainC, "Gain correction of the phase C current sense", AtLeast(0.0F)), settings.adc_gain_c...);
   visit(Setting(reg::kStartupGainVdc, "Gain correction of the DC-link voltage sense", AtLeast(0.0F)), settings.adc_gain_vdc...);
   visit(Setting(reg::kBalanceGainA, "Balance correction of phase A, about 1", AtLeast(0.0F)), settings.phase_balance_a...);
   visit(Setting(reg::kBalanceGainB, "Balance correction of phase B, about 1", AtLeast(0.0F)), settings.phase_balance_b...);

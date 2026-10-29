@@ -991,6 +991,8 @@ ZTEST(sim_cyphal_drive, test_startup_run_to_done_commits_the_calibration) {
   zexpect_within(kNumber(reg::kStartupAdcOffsetB), -0.1F, 1e-5F);
   zexpect_within(kNumber(reg::kStartupGainA), 1.25F, 1e-3F);  // 1 / (0.8 A / 1 A)
   zexpect_within(kNumber(reg::kStartupGainB), 1.25F, 1e-3F);
+  zexpect_within(kNumber(reg::kStartupAdcOffsetC), -0.1F, 1e-5F);
+  zexpect_within(kNumber(reg::kStartupGainC), 1.25F, 1e-3F);
   zexpect_within(kNumber(reg::kStartupGainVdc), 1.0F, 1e-3F);
 
   // The drive takes the calibration with the next engage.
@@ -999,6 +1001,20 @@ ZTEST(sim_cyphal_drive, test_startup_run_to_done_commits_the_calibration) {
   rig.Run(2U);
   rig.Hold(0.0F, 2.0F, 30U);
   zexpect_true(rig.drive.IsEngaged());
+
+  // From then on every sample is calibrated; the raw sample stays for the startup aid.
+  rig.Readiness(reg_udral_service_common_Readiness_0_1_SLEEP);
+  rig.Run(2U);
+  zassert_false(rig.drive.IsEngaged());
+  sim::SetPhaseCurrentOverride(1.0F, -0.5F, -0.5F);
+  rig.Run(2U);
+  const auto& state = CurrentControlIsr::Instance().state;
+  UNIMOC_EXPECT_NEAR(state.raw_phase_currents.a, 1.0_A, 1e-6_A);
+  UNIMOC_EXPECT_NEAR(state.phase_currents.a, 1.0_A, 2e-3_A);   // (1.0 - 0.2) * 1.25
+  UNIMOC_EXPECT_NEAR(state.phase_currents.b, -0.5_A, 2e-3_A);  // (-0.5 + 0.1) * 1.25
+  UNIMOC_EXPECT_NEAR(state.phase_currents.c, -0.5_A, 2e-3_A);
+  UNIMOC_EXPECT_NEAR(state.dc_link, state.raw_vdc, 0.05_V);  // the DC-link gain is about 1
+  sim::ClearPhaseCurrentOverride();
 }
 
 ZTEST(sim_cyphal_drive, test_timing_registers_count_the_interrupts_and_reset) {

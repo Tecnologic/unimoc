@@ -455,6 +455,10 @@ inline constexpr const char* kStartupGainA = "unimoc.startup.gain_a";
 /// Type: real32[1] (read-only after CURRENT_SENSE_CALIBRATION step)
 inline constexpr const char* kStartupGainB = "unimoc.startup.gain_b";
 
+/// Computed phase-C current-sense gain correction factor [dimensionless].
+/// Type: real32[1] (read-only after CURRENT_SENSE_CALIBRATION step)
+inline constexpr const char* kStartupGainC = "unimoc.startup.gain_c";
+
 /// Computed DC-link voltage ADC gain correction factor [dimensionless].
 /// Type: real32[1] (read-only after DC_LINK_VOLTAGE_CHECK step)
 inline constexpr const char* kStartupGainVdc = "unimoc.startup.gain_vdc";
@@ -466,6 +470,10 @@ inline constexpr const char* kStartupAdcOffsetA = "unimoc.startup.adc_offset_a";
 /// Measured phase-B current-sense zero offset [A].
 /// Type: real32[1] (read-only after ADC_OFFSET_CAL step)
 inline constexpr const char* kStartupAdcOffsetB = "unimoc.startup.adc_offset_b";
+
+/// Measured phase-C current-sense zero offset [A].
+/// Type: real32[1] (read-only after ADC_OFFSET_CAL step)
+inline constexpr const char* kStartupAdcOffsetC = "unimoc.startup.adc_offset_c";
 
 // =========================================================================
 // Execution times of the interrupts (M0, CONFIG_UNIMOC_HOT_PATH_TIMING)

@@ -103,7 +103,7 @@ void OuterLoop::Step() noexcept {
     dc_link.drive_current_max = kBattery.drive_current;
     dc_link.charge_current_max = kBattery.charge_current;
   }
-  const Voltage kDcLink = isr_->state.raw_vdc;
+  const Voltage kDcLink = isr_->state.dc_link;
 
   // -------------------------------------------------------------------------
   // 1. Mechanical position and speed from the electrical estimate. The
