@@ -458,6 +458,17 @@ using MagneticFluxPerCurrentTime = Unit<float, std::ratio<1>, dim::Resistance>;
 /// Viscous rotational damping, torque per angular velocity [N m s/rad^2].
 using TorquePerAngularVelocity =
     Unit<float, std::ratio<1>, DimensionQuotient<dim::Torque, dim::AngularVelocity>>;
+/// Variance of an angle measurement [rad^2], the noise of a Kalman angle update.
+using AngleVariance = Unit<float, std::ratio<1>, DimensionProduct<dim::Angle, dim::Angle>>;
+/// Variance of a speed measurement [(rad/s)^2], the noise of a Kalman speed update.
+using AngularVelocityVariance =
+    Unit<float, std::ratio<1>, DimensionProduct<dim::AngularVelocity, dim::AngularVelocity>>;
+/// Speed weight k of an angle variance R + k / omega^2 [rad^2 (rad/s)^2 = rad^4/s^2].
+using AngleVarianceSpeedWeight =
+    Unit<float,
+         std::ratio<1>,
+         DimensionProduct<DimensionProduct<dim::Angle, dim::Angle>,
+                          DimensionProduct<dim::AngularVelocity, dim::AngularVelocity>>>;
 
 // --- Operators for units ---
 
@@ -1147,6 +1158,28 @@ constexpr AnglePerCurrent operator""_rad_per_A(long double val) {
 }
 constexpr AnglePerCurrent operator""_rad_per_A(unsigned long long val) {
   return AnglePerCurrent(static_cast<float>(val));
+}
+
+/**
+ * @brief Creates an angle variance literal.
+ * @param val Variance in rad^2.
+ * @return An angle variance.
+ */
+constexpr AngleVariance operator""_rad2(long double val) { return AngleVariance(static_cast<float>(val)); }
+constexpr AngleVariance operator""_rad2(unsigned long long val) {
+  return AngleVariance(static_cast<float>(val));
+}
+
+/**
+ * @brief Creates a speed weight literal of an angle variance (R + k / omega^2).
+ * @param val Weight in rad^4/s^2.
+ * @return A speed weight of an angle variance.
+ */
+constexpr AngleVarianceSpeedWeight operator""_rad4_per_s2(long double val) {
+  return AngleVarianceSpeedWeight(static_cast<float>(val));
+}
+constexpr AngleVarianceSpeedWeight operator""_rad4_per_s2(unsigned long long val) {
+  return AngleVarianceSpeedWeight(static_cast<float>(val));
 }
 
 /**
