@@ -58,6 +58,7 @@
 #include "sim_test_motor.hpp"
 #include "sin_cos.hpp"
 #include "slow_update.hpp"
+#include "unimoc_test.hpp"
 #include "zephyr_settings_storage.hpp"
 
 // The platform calls these directly (hot_path_interface.hpp). The control
@@ -948,7 +949,7 @@ ZTEST(sim_cyphal_drive, test_a_second_abort_leaves_the_control_to_the_drive) {
   rig.Run(2U);
   rig.Hold(0.0F, 10.0F, 30U);
   zassert_true(rig.drive.IsEngaged());
-  zexpect_within(PlantCurrent().q, 10.0_A, 0.5_A, "i_q = %f", static_cast<double>(PlantCurrent().q.Value()));
+  UNIMOC_EXPECT_NEAR(PlantCurrent().q, 10.0_A, 0.5_A);  // the current loop runs, no forced duties
 }
 
 ZTEST(sim_cyphal_drive, test_startup_run_to_done_commits_the_calibration) {
