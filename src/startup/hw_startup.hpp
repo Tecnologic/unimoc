@@ -69,7 +69,7 @@ class HwStartup {
   /// Minimum V_dc reading considered valid.
   unit::Voltage vdc_min_valid{1.0_V};
 
-  /// Fraction of max_phase_current_A used as OC trip limit during Phase 2.
+  /// Fraction of max_phase_current used as the overcurrent limit of a run (both phases).
   unit::Ratio oc_fraction{0.10_ratio};
 
   /// Duty fraction applied in forced-duty steps (offset from 0.5).
@@ -176,6 +176,7 @@ class HwStartup {
   void RunDone() noexcept;
 
   bool CheckMotorOc() noexcept;
+  void InjectAlphaCurrent() noexcept;
   bool CollectSample(uint32_t n_samples) noexcept;
 
   [[nodiscard]] static unit::Current MeanCurrent(double sum, uint32_t n_samples) noexcept;

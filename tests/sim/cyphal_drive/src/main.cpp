@@ -1017,6 +1017,65 @@ ZTEST(sim_cyphal_drive, test_startup_run_to_done_commits_the_calibration) {
   sim::ClearPhaseCurrentOverride();
 }
 
+ZTEST(sim_cyphal_drive, test_startup_phase_2_runs_on_the_motor) {
+  Rig& rig = *g_rig;
+  const auto kStep = [&rig](const unsigned milliseconds) {  // one FSM sample per millisecond
+    rig.Run(milliseconds);
+    (void)rig.Access(reg::kStartupStep, Natural8(1U));  // answers with the FSM state
+    rig.Run(2U);
+  };
+  // Phase 1 without the motor: no current (the plant has it connected all the time).
+  sim::SetPhaseCurrentOverride(0.0F, 0.0F, 0.0F);
+  zexpect_equal(Integer(rig.Access(reg::kStartupRun, Natural8(1U))), 1);
+  kStep(2U);
+  for (unsigned i = 0U; i < 5U; ++i) {
+    kStep(1100U);
+  }
+  (void)rig.Access(reg::kStartupExtVdcV, Real(48.0F));
+  kStep(1100U);
+  kStep(1100U);
+  zexpect_equal(Integer(rig.Access(reg::kStartupStep, Empty())), 9);  // CONNECT_MOTOR
+
+  // Phase 2 on the motor of the plant: the alignment sweep and the
+  // calibration stay far below the overcurrent limit of the run (6 A).
+  rig.Run(100U);  // the current of the gate check (behind the override) decays at neutral duty
+  sim::ClearPhaseCurrentOverride();
+  kStep(2U);
+  rig.Run((21U * 256U) + 100U);
+  zexpect_equal(Integer(rig.Access(reg::kStartupStep, Empty())), 10, "the sweep tripped");
+  (void)rig.Access(reg::kStartupStep, Natural8(1U));
+  rig.Run(200U);  // the current settles (L/R = 10 ms)
+  const Current kPhaseA = sim::Plant().Output().phase_currents.a;
+  zexpect_true(kPhaseA > 0.5_A && kPhaseA < 2.0_A, "i_a %f", static_cast<double>(kPhaseA.Value()));
+  zexpect_equal(Integer(rig.Access(reg::kStartupStep, Empty())), 11);  // CURRENT_SENSE_CALIBRATION
+  (void)rig.Access(reg::kStartupExtCurrentA, Real(kPhaseA.Value()));   // the clamp meter
+  kStep(1100U);
+
+  zexpect_equal(Integer(rig.Access(reg::kStartupStep, Empty())), 12);  // DONE
+  auto results = rig.Access(reg::kStartupResults, Empty());
+  zexpect_equal(results.natural8.value.elements[11], 1U, "the gains of the plant are 1");
+  const auto kGain = [&rig](const char* name) {
+    return unimoc::cyphal::GetNumber(rig.Access(name, Empty())).value_or(-1.0F);
+  };
+  zexpect_within(kGain(reg::kStartupGainA), 1.0F, 0.02F);
+  zexpect_within(kGain(reg::kStartupGainB), 1.0F, 0.02F);
+  zexpect_within(kGain(reg::kStartupGainC), 1.0F, 0.02F);
+}
+
+ZTEST(sim_cyphal_drive, test_a_motor_in_phase_1_faults_the_startup_aid) {
+  Rig& rig = *g_rig;
+  zexpect_equal(Integer(rig.Access(reg::kStartupRun, Natural8(1U))), 1);
+  for (unsigned i = 0U; i < 9U && Integer(rig.Access(reg::kStartupStep, Empty())) != 13; ++i) {
+    rig.Run(1100U);
+    (void)rig.Access(reg::kStartupExtVdcV, Real(48.0F));
+    (void)rig.Access(reg::kStartupStep, Natural8(1U));
+    rig.Run(2U);
+  }
+  // GATE_DRIVER_ENABLE_CHECK drives a current into the connected motor: FAULT, outputs off.
+  zexpect_equal(Integer(rig.Access(reg::kStartupStep, Empty())), 13);
+  zexpect_equal(kPowerStage.GetState(), PowerStageState::kDisabled);
+}
+
 ZTEST(sim_cyphal_drive, test_timing_registers_count_the_interrupts_and_reset) {
   Rig& rig = *g_rig;
   rig.Run(2U);

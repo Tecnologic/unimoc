@@ -811,7 +811,12 @@ unimoc.startup.step = 1
 
 The firmware sweeps the ADC trigger offset by ±5 µs in 0.5 µs steps
 (21 positions) while injecting a small voltage, measuring the current-sense
-noise at each position.  The position with the lowest noise is selected as the
+noise at each position.  The injection is that of step 11 (`v_cal_fraction`,
+0.2 % duty on the alpha axis, about 1 A in a 0.1 Ohm motor at 48 V).
+
+In every step of a run the phase currents are checked against 10 % of the
+hardware current limit (`oc_fraction`): a current in phase 1 means a motor is
+still connected, and the run goes to FAULT.  The position with the lowest noise is selected as the
 optimal ADC sampling instant.
 
 The log reports:

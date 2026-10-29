@@ -85,6 +85,7 @@ void HwStartup::RequestRun() noexcept {
   next_step_requested_ = false;
   ext_current_ = unit::Current{};
   ext_vdc_ = unit::Voltage{};
+  oc_limit_ = settings_operations_.GetHardwareCapabilities().max_phase_current * oc_fraction;
 
   // A new run is the explicit acknowledgement of a latched break and of an
   // overcurrent trip. The external enable must still be present (Enable() checks).
@@ -162,7 +163,8 @@ void HwStartup::RunOnce() noexcept {
     return;
   }
 
-  if (state_ >= FsmState::kConnectMotor && state_ < FsmState::kDone) {
+  // In every step: in phase 1 a current means a motor is still connected.
+  if (IsActive()) {
     if (CheckMotorOc()) {
       return;  // enter_fault already called
     }
@@ -667,15 +669,24 @@ void HwStartup::RunConnectMotorWait() noexcept {
 }
 
 // =============================================================================
+// inject_alpha_current  — a small voltage on the alpha axis (phase A out, B and C back)
+// =============================================================================
+
+void HwStartup::InjectAlphaCurrent() noexcept {
+  const unit::Ratio kDa = kNeutralDuty + v_cal_fraction;
+  const unit::Ratio kDb = kNeutralDuty - v_cal_fraction * 0.5F;
+  const unit::Ratio kDc = kNeutralDuty - v_cal_fraction * 0.5F;
+  cc_->ForceDuty(kDa, kDb, kDc);
+}
+
+// =============================================================================
 // run_phase_adc_alignment
 // =============================================================================
 
 void HwStartup::RunPhaseAdcAlignment() noexcept {
-  // Force a known asymmetric duty so phase A carries more current than B/C.
-  static constexpr unit::Ratio kDa = 0.8_ratio;
-  static constexpr unit::Ratio kDb = 0.2_ratio;
-  static constexpr unit::Ratio kDc = 0.2_ratio;
-  cc_->ForceDuty(kDa, kDb, kDc);
+  // A small current in phase A, the injection of CURRENT_SENSE_CALIBRATION:
+  // a large asymmetric duty would drive the motor into the overcurrent limit.
+  InjectAlphaCurrent();
 
   if (step_done_) {
     if (next_step_requested_ && ValidateCurrentState()) {
@@ -769,11 +780,7 @@ void HwStartup::RunPhaseAdcAlignment() noexcept {
 // =============================================================================
 
 void HwStartup::RunCurrentSenseCalibration() noexcept {
-  // Force pure alpha-axis current injection (small voltage differential)
-  const unit::Ratio kDa = kNeutralDuty + v_cal_fraction;
-  const unit::Ratio kDb = kNeutralDuty - v_cal_fraction * 0.5F;
-  const unit::Ratio kDc = kNeutralDuty - v_cal_fraction * 0.5F;
-  cc_->ForceDuty(kDa, kDb, kDc);
+  InjectAlphaCurrent();
 
   if (!step_done_ && !CollectSample(kNCal)) {
     return;  // still collecting
