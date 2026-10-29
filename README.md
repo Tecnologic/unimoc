@@ -590,6 +590,16 @@ logs the result through the Zephyr log, then pauses and waits for the user to wr
 `unimoc.startup.step` before moving on.  This gives you time to review scope
 traces and enter external meter readings.
 
+**From cypilot** (the operator app): select the drive, open the Control view
+and use the **Startup aid** card (take control first). It shows the step and
+what to do, takes the meter readings, and asks for the confirmation that the
+motor is connected before phase 2. STOP ALL, the E-stop and a lost control
+lease abort the run. The register writes below are the same over yakut.
+
+While the aid runs it owns the outputs: it releases the power stage itself,
+so readiness SLEEP does not stop it. Abort it with `unimoc.startup.run = 0`,
+the emergency stop or a restart.
+
 ### Equipment Required
 
 | Item | Used in step(s) |
@@ -908,8 +918,9 @@ To **abort** the sequence at any time, write:
 unimoc.startup.run = 0
 ```
 
-The FSM enters FAULT, releases all forced-duty overrides, and applies safe
-50 % neutral duty.
+The FSM enters FAULT and disables the power stage; the drive releases the
+forced duties and returns to its control loop. Writing 0 when no run is active
+changes nothing, so a tool may abort every drive on a stop.
 
 To **restart** from scratch after a fault or abort, write:
 
