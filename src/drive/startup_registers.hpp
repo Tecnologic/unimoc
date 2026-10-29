@@ -19,6 +19,7 @@
 #include <string_view>
 #include "cyphal/node.hpp"
 #include "hw_startup.hpp"
+#include "units.hpp"
 
 namespace unimoc::drive {
 
@@ -60,8 +61,8 @@ class StartupRegisters final : public cyphal::RegisterProvider {
  private:
   startup::HwStartup* fsm_;
   const bool* engaged_;
-  float ext_current_{0.0F};
-  float ext_vdc_{0.0F};
+  unit::Current ext_current_;  ///< Last `ext_current_A`, real32 in A on the bus.
+  unit::Voltage ext_vdc_;      ///< Last `ext_vdc_V`, real32 in V on the bus.
 };
 
 }  // namespace unimoc::drive

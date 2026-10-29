@@ -54,28 +54,28 @@ class HwStartup {
   // thresholds are plain configuration, set by the application or a Cyphal
   // register before RequestRun(); the results are read back the same way.
 
-  /// Maximum acceptable current-sense zero offset [A].  Default 0.5 A.
-  float offset_threshold{0.5F};
+  /// Maximum acceptable current-sense zero offset.  Default 0.5 A.
+  unit::Current offset_threshold{0.5_A};
 
-  /// Maximum acceptable ADC noise RMS [A].  Default 0.1 A.
-  float noise_threshold{0.1F};
+  /// Maximum acceptable ADC noise RMS.  Default 0.1 A.
+  unit::Current noise_threshold{0.1_A};
 
   /// Current-sense gain tolerance (± from 1.0).  Default 0.05 = 5 %.
-  float gain_tolerance{0.05F};
+  unit::Ratio gain_tolerance{0.05_ratio};
 
   /// V_dc gain tolerance.  Default 0.02 = 2 %.
-  float vdc_gain_tolerance{0.02F};
+  unit::Ratio vdc_gain_tolerance{0.02_ratio};
 
-  /// Minimum V_dc reading considered valid [V].
-  float vdc_min_valid{1.0F};
+  /// Minimum V_dc reading considered valid.
+  unit::Voltage vdc_min_valid{1.0_V};
 
   /// Fraction of max_phase_current_A used as OC trip limit during Phase 2.
-  float oc_fraction{0.10F};
+  unit::Ratio oc_fraction{0.10_ratio};
 
   /// Duty fraction applied in forced-duty steps (offset from 0.5).
   ///   LOW  → 0.5 − duty_step_fraction
   ///   HIGH → 0.5 + duty_step_fraction
-  unit::Ratio duty_step_fraction{0.45F};  ///< gives 5 % / 95 % by default
+  unit::Ratio duty_step_fraction{0.45_ratio};  ///< gives 5 % / 95 % by default
 
   /// Voltage injection fraction for CURRENT_SENSE_CALIBRATION
   /// (fraction of ARR; tiny to avoid destroying low-Rs windings).
@@ -98,10 +98,10 @@ class HwStartup {
   // =========================================================================
 
   /// Set by the Cyphal handler for `unimoc.startup.ext_current_A`.
-  void SetExtCurrent(float amps) noexcept { ext_current_ = amps; }
+  void SetExtCurrent(const unit::Current current) noexcept { ext_current_ = current; }
 
   /// Set by the Cyphal handler for `unimoc.startup.ext_vdc_V`.
-  void SetExtVdc(float volts) noexcept { ext_vdc_ = volts; }
+  void SetExtVdc(const unit::Voltage voltage) noexcept { ext_vdc_ = voltage; }
 
   // =========================================================================
   // Results (populated during the FSM run; persistent until next request_run)
@@ -178,6 +178,12 @@ class HwStartup {
   bool CheckMotorOc() noexcept;
   bool CollectSample(uint32_t n_samples) noexcept;
 
+  [[nodiscard]] static unit::Current MeanCurrent(double sum, uint32_t n_samples) noexcept;
+  [[nodiscard]] static unit::Voltage MeanVoltage(double sum, uint32_t n_samples) noexcept;
+  [[nodiscard]] static unit::Current RmsCurrent(double sum,
+                                                double sum_of_squares,
+                                                uint32_t n_samples) noexcept;
+
   static const char* StateName(FsmState state) noexcept;
   void LogSummary() noexcept;
 
@@ -195,7 +201,9 @@ class HwStartup {
 
   uint32_t sample_count_{0U};  ///< Samples accumulated for current step.
 
-  // Accumulators for running statistics
+  // Accumulators for running statistics. Plain doubles (CONTEXT.md, "Unit
+  // Boundaries"): in float the variance E[x^2] - E[x]^2 loses most of its
+  // digits when a current flows (alignment sweep).
   double accum_a_{0.0};
   double accum_b_{0.0};
   double accum_sq_a_{0.0};
@@ -203,20 +211,20 @@ class HwStartup {
 
   // Alignment sweep
   uint32_t sweep_pos_{0U};
-  std::array<float, kNSweepSteps> sweep_noise_a_{};
+  std::array<unit::Current, kNSweepSteps> sweep_noise_a_{};
   uint32_t base_trigger_offset_{0U};  ///< Initialised from cc_.state.adc_trigger_offset at sweep start.
 
   // Gate-driver enable-check accumulators
-  float gate_mean_disabled_{0.0F};
-  float gate_mean_enabled_{0.0F};
+  unit::Current gate_mean_disabled_;
+  unit::Current gate_mean_enabled_;
   bool gate_phase_disabled_{true};  ///< true = collecting disabled phase
 
   // External measurements
-  float ext_current_{0.0F};
-  float ext_vdc_{0.0F};
+  unit::Current ext_current_;
+  unit::Voltage ext_vdc_;
 
   // OC limit (computed once at Phase 2 entry)
-  float oc_limit_{10.0F};
+  unit::Current oc_limit_{10.0_A};
 };
 
 }  // namespace unimoc::startup

@@ -24,6 +24,7 @@
 #include "sim_control.hpp"
 #include "sim_test_motor.hpp"
 #include "slow_update.hpp"
+#include "unimoc_test.hpp"
 
 namespace {
 
@@ -178,6 +179,91 @@ ZTEST_F(sim_overcurrent, test_startup_run_releases_stage_and_fault_cuts_it) {
   startup.RunOnce();
   zassert_equal(startup.State(), unimoc::startup::FsmState::kFault);
   zassert_not_equal(kPowerStage.GetState(), PowerStageState::kEnabled);
+}
+
+namespace {
+
+/// One sample for the startup FSM: phase currents a ± noise, b ± noise (alternating sign), c balancing.
+void StartupSample(unimoc::startup::HwStartup& startup,
+                   const float a,
+                   const float b,
+                   const float noise,
+                   const unsigned index) {
+  const float kNoise = (index % 2U == 0U) ? noise : -noise;
+  sim::SetPhaseCurrentOverride(a + kNoise, b + kNoise, -(a + b) - (2.0F * kNoise));
+  RunCycles(1);
+  startup.RunOnce();
+}
+
+/// Runs @p samples samples of one step, then advances to the next step.
+void StartupStep(unimoc::startup::HwStartup& startup,
+                 const unsigned samples,
+                 const float a,
+                 const float b,
+                 const float noise) {
+  for (unsigned i = 0U; i < samples; ++i) {
+    StartupSample(startup, a, b, noise, i);
+  }
+  startup.RequestNextStep();
+  StartupSample(startup, a, b, noise, samples);
+}
+
+}  // namespace
+
+ZTEST_F(sim_overcurrent, test_startup_results_are_in_units) {
+  using unimoc::startup::FsmState;
+  using unimoc::startup::HwStartup;
+  CurrentControlIsr& isr = CurrentControlIsr::Instance();
+  const uint32_t kTriggerOffset = isr.state.adc_trigger_offset;
+  HwStartup startup{isr, fixture->store.GetOperations()};
+  startup.RequestRun();
+  zassert_equal(startup.State(), FsmState::kPwmDisable);
+
+  // Phase 1 without a motor: a zero offset of 0.2 A and -0.1 A with 10 mA noise.
+  StartupStep(startup, 1U, 0.2F, -0.1F, 0.01F);
+  zassert_equal(startup.State(), FsmState::kAdcOffsetCal);
+  StartupStep(startup, HwStartup::kNCal, 0.2F, -0.1F, 0.01F);
+  UNIMOC_EXPECT_NEAR(startup.results.adc_offset_a, 0.2_A, 1e-5_A);
+  UNIMOC_EXPECT_NEAR(startup.results.adc_offset_b, -0.1_A, 1e-5_A);
+  zexpect_true(startup.results.passed[static_cast<uint8_t>(FsmState::kAdcOffsetCal)]);
+  StartupStep(startup, HwStartup::kNCal, 0.2F, -0.1F, 0.01F);
+  UNIMOC_EXPECT_NEAR(startup.results.adc_noise_rms_a, 0.01_A, 1e-5_A);
+  UNIMOC_EXPECT_NEAR(startup.results.adc_noise_rms_b, 0.01_A, 1e-5_A);
+  zexpect_true(startup.results.passed[static_cast<uint8_t>(FsmState::kAdcNoiseFloor)]);
+  for (unsigned i = 0U; i < 3U; ++i) {  // DUTY_FORCE_LOW .. HIGH
+    StartupStep(startup, HwStartup::kHoldSamples + 1U, 0.2F, -0.1F, 0.01F);
+  }
+  zassert_equal(startup.State(), FsmState::kDcLinkVoltageCheck);
+  startup.SetExtVdc(48.0_V);  // the sim DC link
+  StartupStep(startup, HwStartup::kNCal, 0.2F, -0.1F, 0.01F);
+  UNIMOC_EXPECT_NEAR(startup.results.gain_vdc, 1.0_ratio, 1e-3_ratio);
+  zexpect_true(startup.results.passed[static_cast<uint8_t>(FsmState::kDcLinkVoltageCheck)]);
+  StartupStep(startup, 2U * 512U, 0.2F, -0.1F, 0.01F);  // GATE_DRIVER_ENABLE_CHECK
+  zassert_equal(startup.State(), FsmState::kConnectMotor);
+  StartupStep(startup, 1U, 0.0F, 0.0F, 0.0F);
+  zassert_equal(startup.State(), FsmState::kPhaseAdcAlignment);
+
+  // Phase 2: 2 A through phase A with the same noise. The RMS of each sweep
+  // position needs the double accumulators: in float the 2 A would bury it.
+  StartupStep(startup, (HwStartup::kNSweepSteps * HwStartup::kNAlignSamples) + 1U, 2.0F, -1.0F, 0.01F);
+  zexpect_true(startup.results.passed[static_cast<uint8_t>(FsmState::kPhaseAdcAlignment)]);
+  zassert_equal(startup.State(), FsmState::kCurrentSenseCalibration);
+
+  // 1 A on alpha (phase B carries -0.5 A), the clamp meter reads 1.25 A.
+  startup.SetExtCurrent(1.25_A);
+  for (unsigned i = 0U; i < HwStartup::kNCal; ++i) {
+    StartupSample(startup, 1.0F, -0.5F, 0.01F, i);
+  }
+  // The samples reach the control cycle one cycle late: the first one of the
+  // step is still the last one of the alignment (1/1024 of 1 A off).
+  UNIMOC_EXPECT_NEAR(startup.results.gain_a, 0.8_ratio, 1e-3_ratio);
+  UNIMOC_EXPECT_NEAR(startup.results.gain_b, 0.8_ratio, 1e-3_ratio);
+  zexpect_false(startup.results.passed[static_cast<uint8_t>(FsmState::kCurrentSenseCalibration)],
+                "20 %% gain error");
+
+  startup.RequestAbort();
+  zexpect_equal(startup.State(), FsmState::kFault);
+  isr.SetAdcTriggerOffset(kTriggerOffset);  // the sweep moved it
 }
 
 ZTEST_SUITE(sim_overcurrent, nullptr, Setup, Before, nullptr, nullptr);

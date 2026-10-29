@@ -26,10 +26,14 @@ namespace unimoc::startup {
 
 namespace {
 
-using unit::operator""_ratio;
-
 /// Both switches of a leg for the same time: no voltage across the motor.
 constexpr unit::Ratio kNeutralDuty = 0.5_ratio;
+
+/// The log boundary: a `%f` argument of LogFormatted() in the base unit.
+template <unit::UnitLike U>
+[[nodiscard]] double LogValue(const U value) noexcept {
+  return static_cast<double>(value.Value());
+}
 
 }  // namespace
 
@@ -79,8 +83,8 @@ void HwStartup::RequestRun() noexcept {
   sweep_pos_ = 0U;
   step_done_ = false;
   next_step_requested_ = false;
-  ext_current_ = 0.0F;
-  ext_vdc_ = 0.0F;
+  ext_current_ = unit::Current{};
+  ext_vdc_ = unit::Voltage{};
 
   // A new run is the explicit acknowledgement of a latched break and of an
   // overcurrent trip. The external enable must still be present (Enable() checks).
@@ -277,7 +281,7 @@ void HwStartup::AdvanceToNextState() noexcept {
 
 bool HwStartup::ValidateCurrentState() noexcept {
   if (state_ == FsmState::kCurrentSenseCalibration) {
-    if (ext_current_ < 1e-3F) {
+    if (ext_current_ < 1e-3_A) {
       LogWarning(
           "[STARTUP] CURRENT_SENSE_CALIBRATION: ext_current_A is zero. "
           "Please enter the clamp-meter reading via unimoc.startup.ext_current_A before advancing.\n");
@@ -313,10 +317,8 @@ void HwStartup::EnterFault(const char* reason) noexcept {
 
 bool HwStartup::CheckMotorOc() noexcept {
   const auto& phase_currents = cc_->state.raw_phase_currents;
-  const float kIa = phase_currents.a.Value();
-  const float kIb = phase_currents.b.Value();
-  const float kIc = phase_currents.c.Value();
-  if ((std::abs(kIa) > oc_limit_) || (std::abs(kIb) > oc_limit_) || (std::abs(kIc) > oc_limit_)) {
+  if ((unit::Abs(phase_currents.a) > oc_limit_) || (unit::Abs(phase_currents.b) > oc_limit_) ||
+      (unit::Abs(phase_currents.c) > oc_limit_)) {
     EnterFault("over-current detected");
     return true;
   }
@@ -339,6 +341,28 @@ bool HwStartup::CollectSample(uint32_t n_samples) noexcept {
 }
 
 // =============================================================================
+// mean_current, mean_voltage, rms_current  — the accumulators back into units
+// =============================================================================
+
+unit::Current HwStartup::MeanCurrent(const double sum, const uint32_t n_samples) noexcept {
+  return unit::Current{static_cast<float>(sum) / static_cast<float>(n_samples)};
+}
+
+unit::Voltage HwStartup::MeanVoltage(const double sum, const uint32_t n_samples) noexcept {
+  return unit::Voltage{static_cast<float>(sum) / static_cast<float>(n_samples)};
+}
+
+unit::Current HwStartup::RmsCurrent(const double sum,
+                                    const double sum_of_squares,
+                                    const uint32_t n_samples) noexcept {
+  const auto kSampleCount = static_cast<double>(n_samples);
+  // variance = E[x²] - E[x]², in double (see the accumulators)
+  const auto kVariance =
+      static_cast<float>(sum_of_squares / kSampleCount - (sum / kSampleCount) * (sum / kSampleCount));
+  return unit::Current{(kVariance > 0.0F) ? std::sqrt(kVariance) : 0.0F};
+}
+
+// =============================================================================
 // run_adc_offset_cal
 // =============================================================================
 
@@ -348,28 +372,27 @@ void HwStartup::RunAdcOffsetCal() noexcept {
 
   if (!step_done_) {
     if (CollectSample(kNCal)) {
-      const auto kSampleCount = static_cast<float>(kNCal);
-      const float kMeanA = static_cast<float>(accum_a_) / kSampleCount;
-      const float kMeanB = static_cast<float>(accum_b_) / kSampleCount;
+      const unit::Current kMeanA = MeanCurrent(accum_a_, kNCal);
+      const unit::Current kMeanB = MeanCurrent(accum_b_, kNCal);
 
       results.adc_offset_a = kMeanA;
       results.adc_offset_b = kMeanB;
 
-      const bool kPass = (std::abs(kMeanA) < offset_threshold) && (std::abs(kMeanB) < offset_threshold);
+      const bool kPass = (unit::Abs(kMeanA) < offset_threshold) && (unit::Abs(kMeanB) < offset_threshold);
 
       results.passed[static_cast<uint8_t>(FsmState::kAdcOffsetCal)] = kPass;
 
       LogFormatted(hardware::LogLevel::kInfo,
                    "[STARTUP] ADC_OFFSET_CAL: offset_a=%f A, offset_b=%f A  %s\n",
-                   static_cast<double>(kMeanA),
-                   static_cast<double>(kMeanB),
+                   LogValue(kMeanA),
+                   LogValue(kMeanB),
                    kPass ? "PASS" : "FAIL");
 
       if (!kPass) {
         LogFormatted(hardware::LogLevel::kWarning,
                      "[STARTUP] ADC offset exceeds threshold (%f A). Check op-amp supply, resistors, and PCB "
                      "connections.\n",
-                     static_cast<double>(offset_threshold));
+                     LogValue(offset_threshold));
       }
 
       step_done_ = true;
@@ -391,15 +414,8 @@ void HwStartup::RunAdcNoiseFloor() noexcept {
 
   if (!step_done_) {
     if (CollectSample(kNCal)) {
-      const auto kSampleCount = static_cast<double>(kNCal);
-      // variance = E[x²] - E[x]²
-      const auto kVarA = static_cast<float>(accum_sq_a_ / kSampleCount -
-                                            (accum_a_ / kSampleCount) * (accum_a_ / kSampleCount));
-      const auto kVarB = static_cast<float>(accum_sq_b_ / kSampleCount -
-                                            (accum_b_ / kSampleCount) * (accum_b_ / kSampleCount));
-
-      results.adc_noise_rms_a = (kVarA > 0.0F) ? std::sqrt(kVarA) : 0.0F;
-      results.adc_noise_rms_b = (kVarB > 0.0F) ? std::sqrt(kVarB) : 0.0F;
+      results.adc_noise_rms_a = RmsCurrent(accum_a_, accum_sq_a_, kNCal);
+      results.adc_noise_rms_b = RmsCurrent(accum_b_, accum_sq_b_, kNCal);
 
       const bool kPass =
           (results.adc_noise_rms_a < noise_threshold) && (results.adc_noise_rms_b < noise_threshold);
@@ -408,15 +424,15 @@ void HwStartup::RunAdcNoiseFloor() noexcept {
 
       LogFormatted(hardware::LogLevel::kInfo,
                    "[STARTUP] ADC_NOISE_FLOOR: rms_a=%f A, rms_b=%f A  %s\n",
-                   static_cast<double>(results.adc_noise_rms_a),
-                   static_cast<double>(results.adc_noise_rms_b),
+                   LogValue(results.adc_noise_rms_a),
+                   LogValue(results.adc_noise_rms_b),
                    kPass ? "PASS" : "FAIL");
 
       if (!kPass) {
         LogFormatted(hardware::LogLevel::kWarning,
                      "[STARTUP] ADC noise exceeds threshold (%f A). Check decoupling caps, layout, and "
                      "ground paths.\n",
-                     static_cast<double>(noise_threshold));
+                     LogValue(noise_threshold));
       }
 
       step_done_ = true;
@@ -449,7 +465,7 @@ void HwStartup::RunDutyForce(const unit::Ratio duty) noexcept {
                  "[STARTUP] %s: duty=%f applied for %u samples. PASS-MANUAL (verify with scope).\n"
                  "[STARTUP] Press NEXT to continue.\n",
                  StateName(state_),
-                 static_cast<double>(duty.Value()),  // the log takes plain numbers
+                 LogValue(duty),
                  static_cast<unsigned int>(kHoldSamples));
 
     step_done_ = true;
@@ -486,19 +502,19 @@ void HwStartup::RunDcLinkVoltageCheck() noexcept {
   }
 
   // kNCal samples collected; compute the kNCal-sample average V_dc reading.
-  const float kMeasuredVdc = static_cast<float>(accum_a_) / static_cast<float>(kNCal);
+  const unit::Voltage kMeasuredVdc = MeanVoltage(accum_a_, kNCal);
 
   if (ext_vdc_ > vdc_min_valid) {
     results.gain_vdc = kMeasuredVdc / ext_vdc_;
-    const bool kPass = std::abs(results.gain_vdc - 1.0F) < vdc_gain_tolerance;
+    const bool kPass = unit::Abs(results.gain_vdc - 1.0_ratio) < vdc_gain_tolerance;
 
     results.passed[static_cast<uint8_t>(FsmState::kDcLinkVoltageCheck)] = kPass;
 
     LogFormatted(hardware::LogLevel::kInfo,
                  "[STARTUP] DC_LINK_VOLTAGE_CHECK: adc_vdc=%f V, ext=%f V, gain=%f  %s\n",
-                 static_cast<double>(kMeasuredVdc),
-                 static_cast<double>(ext_vdc_),
-                 static_cast<double>(results.gain_vdc),
+                 LogValue(kMeasuredVdc),
+                 LogValue(ext_vdc_),
+                 LogValue(results.gain_vdc),
                  kPass ? "PASS" : "FAIL");
 
     if (!kPass) {
@@ -506,8 +522,8 @@ void HwStartup::RunDcLinkVoltageCheck() noexcept {
                    "[STARTUP] V_dc gain error exceeds %f %%. Check voltage-divider resistors on V_dc sense "
                    "circuit.\n"
                    "[STARTUP] Suggested correction factor: %f\n",
-                   static_cast<double>(vdc_gain_tolerance * 100.0F),
-                   static_cast<double>(results.gain_vdc));
+                   LogValue(vdc_gain_tolerance * 100.0F),
+                   LogValue(results.gain_vdc));
     }
 
     step_done_ = true;
@@ -518,7 +534,7 @@ void HwStartup::RunDcLinkVoltageCheck() noexcept {
                  "[STARTUP] DC_LINK_VOLTAGE_CHECK: adc_vdc=%f V. Enter multimeter reading via "
                  "unimoc.startup.ext_vdc_V, "
                  "then press NEXT.\n",
-                 static_cast<double>(kMeasuredVdc));
+                 LogValue(kMeasuredVdc));
     ++sample_count_;
     // step_done_ stays false; keep polling until ext_vdc_ is provided.
   }
@@ -552,7 +568,7 @@ void HwStartup::RunGateDriverEnableCheck() noexcept {
     // Collecting disabled (neutral) baseline
     cc_->ForceDuty(kNeutralDuty, kNeutralDuty, kNeutralDuty);
     if (CollectSample(kNGate)) {
-      gate_mean_disabled_ = static_cast<float>(accum_a_) / static_cast<float>(kNGate);
+      gate_mean_disabled_ = MeanCurrent(accum_a_, kNGate);
       // Reset accumulators for enabled phase
       sample_count_ = 0U;
       accum_a_ = 0.0;
@@ -562,7 +578,7 @@ void HwStartup::RunGateDriverEnableCheck() noexcept {
       gate_phase_disabled_ = false;
       LogFormatted(hardware::LogLevel::kInfo,
                    "[STARTUP] GATE_DRIVER_ENABLE_CHECK: baseline mean_ia=%f A\n",
-                   static_cast<double>(gate_mean_disabled_));
+                   LogValue(gate_mean_disabled_));
     }
     return;  // continue next call
   }
@@ -570,18 +586,18 @@ void HwStartup::RunGateDriverEnableCheck() noexcept {
   // Collecting "enabled" phase (small imbalance duty)
   cc_->ForceDuty(kGateTestDutyHigh, kGateTestDutyLow, kGateTestDutyLow);
   if (CollectSample(kNGate)) {
-    gate_mean_enabled_ = static_cast<float>(accum_a_) / static_cast<float>(kNGate);
+    gate_mean_enabled_ = MeanCurrent(accum_a_, kNGate);
 
-    const float kDelta = std::abs(gate_mean_enabled_ - gate_mean_disabled_);
-    const float kThreshold = 2.0F * results.adc_noise_rms_a;
+    const unit::Current kDelta = unit::Abs(gate_mean_enabled_ - gate_mean_disabled_);
+    const unit::Current kThreshold = 2.0F * results.adc_noise_rms_a;
     const bool kPass = (kDelta > kThreshold);
 
     results.passed[static_cast<uint8_t>(FsmState::kGateDriverEnableCheck)] = kPass;
 
     LogFormatted(hardware::LogLevel::kInfo,
                  "[STARTUP] GATE_DRIVER_ENABLE_CHECK: delta_ia=%f A, threshold=%f A  %s\n",
-                 static_cast<double>(kDelta),
-                 static_cast<double>(kThreshold),
+                 LogValue(kDelta),
+                 LogValue(kThreshold),
                  kPass ? "PASS" : "FAIL");
 
     if (!kPass) {
@@ -605,7 +621,7 @@ void HwStartup::RunConnectMotorWait() noexcept {
   cc_->ForceDuty(kNeutralDuty, kNeutralDuty, kNeutralDuty);
 
   if (!step_done_) {
-    oc_limit_ = settings_operations_.GetHardwareCapabilities().max_phase_current.Value() * oc_fraction;
+    oc_limit_ = settings_operations_.GetHardwareCapabilities().max_phase_current * oc_fraction;
 
     LogWarning(
         "\n"
@@ -626,8 +642,8 @@ void HwStartup::RunConnectMotorWait() noexcept {
                  "[STARTUP] !!  %f A (%f%% of max).\n"
                  "[STARTUP] !!  Ensure motor shaft is FREE to rotate.        !!\n"
                  "[STARTUP] !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n\n",
-                 static_cast<double>(oc_limit_),
-                 static_cast<double>(oc_fraction * 100.0F));
+                 LogValue(oc_limit_),
+                 LogValue(oc_fraction * 100.0F));
 
     results.passed[static_cast<uint8_t>(FsmState::kConnectMotor)] = true;
     step_done_ = true;
@@ -666,7 +682,7 @@ void HwStartup::RunPhaseAdcAlignment() noexcept {
   if (sweep_pos_ >= kNSweepSteps) {
     // Find sweep position with minimum noise
     uint32_t best_pos = 0U;
-    float best_noise = sweep_noise_a_[0U];
+    unit::Current best_noise = sweep_noise_a_[0U];
     for (uint32_t i = 1U; i < kNSweepSteps; ++i) {
       if (sweep_noise_a_[i] < best_noise) {
         best_noise = sweep_noise_a_[i];
@@ -685,7 +701,7 @@ void HwStartup::RunPhaseAdcAlignment() noexcept {
     results.adc_trigger_offset_optimal = kOptimalTicks;
 
     // Pass: min noise < 2× noise floor from ADC_NOISE_FLOOR step
-    const float kNoiseFloor = results.adc_noise_rms_a;
+    const unit::Current kNoiseFloor = results.adc_noise_rms_a;
     const bool kPass = (best_noise < 2.0F * kNoiseFloor);
     results.passed[static_cast<uint8_t>(FsmState::kPhaseAdcAlignment)] = kPass;
 
@@ -693,7 +709,7 @@ void HwStartup::RunPhaseAdcAlignment() noexcept {
                  "[STARTUP] PHASE_ADC_ALIGNMENT: best_pos=%u, optimal_offset=%u ticks, min_noise=%f A  %s\n",
                  static_cast<unsigned int>(best_pos),
                  static_cast<unsigned int>(kOptimalTicks),
-                 static_cast<double>(best_noise),
+                 LogValue(best_noise),
                  kPass ? "PASS" : "FAIL");
 
     if (!kPass) {
@@ -715,10 +731,7 @@ void HwStartup::RunPhaseAdcAlignment() noexcept {
 
   // Collecting kNAlignSamples at the current sweep position
   if (CollectSample(kNAlignSamples)) {
-    const auto kSampleCount = static_cast<double>(kNAlignSamples);
-    const auto kVar = static_cast<float>(accum_sq_a_ / kSampleCount -
-                                         (accum_a_ / kSampleCount) * (accum_a_ / kSampleCount));
-    sweep_noise_a_[sweep_pos_] = (kVar > 0.0F) ? std::sqrt(kVar) : 0.0F;
+    sweep_noise_a_[sweep_pos_] = RmsCurrent(accum_a_, accum_sq_a_, kNAlignSamples);
 
     // Advance sweep
     ++sweep_pos_;
@@ -754,30 +767,30 @@ void HwStartup::RunCurrentSenseCalibration() noexcept {
 
   if (!step_done_) {
     // Measurement complete
-    const auto kSampleCount = static_cast<float>(kNCal);
-    const float kMeanIa = static_cast<float>(accum_a_) / kSampleCount;
-    const float kMeanIb = static_cast<float>(accum_b_) / kSampleCount;
+    const unit::Current kMeanIa = MeanCurrent(accum_a_, kNCal);
+    const unit::Current kMeanIb = MeanCurrent(accum_b_, kNCal);
 
     LogFormatted(hardware::LogLevel::kInfo,
                  "[STARTUP] CURRENT_SENSE_CALIBRATION: mean_ia=%f A, mean_ib=%f A\n",
-                 static_cast<double>(kMeanIa),
-                 static_cast<double>(kMeanIb));
+                 LogValue(kMeanIa),
+                 LogValue(kMeanIb));
 
-    if (ext_current_ >= 1e-3F) {
+    if (ext_current_ >= 1e-3_A) {
       // gain = adc_reading / ext_reference; ideal = 1.0
-      results.gain_a = (std::abs(kMeanIa) > 1e-4F) ? (kMeanIa / ext_current_) : 0.0F;
-      results.gain_b = (std::abs(kMeanIb) > 1e-4F) ? (kMeanIb / (-ext_current_ * 0.5F)) : 0.0F;
+      results.gain_a = (unit::Abs(kMeanIa) > 1e-4_A) ? (kMeanIa / ext_current_) : unit::Ratio{};
+      results.gain_b = (unit::Abs(kMeanIb) > 1e-4_A) ? (kMeanIb / (-ext_current_ * 0.5F)) : unit::Ratio{};
 
-      const bool kPass = (std::abs(results.gain_a - 1.0F) < gain_tolerance) &&
-                         (results.gain_b > 1e-4F && std::abs(results.gain_b - 1.0F) < gain_tolerance);
+      const bool kPass =
+          (unit::Abs(results.gain_a - 1.0_ratio) < gain_tolerance) &&
+          (results.gain_b > 1e-4_ratio && unit::Abs(results.gain_b - 1.0_ratio) < gain_tolerance);
 
       results.passed[static_cast<uint8_t>(FsmState::kCurrentSenseCalibration)] = kPass;
 
       LogFormatted(hardware::LogLevel::kInfo,
                    "[STARTUP] CURRENT_SENSE_CALIBRATION: ext=%f A, gain_a=%f, gain_b=%f  %s\n",
-                   static_cast<double>(ext_current_),
-                   static_cast<double>(results.gain_a),
-                   static_cast<double>(results.gain_b),
+                   LogValue(ext_current_),
+                   LogValue(results.gain_a),
+                   LogValue(results.gain_b),
                    kPass ? "PASS" : "FAIL");
 
       if (!kPass) {
@@ -785,9 +798,9 @@ void HwStartup::RunCurrentSenseCalibration() noexcept {
                      "[STARTUP] Gain error exceeds %f %%. Check voltage-divider and op-amp gain resistors "
                      "for current-sense channels.\n"
                      "[STARTUP] Correction factors: adc_gain_a=%f, adc_gain_b=%f\n",
-                     static_cast<double>(gain_tolerance * 100.0F),
-                     static_cast<double>(1.0F / results.gain_a),
-                     static_cast<double>(1.0F / results.gain_b));
+                     LogValue(gain_tolerance * 100.0F),
+                     LogValue(1.0_ratio / results.gain_a),
+                     LogValue(1.0_ratio / results.gain_b));
       }
 
     } else {
@@ -814,16 +827,16 @@ void HwStartup::RunDone() noexcept {
   hardware::kPowerStage.Disable();
   cc_->ReleaseForceDuty();
 
-  const float kGainA = (results.gain_a > 1e-4F) ? (1.0F / results.gain_a) : 1.0F;
-  const float kGainB = (results.gain_b > 1e-4F) ? (1.0F / results.gain_b) : 1.0F;
-  const float kGainVdc = (results.gain_vdc > 1e-4F) ? (1.0F / results.gain_vdc) : 1.0F;
+  const unit::Ratio kGainA = (results.gain_a > 1e-4_ratio) ? (1.0_ratio / results.gain_a) : 1.0_ratio;
+  const unit::Ratio kGainB = (results.gain_b > 1e-4_ratio) ? (1.0_ratio / results.gain_b) : 1.0_ratio;
+  const unit::Ratio kGainVdc = (results.gain_vdc > 1e-4_ratio) ? (1.0_ratio / results.gain_vdc) : 1.0_ratio;
 
   const settings::SettingsStatus kCommitStatus =
-      settings_operations_.ApplyAdcCalibration(unit::Current{results.adc_offset_a},
-                                               unit::Current{results.adc_offset_b},
-                                               unit::Ratio{kGainA},
-                                               unit::Ratio{kGainB},
-                                               unit::Ratio{kGainVdc});
+      settings_operations_.ApplyAdcCalibration(results.adc_offset_a,
+                                               results.adc_offset_b,
+                                               kGainA,
+                                               kGainB,
+                                               kGainVdc);
   if (kCommitStatus != settings::SettingsStatus::kSuccess) {
     EnterFault("failed to apply calibration settings");
     return;
@@ -867,13 +880,13 @@ void HwStartup::LogSummary() noexcept {
                "[STARTUP] adc_trig_opt  = %u ticks\n"
                "[STARTUP] NVM calibration fields updated.\n"
                "[STARTUP] ====================================================\n\n",
-               static_cast<double>(results.adc_offset_a),
-               static_cast<double>(results.adc_offset_b),
-               static_cast<double>(results.adc_noise_rms_a),
-               static_cast<double>(results.adc_noise_rms_b),
-               static_cast<double>(results.gain_vdc),
-               static_cast<double>(results.gain_a),
-               static_cast<double>(results.gain_b),
+               LogValue(results.adc_offset_a),
+               LogValue(results.adc_offset_b),
+               LogValue(results.adc_noise_rms_a),
+               LogValue(results.adc_noise_rms_b),
+               LogValue(results.gain_vdc),
+               LogValue(results.gain_a),
+               LogValue(results.gain_b),
                static_cast<unsigned int>(results.adc_trigger_offset_optimal));
 }
 

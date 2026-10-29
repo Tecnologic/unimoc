@@ -17,8 +17,13 @@
 
 #include <array>
 #include <cstdint>
+#include "units.hpp"
 
 namespace unimoc::startup {
+
+using unit::operator""_A;
+using unit::operator""_ratio;
+using unit::operator""_V;
 
 // =============================================================================
 // FSM state enumeration
@@ -68,19 +73,19 @@ struct StartupResults {
   std::array<bool, kNumStartupSteps> passed{};  ///< passed[i] = true iff step i passed.
 
   // ---- ADC_OFFSET_CAL results --------------------------------------------
-  float adc_offset_a{0.0F};  ///< Measured phase-A zero offset [A].
-  float adc_offset_b{0.0F};  ///< Measured phase-B zero offset [A].
+  unit::Current adc_offset_a;  ///< Measured phase-A zero offset.
+  unit::Current adc_offset_b;  ///< Measured phase-B zero offset.
 
   // ---- ADC_NOISE_FLOOR results -------------------------------------------
-  float adc_noise_rms_a{0.0F};  ///< Phase-A ADC noise RMS [A].
-  float adc_noise_rms_b{0.0F};  ///< Phase-B ADC noise RMS [A].
+  unit::Current adc_noise_rms_a;  ///< Phase-A ADC noise RMS.
+  unit::Current adc_noise_rms_b;  ///< Phase-B ADC noise RMS.
 
   // ---- DC_LINK_VOLTAGE_CHECK results -------------------------------------
-  float gain_vdc{1.0F};  ///< Computed V_dc ADC gain correction [dimensionless].
+  unit::Ratio gain_vdc{1.0_ratio};  ///< Computed V_dc ADC gain correction.
 
   // ---- CURRENT_SENSE_CALIBRATION results ---------------------------------
-  float gain_a{1.0F};  ///< Phase-A current-sense gain correction [dimensionless].
-  float gain_b{1.0F};  ///< Phase-B current-sense gain correction [dimensionless].
+  unit::Ratio gain_a{1.0_ratio};  ///< Phase-A current-sense gain correction.
+  unit::Ratio gain_b{1.0_ratio};  ///< Phase-B current-sense gain correction.
 
   // ---- PHASE_ADC_ALIGNMENT results ----------------------------------------
   uint32_t adc_trigger_offset_optimal{168U};  ///< Optimal trigger offset [timer ticks].

@@ -76,10 +76,10 @@ cyphal::RegisterFlags StartupRegisters::Read(const std::size_t index,
       cyphal::SetNatural8(value, static_cast<uint8_t>(fsm_->State()));
       break;
     case StartupRegister::kExtCurrent:
-      cyphal::SetReal32(value, ext_current_);
+      cyphal::SetReal32(value, ext_current_.Value());  // the bus carries the base unit
       break;
     case StartupRegister::kExtVdc:
-      cyphal::SetReal32(value, ext_vdc_);
+      cyphal::SetReal32(value, ext_vdc_.Value());
       break;
     case StartupRegister::kResults: {
       uavcan_register_Value_1_0_select_natural8_(&value);
@@ -120,8 +120,8 @@ cyphal::RegisterWriteResult StartupRegisters::Write(const std::size_t index,
         return cyphal::RegisterWriteResult::kOutOfRange;  // the outputs belong to the setpoints
       }
       if (!fsm_->IsActive()) {
-        ext_current_ = 0.0F;  // a new run starts without external measurements
-        ext_vdc_ = 0.0F;
+        ext_current_ = unit::Current{};  // a new run starts without external measurements
+        ext_vdc_ = unit::Voltage{};
         fsm_->RequestRun();
       }
       return cyphal::RegisterWriteResult::kAccepted;
@@ -132,12 +132,12 @@ cyphal::RegisterWriteResult StartupRegisters::Write(const std::size_t index,
       fsm_->RequestNextStep();
       return cyphal::RegisterWriteResult::kAccepted;
     case StartupRegister::kExtCurrent:
-      ext_current_ = kValue;
-      fsm_->SetExtCurrent(kValue);
+      ext_current_ = unit::Current{kValue};
+      fsm_->SetExtCurrent(ext_current_);
       return cyphal::RegisterWriteResult::kAccepted;
     case StartupRegister::kExtVdc:
-      ext_vdc_ = kValue;
-      fsm_->SetExtVdc(kValue);
+      ext_vdc_ = unit::Voltage{kValue};
+      fsm_->SetExtVdc(ext_vdc_);
       return cyphal::RegisterWriteResult::kAccepted;
     default:
       return cyphal::RegisterWriteResult::kReadOnly;

@@ -891,12 +891,25 @@ ZTEST(sim_cyphal_drive, test_startup_registers_run_step_and_abort) {
                  1e-6F);
   zexpect_equal(Integer(rig.Access(reg::kStartupStep, Natural8(2U))), 7);  // only 1 advances
 
+  // The external measurements stay real32 in A and V on the bus.
+  auto ext_current = rig.Access(reg::kStartupExtCurrentA, Real(1.25F));
+  zassert_true(uavcan_register_Value_1_0_is_real32_(&ext_current));
+  zexpect_equal(ext_current.real32.value.count, 1U);
+  zexpect_equal(ext_current.real32.value.elements[0], 1.25F);
+  auto ext_vdc = rig.Access(reg::kStartupExtVdcV, Empty());
+  zassert_true(uavcan_register_Value_1_0_is_real32_(&ext_vdc));
+  zexpect_equal(ext_vdc.real32.value.elements[0], 48.0F);
+
   // Abort: FAULT, outputs off; a new run starts again from the beginning.
   zexpect_equal(Integer(rig.Access(reg::kStartupRun, Natural8(0U))), 0);
   zexpect_equal(Integer(rig.Access(reg::kStartupStep, Empty())), 13);  // FAULT
   zexpect_equal(kPowerStage.GetState(), PowerStageState::kDisabled);
   zexpect_equal(Integer(rig.Access(reg::kStartupRun, Natural8(1U))), 1);
   zexpect_equal(Integer(rig.Access(reg::kStartupStep, Empty())), 1);
+  // A new run starts without external measurements.
+  zexpect_equal(unimoc::cyphal::GetNumber(rig.Access(reg::kStartupExtCurrentA, Empty())).value_or(-1.0F),
+                0.0F);
+  zexpect_equal(unimoc::cyphal::GetNumber(rig.Access(reg::kStartupExtVdcV, Empty())).value_or(-1.0F), 0.0F);
   zexpect_equal(Integer(rig.Access(reg::kStartupRun, Natural8(0U))), 0);
 
   // After the run the drive engages again.
