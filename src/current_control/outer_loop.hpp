@@ -234,7 +234,7 @@ class OuterLoop {
   void ApplyGains(const Gains& gains) noexcept;
   void Restart(unit::AngularVelocity speed) noexcept;
   [[nodiscard]] unit::Torque PositionTorque(unit::Angle setpoint,
-                                            unit::AngularVelocity speed,
+                                            unit::AngularVelocity measured,
                                             const control::DcLinkLimit::TorqueRange& range) noexcept;
   void UpdateHoming(const OuterSetpoint& setpoint, unit::AngularVelocity speed) noexcept;
   void TakeHomingRequest(const OuterSetpoint& setpoint, unit::AngularVelocity speed) noexcept;

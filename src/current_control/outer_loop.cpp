@@ -220,18 +220,18 @@ void OuterLoop::Restart(const AngularVelocity speed) noexcept {
 }
 
 Torque OuterLoop::PositionTorque(const Angle setpoint,
-                                 const AngularVelocity speed,
+                                 const AngularVelocity measured,
                                  const control::DcLinkLimit::TorqueRange& range) noexcept {
   if (homing_ == control::HomingState::kSearching) {
-    return SearchHome(speed, range, setpoint);
+    return SearchHome(measured, range, setpoint);
   }
   if (hold_home_ && setpoint != held_setpoint_) {
     hold_home_ = false;  // a new target in the frame of the new home
   }
   position_.pos_ref_rad = hold_home_ ? Angle{} : setpoint;
-  const AngularVelocity kDemand = position_.SpeedDemand(tracker_.PositionRad(), speed, active_.dt)
+  const AngularVelocity kDemand = position_.SpeedDemand(tracker_.PositionRad(), measured, active_.dt)
                                       .Clamp(active_.speed_min, active_.speed_max);
-  return speed_.Track(kDemand, speed, active_.dt);
+  return speed_.Track(kDemand, measured, active_.dt);
 }
 
 void OuterLoop::UpdateHoming(const OuterSetpoint& setpoint, const AngularVelocity speed) noexcept {
