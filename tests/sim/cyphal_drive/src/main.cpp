@@ -1198,11 +1198,12 @@ ZTEST(sim_cyphal_drive, test_timing_registers_count_the_interrupts_and_reset) {
   zexpect_equal(overruns.natural32.value.count, 2U);
   zexpect_equal(overruns.natural32.value.elements[0], 0U);  // the simulation applies every plan
 
-  // Read only; the reset starts new statistics at the next record.
+  // Read only; RESET_TIMING starts new statistics at the next record.
   zexpect_equal(Integer(rig.Access(reg::kTimingControlCycle, Natural8(1U))), 0);
-  zexpect_equal(Integer(rig.Access(reg::kTimingReset, Natural8(2U))), 0);  // only 1
+  const auto kGone = rig.Access("unimoc.timing.reset", Empty());
+  zexpect_true(uavcan_register_Value_1_0_is_empty_(&kGone), "the reset is a command");
   const uint32_t kBeforeReset = kStats(reg::kTimingControlCycle).elements[3];
-  zexpect_equal(Integer(rig.Access(reg::kTimingReset, Natural8(1U))), 0);
+  zexpect_equal(rig.Command(cmd::kCmdResetTiming), cmd::kStatusSuccess);
   rig.Run(1U);
   const uint32_t kAfter = kStats(reg::kTimingControlCycle).elements[3];
   // Each access advances the simulation by a few cycles.

@@ -59,55 +59,10 @@ ZTEST(cyphal_interface, test_standard_commands_in_reserved_range) {
   zexpect_true((cmd::kCommandStorePersistentStates) >= (0xFF00U));
 }
 
-// --- Vendor-specific measurement commands are in the vendor range (< 0x8000) ---
+// --- Vendor-specific diagnostics commands ---
 
-ZTEST(cyphal_interface, test_measurement_commands_in_vendor_range) {
-  zexpect_true((cmd::kCmdGetRotorAngle) < (0x8000U));
-  zexpect_true((cmd::kCmdGetRotorSpeed) < (0x8000U));
-  zexpect_true((cmd::kCmdGetShaftPosition) < (0x8000U));
-  zexpect_true((cmd::kCmdGetInPosition) < (0x8000U));
-  zexpect_true((cmd::kCmdGetHomingState) < (0x8000U));
-  zexpect_true((cmd::kCmdGetDcVoltage) < (0x8000U));
-  zexpect_true((cmd::kCmdGetPhaseCurrent) < (0x8000U));
-  zexpect_true((cmd::kCmdGetExcitationCurrent) < (0x8000U));
-}
-
-// --- All vendor-specific measurement commands are non-zero ---
-
-ZTEST(cyphal_interface, test_measurement_commands_non_zero) {
-  zexpect_not_equal(cmd::kCmdGetRotorAngle, 0U);
-  zexpect_not_equal(cmd::kCmdGetRotorSpeed, 0U);
-  zexpect_not_equal(cmd::kCmdGetShaftPosition, 0U);
-  zexpect_not_equal(cmd::kCmdGetInPosition, 0U);
-  zexpect_not_equal(cmd::kCmdGetHomingState, 0U);
-  zexpect_not_equal(cmd::kCmdGetDcVoltage, 0U);
-  zexpect_not_equal(cmd::kCmdGetPhaseCurrent, 0U);
-  zexpect_not_equal(cmd::kCmdGetExcitationCurrent, 0U);
-}
-
-// --- All vendor-specific measurement commands are unique ---
-
-ZTEST(cyphal_interface, test_measurement_commands_unique) {
-  const std::array<uint16_t, 8> kCodes = {
-      cmd::kCmdGetRotorAngle,
-      cmd::kCmdGetRotorSpeed,
-      cmd::kCmdGetShaftPosition,
-      cmd::kCmdGetInPosition,
-      cmd::kCmdGetHomingState,
-      cmd::kCmdGetDcVoltage,
-      cmd::kCmdGetPhaseCurrent,
-      cmd::kCmdGetExcitationCurrent,
-  };
-  constexpr std::size_t kCount = kCodes.size();
-  for (std::size_t i = 0; i < kCount; ++i) {
-    for (std::size_t j = i + 1; j < kCount; ++j) {
-      zexpect_not_equal(kCodes[i],
-                        kCodes[j],
-                        "Duplicate command code at indices %d and %d",
-                        static_cast<int>(i),
-                        static_cast<int>(j));
-    }
-  }
+ZTEST(cyphal_interface, test_diagnostics_commands_in_their_range) {
+  zexpect_equal(cmd::kCmdResetTiming, 0x0300U);  // above the retired codes and the commissioning
 }
 
 // --- Commissioning (startup aid, motor identification) ---
@@ -117,7 +72,7 @@ ZTEST(cyphal_interface, test_commissioning_port_after_the_drive_status) {
   zexpect_true(kPubCommissioning > kPubDriveStatus);
 }
 
-ZTEST(cyphal_interface, test_commissioning_commands_in_their_range_and_apart_from_the_get_commands) {
+ZTEST(cyphal_interface, test_commissioning_commands_in_their_range) {
   const std::array<uint16_t, 6> kCodes = {
       unimoc_drive_CommissioningStatus_0_1_COMMAND_START_STARTUP_AID,
       unimoc_drive_CommissioningStatus_0_1_COMMAND_START_IDENTIFICATION,
@@ -128,7 +83,6 @@ ZTEST(cyphal_interface, test_commissioning_commands_in_their_range_and_apart_fro
   };
   for (std::size_t i = 0; i < kCodes.size(); ++i) {
     zexpect_true(kCodes[i] >= 0x0200U && kCodes[i] <= 0x02FFU);
-    zexpect_true(kCodes[i] != cmd::kCmdGetRotorAngle && kCodes[i] != cmd::kCmdGetExcitationCurrent);
     for (std::size_t j = i + 1; j < kCodes.size(); ++j) {
       zexpect_not_equal(kCodes[i], kCodes[j]);
     }

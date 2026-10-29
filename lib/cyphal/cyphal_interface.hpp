@@ -488,9 +488,7 @@ inline constexpr const char* kTimingOverruns = "unimoc.timing.overruns";
 /// Type: natural32[1] (read-only)
 inline constexpr const char* kTimingClockHz = "unimoc.timing.clock_hz";
 
-/// Write 1: start new statistics (the overrun counters keep counting).
-/// Type: natural8[1] (read 0, write 1)
-inline constexpr const char* kTimingReset = "unimoc.timing.reset";
+// New statistics: ExecuteCommand cmd::kCmdResetTiming (the overrun counters keep counting).
 
 // --- Cyphal ports of the drive (standard port-ID registers) ---
 //
@@ -994,15 +992,10 @@ inline constexpr uint16_t kSrvCymonRead = 124U;
 // Codes 0xFF00..0xFFFF are reserved by the Cyphal specification; all other
 // values below 0x8000 are vendor-specific and available to UNIMOC.
 //
-// Vendor-specific telemetry commands (0x0001..0x00FF)
-// ---------------------------------------------------
-// Sending any CMD_GET_* command causes the node to publish a single
-// on-demand measurement frame on the corresponding subject even when the
-// periodic publication interval is set to zero (port disabled).  The command
-// parameter field is ignored.  The node responds with STATUS_SUCCESS once the
-// measurement has been enqueued for transmission, or STATUS_BAD_COMMAND if
-// the measurement is not available (e.g. EESM-only measurement on a PMSM
-// node).
+// Retired vendor codes (0x0001..0x01FF)
+// --------------------------------------
+// The former CMD_GET_* and CMD_MEASURE_* codes, never implemented; they are
+// not reused, an old client gets STATUS_BAD_COMMAND.
 //
 // Commissioning commands (0x0200..0x02FF)
 // ---------------------------------------
@@ -1012,6 +1005,11 @@ inline constexpr uint16_t kSrvCymonRead = 124U;
 // says at once whether the action was taken, with the reason in `output`.
 // Progress and completion are the status message on kPubCommissioning; the
 // measured values are registers (docs/motor_identification_plan.md, 5.4).
+//
+// Diagnostics commands (0x0300..0x03FF)
+// -------------------------------------
+// Actions on the diagnostics of the drive, allowed in every state; the
+// values themselves stay read-only registers.
 // ============================================================================
 
 /// @defgroup exec_commands uavcan.node.ExecuteCommand constants
@@ -1068,44 +1066,12 @@ inline constexpr uint16_t kCommandEmergencyStop = 65531U;
 inline constexpr uint16_t kCommandStorePersistentStates = 65530U;
 
 // -------------------------------------------------------------------------
-// Vendor-specific measurement commands (on-demand single-shot publications)
+// Vendor-specific diagnostics commands
 // -------------------------------------------------------------------------
 
-/// Request a single publication of the estimated rotor electrical angle [rad].
-/// Subject: PUB_ROTOR_ANGLE (port 200).
-inline constexpr uint16_t kCmdGetRotorAngle = 0x0001U;
-
-/// Request a single publication of the estimated electrical angular velocity
-/// [rad/s].
-/// Subject: PUB_ROTOR_SPEED (port 201).
-inline constexpr uint16_t kCmdGetRotorSpeed = 0x0002U;
-
-/// Request a single publication of the absolute shaft position [rad],
-/// referenced to home.
-/// Subject: PUB_SHAFT_POSITION (port 202).
-inline constexpr uint16_t kCmdGetShaftPosition = 0x0003U;
-
-/// Request a single publication of the in-position flag.
-/// Subject: PUB_IN_POSITION (port 203).
-inline constexpr uint16_t kCmdGetInPosition = 0x0004U;
-
-/// Request a single publication of the homing state
-/// (0=IDLE, 1=SEARCHING, 2=ZEROING, 3=DONE, 4=FAULT).
-/// Subject: PUB_HOMING_STATE (port 204).
-inline constexpr uint16_t kCmdGetHomingState = 0x0005U;
-
-/// Request a single publication of the DC-link voltage [V].
-/// Subject: PUB_DC_VOLTAGE (port 205).
-inline constexpr uint16_t kCmdGetDcVoltage = 0x0006U;
-
-/// Request a single publication of the phase current magnitude [A].
-/// Subject: PUB_PHASE_CURRENT (port 206).
-inline constexpr uint16_t kCmdGetPhaseCurrent = 0x0007U;
-
-/// Request a single publication of the estimated rotor excitation current
-/// î_f [A] (EESM only; returns STATUS_BAD_STATE for PMSM/ASM nodes).
-/// Subject: PUB_EXCITATION_CURRENT (port 207).
-inline constexpr uint16_t kCmdGetExcitationCurrent = 0x0008U;
+/// Start new run time statistics of `unimoc.timing.*` (min, mean, max and
+/// count); the overrun counters keep counting. The parameter is ignored.
+inline constexpr uint16_t kCmdResetTiming = 0x0300U;
 
 }  // namespace cmd
 

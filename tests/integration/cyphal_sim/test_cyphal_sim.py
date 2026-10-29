@@ -287,7 +287,8 @@ def test_timing_registers_without_the_probes(sim: SimClient):
     assert list(response.value.natural32.value) == [0, 0, 0, 0]
     assert not response.mutable
     assert len(sim.access("unimoc.timing.overruns").value.natural32.value) == 2
-    assert sim.write("unimoc.timing.reset", natural8(1)) == 0
+    assert sim.command(0x0300) == 0  # RESET_TIMING
+    assert sim.access("unimoc.timing.reset").value.empty is not None  # the register is gone
 
 
 def test_dc_link_overvoltage_trips_the_drive(sim: SimClient):

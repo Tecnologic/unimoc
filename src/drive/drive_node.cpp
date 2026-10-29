@@ -790,6 +790,9 @@ cyphal::CommandResult DriveNode::OnCommand(const uint16_t command,
       startup_.RequestAbort(startup::StartupFault::kEmergencyStop);
       Disengage("emergency stop");
       return {cyphal::cmd::kStatusSuccess, ""};
+    case cyphal::cmd::kCmdResetTiming:
+      TimingRegisters::ResetStatistics();
+      return {cyphal::cmd::kStatusSuccess, ""};
     case cyphal::cmd::kCommandStorePersistentStates: {
       const settings::SettingsStatus kStatus = operations.SaveToFlash();
       if (kStatus == settings::SettingsStatus::kSuccess) {

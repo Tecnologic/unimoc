@@ -386,6 +386,15 @@ without any other subscription (`cyphal::vendor_status`,
 | 65532 FACTORY_RESET | Factory settings in RAM and flash; refused while engaged |
 | 65531 EMERGENCY_STOP | Disengages; engaging is refused until a restart |
 | 65530 STORE_PERSISTENT_STATES | Saves the RAM settings to flash; refused while engaged |
+| 768 (`0x0300`) RESET_TIMING | New statistics of the interrupt timing (below), in every state |
+| 512..517 (`0x0200`..`0x0205`) | The commissioning commands of the startup aid and the motor identification ([Commands and Status](#commands-and-status)) |
+
+Codes below `0x8000` are UNIMOC's own: `0x0200`..`0x02FF` commissioning,
+`0x0300`..`0x03FF` diagnostics; `0x0001`..`0x01FF` held the former
+`CMD_GET_*` and `CMD_MEASURE_*` codes and are not reused.  A one-shot action is a command, not a
+register write; enabling stays on the readiness subject, which the drive
+needs refreshed (a lost master disengages it), and stopping is
+EMERGENCY_STOP or readiness SLEEP.
 
 ### Traces (cymon)
 
@@ -419,11 +428,11 @@ BCC; `hardware/hot_path_timing.hpp`).  Read-only registers:
 | `unimoc.timing.sample_isr`, `.control_cycle`, `.observer` | natural32[4] | min, mean, max [cycles], number of records |
 | `unimoc.timing.overruns` | natural32[2] | duty plans applied late, control cycles that started while the observer still ran |
 | `unimoc.timing.clock_hz` | natural32[1] | the timestamp clock |
-| `unimoc.timing.reset` | natural8[1] | write 1: new statistics |
 
 ```sh
 west build -b bcc unimoc/app -d unimoc/app/build/bcc -- -DCONFIG_UNIMOC_HOT_PATH_TIMING=y
 yakut call 10 uavcan.register.access '{name: {name: unimoc.timing.control_cycle}}'
+yakut cmd 10 768                               # RESET_TIMING: new statistics
 ```
 
 The times start at the first instruction of the handler (the 12 cycles of
