@@ -1046,9 +1046,10 @@ ZTEST(sim_cyphal_drive, test_startup_phase_2_runs_on_the_motor) {
   (void)rig.Access(reg::kStartupStep, Natural8(1U));
   rig.Run(200U);  // the current settles (L/R = 10 ms)
   const Current kPhaseA = sim::Plant().Output().phase_currents.a;
-  zexpect_true(kPhaseA > 0.5_A && kPhaseA < 2.0_A, "i_a %f", static_cast<double>(kPhaseA.Value()));
+  zexpect_true(kPhaseA > 0.5_A && kPhaseA < 2.0_A);  // about 1 A: 2/3 of 0.3 % of 48 V over 0.1 Ohm
   zexpect_equal(Integer(rig.Access(reg::kStartupStep, Empty())), 11);  // CURRENT_SENSE_CALIBRATION
-  (void)rig.Access(reg::kStartupExtCurrentA, Real(kPhaseA.Value()));   // the clamp meter
+  UNIMOC_EXPECT_NEAR(kPhaseA, 0.96_A, 0.01_A);                         // V / R in steady state
+  (void)rig.Access(reg::kStartupExtCurrentA, Real(0.96F));             // the clamp meter
   kStep(1100U);
 
   zexpect_equal(Integer(rig.Access(reg::kStartupStep, Empty())), 12);  // DONE
