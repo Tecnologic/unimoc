@@ -574,8 +574,8 @@ to raise those capabilities.
 
 ## Hardware Bring-Up Guide
 
-> **Status:** runs on `native_sim` (ztest `unimoc.sim.cyphal_drive` and the
-> pycyphal integration test); not yet run on the board.  The FSM is driven by
+> **Status:** runs on `native_sim` (ztests `unimoc.sim.cyphal_drive` and
+> `unimoc.sim.overcurrent`, the pycyphal integration test); not yet run on the board.  The FSM is driven by
 > the `unimoc.startup.*` registers and stepped in the Cyphal thread.  Log lines go to the
 > Zephyr log on SEGGER RTT and as `uavcan.diagnostic.Record` on the bus.
 

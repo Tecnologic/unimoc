@@ -136,14 +136,13 @@ a boundary.
 | **Fixed-point angle** | `lib/motor_control/src/rotor_angle.hpp`, `sin_cos.hpp`, `angle_wrap.hpp` | The Q1.31 phase of `RotorAngle`, the sine-table index, the wrap loops; their public API is typed. |
 | **Mixed-unit filter state** | `lib/motor_control/src/mechanical_observer.hpp` | The Kalman covariance and gain (one state vector of rad/s, rad and N m/rad) stay `float`. The measurement noise is typed up to `Correct()` (`unit::AngleVariance`, `unit::AngularVelocityVariance`; the speed weight of the flux noise is `unit::AngleVarianceSpeedWeight`), which unpacks innovation and noise once. |
 | **libm** | `lib/motor_control/src/asm_flux_observer.hpp` | `atan2` of the flux angle (not in the firmware yet). Sine and cosine come from `system::SinCos`. |
-| **Logs** | `src/startup/hw_startup.cpp`, test messages | `%f` arguments of the log and of ztest messages. |
+| **Startup accumulators** | `src/startup/hw_startup.cpp` | The four `double` sums of the startup aid (sample, square; phase A and B, the DC link in the first). In float the variance E[x²] − E[x]² of the alignment sweep (256 samples with amperes through phase A) is 25 to 220 % off; the means alone would do. `CollectSample()` and the DC-link step add the plain values, `MeanCurrent()`, `MeanVoltage()` and `RmsCurrent()` return units. |
+| **Logs** | `src/startup/hw_startup.cpp` (`LogValue()`), test messages | `%f` arguments of the log and of ztest messages. |
 | **Electromechanical coupling in the plant** | `lib/sim/src/pmsm_model.hpp` | The electrical rotation per step enters the backward-Euler matrix as a plain number (the radian dropped once, as in the coupling rules). |
 | **Tests** | `tests/common/unimoc_test.hpp` | The float checks compare the plain values of two values of one unit; tests otherwise compare units (`UNIMOC_EXPECT_NEAR(i, 2.0_A, 1e-3_A)`). |
 
-Not a boundary, but still counted: `HwStartup` keeps its thresholds,
-calibration accumulators (`double`) and results in plain numbers (open in
-`TODO.md`), and some headers build constants with `unit::Ratio{0.5F}` where a
-literal would do.
+Not a boundary, but still counted: some headers build constants with
+`unit::Ratio{0.5F}` where a literal would do.
 
 ## Naming Rules
 
