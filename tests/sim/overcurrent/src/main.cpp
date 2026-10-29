@@ -249,21 +249,39 @@ ZTEST_F(sim_overcurrent, test_startup_results_are_in_units) {
   zexpect_true(startup.results.passed[static_cast<uint8_t>(FsmState::kPhaseAdcAlignment)]);
   zassert_equal(startup.State(), FsmState::kCurrentSenseCalibration);
 
-  // 1 A on alpha (phase B carries -0.5 A), the clamp meter reads 1.25 A.
+  // 1 A on alpha (phase B carries -0.5 A) as read by the ADC, with the zero
+  // offset of 0.2 A and -0.1 A: 0.8 A flows; the clamp meter reads 1.25 A.
   startup.SetExtCurrent(1.25_A);
   for (unsigned i = 0U; i < HwStartup::kNCal; ++i) {
     StartupSample(startup, 1.0F, -0.5F, 0.01F, i);
   }
   // The samples reach the control cycle one cycle late: the first one of the
   // step is still the last one of the alignment (1/1024 of 1 A off).
-  UNIMOC_EXPECT_NEAR(startup.results.gain_a, 0.8_ratio, 1e-3_ratio);
-  UNIMOC_EXPECT_NEAR(startup.results.gain_b, 0.8_ratio, 1e-3_ratio);
+  UNIMOC_EXPECT_NEAR(startup.results.gain_a, 0.64_ratio, 1e-3_ratio);
+  UNIMOC_EXPECT_NEAR(startup.results.gain_b, 0.64_ratio, 1e-3_ratio);
   zexpect_false(startup.results.passed[static_cast<uint8_t>(FsmState::kCurrentSenseCalibration)],
-                "20 %% gain error");
+                "36 %% gain error");
+  zassert_equal(kPowerStage.GetState(), PowerStageState::kEnabled);
 
-  startup.RequestAbort();
-  zexpect_equal(startup.State(), FsmState::kFault);
+  // The last step ends in DONE: calibration committed, outputs off.
+  StartupStep(startup, 0U, 0.0F, 0.0F, 0.0F);
+  zassert_equal(startup.State(), FsmState::kDone);
+  zexpect_false(startup.IsActive());
+  zexpect_not_equal(kPowerStage.GetState(), PowerStageState::kEnabled);
+  {
+    const auto kSnapshot = fixture->store.GetSnapshot();
+    const auto& settings = kSnapshot.Get();
+    UNIMOC_EXPECT_FLOAT_EQ(settings.adc_offset_a, startup.results.adc_offset_a);
+    UNIMOC_EXPECT_FLOAT_EQ(settings.adc_offset_b, startup.results.adc_offset_b);
+    UNIMOC_EXPECT_FLOAT_EQ(settings.adc_gain_a, 1.0_ratio / startup.results.gain_a);
+    UNIMOC_EXPECT_FLOAT_EQ(settings.adc_gain_b, 1.0_ratio / startup.results.gain_b);
+    UNIMOC_EXPECT_FLOAT_EQ(settings.adc_gain_vdc, 1.0_ratio / startup.results.gain_vdc);
+  }
+
   isr.SetAdcTriggerOffset(kTriggerOffset);  // the sweep moved it
+  zassert_equal(fixture->store.GetOperations()
+                    .ApplyAdcCalibration(Current{}, Current{}, 1.0_ratio, 1.0_ratio, 1.0_ratio),
+                unimoc::settings::SettingsStatus::kSuccess);
 }
 
 ZTEST_SUITE(sim_overcurrent, nullptr, Setup, Before, nullptr, nullptr);

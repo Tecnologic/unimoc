@@ -936,6 +936,55 @@ ZTEST(sim_cyphal_drive, test_emergency_stop_aborts_a_startup_run) {
   zexpect_equal(kPowerStage.GetState(), PowerStageState::kDisabled);
 }
 
+ZTEST(sim_cyphal_drive, test_startup_run_to_done_commits_the_calibration) {
+  Rig& rig = *g_rig;
+  const auto kStep = [&rig](const unsigned milliseconds) {  // one FSM sample per millisecond
+    rig.Run(milliseconds);
+    (void)rig.Access(reg::kStartupStep, Natural8(1U));  // answers with the FSM state
+    rig.Run(2U);
+  };
+  const auto kNumber = [&rig](const char* name) {
+    return unimoc::cyphal::GetNumber(rig.Access(name, Empty())).value_or(-1.0F);
+  };
+  // Constant readings: zero offsets 0.2 A and -0.1 A, the plant behind them unused.
+  sim::SetPhaseCurrentOverride(0.2F, -0.1F, -0.1F);
+  zexpect_equal(Integer(rig.Access(reg::kStartupRun, Natural8(1U))), 1);
+  kStep(2U);                            // PWM_DISABLE
+  for (unsigned i = 0U; i < 5U; ++i) {  // ADC_OFFSET_CAL .. DUTY_FORCE_HIGH
+    kStep(1100U);
+  }
+  zexpect_equal(Integer(rig.Access(reg::kStartupStep, Empty())), 7);  // DC_LINK_VOLTAGE_CHECK
+  (void)rig.Access(reg::kStartupExtVdcV, Real(48.0F));
+  kStep(1100U);
+  kStep(1100U);  // GATE_DRIVER_ENABLE_CHECK (fails without a gate response, continues)
+  kStep(2U);     // CONNECT_MOTOR
+  zexpect_equal(Integer(rig.Access(reg::kStartupStep, Empty())), 10);  // PHASE_ADC_ALIGNMENT
+  rig.Run((21U * 256U) + 100U);
+  // The calibration current before the next step collects: 0.8 A above the offset.
+  sim::SetPhaseCurrentOverride(1.0F, -0.5F, -0.5F);
+  kStep(0U);
+  zexpect_equal(Integer(rig.Access(reg::kStartupStep, Empty())), 11);  // CURRENT_SENSE_CALIBRATION
+  (void)rig.Access(reg::kStartupExtCurrentA, Real(1.0F));
+  kStep(1100U);
+
+  // DONE: outputs off, the calibration in the settings registers.
+  zexpect_equal(Integer(rig.Access(reg::kStartupStep, Empty())), 12);
+  zexpect_equal(Integer(rig.Access(reg::kStartupRun, Empty())), 0);
+  zexpect_equal(kPowerStage.GetState(), PowerStageState::kDisabled);
+  zexpect_within(kNumber(reg::kStartupAdcOffsetA), 0.2F, 1e-5F);
+  zexpect_within(kNumber(reg::kStartupAdcOffsetB), -0.1F, 1e-5F);
+  zexpect_within(kNumber(reg::kStartupGainA), 1.25F, 1e-3F);  // 1 / (0.8 A / 1 A)
+  zexpect_within(kNumber(reg::kStartupGainB), 1.25F, 1e-3F);
+  zexpect_within(kNumber(reg::kStartupGainVdc), 1.0F, 1e-3F);
+
+  // The drive takes the calibration with the next engage.
+  sim::ClearPhaseCurrentOverride();
+  rig.Readiness(reg_udral_service_common_Readiness_0_1_STANDBY);
+  rig.Run(2U);
+  rig.Hold(0.0F, 2.0F, 30U);
+  zexpect_true(rig.drive.IsEngaged());
+}
+
 ZTEST(sim_cyphal_drive, test_timing_registers_count_the_interrupts_and_reset) {
   Rig& rig = *g_rig;
   rig.Run(2U);

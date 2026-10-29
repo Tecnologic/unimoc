@@ -267,7 +267,8 @@ void HwStartup::AdvanceToNextState() noexcept {
   const auto kState = static_cast<uint8_t>(state_);
   const auto kNextRaw = static_cast<uint8_t>(kState + 1U);
 
-  if (kNextRaw >= static_cast<uint8_t>(FsmState::kNumStates)) {
+  // The last measuring step ends in DONE: commit the calibration, outputs off.
+  if (kNextRaw >= static_cast<uint8_t>(FsmState::kDone)) {
     RunDone();
     return;
   }
@@ -776,9 +777,12 @@ void HwStartup::RunCurrentSenseCalibration() noexcept {
                  LogValue(kMeanIb));
 
     if (ext_current_ >= 1e-3_A) {
-      // gain = adc_reading / ext_reference; ideal = 1.0
-      results.gain_a = (unit::Abs(kMeanIa) > 1e-4_A) ? (kMeanIa / ext_current_) : unit::Ratio{};
-      results.gain_b = (unit::Abs(kMeanIb) > 1e-4_A) ? (kMeanIb / (-ext_current_ * 0.5F)) : unit::Ratio{};
+      // gain = adc_reading / ext_reference; ideal = 1.0. The reading less the
+      // zero offset of ADC_OFFSET_CAL: the measurement chain does not apply it.
+      const unit::Current kSignalA = kMeanIa - results.adc_offset_a;
+      const unit::Current kSignalB = kMeanIb - results.adc_offset_b;
+      results.gain_a = (unit::Abs(kSignalA) > 1e-4_A) ? (kSignalA / ext_current_) : unit::Ratio{};
+      results.gain_b = (unit::Abs(kSignalB) > 1e-4_A) ? (kSignalB / (-ext_current_ * 0.5F)) : unit::Ratio{};
 
       const bool kPass =
           (unit::Abs(results.gain_a - 1.0_ratio) < gain_tolerance) &&

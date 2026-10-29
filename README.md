@@ -835,7 +835,9 @@ the phase-A ADC while a reference clamp-meter provides the true current.
    ```
    unimoc.startup.ext_current_A = <measured current, e.g. 0.85>
    ```
-3. The firmware computes `gain_a = ext_current_A / adc_mean_ia` and reports it.
+3. The firmware computes `gain_a = (adc_mean_ia - adc_offset_a) / ext_current_A`
+   (phase B against `-ext_current_A / 2`) and reports it; the stored correction
+   is `adc_gain_a = 1 / gain_a`.
    A warning is printed if the error exceeds `gain_tolerance` (default 5 %).
 4. Advance:
    ```
