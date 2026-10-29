@@ -174,7 +174,7 @@ class SlowUpdate {
   const hardware::HardwareInterface* hardware_{nullptr};
 
   /// Speed weighting k of the flux measurement noise (R + k / omega^2).
-  unit::AngleVarianceSpeedWeight flux_r_speed_{};
+  unit::AngleVarianceSpeedWeight flux_r_speed_;
 
   /// Timestamp ticks from the first to the last sample of a cycle.
   uint32_t reference_offset_ticks_{0U};
