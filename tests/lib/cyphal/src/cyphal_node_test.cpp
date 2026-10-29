@@ -29,6 +29,7 @@
 #include <cstring>
 #include <new>
 #include <optional>
+#include <string>
 #include <string_view>
 #include "can_test_bus.hpp"
 #include "cyphal/canard_transport.hpp"
@@ -83,11 +84,14 @@ class TestRegisters final : public RegisterProvider {
 
 class TestCommands final : public CommandHandler {
  public:
-  [[nodiscard]] uint8_t OnCommand(const uint16_t command,
-                                  std::span<const uint8_t> parameter) noexcept override {
+  [[nodiscard]] CommandResult OnCommand(const uint16_t command,
+                                        std::span<const uint8_t> parameter) noexcept override {
     last_command = command;
     last_parameter_size = parameter.size();
-    return command == 7U ? cmd::kStatusSuccess : cmd::kStatusBadCommand;
+    if (command == 8U) {  // a reason longer than the 46 bytes of the response
+      return {cmd::kStatusBadState, "this reason is longer than the forty-six bytes of the output field"};
+    }
+    return {command == 7U ? cmd::kStatusSuccess : cmd::kStatusBadCommand, "ok"};
   }
   uint16_t last_command{0U};
   std::size_t last_parameter_size{0U};
@@ -361,6 +365,7 @@ ZTEST(cyphal_stack, test_register_access_reads_writes_and_rejects) {
 ZTEST(cyphal_stack, test_execute_command_reaches_the_handler) {
   Rig& rig = MakeRig(kCanFdMtu);
   TestCommands commands;
+  std::string output;
   zassert_true(rig.client.Subscribe(TransferKind::kServiceResponse, port::kExecuteCommand, 48U));
   zassert_true(rig.node.Start(kServerId, rig.now));
 
@@ -379,14 +384,19 @@ ZTEST(cyphal_stack, test_execute_command_reaches_the_handler) {
                                                                        In(transfer.payload),
                                                                        &size),
                   0);
+    output.assign(reinterpret_cast<const char*>(response.output.elements), response.output.count);
     return response.status;
   };
 
   zexpect_equal(kExecute(7U), cmd::kStatusBadCommand);  // no handler yet
+  zexpect_true(output.empty());
   rig.node.SetCommandHandler(commands);
   zexpect_equal(kExecute(7U), cmd::kStatusSuccess);
   zexpect_equal(commands.last_command, 7U);
   zexpect_equal(commands.last_parameter_size, 3U);
+  zexpect_true(output == "ok");
+  zexpect_equal(kExecute(8U), cmd::kStatusBadState);
+  zexpect_equal(output.size(), kCommandOutputMaxLength);  // cut to the field
   zexpect_equal(kExecute(cmd::kCommandPowerOff), cmd::kStatusBadCommand);
 }
 

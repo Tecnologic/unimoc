@@ -629,6 +629,10 @@ struct NvmSettings {
   /// Register: `uavcan.pub.drive_status.id`
   uint16_t pub_drive_status_id{cyphal::kPubDriveStatus};
 
+  /// Commissioning status publication (unimoc.drive.CommissioningStatus.0.1).
+  /// Register: `uavcan.pub.commissioning.id`
+  uint16_t pub_commissioning_id{cyphal::kPubCommissioning};
+
   /// Wheel of this drive (unimoc.cart.WheelCommand.WHEEL_*), 0 to 3.
   /// Register: `unimoc.cart.wheel`
   uint8_t cart_wheel{0U};

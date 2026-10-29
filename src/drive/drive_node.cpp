@@ -25,6 +25,7 @@
 #include <unimoc/cart/DriveStatus_0_1.h>
 #include <unimoc/cart/PedalState_0_1.h>
 #include <unimoc/cart/WheelCommand_0_1.h>
+#include <unimoc/drive/CommissioningStatus_0_1.h>
 #include <unimoc/drive/CurrentSetpoint_0_1.h>
 #include <unimoc/drive/Telemetry_0_1.h>
 #include <array>
@@ -57,7 +58,7 @@ struct InfoRegister {
   std::string_view type;  ///< Empty: the unique-ID register.
 };
 
-constexpr std::array<InfoRegister, 19> kInfoRegisters{{
+constexpr std::array<InfoRegister, 20> kInfoRegisters{{
     {cyphal::reg::kSubReadinessType, "reg.udral.service.common.Readiness.0.1"},
     {cyphal::reg::kSubCurrentSetpointType, "unimoc.drive.CurrentSetpoint.0.1"},
     {cyphal::reg::kSubTorqueSetpointType, "uavcan.si.unit.torque.Scalar.1.0"},
@@ -69,6 +70,7 @@ constexpr std::array<InfoRegister, 19> kInfoRegisters{{
     {cyphal::reg::kSubPedalStateType, "unimoc.cart.PedalState.0.1"},
     {cyphal::reg::kSubBatteryStatusType, "unimoc.cart.BatteryStatus.0.1"},
     {cyphal::reg::kPubDriveStatusType, "unimoc.cart.DriveStatus.0.1"},
+    {cyphal::reg::kPubCommissioningType, "unimoc.drive.CommissioningStatus.0.1"},
     {cyphal::reg::kSrvCymonVariablesType, "cymon.GetVariableList.0.1"},
     {cyphal::reg::kSrvCymonBufferInfoType, "cymon.GetBufferInfo.0.1"},
     {cyphal::reg::kSrvCymonSetupType, "cymon.SetupCapture.0.1"},
@@ -238,7 +240,7 @@ DriveNode::DriveNode(cyphal::CyphalNode& node,
       settings_registers_{store},
       info_registers_{unique_id, settings_waiting_, bus_off_count_},
       startup_{CurrentControlIsr::Instance(), store.GetOperations()},
-      startup_registers_{startup_, engaged_} {}
+      commissioning_{startup_, engaged_, emergency_stop_} {}
 
 bool DriveNode::Start(const uint64_t now_us) noexcept {
   now_us_ = now_us;
@@ -259,6 +261,7 @@ bool DriveNode::Start(const uint64_t now_us) noexcept {
   telemetry_ = cyphal::Publisher{live.pub_telemetry_id, cyphal::Priority::kHigh, 0U};
   // After the wheel command (VDC) and with the pedal state (system plan section 6.2).
   drive_status_ = cyphal::Publisher{live.pub_drive_status_id, cyphal::Priority::kFast, 0U};
+  commissioning_publisher_ = cyphal::Publisher{live.pub_commissioning_id, cyphal::Priority::kNominal, 0U};
   // The runtime was started by main() with these settings.
   applied_writes_ = settings_registers_.WriteCount();
   checked_writes_ = applied_writes_;
@@ -267,7 +270,7 @@ bool DriveNode::Start(const uint64_t now_us) noexcept {
 
   bool subscribed = node_->AddRegisterProvider(settings_registers_);
   subscribed = node_->AddRegisterProvider(info_registers_) && subscribed;
-  subscribed = node_->AddRegisterProvider(startup_registers_) && subscribed;
+  subscribed = node_->AddRegisterProvider(commissioning_) && subscribed;
   subscribed = node_->AddRegisterProvider(timing_registers_) && subscribed;
   subscribed =
       node_->Subscribe(readiness_port_, reg_udral_service_common_Readiness_0_1_EXTENT_BYTES_, *this) &&
@@ -297,6 +300,7 @@ bool DriveNode::Start(const uint64_t now_us) noexcept {
                subscribed;
   subscribed = node_->AddPublisher(telemetry_) && subscribed;
   subscribed = node_->AddPublisher(drive_status_) && subscribed;
+  subscribed = node_->AddPublisher(commissioning_publisher_) && subscribed;
   node_->SetCommandHandler(*this);
   node_->SetNodeIdListener(*this);
 
@@ -319,6 +323,7 @@ void DriveNode::Spin(const uint64_t now_us) noexcept {
     Engage();
   }
   SpinStartup();
+  PublishCommissioning(now_us);
   SpinEngagement(now_us);
   // The outer loop commands zero current while the drive is disengaged.
   OuterSetpoint setpoint = setpoint_;
@@ -767,7 +772,11 @@ void DriveNode::Disengage(const std::string_view reason) noexcept {
   }
 }
 
-uint8_t DriveNode::OnCommand(const uint16_t command, std::span<const uint8_t> /*parameter*/) noexcept {
+cyphal::CommandResult DriveNode::OnCommand(const uint16_t command,
+                                           const std::span<const uint8_t> parameter) noexcept {
+  if (Commissioning::Handles(command)) {
+    return commissioning_.OnCommand(command, parameter);
+  }
   auto operations = store_->GetOperations();
   switch (command) {
     case cyphal::cmd::kCommandRestart:
@@ -775,37 +784,39 @@ uint8_t DriveNode::OnCommand(const uint16_t command, std::span<const uint8_t> /*
       Disengage("restart");
       restart_requested_ = true;
       restart_at_us_ = now_us_ + kRestartDelayUs;
-      return cyphal::cmd::kStatusSuccess;
+      return {cyphal::cmd::kStatusSuccess, ""};
     case cyphal::cmd::kCommandEmergencyStop:
       emergency_stop_ = true;
-      startup_.RequestAbort();
+      startup_.RequestAbort(startup::StartupFault::kEmergencyStop);
       Disengage("emergency stop");
-      return cyphal::cmd::kStatusSuccess;
+      return {cyphal::cmd::kStatusSuccess, ""};
     case cyphal::cmd::kCommandStorePersistentStates: {
       const settings::SettingsStatus kStatus = operations.SaveToFlash();
       if (kStatus == settings::SettingsStatus::kSuccess) {
-        return cyphal::cmd::kStatusSuccess;
+        return {cyphal::cmd::kStatusSuccess, ""};
       }
-      return (kStatus == settings::SettingsStatus::kPersistBlocked) ? cyphal::cmd::kStatusBadState
-                                                                    : cyphal::cmd::kStatusFailure;
+      return (kStatus == settings::SettingsStatus::kPersistBlocked)
+                 ? cyphal::CommandResult{cyphal::cmd::kStatusBadState, "outputs released: disengage first"}
+                 : cyphal::CommandResult{cyphal::cmd::kStatusFailure, "flash write failed"};
     }
     case cyphal::cmd::kCommandFactoryReset: {
       if (engaged_ || startup_.IsActive()) {
-        return cyphal::cmd::kStatusBadState;
+        return {cyphal::cmd::kStatusBadState, ""};
       }
       if (operations.ResetToFactoryDefaults() != settings::SettingsStatus::kSuccess) {
-        return cyphal::cmd::kStatusFailure;
+        return {cyphal::cmd::kStatusFailure, ""};
       }
       settings_pending_ = true;
       const settings::SettingsStatus kStatus = operations.SaveToFlash();
       if (kStatus == settings::SettingsStatus::kSuccess) {
-        return cyphal::cmd::kStatusSuccess;
+        return {cyphal::cmd::kStatusSuccess, ""};
       }
-      return (kStatus == settings::SettingsStatus::kPersistBlocked) ? cyphal::cmd::kStatusBadState
-                                                                    : cyphal::cmd::kStatusFailure;
+      return (kStatus == settings::SettingsStatus::kPersistBlocked)
+                 ? cyphal::CommandResult{cyphal::cmd::kStatusBadState, "outputs released: disengage first"}
+                 : cyphal::CommandResult{cyphal::cmd::kStatusFailure, "flash write failed"};
     }
     default:
-      return cyphal::cmd::kStatusBadCommand;
+      return {cyphal::cmd::kStatusBadCommand, ""};
   }
 }
 
@@ -897,6 +908,20 @@ void DriveNode::PublishDriveStatus() noexcept {
   if (unimoc_cart_DriveStatus_0_1_serialize_(&status, reinterpret_cast<uint8_t*>(buffer.data()), &size) >=
       0) {
     (void)node_->Publish(drive_status_, std::span<const std::byte>{buffer.data(), size});
+  }
+}
+
+void DriveNode::PublishCommissioning(const uint64_t now_us) noexcept {
+  unimoc_drive_CommissioningStatus_0_1 status{};
+  if (!commissioning_.Due(now_us, status)) {
+    return;
+  }
+  std::array<std::byte, unimoc_drive_CommissioningStatus_0_1_SERIALIZATION_BUFFER_SIZE_BYTES_> buffer{};
+  std::size_t size = buffer.size();
+  if (unimoc_drive_CommissioningStatus_0_1_serialize_(&status,
+                                                      reinterpret_cast<uint8_t*>(buffer.data()),
+                                                      &size) >= 0) {
+    (void)node_->Publish(commissioning_publisher_, std::span<const std::byte>{buffer.data(), size});
   }
 }
 

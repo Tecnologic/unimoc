@@ -101,6 +101,17 @@ class MessageListener {
   virtual void OnMessage(const Transfer& transfer, uint64_t now_us) noexcept = 0;
 };
 
+/// The answer to a uavcan.node.ExecuteCommand request.
+struct CommandResult {
+  uint8_t status{cmd::kStatusBadCommand};  ///< cmd::kStatus*.
+  /// A short reason for the requester, at most kCommandOutputMaxLength bytes
+  /// are sent; it must stay valid until the response is sent (a literal).
+  std::string_view output;
+};
+
+/// Bytes of uavcan.node.ExecuteCommand.1.3 Response.output.
+inline constexpr std::size_t kCommandOutputMaxLength = 46U;
+
 /// Executes uavcan.node.ExecuteCommand requests.
 class CommandHandler {
  public:
@@ -115,9 +126,10 @@ class CommandHandler {
    * @brief Executes or starts one command; the response is sent right after.
    * @param command Standard (cmd::kCommand*) or vendor command code.
    * @param parameter Command parameter.
-   * @return Response status (cmd::kStatus*).
+   * @return Response status (cmd::kStatus*) and the output text.
    */
-  [[nodiscard]] virtual uint8_t OnCommand(uint16_t command, std::span<const uint8_t> parameter) noexcept = 0;
+  [[nodiscard]] virtual CommandResult OnCommand(uint16_t command,
+                                                std::span<const uint8_t> parameter) noexcept = 0;
 };
 
 /// Told when plug-and-play allocated a node-ID.

@@ -162,7 +162,7 @@ interfaces and the simulation registers are platform specific.
 > without bit rate switch (`boards/unimoc/bcc/bcc.dts`).  Not implemented
 > yet: firmware update over Cyphal.  Speed, position and UDRAL servo
 > setpoints run the outer loop in the control thread; the startup FSM runs
-> over the `unimoc.startup.*` registers.  The cymon traces run on both
+> over the commissioning commands and status message (Hardware Bring-Up Guide).  The cymon traces run on both
 > platforms; their cost in the control cycle is not yet measured on the board.
 
 ### Stack
@@ -576,7 +576,7 @@ to raise those capabilities.
 
 > **Status:** runs on `native_sim` (ztests `unimoc.sim.cyphal_drive` and
 > `unimoc.sim.overcurrent`, the pycyphal integration test); not yet run on the board.  The FSM is driven by
-> the `unimoc.startup.*` registers and stepped in the Cyphal thread.  Log lines go to the
+> the commissioning commands (`uavcan.node.ExecuteCommand`) and stepped in the Cyphal thread.  Log lines go to the
 > Zephyr log on SEGGER RTT and as `uavcan.diagnostic.Record` on the bus.
 
 `HwStartup` is a step-by-step bring-up wizard for commissioning a new UNIMOC
@@ -586,8 +586,8 @@ ADC-trigger calibration with the motor attached.  All calibration results are
 committed to NVM automatically when the sequence completes.
 
 The FSM **never advances on its own**.  Each step completes its measurement,
-logs the result through the Zephyr log, then pauses and waits for the user to write `1` to
-`unimoc.startup.step` before moving on.  This gives you time to review scope
+logs the result through the Zephyr log, then pauses and waits for the command
+CONTINUE before moving on.  This gives you time to review scope
 traces and enter external meter readings.
 
 The motor parameters (R, L, flux, Hall offset, inertia) are entered by hand
@@ -598,11 +598,44 @@ for now; their measurement is planned as a second assisted flow
 and use the **Startup aid** card (take control first). It shows the step and
 what to do, takes the meter readings, and asks for the confirmation that the
 motor is connected before phase 2. STOP ALL, the E-stop and a lost control
-lease abort the run. The register writes below are the same over yakut.
+lease abort the run. The commands below are the same over yakut.
 
 While the aid runs it owns the outputs: it releases the power stage itself,
-so readiness SLEEP does not stop it. Abort it with `unimoc.startup.run = 0`,
+so readiness SLEEP does not stop it. Abort it with the command ABORT,
 the emergency stop or a restart.
+
+### Commands and Status
+
+The aid is driven by `uavcan.node.ExecuteCommand` (service 435) with the
+codes of `unimoc.drive.CommissioningStatus.0.1`. The answer says at once
+whether the action was taken; a refusal carries the reason in the output text
+(for example `the step is still measuring`, `engaged: disengage first`,
+`outputs not released: external enable missing`).
+
+| Command | Code | Parameter | Effect |
+|---------|------|-----------|--------|
+| START_STARTUP_AID | `0x0200` (512) | none | starts from IDLE, DONE or FAULT; refused while engaged, while it runs or after an emergency stop |
+| CONTINUE | `0x0202` (514) | the confirmation the step needs, else none | next step; refused while the step measures or waits for its reading |
+| SET_READING | `0x0203` (515) | `vdc=<V>` or `current=<A>` | an external meter reading in V or A |
+| ABORT | `0x0204` (516) | none | FAULT, outputs off; no change when nothing runs |
+
+With yakut (node 42 as an example):
+
+```
+y cmd 42 512                       # START_STARTUP_AID
+y cmd 42 514                       # CONTINUE
+y cmd 42 514 motor-connected       # CONTINUE at CONNECT_MOTOR
+y cmd 42 515 vdc=48.2              # SET_READING
+y cmd 42 516                       # ABORT
+```
+
+The progress is the status message `unimoc.drive.CommissioningStatus.0.1` on
+subject 215 (`uavcan.pub.commissioning.id`), published on every change, at
+2 Hz while the aid runs and at 0.5 Hz otherwise: the step, its state
+(MEASURING, WAITING, NEEDS_READING, DONE, FAILED, ABORTED), what it needs
+(a reading, `motor-connected`), the progress of the measurement in %, one bit
+per passed and per failed step, and the reason of a fault. Follow it with
+`y sub 215:unimoc.drive.CommissioningStatus.0.1`.
 
 ### Equipment Required
 
@@ -623,10 +656,11 @@ the emergency stop or a restart.
 
 #### Step 0 — Start the FSM
 
-Power on the drive without a motor connected.  Using your Cyphal tool, write:
+Power on the drive without a motor connected.  Using your Cyphal tool, send
+START_STARTUP_AID:
 
 ```
-unimoc.startup.run = 1
+y cmd 42 512
 ```
 
 The firmware logs:
@@ -634,8 +668,8 @@ The firmware logs:
 ```
 [STARTUP] Hardware bring-up sequence started.
 [STARTUP] Phase 1 — NO MOTOR CONNECTED.
-[STARTUP] Advance each step by writing 1 to
-[STARTUP]   unimoc.startup.step
+[STARTUP] Continue each step with the commissioning
+[STARTUP]   command CONTINUE (0x0202)
 ```
 
 The FSM immediately enters **PWM_DISABLE**.
@@ -651,7 +685,7 @@ the duty is applied and invites you to verify on a scope.
 advance:
 
 ```
-unimoc.startup.step = 1
+y cmd 42 514
 ```
 
 ---
@@ -675,7 +709,7 @@ written to `NvmSettings::adc_offset_a/b` at the end of the sequence.
 Advance:
 
 ```
-unimoc.startup.step = 1
+y cmd 42 514
 ```
 
 ---
@@ -698,7 +732,7 @@ A warning is printed if noise exceeds the threshold.
 or layout problem.  Advance:
 
 ```
-unimoc.startup.step = 1
+y cmd 42 514
 ```
 
 ---
@@ -721,7 +755,7 @@ The log reports the applied duty:
 response looks correct for each duty level.  Advance after each step:
 
 ```
-unimoc.startup.step = 1
+y cmd 42 514
 ```
 
 ---
@@ -729,21 +763,22 @@ unimoc.startup.step = 1
 #### Step 7 — DC_LINK_VOLTAGE_CHECK
 
 The firmware reads the DC-link voltage ADC channel while the PWM is running.
-Before advancing you must enter a reference measurement from a voltmeter.
+Before continuing you must enter a reference measurement from a voltmeter;
+the status shows NEEDS_READING (DC_LINK_VOLTAGE) until then.
 
 **Action:**
 
 1. Measure the DC-link voltage with a calibrated multimeter.
 2. Write the reading:
    ```
-   unimoc.startup.ext_vdc_V = <measured voltage, e.g. 48.2>
+   y cmd 42 515 vdc=48.2            # the measured voltage in V
    ```
 3. Advance:
    ```
-   unimoc.startup.step = 1
+   y cmd 42 514
    ```
 
-The firmware computes `gain_vdc = ext_vdc_V / adc_vdc` and reports it.  A
+The firmware computes `gain_vdc = adc_vdc / vdc` and reports it.  A
 warning is printed if the error exceeds `vdc_gain_tolerance` (default 2 %).
 The correction factor is stored in `NvmSettings::adc_gain_vdc` at DONE.
 
@@ -767,7 +802,7 @@ floor (gate driver may not be wired or may be faulty).
 **Action:** Advance:
 
 ```
-unimoc.startup.step = 1
+y cmd 42 514
 ```
 
 ---
@@ -793,15 +828,16 @@ The log prints a prominent warning:
 [STARTUP] !!    1. CONNECT the motor (UVW + PE). Keep the   !!
 [STARTUP] !!       logic powered: a power cycle ends the    !!
 [STARTUP] !!       run. ...                                 !!
-[STARTUP] !!    2. Write 1 to unimoc.startup.step           !!
+[STARTUP] !!    2. CONTINUE with motor-connected            !!
 ```
 
-Then write the step; the aid releases the outputs again at neutral duty
+Then confirm with CONTINUE and the parameter `motor-connected` (a CONTINUE
+without it is refused); the aid releases the outputs again at neutral duty
 (acknowledging a break of the external enable during the barrier) and starts
 phase 2, or goes to FAULT when the external enable is still missing:
 
 ```
-unimoc.startup.step = 1
+y cmd 42 514 motor-connected
 ```
 
 ---
@@ -842,7 +878,7 @@ for the application to commit to the hardware timer configuration.
 **Action:** Note the suggested `adc_trigger_offset` value.  Advance:
 
 ```
-unimoc.startup.step = 1
+y cmd 42 514
 ```
 
 ---
@@ -858,23 +894,24 @@ the phase-A ADC while a reference clamp-meter provides the true current.
 1. Attach a clamp-meter (or calibrated shunt + scope) to phase A.
 2. Write the clamp-meter reading:
    ```
-   unimoc.startup.ext_current_A = <measured current, e.g. 0.85>
+   y cmd 42 515 current=0.85        # the clamp-meter reading in A
    ```
-3. The firmware computes `gain_a = (adc_mean_ia - adc_offset_a) / ext_current_A`
-   (phase B against `-ext_current_A / 2`) and reports it; the stored correction
+   The reading may come before or after the measurement; the status shows
+   NEEDS_READING (PHASE_CURRENT) once the step has measured without it.
+3. The firmware computes `gain_a = (adc_mean_ia - adc_offset_a) / current`
+   (phase B against `-current / 2`) and reports it; the stored correction
    is `adc_gain_a = 1 / gain_a`.
    A warning is printed if the error exceeds `gain_tolerance` (default 5 %).
 4. Advance:
    ```
-   unimoc.startup.step = 1
+   y cmd 42 514
    ```
 
 The gain correction factors are stored in `NvmSettings::adc_gain_a` and
 `adc_gain_b` at DONE.
 
-> **Note:** If `ext_current_A` has not been written before advancing, the
-> firmware logs a warning and marks the step as a non-fatal skip (no gain
-> correction applied).
+> **Note:** CONTINUE is refused until the reading is there (`the step needs
+> its meter reading`); ABORT ends the run without a gain correction.
 
 ---
 
@@ -934,20 +971,20 @@ unimoc.startup.adc_offset_b
 
 ### Aborting or Recovering from FAULT
 
-To **abort** the sequence at any time, write:
+To **abort** the sequence at any time, send ABORT:
 
 ```
-unimoc.startup.run = 0
+y cmd 42 516
 ```
 
 The FSM enters FAULT and disables the power stage; the drive releases the
-forced duties and returns to its control loop. Writing 0 when no run is active
+forced duties and returns to its control loop. ABORT when no run is active
 changes nothing, so a tool may abort every drive on a stop.
 
-To **restart** from scratch after a fault or abort, write:
+To **restart** from scratch after a fault or abort, send START_STARTUP_AID:
 
 ```
-unimoc.startup.run = 1
+y cmd 42 512
 ```
 
 This resets all accumulators and results, then re-enters PWM_DISABLE from the

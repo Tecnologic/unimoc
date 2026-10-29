@@ -35,6 +35,7 @@ from sim_client import (
     real,
 )
 import cymon
+import unimoc.drive
 
 VALUE_TYPES = (
     "empty", "string", "unstructured", "bit",
@@ -142,7 +143,7 @@ def test_registers_json_describes_every_register_on_the_bus(dut, sim: SimClient,
 
     # The persistent settings, among them the e-bike registers past the 128th.
     settings = [entry for entry in entries if entry["persistent"] and entry["mutable"]]
-    assert len(settings) == 129
+    assert len(settings) == 130
     assert "unimoc.ebike.display_timeout" in by_name
 
 
@@ -396,22 +397,32 @@ def test_trace_triggers_on_a_current_step(sim: SimClient):
 
 
 def test_startup_aid_runs_steps_and_aborts(sim: SimClient):
+    status_type = unimoc.drive.CommissioningStatus_0_1
     sim.hold(0.2, SLEEP)
-    assert sim.read("unimoc.startup.step") == 0  # IDLE
-    assert sim.write("unimoc.startup.run", natural8(1)) == 1
-    assert sim.read("unimoc.startup.step") == 1  # PWM_DISABLE
+    status = sim.latest(sim.commissioning, settle=0.0)
+    assert status.state == status_type.STATE_IDLE
+    assert sim.command(status_type.COMMAND_CONTINUE) == 5  # BAD_STATE: nothing runs
+
+    assert sim.command(status_type.COMMAND_START_STARTUP_AID) == 0
+    status = sim.latest(sim.commissioning)
+    assert status.procedure == status_type.PROCEDURE_STARTUP_AID and status.step == 1  # PWM_DISABLE
     assert sim.latest(sim.telemetry).power_stage == 1  # the FSM releases the outputs
 
-    # A step write takes effect at the next FSM run, after the response.
-    assert sim.write("unimoc.startup.step", natural8(1)) == 1
+    # A continue is taken once the step has measured; while it measures it is refused, with the reason.
+    assert sim.command(status_type.COMMAND_CONTINUE) == 0
     sim.wait(0.1)
-    assert sim.read("unimoc.startup.step") == 2  # ADC_OFFSET_CAL
-    assert sim.write("unimoc.startup.ext_vdc_V", real(48.0)) == pytest.approx(48.0)
+    status = sim.latest(sim.commissioning, settle=0.0)
+    assert status.step == 2 and status.state == status_type.STATE_MEASURING  # ADC_OFFSET_CAL
+    assert sim.command_output(status_type.COMMAND_CONTINUE) == (5, "the step is still measuring")
+    assert sim.command_output(status_type.COMMAND_SET_READING, "vdc=x") == (4, "not a positive number")
+    assert sim.command(status_type.COMMAND_SET_READING, "vdc=48.0") == 0
     results = sim.access("unimoc.startup.results").value.natural8.value
     assert len(results) == 14 and results[1] == 1  # PWM_DISABLE passed
 
-    assert sim.write("unimoc.startup.run", natural8(0)) == 0  # abort
-    assert sim.read("unimoc.startup.step") == 13  # FAULT
+    assert sim.command(status_type.COMMAND_ABORT) == 0
+    status = sim.latest(sim.commissioning)
+    assert status.step == 13 and status.state == status_type.STATE_ABORTED  # FAULT
+    assert status.fault == status_type.FAULT_ABORTED
     assert sim.latest(sim.telemetry).power_stage == 0  # DISABLED
 
 

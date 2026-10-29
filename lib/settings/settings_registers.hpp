@@ -233,6 +233,7 @@ void ForEachRegister(const Visitor& visit, Settings&... settings) {
   visit(AfterRestart(reg::kSubPedalStateId, "Cart pedal state subject (limp-home); 65535: off", kPortId), settings.sub_pedal_state_id...);
   visit(AfterRestart(reg::kSubBatteryStatusId, "Cart battery status subject; 65535: off", kPortId), settings.sub_battery_status_id...);
   visit(AfterRestart(reg::kPubDriveStatusId, "Cart drive status subject; 65535: off", kPortId), settings.pub_drive_status_id...);
+  visit(AfterRestart(reg::kPubCommissioningId, "Commissioning status subject (startup aid); 65535: off", kPortId), settings.pub_commissioning_id...);
   visit(Setting(reg::kCartWheel, "Cart wheel of this drive (WheelCommand.WHEEL_*)", Between(0.0F, 3.0F)), settings.cart_wheel...);
   visit(Setting(reg::kCartReversed, "1: positive rotor torque drives the cart backward", Between(0.0F, 1.0F)), settings.cart_reversed...);
   visit(Setting(reg::kCartTimeout, "Timeout of wheel command, pedal state and battery status; at most the command timeout", AtLeast(0.0F)), settings.cart_timeout...);

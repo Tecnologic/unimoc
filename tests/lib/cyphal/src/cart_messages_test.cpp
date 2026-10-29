@@ -22,6 +22,7 @@
 #include <unimoc/cart/DriveStatus_0_1.h>
 #include <unimoc/cart/PedalState_0_1.h>
 #include <unimoc/cart/WheelCommand_0_1.h>
+#include <unimoc/drive/CommissioningStatus_0_1.h>
 #include <unimoc/drive/CurrentSetpoint_0_1.h>
 #include <unimoc/drive/Telemetry_0_1.h>
 #include <unimoc/sim/Plant_0_1.h>
@@ -46,6 +47,9 @@ static_assert(unimoc_cart_BatteryStatus_0_1_SERIALIZATION_BUFFER_SIZE_BYTES_ <= 
 static_assert(unimoc_drive_CurrentSetpoint_0_1_SERIALIZATION_BUFFER_SIZE_BYTES_ <= kCanFdSingleFramePayload);
 static_assert(unimoc_drive_Telemetry_0_1_SERIALIZATION_BUFFER_SIZE_BYTES_ <= kCanFdSingleFramePayload);
 static_assert(unimoc_sim_Plant_0_1_SERIALIZATION_BUFFER_SIZE_BYTES_ <= kCanFdSingleFramePayload);
+static_assert(unimoc_drive_CommissioningStatus_0_1_SERIALIZATION_BUFFER_SIZE_BYTES_ <=
+              kCanFdSingleFramePayload);
+static_assert(unimoc_drive_CommissioningStatus_0_1_EXTENT_BYTES_ == kCanFdSingleFramePayload);
 
 // The cart messages leave room to grow within the frame (@extent): a receiver accepts a longer minor version.
 static_assert(unimoc_cart_WheelCommand_0_1_EXTENT_BYTES_ == kCanFdSingleFramePayload);

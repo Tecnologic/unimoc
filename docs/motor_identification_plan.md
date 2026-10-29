@@ -260,11 +260,11 @@ code in `lib/motor_control/src/identification/` with ztests.
 ### 5.4 Bus interface: commands, a status message and registers
 
 How does a tool know that a step has measured, waits for the operator, has
-finished or has failed? Registers alone (as the startup aid today) give the
+finished or has failed? Registers alone (as the startup aid until C0) give the
 state only when polled, cannot tell "measuring" from "waiting for the
 operator", and answer a refused write with the unchanged value, which looks
-like an accepted one (the startup aid's `step` register answers with the
-step, not with the written 1). The `CMD_MEASURE_*` commands of the older
+like an accepted one (the startup aid's former `step` register answered with
+the step, not with the written 1). The `CMD_MEASURE_*` commands of the older
 design answered "started" and published one result message at the end, but
 had no progress, no operator input and nothing for a client that joins late.
 So each of the three Cyphal mechanisms does what it is good at (decision 1):
@@ -278,7 +278,7 @@ FAILURE (the power stage was not released).
 
 | Code | Command | Parameter |
 |---|---|---|
-| 0x0200 | START_STARTUP_AID | - (decision 6) |
+| 0x0200 | START_STARTUP_AID | - (decision 6, done in C0) |
 | 0x0201 | START_IDENTIFICATION | the measurements, e.g. `M1,M2,M3,M4,M5,M6`; `p=15` for M4 "entered" |
 | 0x0202 | CONTINUE | the confirmation the step waits for: `motor-connected`, `shaft-free`, `one-turn`, `not-one-turn` |
 | 0x0203 | SET_READING | `vdc=48.1`, `current=0.85` (the meter readings of the startup aid) |
@@ -287,9 +287,11 @@ FAILURE (the power stage was not released).
 
 **Progress and completion: a status message** `unimoc.drive.CommissioningStatus.0.1`
 (new DSDL type, one CAN FD frame, subject `uavcan.pub.commissioning.id`),
-published on every change of state and at 2 Hz while a procedure runs, so a
-tool reacts without polling and a client that joins late has the state within
-0.5 s:
+published on every change of state, at 2 Hz while a procedure runs and at
+0.5 Hz otherwise, so a tool reacts without polling and a client that joins
+late has the state within 0.5 s during a run and 2 s otherwise (default subject
+215; the DSDL in `dsdl/unimoc/drive/CommissioningStatus.0.1.dsdl` is the
+reference):
 
 ```
 uint8 procedure        # NONE, STARTUP_AID, IDENTIFICATION
@@ -299,7 +301,7 @@ uint8 needs            # NONE, DC_LINK_VOLTAGE, PHASE_CURRENT, MOTOR_CONNECTED, 
 uint8 progress         # 0 .. 100 % of the step
 uint32 passed          # one bit per step
 uint32 failed          # one bit per step: a check did not hold
-uint8 fault            # NONE, OVERCURRENT, TRIP, ENABLE_LOST, ABORTED, E_STOP, CHECK_FAILED, TIMEOUT
+uint8 fault            # NONE, ABORTED, EMERGENCY_STOP, OVERCURRENT, TRIP, ENABLE_LOST, APPLY_FAILED
 uint32 counter         # electrical revolutions of M4, events of the step
 ```
 
@@ -395,13 +397,11 @@ Taken on 2026-10-29:
    estimate was inaccurate.
 5. **Apply:** reviewed, compared and approved by the cypilot operator
    (section 5.5).
-
-Open:
-
-6. **The startup aid on the same contract** (milestone C0): its run, step,
-   ext_current_A and ext_vdc_V registers become the START_STARTUP_AID,
-   CONTINUE and SET_READING commands and the status message (today a tool
-   cannot tell "measuring" from "waiting for Next", and a refused step write
-   looks accepted); the results and the calibration stay registers. Changes
-   the bus contract that cypilot uses since its startup card; recommended
-   before the identification, so both procedures share one interface.
+6. **The startup aid on the same contract** (milestone C0, done in the
+   firmware 2026-10-29): its run, step, ext_current_A and ext_vdc_V registers
+   became the START_STARTUP_AID, CONTINUE (`motor-connected` at
+   CONNECT_MOTOR), SET_READING and ABORT commands and the status message; the
+   results (`unimoc.startup.results`) and the calibration stay registers. A
+   CONTINUE is refused while the step measures or waits for its reading, so a
+   queued click cannot cross the CONNECT_MOTOR barrier. cypilot follows with a
+   UNIMOC release.

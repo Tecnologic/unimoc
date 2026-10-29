@@ -48,6 +48,7 @@ PORT_WHEEL_COMMAND = 110
 PORT_PEDAL_STATE = 111
 PORT_BATTERY_STATUS = 112
 PORT_DRIVE_STATUS = 214
+PORT_COMMISSIONING = 215
 
 # Trace services (cymon), defaults of the uavcan.srv.cymon_*.id registers.
 PORT_CYMON_VARIABLES = 120
@@ -115,6 +116,7 @@ class SimClient:
         self.telemetry = self.node.make_subscriber(unimoc.drive.Telemetry_0_1, PORT_TELEMETRY)
         self.plant = self.node.make_subscriber(unimoc.sim.Plant_0_1, PORT_PLANT)
         self.drive_status = self.node.make_subscriber(unimoc.cart.DriveStatus_0_1, PORT_DRIVE_STATUS)
+        self.commissioning = self.node.make_subscriber(unimoc.drive.CommissioningStatus_0_1, PORT_COMMISSIONING)
         self.port_list = self.node.make_subscriber(uavcan.node.port.List_1_0)
         self.diagnostic = self.node.make_subscriber(uavcan.diagnostic.Record_1_1)
         self.diagnostic.receive_in_background(self._on_record)
@@ -178,9 +180,14 @@ class SimClient:
             names.append(text)
         return names
 
-    def command(self, code: int) -> int:
-        request = uavcan.node.ExecuteCommand_1_3.Request(command=code)
-        return self.call(uavcan.node.ExecuteCommand_1_3, request).status
+    def command(self, code: int, parameter: str = "") -> int:
+        return self.command_output(code, parameter)[0]
+
+    def command_output(self, code: int, parameter: str = "") -> tuple[int, str]:
+        """The status and the output text of an ExecuteCommand."""
+        request = uavcan.node.ExecuteCommand_1_3.Request(command=code, parameter=parameter)
+        response = self.call(uavcan.node.ExecuteCommand_1_3, request)
+        return response.status, response.output.tobytes().decode()
 
     # --- Traces (cymon) -----------------------------------------------------------
 

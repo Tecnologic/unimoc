@@ -163,14 +163,14 @@ ZTEST_F(sim_overcurrent, test_dc_link_overvoltage_trips_and_freezes_the_loop) {
 ZTEST_F(sim_overcurrent, test_startup_needs_external_enable) {
   sim::SetExternalEnable(false);
   unimoc::startup::HwStartup startup{CurrentControlIsr::Instance(), fixture->store.GetOperations()};
-  startup.RequestRun();
+  zassert_equal(startup.RequestRun(), unimoc::startup::StartupStart::kNotReleased);
   zassert_equal(startup.State(), unimoc::startup::FsmState::kIdle);
   zassert_not_equal(kPowerStage.GetState(), PowerStageState::kEnabled);
 }
 
 ZTEST_F(sim_overcurrent, test_startup_run_releases_stage_and_fault_cuts_it) {
   unimoc::startup::HwStartup startup{CurrentControlIsr::Instance(), fixture->store.GetOperations()};
-  startup.RequestRun();
+  zassert_equal(startup.RequestRun(), unimoc::startup::StartupStart::kStarted);
   zassert_equal(startup.State(), unimoc::startup::FsmState::kPwmDisable);
   zassert_equal(kPowerStage.GetState(), PowerStageState::kEnabled);
 
@@ -179,6 +179,9 @@ ZTEST_F(sim_overcurrent, test_startup_run_releases_stage_and_fault_cuts_it) {
   startup.RunOnce();
   zassert_equal(startup.State(), unimoc::startup::FsmState::kFault);
   zassert_not_equal(kPowerStage.GetState(), PowerStageState::kEnabled);
+  zexpect_equal(startup.Status().fault,
+                unimoc::startup::StartupFault::kTrip,
+                "the hardware trip opened the stage");
 }
 
 namespace {
@@ -200,11 +203,13 @@ void StartupStep(unimoc::startup::HwStartup& startup,
                  const unsigned samples,
                  const float a,
                  const float b,
-                 const float noise) {
+                 const float noise,
+                 const bool motor_connected = false) {
   for (unsigned i = 0U; i < samples; ++i) {
     StartupSample(startup, a, b, noise, i);
   }
-  startup.RequestNextStep();
+  // The step has measured: the continue is taken (a continue while measuring is refused).
+  zassert_equal(startup.RequestNextStep(motor_connected), unimoc::startup::StartupContinue::kAccepted);
   StartupSample(startup, a, b, noise, samples);
 }
 
@@ -241,7 +246,9 @@ ZTEST_F(sim_overcurrent, test_startup_results_are_in_units) {
   zexpect_true(startup.results.passed[static_cast<uint8_t>(FsmState::kDcLinkVoltageCheck)]);
   StartupStep(startup, 2U * 512U, 0.2F, -0.1F, 0.01F);  // GATE_DRIVER_ENABLE_CHECK
   zassert_equal(startup.State(), FsmState::kConnectMotor);
-  StartupStep(startup, 1U, 0.0F, 0.0F, 0.0F);
+  StartupSample(startup, 0.0F, 0.0F, 0.0F, 0U);  // the barrier runs once: outputs off, waits
+  zexpect_equal(startup.RequestNextStep(false), unimoc::startup::StartupContinue::kNeedsConfirmation);
+  StartupStep(startup, 1U, 0.0F, 0.0F, 0.0F, true);
   zassert_equal(startup.State(), FsmState::kPhaseAdcAlignment);
 
   // Phase 2: 2 A through phase A with the same noise. The RMS of each sweep

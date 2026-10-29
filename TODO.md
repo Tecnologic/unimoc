@@ -73,7 +73,7 @@ In this order; all without hardware unless marked.
 
 Plan: [docs/motor_identification_plan.md](docs/motor_identification_plan.md) (algorithms of the old firmware carried over, an assisted flow in cypilot like the startup aid). Decisions in its section 9 first.
 
- - [ ] C0: the commissioning bus contract (plan section 5.4): ExecuteCommand codes 0x0200 .. 0x0205 for the actions, `unimoc.drive.CommissioningStatus.0.1` for progress and completion, the old `CMD_MEASURE_*` and `meas_*` subjects removed; the startup aid on it (decision 6, open); cypilot event-driven.
+ - [ ] C0 in cypilot: the startup card, `cypilot-ctl startup` and the demo device on the commissioning commands and status message (event-driven); needs a UNIMOC release with `unimoc.drive.CommissioningStatus.0.1` for `DEFAULT_UNIMOC_REF`.
  - [ ] I0: forced angle in `SlowUpdate`, online accumulation of the measurement windows, `MotorIdentification` FSM on C0 with the result registers `unimoc.identify.result.*`, cypilot card and `cypilot-ctl identify`.
  - [ ] I1: M1 stator resistance and dead-time voltage (regression over current levels at three angles); dead time in the sim inverter.
  - [ ] I2: M2 L_d and L_q (sine injection per axis, Goertzel impedance).
@@ -180,6 +180,7 @@ down. The boundaries are documented in `CONTEXT.md` ("Unit Boundaries").
  - [x] Fix the ExecuteCommand status codes in `cyphal_interface.hpp` (BAD_COMMAND and BAD_STATE were swapped against the specification) and remove the heartbeat serializer that packed health and mode into one byte.
  - [x] Review fixes (2026-10-22): a port subscribed twice no longer corrupts the libcanard subscription tree (`CanardTransport::Subscribe()`, ztest).
  - [x] ~~Enable the USB CDC-ACM console~~ Superseded (2026-10-21): USB and the shell were dropped; the bench log is on RTT and on the bus. Link limited to the code partition (`CONFIG_USE_DT_CODE_PARTITION`).
+ - [x] C0: the commissioning bus contract (2026-10-29, plan section 5.4, decision 6): ExecuteCommand codes 0x0200 .. 0x0205 (START_STARTUP_AID, CONTINUE, SET_READING, ABORT; the identification codes reserved, BAD_COMMAND), the answer with its reason in `output`; `unimoc.drive.CommissioningStatus.0.1` on subject 215 (`uavcan.pub.commissioning.id`) on every change, at 2 Hz in a run and 0.5 Hz otherwise. The startup aid on it: the `unimoc.startup.run`, `step`, `ext_current_A` and `ext_vdc_V` registers removed (`unimoc.startup.results` and the calibration stay), the old `CMD_MEASURE_*` codes and `meas_*` subjects 208 .. 210 removed. CONTINUE is refused while a step measures or waits for its reading, and needs `motor-connected` at CONNECT_MOTOR. ztests `lib_cyphal`, `sim_cyphal_drive`, `sim_overcurrent`, the pycyphal integration test.
 
 ### Drive and regenerative braking
 

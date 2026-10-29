@@ -203,7 +203,7 @@ template <std::size_t kCount>
       (settings.node_id == 0U && settings.sub_readiness_id == cyphal::kReadinessFollowsNodeId)
           ? cyphal::kUnsetPortId
           : cyphal::EffectiveReadinessId(settings.sub_readiness_id, settings.node_id);
-  const std::array<uint16_t, 11U> kSubjects{kReadiness,
+  const std::array<uint16_t, 12U> kSubjects{kReadiness,
                                             settings.sub_current_setpoint_id,
                                             settings.sub_torque_setpoint_id,
                                             settings.sub_speed_setpoint_id,
@@ -213,7 +213,8 @@ template <std::size_t kCount>
                                             settings.sub_wheel_command_id,
                                             settings.sub_pedal_state_id,
                                             settings.sub_battery_status_id,
-                                            settings.pub_drive_status_id};
+                                            settings.pub_drive_status_id,
+                                            settings.pub_commissioning_id};
   const std::array<uint16_t, 5U> kServices{settings.srv_cymon_variables_id,
                                            settings.srv_cymon_buffer_info_id,
                                            settings.srv_cymon_setup_id,
@@ -307,6 +308,7 @@ template <std::size_t kCount>
   // Cart: limp-home must start before the readiness times out.
   if (!kIsSubjectId(settings.sub_wheel_command_id) || !kIsSubjectId(settings.sub_pedal_state_id) ||
       !kIsSubjectId(settings.sub_battery_status_id) || !kIsSubjectId(settings.pub_drive_status_id) ||
+      !kIsSubjectId(settings.pub_commissioning_id) ||
       settings.cart_timeout <= ZeroOf(settings.cart_timeout) ||
       settings.cart_timeout > settings.command_timeout ||
       settings.cart_status_rate < ZeroOf(settings.cart_status_rate) ||

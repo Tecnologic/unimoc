@@ -51,6 +51,51 @@ enum class FsmState : uint8_t {
   kNumStates = 14U
 };
 
+/// Why a run ended in FAULT (unimoc.drive.CommissioningStatus.0.1 FAULT_*).
+enum class StartupFault : uint8_t {
+  kNone = 0U,
+  kAborted = 1U,        ///< The abort command or a restart.
+  kEmergencyStop = 2U,  ///< The emergency stop command.
+  kOvercurrent = 3U,    ///< A phase current above the limit of the run.
+  kTrip = 4U,           ///< A trip of the control cycle opened the power stage.
+  kEnableLost = 5U,     ///< The power stage is off or was not released (external enable, break).
+  kApplyFailed = 6U,    ///< The calibration did not pass the settings validation at DONE.
+};
+
+/// What a running step waits for before it can measure on or continue.
+enum class StartupNeeds : uint8_t {
+  kNone = 0U,
+  kDcLinkVoltage = 1U,   ///< The multimeter reading (DC_LINK_VOLTAGE_CHECK).
+  kPhaseCurrent = 2U,    ///< The clamp-meter reading (CURRENT_SENSE_CALIBRATION).
+  kMotorConnected = 3U,  ///< The confirmation that the motor is connected (CONNECT_MOTOR).
+};
+
+/// Answer to RequestRun().
+enum class StartupStart : uint8_t { kStarted, kRunning, kNotReleased };
+
+/// Answer to RequestNextStep().
+enum class StartupContinue : uint8_t {
+  kAccepted,  ///< The FSM continues at its next run.
+  kNotRunning,
+  kMeasuring,               ///< The step has not measured yet.
+  kNeedsReading,            ///< The step waits for a meter reading first.
+  kNeedsConfirmation,       ///< CONNECT_MOTOR: the motor-connected confirmation is missing.
+  kUnexpectedConfirmation,  ///< A confirmation the step does not wait for.
+};
+
+/// The state of a run as the drive reports it (CommissioningStatus).
+struct StartupStatus {
+  FsmState step{FsmState::kIdle};
+  bool active{false};
+  bool measured{false};  ///< The present step has measured (it waits for the continue).
+  StartupNeeds needs{StartupNeeds::kNone};
+  uint8_t progress{0U};  ///< Of the present step [%].
+  uint32_t passed{0U};   ///< One bit per FsmState.
+  uint32_t failed{0U};   ///< Finished steps that did not pass.
+  StartupFault fault{StartupFault::kNone};
+  bool started{false};  ///< A run was started since the boot.
+};
+
 // =============================================================================
 // Per-step pass/fail
 // =============================================================================

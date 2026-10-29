@@ -26,9 +26,9 @@
 4 lib/sim/src/pmsm_model.hpp
 1 src/current_control/current_control_isr.cpp
 1 src/current_control/slow_update.cpp
+2 src/drive/commissioning.cpp
 31 src/drive/drive_node.cpp
 1 src/drive/settings_register_provider.cpp
-4 src/drive/startup_registers.cpp
 8 src/ebike/ebike_control.cpp
 8 src/startup/hw_startup.cpp
 12 src/trace/trace_signals.cpp

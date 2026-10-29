@@ -20,6 +20,7 @@
 #include <span>
 #include <string_view>
 #include "cart_control.hpp"
+#include "commissioning.hpp"
 #include "cyphal/node.hpp"
 #include "ebike_control.hpp"
 #include "hardware_interface.hpp"
@@ -27,7 +28,6 @@
 #include "outer_loop.hpp"
 #include "settings_register_provider.hpp"
 #include "settings_store.hpp"
-#include "startup_registers.hpp"
 #include "timing_registers.hpp"
 
 namespace unimoc::drive {
@@ -122,7 +122,7 @@ class DriveInfoRegisters final : public cyphal::RegisterProvider {
  * the controller rejoins the bus on its own and the drive logs it.
  *
  * The hardware startup aid (startup::HwStartup) runs in this thread through
- * the `unimoc.startup.*` registers (StartupRegisters). It owns the outputs
+ * the commissioning commands and status message (Commissioning). It owns the outputs
  * while it runs: the drive does not engage then, and a run is refused while
  * engaged. When it ends, the controller restarts with its calibration.
  *
@@ -182,7 +182,8 @@ class DriveNode final : public cyphal::MessageListener,
   [[nodiscard]] const startup::HwStartup& Startup() const noexcept { return startup_; }
 
   void OnMessage(const cyphal::Transfer& transfer, uint64_t now_us) noexcept override;
-  [[nodiscard]] uint8_t OnCommand(uint16_t command, std::span<const uint8_t> parameter) noexcept override;
+  [[nodiscard]] cyphal::CommandResult OnCommand(uint16_t command,
+                                                std::span<const uint8_t> parameter) noexcept override;
   void OnNodeIdAllocated(uint8_t node_id) noexcept override;
 
  private:
@@ -218,6 +219,7 @@ class DriveNode final : public cyphal::MessageListener,
   void TuneLive() noexcept;
   void PublishTelemetry() noexcept;
   void PublishDriveStatus() noexcept;
+  void PublishCommissioning(uint64_t now_us) noexcept;
   void UpdateStatus() noexcept;
 
   cyphal::CyphalNode* node_;
@@ -227,7 +229,7 @@ class DriveNode final : public cyphal::MessageListener,
   SettingsRegisterProvider settings_registers_;
   DriveInfoRegisters info_registers_;
   startup::HwStartup startup_;
-  StartupRegisters startup_registers_;
+  Commissioning commissioning_;
   TimingRegisters timing_registers_{};
   bool startup_active_{false};
 
@@ -257,6 +259,7 @@ class DriveNode final : public cyphal::MessageListener,
   cyphal::Publisher telemetry_{};
   uint64_t next_telemetry_us_{0U};
   cyphal::Publisher drive_status_{};
+  cyphal::Publisher commissioning_publisher_{};
   uint64_t next_drive_status_us_{0U};
 
   CartControl cart_{};

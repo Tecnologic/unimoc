@@ -21,8 +21,8 @@
  * protection. It never advances automatically; each step waits for an
  * explicit operation request from the application or Cyphal service.
  *
- * The drive runs it from the Cyphal thread (drive::DriveNode, registers
- * `unimoc.startup.*`, drive::StartupRegisters): RunOnce() once per spin
+ * The drive runs it from the Cyphal thread (drive::DriveNode, the
+ * commissioning commands and status of drive::Commissioning): RunOnce() once per spin
  * while IsActive(), one ADC sample per call. The drive refuses to engage
  * while it runs and a run while engaged.
  *
@@ -84,6 +84,9 @@ class HwStartup {
   /// Number of ADC samples to average for offset/noise/gain calibrations.
   static constexpr uint32_t kNCal = 1024U;
 
+  /// Samples of each half (outputs neutral, then off-neutral) of GATE_DRIVER_ENABLE_CHECK.
+  static constexpr uint32_t kNGate = 512U;
+
   /// Number of samples to hold for each DUTY_FORCE_* step.
   static constexpr uint32_t kHoldSamples = 1000U;
 
@@ -97,10 +100,10 @@ class HwStartup {
   // External measurement inputs
   // =========================================================================
 
-  /// Set by the Cyphal handler for `unimoc.startup.ext_current_A`.
+  /// The clamp-meter reading of CURRENT_SENSE_CALIBRATION (command SET_READING "current=").
   void SetExtCurrent(const unit::Current current) noexcept { ext_current_ = current; }
 
-  /// Set by the Cyphal handler for `unimoc.startup.ext_vdc_V`.
+  /// The multimeter reading of DC_LINK_VOLTAGE_CHECK (command SET_READING "vdc=").
   void SetExtVdc(const unit::Voltage voltage) noexcept { ext_vdc_ = voltage; }
 
   // =========================================================================
@@ -124,17 +127,23 @@ class HwStartup {
       : cc_{&current_control}, settings_operations_{settings_operations} {}
 
   // =========================================================================
-  // Control interface (called from Cyphal register handlers)
+  // Control interface (the commissioning commands, in the Cyphal thread)
   // =========================================================================
 
-  /// Start the FSM from IDLE, DONE or FAULT (a new run).  No-op while running.
-  void RequestRun() noexcept;
+  /// Start the FSM from IDLE, DONE or FAULT (a new run); kRunning while one runs,
+  /// kNotReleased when the outputs cannot be released (the FSM stays where it was).
+  StartupStart RequestRun() noexcept;
 
-  /// Advance the FSM one step (only valid while step_done_ is true).
-  void RequestNextStep() noexcept;
+  /// Continue with the next step once the present one has measured. The
+  /// CONNECT_MOTOR barrier needs @p motor_connected; a confirmation that the step
+  /// does not wait for is refused, so a late one cannot pass a later barrier.
+  StartupContinue RequestNextStep(bool motor_connected) noexcept;
 
   /// Abort a running FSM immediately; enter FAULT state.  No-op in IDLE, DONE and FAULT.
-  void RequestAbort() noexcept;
+  void RequestAbort(StartupFault reason = StartupFault::kAborted) noexcept;
+
+  /// The state of the run for the commissioning status message.
+  [[nodiscard]] StartupStatus Status() const noexcept;
 
   // =========================================================================
   // Polling interface (called from the main loop)
@@ -163,7 +172,10 @@ class HwStartup {
   void TransitionTo(FsmState next) noexcept;
   void AdvanceToNextState() noexcept;
   bool ValidateCurrentState() noexcept;
-  void EnterFault(const char* reason) noexcept;
+  void EnterFault(const char* reason, StartupFault fault) noexcept;
+  void FinishCurrentSenseCalibration() noexcept;
+  [[nodiscard]] StartupNeeds Needs() const noexcept;
+  [[nodiscard]] uint8_t Progress() const noexcept;
 
   void RunAdcOffsetCal() noexcept;
   void RunAdcNoiseFloor() noexcept;
@@ -199,6 +211,10 @@ class HwStartup {
 
   bool step_done_{false};            ///< Current step has finished collecting data.
   bool next_step_requested_{false};  ///< User requested advancement.
+  bool started_{false};              ///< A run was started since the boot.
+  bool reading_prompted_{false};     ///< The wait for the clamp-meter reading was logged.
+  uint32_t completed_{0U};           ///< One bit per step that finished measuring.
+  StartupFault fault_{StartupFault::kNone};
 
   uint32_t sample_count_{0U};  ///< Samples accumulated for current step.
 
