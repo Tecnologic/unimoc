@@ -80,10 +80,10 @@ template <unit::UnitLike U>
          unit::IsFinite(settings.asm_r_s) && unit::IsFinite(settings.asm_l_s) &&
          unit::IsFinite(settings.asm_l_r) && unit::IsFinite(settings.asm_l_m) &&
          unit::IsFinite(settings.motor_j) && std::isfinite(settings.mech_obs_q) &&
-         std::isfinite(settings.mech_obs_r) && unit::IsFinite(settings.pmsm_flux_obs_c_d) &&
-         unit::IsFinite(settings.pmsm_flux_obs_c_q) && std::isfinite(settings.pmsm_flux_obs_r_speed) &&
-         unit::IsFinite(settings.hall_offset) && std::isfinite(settings.hall_r_edge) &&
-         std::isfinite(settings.hall_r_sector) && unit::IsFinite(settings.asm_obs_g_i) &&
+         unit::IsFinite(settings.mech_obs_r) && unit::IsFinite(settings.pmsm_flux_obs_c_d) &&
+         unit::IsFinite(settings.pmsm_flux_obs_c_q) && unit::IsFinite(settings.pmsm_flux_obs_r_speed) &&
+         unit::IsFinite(settings.hall_offset) && unit::IsFinite(settings.hall_r_edge) &&
+         unit::IsFinite(settings.hall_r_sector) && unit::IsFinite(settings.asm_obs_g_i) &&
          unit::IsFinite(settings.asm_obs_g_flux) && unit::IsFinite(settings.asm_flux_kp) &&
          unit::IsFinite(settings.asm_flux_ki) && unit::IsFinite(settings.asm_flux_i_d_min) &&
          unit::IsFinite(settings.asm_flux_i_d_max) && unit::IsFinite(settings.fw_v_max) &&
@@ -257,9 +257,11 @@ template <std::size_t kCount>
   }
 
   // Noise variances are positive; gains, weights and limits are not negative.
-  if (settings.mech_obs_r <= 0.0F || settings.pmsm_flux_obs_r_speed < 0.0F || settings.hall_r_edge <= 0.0F ||
-      settings.hall_r_sector <= 0.0F || settings.speed_kp < ZeroOf(settings.speed_kp) ||
-      settings.speed_ki < ZeroOf(settings.speed_ki) ||
+  if (settings.mech_obs_r <= ZeroOf(settings.mech_obs_r) ||
+      settings.pmsm_flux_obs_r_speed < ZeroOf(settings.pmsm_flux_obs_r_speed) ||
+      settings.hall_r_edge <= ZeroOf(settings.hall_r_edge) ||
+      settings.hall_r_sector <= ZeroOf(settings.hall_r_sector) ||
+      settings.speed_kp < ZeroOf(settings.speed_kp) || settings.speed_ki < ZeroOf(settings.speed_ki) ||
       settings.speed_accel_limit < ZeroOf(settings.speed_accel_limit)) {
     return SettingsStatus::kOutOfRange;
   }

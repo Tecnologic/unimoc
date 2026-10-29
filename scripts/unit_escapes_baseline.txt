@@ -15,7 +15,6 @@
 2 lib/motor_control/src/asm_flux_controller.hpp
 3 lib/motor_control/src/asm_flux_observer.hpp
 2 lib/motor_control/src/dc_link_limit.hpp
-1 lib/motor_control/src/hall_fusion.hpp
 8 lib/motor_control/src/mechanical_observer.hpp
 7 lib/motor_control/src/rotor_angle.hpp
 5 lib/motor_control/src/sin_cos.hpp
@@ -26,7 +25,7 @@
 1 lib/sim/src/motor_simulation.hpp
 4 lib/sim/src/pmsm_model.hpp
 1 src/current_control/current_control_isr.cpp
-3 src/current_control/slow_update.cpp
+1 src/current_control/slow_update.cpp
 31 src/drive/drive_node.cpp
 1 src/drive/settings_register_provider.cpp
 8 src/ebike/ebike_control.cpp

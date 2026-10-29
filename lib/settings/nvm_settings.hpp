@@ -231,7 +231,7 @@ struct NvmSettings {
   /// Kalman filter measurement noise variance R.
   /// Increase to smooth angle corrections at the cost of slower tracking.
   /// Register: `unimoc.observer.mech.R`
-  float mech_obs_r{1e-4F};
+  unit::AngleVariance mech_obs_r{1e-4_rad2};
 
   // =========================================================================
   // PMSM flux observer (PmsmFluxObserver) gains
@@ -250,7 +250,7 @@ struct NvmSettings {
   /// its measurement noise is R_flux = mech_obs_r + k / ω² (electrical ω).
   /// 0 keeps R_flux = mech_obs_r at every speed.
   /// Register: `unimoc.observer.pmsm_flux.R_speed`
-  float pmsm_flux_obs_r_speed{0.0F};
+  unit::AngleVarianceSpeedWeight pmsm_flux_obs_r_speed{0.0_rad4_per_s2};
 
   // =========================================================================
   // Hall sensors (fused into the mechanical observer)
@@ -267,11 +267,11 @@ struct NvmSettings {
 
   /// Measurement noise of a Hall edge [rad²] (alignment and capture jitter).
   /// Register: `unimoc.observer.hall.R_edge`
-  float hall_r_edge{3e-3F};
+  unit::AngleVariance hall_r_edge{3e-3_rad2};
 
   /// Measurement noise of the Hall sector bound [rad²].
   /// Register: `unimoc.observer.hall.R_sector`
-  float hall_r_sector{3e-2F};
+  unit::AngleVariance hall_r_sector{3e-2_rad2};
 
   // =========================================================================
   // ASM flux observer gains

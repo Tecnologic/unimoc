@@ -151,13 +151,14 @@ bool SlowUpdate::RunOnce() noexcept {
 // flux_noise — the back-EMF carries no angle information at standstill
 // =============================================================================
 
-float SlowUpdate::FluxNoise(const unit::AngularVelocity omega) const noexcept {
-  const float kNoise = isr_->mech_obs.R;
-  if (!(flux_r_speed_ > 0.0F)) {
+unit::AngleVariance SlowUpdate::FluxNoise(const unit::AngularVelocity omega) const noexcept {
+  const unit::AngleVariance kNoise = isr_->mech_obs.R;
+  if (!(flux_r_speed_ > unit::AngleVarianceSpeedWeight{})) {
     return kNoise;
   }
   // At most k (below 1 rad/s): the measurement is all but ignored there.
-  const float kSpeedSquared = std::max(omega.Value() * omega.Value(), 1.0F);
+  constexpr unit::AngularVelocityVariance kMinSpeedSquared = 1.0_rad_per_s * 1.0_rad_per_s;
+  const unit::AngularVelocityVariance kSpeedSquared = unit::Max(omega * omega, kMinSpeedSquared);
   return kNoise + (flux_r_speed_ / kSpeedSquared);
 }
 
@@ -177,10 +178,10 @@ void SlowUpdate::FuseHall(const SubStepBuffer& cycle) noexcept {
   if (!hall.Enabled()) {
     return;  // taken anyway, so the queue of the platform never overflows
   }
-  constexpr float kSecondsPerTick = 1.0F / static_cast<float>(hardware::kTimestampFrequency);
+  constexpr unit::Time kTickPeriod = 1.0_s / static_cast<float>(hardware::kTimestampFrequency);
   hall.Update(std::span<const observer::HallEvent>{events.data(), count},
               cycle.timestamp - reference_offset_ticks_,
-              kSecondsPerTick,
+              kTickPeriod,
               isr_->mech_obs);
 }
 

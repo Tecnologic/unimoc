@@ -113,7 +113,7 @@ ZTEST(control_observer_units, test_algorithms_load_initial_settings_from_nvm) {
   settings.motor_omega_max = 123.0_rad_per_s;
   settings.motor_omega_min = -45.0_rad_per_s;
   settings.mech_obs_q = 0.005F;
-  settings.mech_obs_r = 0.006F;
+  settings.mech_obs_r = 0.006_rad2;
   settings.dtc_dead_time = 2_us;
   settings.dtc_f_pwm = 25.0_kHz;
   settings.dtc_i_threshold = 0.7_A;
@@ -131,7 +131,7 @@ ZTEST(control_observer_units, test_algorithms_load_initial_settings_from_nvm) {
   UNIMOC_EXPECT_FLOAT_EQ(mechanical_observer.omega_max, 123.0_rad_per_s);
   UNIMOC_EXPECT_FLOAT_EQ(mechanical_observer.omega_min, -45.0_rad_per_s);
   UNIMOC_EXPECT_FLOAT_EQ(mechanical_observer.Q, 0.005F);
-  UNIMOC_EXPECT_FLOAT_EQ(mechanical_observer.R, 0.006F);
+  UNIMOC_EXPECT_FLOAT_EQ(mechanical_observer.R, 0.006_rad2);
 
   control::DeadTimeCompensation<float> dead_time_compensation;
   dead_time_compensation.Init(settings);

@@ -62,7 +62,7 @@ unimoc::settings::NvmSettings MotorSettings(const unimoc::settings::NvmSettings&
   settings.current_ki_q = VoltagePerCurrentTime{0.05F * kWc};
   settings.dtc_dead_time = 0.0_s;
   settings.hall_enable = 1U;
-  settings.pmsm_flux_obs_r_speed = 1.0F;
+  settings.pmsm_flux_obs_r_speed = 1.0_rad4_per_s2;
   settings.speed_kp = TorquePerAngularVelocity{1e-4F * kSpeedWc};
   settings.speed_ki = InverseTime{kSpeedWc / 4.0F};
   settings.speed_accel_limit = 2000.0_rad_per_s2;

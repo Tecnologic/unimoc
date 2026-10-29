@@ -39,7 +39,7 @@ MechanicalObserver<float> MakeObserver() {
   settings.motor_omega_max = 10000.0_rad_per_s;
   settings.motor_omega_min = -10000.0_rad_per_s;
   settings.mech_obs_q = 1e-5F;
-  settings.mech_obs_r = 1e-4F;
+  settings.mech_obs_r = 1e-4_rad2;
   MechanicalObserver<float> observer;
   observer.Init(settings);
   return observer;
@@ -84,14 +84,31 @@ ZTEST(mechanical_observer, test_measurement_noise_sets_the_weight) {
     precise.PredictCovariance(kDt);
     noisy.PredictCovariance(kDt);
   }
-  precise.UpdateAngle(0.1_rad, 1e-5F);
-  noisy.UpdateAngle(0.1_rad, 1e-1F);
+  precise.UpdateAngle(0.1_rad, 1e-5_rad2);
+  noisy.UpdateAngle(0.1_rad, 1e-1_rad2);
   zexpect_true(precise.theta > 10.0F * noisy.theta);
   zexpect_true(noisy.theta > 0.0_rad);
   // A second, independent measurement in the same cycle refines the estimate further.
   const Angle kAfterOne = precise.theta;
-  precise.UpdateAngle(0.1_rad - precise.theta, 1e-5F);
+  precise.UpdateAngle(0.1_rad - precise.theta, 1e-5_rad2);
   zexpect_true(precise.theta > kAfterOne && precise.theta <= 0.1_rad + 1e-6_rad);
+}
+
+ZTEST(mechanical_observer, test_speed_noise_sets_the_weight) {
+  MechanicalObserver<float> precise = MakeObserver();
+  MechanicalObserver<float> noisy = MakeObserver();
+  for (int i = 0; i < 20; ++i) {
+    precise.PredictCovariance(kDt);
+    noisy.PredictCovariance(kDt);
+  }
+  // The noise of a speed measurement is a variance of the speed.
+  constexpr AngularVelocityVariance kPreciseNoise = 1e-3_rad_per_s * 1e-3_rad_per_s;
+  constexpr AngularVelocityVariance kNoisyNoise = 1.0_rad_per_s * 1.0_rad_per_s;
+  precise.UpdateSpeed(10.0_rad_per_s, kPreciseNoise);
+  noisy.UpdateSpeed(10.0_rad_per_s, kNoisyNoise);
+  zexpect_true(precise.omega > 10.0F * noisy.omega);
+  zexpect_true(noisy.omega > 0.0_rad_per_s);
+  zexpect_true(precise.omega <= 10.0_rad_per_s);
 }
 
 ZTEST(mechanical_observer, test_tracks_a_synthetic_speed_ramp) {
@@ -103,7 +120,7 @@ ZTEST(mechanical_observer, test_tracks_a_synthetic_speed_ramp) {
   Angle angle;
   for (int i = 0; i < 8000; ++i) {  // 0.5 s
     observer.PredictCovariance(kDt);
-    observer.UpdateAngle(WrapAngle(angle - observer.theta), 1e-4F);
+    observer.UpdateAngle(WrapAngle(angle - observer.theta), 1e-4_rad2);
     observer.Predict(kNoCurrent, kDt);
     angle = WrapAngle(angle + (speed * kDt));
     speed += kAcceleration * kDt;
