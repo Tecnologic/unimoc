@@ -132,8 +132,10 @@ void HwStartup::RequestNextStep() noexcept {
 // =============================================================================
 
 void HwStartup::RequestAbort() noexcept {
-  // No-op if the FSM was never started or has already completed.
-  if (state_ == FsmState::kIdle || state_ == FsmState::kDone) {
+  // No-op unless a run is active: in IDLE, DONE and FAULT the outputs are
+  // already the drive's, and a second EnterFault() would force the duties
+  // again with nobody left to release them.
+  if (!IsActive()) {
     return;
   }
   EnterFault("user abort");

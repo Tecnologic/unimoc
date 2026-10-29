@@ -133,7 +133,7 @@ class HwStartup {
   /// Advance the FSM one step (only valid while step_done_ is true).
   void RequestNextStep() noexcept;
 
-  /// Abort the FSM immediately; enter FAULT state.
+  /// Abort a running FSM immediately; enter FAULT state.  No-op in IDLE, DONE and FAULT.
   void RequestAbort() noexcept;
 
   // =========================================================================

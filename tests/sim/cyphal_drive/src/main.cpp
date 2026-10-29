@@ -936,6 +936,21 @@ ZTEST(sim_cyphal_drive, test_emergency_stop_aborts_a_startup_run) {
   zexpect_equal(kPowerStage.GetState(), PowerStageState::kDisabled);
 }
 
+ZTEST(sim_cyphal_drive, test_a_second_abort_leaves_the_control_to_the_drive) {
+  Rig& rig = *g_rig;
+  zexpect_equal(Integer(rig.Access(reg::kStartupRun, Natural8(1U))), 1);
+  zexpect_equal(Integer(rig.Access(reg::kStartupRun, Natural8(0U))), 0);
+  zexpect_equal(Integer(rig.Access(reg::kStartupStep, Empty())), 13);  // FAULT
+  rig.Run(2U);
+  // A tool that aborts every drive on a stop writes 0 again: nothing changes.
+  zexpect_equal(Integer(rig.Access(reg::kStartupRun, Natural8(0U))), 0);
+  zexpect_equal(Integer(rig.Access(reg::kStartupStep, Empty())), 13);
+  rig.Run(2U);
+  rig.Hold(0.0F, 10.0F, 30U);
+  zassert_true(rig.drive.IsEngaged());
+  zexpect_within(PlantCurrent().q, 10.0_A, 0.5_A, "i_q = %f", static_cast<double>(PlantCurrent().q.Value()));
+}
+
 ZTEST(sim_cyphal_drive, test_startup_run_to_done_commits_the_calibration) {
   Rig& rig = *g_rig;
   const auto kStep = [&rig](const unsigned milliseconds) {  // one FSM sample per millisecond
