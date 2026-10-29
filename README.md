@@ -590,6 +590,10 @@ logs the result through the Zephyr log, then pauses and waits for the user to wr
 `unimoc.startup.step` before moving on.  This gives you time to review scope
 traces and enter external meter readings.
 
+The motor parameters (R, L, flux, Hall offset, inertia) are entered by hand
+for now; their measurement is planned as a second assisted flow
+(`docs/motor_identification_plan.md`).
+
 **From cypilot** (the operator app): select the drive, open the Control view
 and use the **Startup aid** card (take control first). It shows the step and
 what to do, takes the meter readings, and asks for the confirmation that the

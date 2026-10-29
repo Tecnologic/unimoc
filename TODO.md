@@ -69,6 +69,19 @@ In this order; all without hardware unless marked.
  - [ ] Hardware: Cyphal on the BCC: FDCAN3 bit timing at 1 Mbit/s with CAN FD frames through the SN65HVD230, the Rs pin, heartbeat, registers and the RTT log with a USB CAN FD adapter and yakut; plug-and-play with `yakut monitor --plug-and-play`.
  - [ ] Hardware: CAN FD bus test (phase C2): BCC and G4 evaluation boards on a cart-length harness, 1/4 and 1/2 Mbit/s, bus load and latency at 250 and 500 Hz; choose the bit rate and the cycle rate.
 
+## Motor identification
+
+Plan: [docs/motor_identification_plan.md](docs/motor_identification_plan.md) (algorithms of the old firmware carried over, an assisted flow in cypilot like the startup aid). Decisions in its section 9 first.
+
+ - [ ] I0: forced angle in `SlowUpdate`, online accumulation of the measurement windows, `MotorIdentification` FSM with `unimoc.identify.*` (run, step, results, apply), cypilot card and `cypilot-ctl identify`.
+ - [ ] I1: M1 stator resistance and dead-time voltage (regression over current levels at three angles); dead time in the sim inverter.
+ - [ ] I2: M2 L_d and L_q (sine injection per axis, Goertzel impedance).
+ - [ ] I3: M3 flux linkage (I/f at three speeds), M4 pole-pair check.
+ - [ ] I4: M5 Hall offset and order.
+ - [ ] I5: M6 inertia and friction.
+ - [ ] I6: M7 derived gains, review and apply in cypilot, motor profiles.
+ - [ ] I7 (hardware): bench comparison with LCR meter, 4-wire R and a coast-down.
+
 ## Cart system
 
  - [ ] Requirements and part choice for the STM32G4 redesign of the hardware_4850 logic board (STM32G473RET6 or G474RET6, pin and ADC check, system plan section 5.2), including the fourth half bridge (decision 9): its PWM channel synchronized with the phase timer, its current measurement (excitation current, resistor current), the comparator path for the chopper and the board it sits on.
