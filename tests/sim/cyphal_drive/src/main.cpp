@@ -1036,11 +1036,19 @@ ZTEST(sim_cyphal_drive, test_startup_phase_2_runs_on_the_motor) {
   kStep(1100U);
   zexpect_equal(Integer(rig.Access(reg::kStartupStep, Empty())), 9);  // CONNECT_MOTOR
 
+  // The barrier holds the outputs off while the motor is connected; the
+  // external enable may be pulled meanwhile. Continue releases them again.
+  zexpect_equal(kPowerStage.GetState(), PowerStageState::kDisabled);
+  sim::SetExternalEnable(false);
+  rig.Run(100U);
+  zexpect_equal(Integer(rig.Access(reg::kStartupStep, Empty())), 9, "the barrier waits");
+  sim::SetExternalEnable(true);
+
   // Phase 2 on the motor of the plant: the alignment sweep and the
   // calibration stay far below the overcurrent limit of the run (6 A).
-  rig.Run(100U);  // the current of the gate check (behind the override) decays at neutral duty
   sim::ClearPhaseCurrentOverride();
   kStep(2U);
+  zexpect_equal(kPowerStage.GetState(), PowerStageState::kEnabled);
   rig.Run((21U * 256U) + 100U);
   zexpect_equal(Integer(rig.Access(reg::kStartupStep, Empty())), 10, "the sweep tripped");
   (void)rig.Access(reg::kStartupStep, Natural8(1U));

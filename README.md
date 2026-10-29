@@ -770,25 +770,31 @@ unimoc.startup.step = 1
 
 #### CONNECT_MOTOR barrier
 
+The aid switches the outputs **off** at this barrier and keeps the logic
+running: the run survives connecting the motor, a power cycle would end it
+(the drive restarts in IDLE).
+
 > ⚠️ **Before advancing past this step:**
 >
-> 1. **Power off** the drive.
-> 2. **Connect** the motor (UVW + protective earth).
-> 3. **Power on** again.
-> 4. Ensure the motor shaft is **free to rotate**.
+> 1. **Connect** the motor (UVW + protective earth) with the outputs off.
+>    Keep the logic powered; switch the DC link off only if the logic has a
+>    supply of its own. Pulling the external enable while wiring is fine.
+> 2. Ensure the motor shaft is **free to rotate**.
 
 The log prints a prominent warning:
 
 ```
-[STARTUP] !! PHASE 1 COMPLETE — PREPARE FOR PHASE 2 !!
-[STARTUP] !!  ACTION REQUIRED:
-[STARTUP] !!    1. POWER OFF the drive now.
-[STARTUP] !!    2. CONNECT the motor (UVW + PE).
-[STARTUP] !!    3. POWER ON again.
-[STARTUP] !!    4. Write 1 to unimoc.startup.step
+[STARTUP] !!  PHASE 1 COMPLETE - PREPARE FOR PHASE 2       !!
+[STARTUP] !!  The outputs are OFF now.                      !!
+[STARTUP] !!    1. CONNECT the motor (UVW + PE). Keep the   !!
+[STARTUP] !!       logic powered: a power cycle ends the    !!
+[STARTUP] !!       run. ...                                 !!
+[STARTUP] !!    2. Write 1 to unimoc.startup.step           !!
 ```
 
-After reconnecting and powering on, write:
+Then write the step; the aid releases the outputs again at neutral duty
+(acknowledging a break of the external enable during the barrier) and starts
+phase 2, or goes to FAULT when the external enable is still missing:
 
 ```
 unimoc.startup.step = 1

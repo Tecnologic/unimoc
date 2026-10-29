@@ -156,7 +156,8 @@ void HwStartup::RunOnce() noexcept {
   // OC check applies to all Phase-2 states
   // The stage is released for the whole run. If it is not any more (hard
   // overcurrent trip in the ISR, external break, e-stop), stop here.
-  if (state_ != FsmState::kIdle && state_ != FsmState::kDone && state_ != FsmState::kFault &&
+  // CONNECT_MOTOR holds the outputs off while the motor is connected.
+  if (IsActive() && state_ != FsmState::kConnectMotor &&
       hardware::kPowerStage.GetState() != hardware::PowerStageState::kEnabled) {
     const char* const kTrip = cc_->TripName();
     EnterFault(kTrip != nullptr ? kTrip : "power stage broken or blocked");
@@ -635,6 +636,9 @@ void HwStartup::RunConnectMotorWait() noexcept {
   cc_->ForceDuty(kNeutralDuty, kNeutralDuty, kNeutralDuty);
 
   if (!step_done_) {
+    // The motor is connected with the outputs off and the logic powered: a
+    // power cycle would restart the drive and end the run.
+    hardware::kPowerStage.Disable();
     oc_limit_ = settings_operations_.GetHardwareCapabilities().max_phase_current * oc_fraction;
 
     LogWarning(
@@ -642,11 +646,13 @@ void HwStartup::RunConnectMotorWait() noexcept {
         "[STARTUP] !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n"
         "[STARTUP] !!  PHASE 1 COMPLETE - PREPARE FOR PHASE 2       !!\n"
         "[STARTUP] !!                                                !!\n"
+        "[STARTUP] !!  The outputs are OFF now.                      !!\n"
         "[STARTUP] !!  ACTION REQUIRED:                              !!\n"
-        "[STARTUP] !!    1. POWER OFF the drive now.                 !!\n"
-        "[STARTUP] !!    2. CONNECT the motor (UVW + PE).            !!\n"
-        "[STARTUP] !!    3. POWER ON again.                          !!\n"
-        "[STARTUP] !!    4. Write 1 to unimoc.startup.step           !!\n"
+        "[STARTUP] !!    1. CONNECT the motor (UVW + PE). Keep the   !!\n"
+        "[STARTUP] !!       logic powered: a power cycle ends the    !!\n"
+        "[STARTUP] !!       run. Switch the DC link off only if the  !!\n"
+        "[STARTUP] !!       logic has a supply of its own.           !!\n"
+        "[STARTUP] !!    2. Write 1 to unimoc.startup.step           !!\n"
         "[STARTUP] !!       ONLY after motor is securely connected.  !!\n"
         "[STARTUP] !!                                                !!\n"
         "[STARTUP] !!  CAUTION: Phase 2 injects LIVE voltages.       !!\n"
@@ -664,6 +670,16 @@ void HwStartup::RunConnectMotorWait() noexcept {
   }
 
   if (step_done_ && next_step_requested_ && ValidateCurrentState()) {
+    // Release the outputs again at neutral duty for phase 2. The continue is
+    // the acknowledgement of a break latched while the outputs were off (the
+    // external enable pulled while the motor was connected), as RequestRun().
+    if (hardware::kPowerStage.GetState() == hardware::PowerStageState::kFault) {
+      hardware::kPowerStage.ClearFault();
+    }
+    if (!hardware::kPowerStage.Enable()) {
+      EnterFault("power stage not released for phase 2 (external enable missing or break active)");
+      return;
+    }
     AdvanceToNextState();
   }
 }
