@@ -27,6 +27,7 @@
 #include <unimoc/cart/DriveStatus_0_1.h>
 #include <unimoc/cart/PedalState_0_1.h>
 #include <unimoc/cart/WheelCommand_0_1.h>
+#include <unimoc/drive/CommissioningStatus_0_1.h>
 #include <unimoc/drive/CurrentSetpoint_0_1.h>
 #include <unimoc/drive/Telemetry_0_1.h>
 #include <zephyr/ztest.h>
@@ -36,6 +37,7 @@
 #include <limits>
 #include <new>
 #include <numbers>
+#include <string>
 #include <string_view>
 #include "angle_wrap.hpp"
 #include "can_test_bus.hpp"
@@ -58,6 +60,7 @@
 #include "sim_test_motor.hpp"
 #include "sin_cos.hpp"
 #include "slow_update.hpp"
+#include "unimoc_test.hpp"
 #include "zephyr_settings_storage.hpp"
 
 // The platform calls these directly (hot_path_interface.hpp). The control
@@ -163,6 +166,7 @@ struct Rig {
     client.Process(now);
     zassert_true(client.Subscribe(TransferKind::kMessage, unimoc::cyphal::kPubTelemetry, 64U));
     zassert_true(client.Subscribe(TransferKind::kMessage, unimoc::cyphal::kPubDriveStatus, 64U));
+    zassert_true(client.Subscribe(TransferKind::kMessage, unimoc::cyphal::kPubCommissioning, 64U));
     zassert_true(client.Subscribe(TransferKind::kServiceResponse, port::kRegisterAccess, 267U));
     zassert_true(client.Subscribe(TransferKind::kServiceResponse, port::kExecuteCommand, 48U));
     zassert_true(drive.Start(now));
@@ -321,9 +325,12 @@ struct Rig {
     return false;
   }
 
-  uint8_t Command(const uint16_t command) {
+  /// ExecuteCommand with a text parameter; the output text of the answer goes to last_output.
+  uint8_t Command(const uint16_t command, const std::string_view parameter = {}) {
     uavcan_node_ExecuteCommand_Request_1_3 request{};
     request.command = command;
+    std::memcpy(std::begin(request.parameter.elements), parameter.data(), parameter.size());
+    request.parameter.count = parameter.size();
     std::size_t size = tx.size();
     zassert_equal(uavcan_node_ExecuteCommand_Request_1_3_serialize_(&request, Out(tx), &size), 0);
     Transfer response{};
@@ -332,7 +339,26 @@ struct Rig {
     size = response.payload.size();
     zassert_equal(uavcan_node_ExecuteCommand_Response_1_3_deserialize_(&result, In(response.payload), &size),
                   0);
+    last_output.assign(reinterpret_cast<const char*>(std::begin(result.output.elements)),
+                       result.output.count);
     return result.status;
+  }
+
+  /// Waits for the next commissioning status message (published on change and at least every 2 s).
+  bool Commissioning(unimoc_drive_CommissioningStatus_0_1& status) {
+    Transfer transfer{};
+    while (client.Receive(rx, transfer) == ReceiveResult::kReceived) {
+    }
+    for (unsigned i = 0U; i < 2100U; ++i) {
+      Run(1U);
+      while (client.Receive(rx, transfer) == ReceiveResult::kReceived) {
+        if (transfer.port_id == unimoc::cyphal::kPubCommissioning) {
+          std::size_t size = transfer.payload.size();
+          return unimoc_drive_CommissioningStatus_0_1_deserialize_(&status, In(transfer.payload), &size) >= 0;
+        }
+      }
+    }
+    return false;
   }
 
   /// Writes (or reads, with an empty value) a register; returns the value of the response.
@@ -385,6 +411,7 @@ struct Rig {
   unimoc::ebike::EbikeControl ebike{unimoc::hardware::GetEbikeIo()};
   std::array<std::byte, 600> rx{};
   std::array<std::byte, 600> tx{};
+  std::string last_output;  ///< Output text of the last ExecuteCommand answer.
   uint64_t now{1'000'000U};
   uint8_t next_transfer_id{0U};
 };
@@ -853,12 +880,52 @@ ZTEST(sim_cyphal_drive, test_speed_setpoint_is_limited_to_the_motor_speed) {
                  static_cast<double>(PlantSpeed().Value()));
 }
 
-ZTEST(sim_cyphal_drive, test_startup_registers_run_step_and_abort) {
+namespace startup_aid {
+
+using unimoc::startup::FsmState;
+using unimoc::startup::StartupNeeds;
+constexpr uint16_t kStart = unimoc_drive_CommissioningStatus_0_1_COMMAND_START_STARTUP_AID;
+constexpr uint16_t kContinue = unimoc_drive_CommissioningStatus_0_1_COMMAND_CONTINUE;
+constexpr uint16_t kReading = unimoc_drive_CommissioningStatus_0_1_COMMAND_SET_READING;
+constexpr uint16_t kAbort = unimoc_drive_CommissioningStatus_0_1_COMMAND_ABORT;
+
+FsmState Step(const Rig& rig) { return rig.drive.Startup().State(); }
+
+/// Runs the drive until the step has measured, needs a reading or the run ended (one sample per millisecond).
+void Measure(Rig& rig, const unsigned limit_ms = 7000U) {
+  rig.Run(2U);  // the FSM takes a reading or a continue at its next run
+  for (unsigned i = 0U; i < limit_ms; i += 10U) {
+    const auto kStatus = rig.drive.Startup().Status();
+    if (!kStatus.active || kStatus.measured || kStatus.needs == StartupNeeds::kDcLinkVoltage ||
+        kStatus.needs == StartupNeeds::kPhaseCurrent) {
+      return;
+    }
+    rig.Run(10U);
+  }
+}
+
+/// Waits until the step has measured, continues (with a confirmation) and lets the FSM take the step.
+void Next(Rig& rig, const std::string_view confirmation = {}) {
+  Measure(rig);
+  zexpect_equal(rig.Command(kContinue, confirmation), cmd::kStatusSuccess, "%s", rig.last_output.c_str());
+  rig.Run(2U);
+}
+
+}  // namespace startup_aid
+
+ZTEST(sim_cyphal_drive, test_startup_aid_commands_status_and_abort) {
+  using namespace startup_aid;
   Rig& rig = *g_rig;
-  zexpect_equal(Integer(rig.Access(reg::kStartupStep, Empty())), 0);  // IDLE
-  zexpect_equal(Integer(rig.Access(reg::kStartupRun, Natural8(1U))), 1);
-  zexpect_equal(Integer(rig.Access(reg::kStartupStep, Empty())), 1);  // PWM_DISABLE
+  unimoc_drive_CommissioningStatus_0_1 status{};
+  zassert_true(rig.Commissioning(status));
+  zexpect_equal(status.procedure, unimoc_drive_CommissioningStatus_0_1_PROCEDURE_NONE);
+  zexpect_equal(status.state, unimoc_drive_CommissioningStatus_0_1_STATE_IDLE);
+  zexpect_equal(rig.Command(kContinue), cmd::kStatusBadState);  // nothing runs
+
+  zexpect_equal(rig.Command(kStart), cmd::kStatusSuccess);
+  zexpect_equal(Step(rig), FsmState::kPwmDisable);
   zexpect_equal(kPowerStage.GetState(), PowerStageState::kEnabled);
+  zexpect_equal(rig.Command(kStart), cmd::kStatusBadState, "runs already");
 
   // The FSM owns the outputs: no engage, no settings restart, no factory reset.
   rig.Hold(0.0F, 5.0F, 30U);
@@ -868,36 +935,59 @@ ZTEST(sim_cyphal_drive, test_startup_registers_run_step_and_abort) {
   rig.Readiness(reg_udral_service_common_Readiness_0_1_SLEEP);  // clears the re-arm
   rig.Run(2U);
 
-  // Step through phase 1 up to the DC-link check: one sample per millisecond.
-  // A step write takes effect at the next FSM run, after the response.
-  zexpect_equal(Integer(rig.Access(reg::kStartupStep, Natural8(1U))), 1);
-  rig.Run(2U);
-  zexpect_equal(Integer(rig.Access(reg::kStartupStep, Empty())), 2);  // ADC_OFFSET_CAL
-  for (unsigned i = 0U; i < 5U; ++i) {                                // ADC_OFFSET_CAL .. DUTY_FORCE_HIGH
-    rig.Run(1100U);                                                   // 1024 or 1000 samples per step
-    (void)rig.Access(reg::kStartupStep, Natural8(1U));
+  Next(rig);
+  zexpect_equal(Step(rig), FsmState::kAdcOffsetCal);
+  // A continue before the step has measured is refused: it would continue on its own later.
+  zassert_true(rig.Commissioning(status));
+  zexpect_equal(status.procedure, unimoc_drive_CommissioningStatus_0_1_PROCEDURE_STARTUP_AID);
+  zexpect_equal(status.step, 2U);
+  zexpect_equal(status.state, unimoc_drive_CommissioningStatus_0_1_STATE_MEASURING);
+  zexpect_true(status.progress < 100U);
+  zexpect_equal(rig.Command(kContinue), cmd::kStatusBadState);
+  zexpect_true(rig.last_output == "the step is still measuring", "%s", rig.last_output.c_str());
+  Measure(rig);
+  zassert_true(rig.Commissioning(status));
+  zexpect_equal(status.state, unimoc_drive_CommissioningStatus_0_1_STATE_WAITING);
+  zexpect_equal(status.progress, 100U);
+  zexpect_equal(rig.Command(kContinue, "motor-connected"), cmd::kStatusBadParameter, "not this step");
+  zexpect_equal(rig.Command(kContinue, "anything"), cmd::kStatusBadParameter);
+  for (unsigned i = 0U; i < 5U; ++i) {  // ADC_OFFSET_CAL .. DUTY_FORCE_HIGH
+    Next(rig);
   }
-  rig.Run(2U);
-  zexpect_equal(Integer(rig.Access(reg::kStartupStep, Empty())), 7);  // DC_LINK_VOLTAGE_CHECK
+  zexpect_equal(Step(rig), FsmState::kDcLinkVoltageCheck);
+
+  // The step measures, then needs the multimeter reading.
+  Measure(rig);
+  zassert_true(rig.Commissioning(status));
+  zexpect_equal(status.state, unimoc_drive_CommissioningStatus_0_1_STATE_NEEDS_READING);
+  zexpect_equal(status.needs, unimoc_drive_CommissioningStatus_0_1_NEEDS_DC_LINK_VOLTAGE);
+  zexpect_equal(rig.Command(kContinue), cmd::kStatusBadState, "needs the reading");
+  zexpect_equal(rig.Command(kReading, "vdc=abc"), cmd::kStatusBadParameter);
+  zexpect_equal(rig.Command(kReading, "vdc=-48"), cmd::kStatusBadParameter);
+  zexpect_equal(rig.Command(kReading, "power=48"), cmd::kStatusBadParameter);
+  zexpect_equal(rig.Command(kReading, "vdc=48.0"), cmd::kStatusSuccess);
+  Measure(rig);
+  zexpect_equal(status.passed & 0x6U, 0x6U, "PWM_DISABLE and ADC_OFFSET_CAL passed");
+  zassert_true(rig.Commissioning(status));
+  zexpect_equal(status.state, unimoc_drive_CommissioningStatus_0_1_STATE_WAITING);
+  zexpect_true((status.passed & (1U << 7U)) != 0U, "DC_LINK_VOLTAGE_CHECK passed");
 
   auto results = rig.Access(reg::kStartupResults, Empty());
   zassert_true(uavcan_register_Value_1_0_is_natural8_(&results));
   zexpect_equal(results.natural8.value.count, 14U);
-  zexpect_equal(results.natural8.value.elements[1], 1U);  // PWM_DISABLE passed
   zexpect_equal(results.natural8.value.elements[2], 1U);  // ADC_OFFSET_CAL passed (no offset in the sim)
 
-  zexpect_within(unimoc::cyphal::GetNumber(rig.Access(reg::kStartupExtVdcV, Real(48.0F))).value_or(0.0F),
-                 48.0F,
-                 1e-6F);
-  zexpect_equal(Integer(rig.Access(reg::kStartupStep, Natural8(2U))), 7);  // only 1 advances
-
   // Abort: FAULT, outputs off; a new run starts again from the beginning.
-  zexpect_equal(Integer(rig.Access(reg::kStartupRun, Natural8(0U))), 0);
-  zexpect_equal(Integer(rig.Access(reg::kStartupStep, Empty())), 13);  // FAULT
+  zexpect_equal(rig.Command(kAbort), cmd::kStatusSuccess);
+  zexpect_equal(Step(rig), FsmState::kFault);
   zexpect_equal(kPowerStage.GetState(), PowerStageState::kDisabled);
-  zexpect_equal(Integer(rig.Access(reg::kStartupRun, Natural8(1U))), 1);
-  zexpect_equal(Integer(rig.Access(reg::kStartupStep, Empty())), 1);
-  zexpect_equal(Integer(rig.Access(reg::kStartupRun, Natural8(0U))), 0);
+  zassert_true(rig.Commissioning(status));
+  zexpect_equal(status.state, unimoc_drive_CommissioningStatus_0_1_STATE_ABORTED);
+  zexpect_equal(status.fault, unimoc_drive_CommissioningStatus_0_1_FAULT_ABORTED);
+  zexpect_equal(rig.Command(kReading, "vdc=48"), cmd::kStatusBadState, "not running");
+  zexpect_equal(rig.Command(kStart), cmd::kStatusSuccess);
+  zexpect_equal(Step(rig), FsmState::kPwmDisable);
+  zexpect_equal(rig.Command(kAbort), cmd::kStatusSuccess);
 
   // After the run the drive engages again.
   rig.Readiness(reg_udral_service_common_Readiness_0_1_STANDBY);
@@ -906,21 +996,185 @@ ZTEST(sim_cyphal_drive, test_startup_registers_run_step_and_abort) {
   zexpect_true(rig.drive.IsEngaged());
 }
 
-ZTEST(sim_cyphal_drive, test_startup_run_is_refused_while_engaged) {
+ZTEST(sim_cyphal_drive, test_startup_aid_is_refused_while_engaged) {
+  using namespace startup_aid;
   Rig& rig = *g_rig;
   rig.Hold(0.0F, 2.0F, 20U);
   zassert_true(rig.drive.IsEngaged());
-  zexpect_equal(Integer(rig.Access(reg::kStartupRun, Natural8(1U))), 0);
-  zexpect_equal(Integer(rig.Access(reg::kStartupStep, Empty())), 0);  // still IDLE
+  zexpect_equal(rig.Command(kStart), cmd::kStatusBadState);
+  zexpect_true(rig.last_output == "engaged: disengage first", "%s", rig.last_output.c_str());
+  zexpect_equal(Step(rig), FsmState::kIdle);
   zexpect_true(rig.drive.IsEngaged());
 }
 
 ZTEST(sim_cyphal_drive, test_emergency_stop_aborts_a_startup_run) {
+  using namespace startup_aid;
   Rig& rig = *g_rig;
-  zexpect_equal(Integer(rig.Access(reg::kStartupRun, Natural8(1U))), 1);
+  zexpect_equal(rig.Command(kStart), cmd::kStatusSuccess);
   zexpect_equal(rig.Command(cmd::kCommandEmergencyStop), cmd::kStatusSuccess);
-  zexpect_equal(Integer(rig.Access(reg::kStartupStep, Empty())), 13);  // FAULT
+  zexpect_equal(Step(rig), FsmState::kFault);
   zexpect_equal(kPowerStage.GetState(), PowerStageState::kDisabled);
+  unimoc_drive_CommissioningStatus_0_1 status{};
+  zassert_true(rig.Commissioning(status));
+  zexpect_equal(status.state, unimoc_drive_CommissioningStatus_0_1_STATE_ABORTED);
+  zexpect_equal(status.fault, unimoc_drive_CommissioningStatus_0_1_FAULT_EMERGENCY_STOP);
+  zexpect_equal(rig.Command(kStart), cmd::kStatusBadState, "the latched emergency stop holds a new run off");
+}
+
+ZTEST(sim_cyphal_drive, test_a_second_abort_leaves_the_control_to_the_drive) {
+  using namespace startup_aid;
+  Rig& rig = *g_rig;
+  zexpect_equal(rig.Command(kStart), cmd::kStatusSuccess);
+  zexpect_equal(rig.Command(kAbort), cmd::kStatusSuccess);
+  zexpect_equal(Step(rig), FsmState::kFault);
+  rig.Run(2U);
+  // A tool that aborts every drive on a stop sends the abort again: nothing changes.
+  zexpect_equal(rig.Command(kAbort), cmd::kStatusSuccess);
+  zexpect_equal(Step(rig), FsmState::kFault);
+  rig.Run(2U);
+  rig.Hold(0.0F, 10.0F, 30U);
+  zassert_true(rig.drive.IsEngaged());
+  UNIMOC_EXPECT_NEAR(PlantCurrent().q, 10.0_A, 0.5_A);  // the current loop runs, no forced duties
+}
+
+ZTEST(sim_cyphal_drive, test_startup_run_to_done_commits_the_calibration) {
+  using namespace startup_aid;
+  Rig& rig = *g_rig;
+  const auto kNumber = [&rig](const char* name) {
+    return unimoc::cyphal::GetNumber(rig.Access(name, Empty())).value_or(-1.0F);
+  };
+  // Constant readings: zero offsets 0.2 A and -0.1 A, the plant behind them unused.
+  sim::SetPhaseCurrentOverride(0.2F, -0.1F, -0.1F);
+  zexpect_equal(rig.Command(kStart), cmd::kStatusSuccess);
+  for (unsigned i = 0U; i < 6U; ++i) {  // PWM_DISABLE .. DUTY_FORCE_HIGH
+    Next(rig);
+  }
+  zexpect_equal(Step(rig), FsmState::kDcLinkVoltageCheck);
+  zexpect_equal(rig.Command(kReading, "vdc=48"), cmd::kStatusSuccess);
+  Next(rig);
+  Next(rig);  // GATE_DRIVER_ENABLE_CHECK (fails without a gate response, continues)
+  Next(rig, "motor-connected");
+  zexpect_equal(Step(rig), FsmState::kPhaseAdcAlignment);
+  Measure(rig);
+  // The calibration current before the next step collects: 0.8 A above the offset.
+  sim::SetPhaseCurrentOverride(1.0F, -0.5F, -0.5F);
+  Next(rig);
+  zexpect_equal(Step(rig), FsmState::kCurrentSenseCalibration);
+  // The reading may come after the measurement: the step waits for it.
+  Measure(rig);
+  unimoc_drive_CommissioningStatus_0_1 status{};
+  zassert_true(rig.Commissioning(status));
+  zexpect_equal(status.needs, unimoc_drive_CommissioningStatus_0_1_NEEDS_PHASE_CURRENT);
+  zexpect_equal(rig.Command(kReading, "current=1.0"), cmd::kStatusSuccess);
+  Next(rig);
+
+  // DONE: outputs off, the calibration in the settings registers.
+  zexpect_equal(Step(rig), FsmState::kDone);
+  zexpect_equal(kPowerStage.GetState(), PowerStageState::kDisabled);
+  zassert_true(rig.Commissioning(status));
+  zexpect_equal(status.state, unimoc_drive_CommissioningStatus_0_1_STATE_DONE);
+  zexpect_true((status.failed & (1U << 8U)) != 0U, "the gate check failed (no gate response in the sim)");
+  zexpect_within(kNumber(reg::kStartupAdcOffsetA), 0.2F, 1e-5F);
+  zexpect_within(kNumber(reg::kStartupAdcOffsetB), -0.1F, 1e-5F);
+  zexpect_within(kNumber(reg::kStartupGainA), 1.25F, 1e-3F);  // 1 / (0.8 A / 1 A)
+  zexpect_within(kNumber(reg::kStartupGainB), 1.25F, 1e-3F);
+  zexpect_within(kNumber(reg::kStartupAdcOffsetC), -0.1F, 1e-5F);
+  zexpect_within(kNumber(reg::kStartupGainC), 1.25F, 1e-3F);
+  zexpect_within(kNumber(reg::kStartupGainVdc), 1.0F, 1e-3F);
+
+  // The drive takes the calibration with the next engage.
+  sim::ClearPhaseCurrentOverride();
+  rig.Readiness(reg_udral_service_common_Readiness_0_1_STANDBY);
+  rig.Run(2U);
+  rig.Hold(0.0F, 2.0F, 30U);
+  zexpect_true(rig.drive.IsEngaged());
+
+  // From then on every sample is calibrated; the raw sample stays for the startup aid.
+  rig.Readiness(reg_udral_service_common_Readiness_0_1_SLEEP);
+  rig.Run(2U);
+  zassert_false(rig.drive.IsEngaged());
+  sim::SetPhaseCurrentOverride(1.0F, -0.5F, -0.5F);
+  rig.Run(2U);
+  const auto& state = CurrentControlIsr::Instance().state;
+  UNIMOC_EXPECT_NEAR(state.raw_phase_currents.a, 1.0_A, 1e-6_A);
+  UNIMOC_EXPECT_NEAR(state.phase_currents.a, 1.0_A, 2e-3_A);   // (1.0 - 0.2) * 1.25
+  UNIMOC_EXPECT_NEAR(state.phase_currents.b, -0.5_A, 2e-3_A);  // (-0.5 + 0.1) * 1.25
+  UNIMOC_EXPECT_NEAR(state.phase_currents.c, -0.5_A, 2e-3_A);
+  UNIMOC_EXPECT_NEAR(state.dc_link, state.raw_vdc, 0.05_V);  // the DC-link gain is about 1
+  sim::ClearPhaseCurrentOverride();
+}
+
+ZTEST(sim_cyphal_drive, test_startup_phase_2_runs_on_the_motor) {
+  using namespace startup_aid;
+  Rig& rig = *g_rig;
+  // Phase 1 without the motor: no current (the plant has it connected all the time).
+  sim::SetPhaseCurrentOverride(0.0F, 0.0F, 0.0F);
+  zexpect_equal(rig.Command(kStart), cmd::kStatusSuccess);
+  for (unsigned i = 0U; i < 6U; ++i) {
+    Next(rig);
+  }
+  zexpect_equal(rig.Command(kReading, "vdc=48"), cmd::kStatusSuccess);
+  Next(rig);
+  Next(rig);
+  zexpect_equal(Step(rig), FsmState::kConnectMotor);
+
+  // The barrier holds the outputs off while the motor is connected; the
+  // external enable may be pulled meanwhile. Continue needs the confirmation.
+  Measure(rig);
+  zexpect_equal(kPowerStage.GetState(), PowerStageState::kDisabled);
+  unimoc_drive_CommissioningStatus_0_1 status{};
+  zassert_true(rig.Commissioning(status));
+  zexpect_equal(status.state, unimoc_drive_CommissioningStatus_0_1_STATE_WAITING);
+  zexpect_equal(status.needs, unimoc_drive_CommissioningStatus_0_1_NEEDS_MOTOR_CONNECTED);
+  sim::SetExternalEnable(false);
+  rig.Run(100U);
+  zexpect_equal(Step(rig), FsmState::kConnectMotor, "the barrier waits");
+  sim::SetExternalEnable(true);
+  zexpect_equal(rig.Command(kContinue), cmd::kStatusBadParameter);
+  zexpect_true(rig.last_output == "confirm motor-connected", "%s", rig.last_output.c_str());
+
+  // Phase 2 on the motor of the plant: the alignment sweep and the
+  // calibration stay far below the overcurrent limit of the run (6 A).
+  sim::ClearPhaseCurrentOverride();
+  Next(rig, "motor-connected");
+  zexpect_equal(kPowerStage.GetState(), PowerStageState::kEnabled);
+  Next(rig);
+  zexpect_equal(Step(rig), FsmState::kCurrentSenseCalibration, "the sweep tripped");
+  rig.Run(200U);  // the current settles (L/R = 10 ms)
+  const Current kPhaseA = sim::Plant().Output().phase_currents.a;
+  UNIMOC_EXPECT_NEAR(kPhaseA, 0.96_A, 0.01_A);  // V / R in steady state: 2/3 of 0.3 % of 48 V over 0.1 Ohm
+  zexpect_equal(rig.Command(kReading, "current=0.96"), cmd::kStatusSuccess);  // the clamp meter
+  Next(rig);
+
+  zexpect_equal(Step(rig), FsmState::kDone);
+  auto results = rig.Access(reg::kStartupResults, Empty());
+  zexpect_equal(results.natural8.value.elements[11], 1U, "the gains of the plant are 1");
+  const auto kGain = [&rig](const char* name) {
+    return unimoc::cyphal::GetNumber(rig.Access(name, Empty())).value_or(-1.0F);
+  };
+  zexpect_within(kGain(reg::kStartupGainA), 1.0F, 0.02F);
+  zexpect_within(kGain(reg::kStartupGainB), 1.0F, 0.02F);
+  zexpect_within(kGain(reg::kStartupGainC), 1.0F, 0.02F);
+}
+
+ZTEST(sim_cyphal_drive, test_a_motor_in_phase_1_faults_the_startup_aid) {
+  using namespace startup_aid;
+  Rig& rig = *g_rig;
+  zexpect_equal(rig.Command(kStart), cmd::kStatusSuccess);
+  for (unsigned i = 0U; i < 9U && Step(rig) != FsmState::kFault; ++i) {
+    Measure(rig);
+    (void)rig.Command(kReading, "vdc=48");
+    Measure(rig);
+    (void)rig.Command(kContinue);
+    rig.Run(2U);
+  }
+  // GATE_DRIVER_ENABLE_CHECK drives a current into the connected motor: FAULT, outputs off.
+  zexpect_equal(Step(rig), FsmState::kFault);
+  zexpect_equal(kPowerStage.GetState(), PowerStageState::kDisabled);
+  unimoc_drive_CommissioningStatus_0_1 status{};
+  zassert_true(rig.Commissioning(status));
+  zexpect_equal(status.state, unimoc_drive_CommissioningStatus_0_1_STATE_FAILED);
+  zexpect_equal(status.fault, unimoc_drive_CommissioningStatus_0_1_FAULT_OVERCURRENT);
 }
 
 ZTEST(sim_cyphal_drive, test_timing_registers_count_the_interrupts_and_reset) {
@@ -944,11 +1198,12 @@ ZTEST(sim_cyphal_drive, test_timing_registers_count_the_interrupts_and_reset) {
   zexpect_equal(overruns.natural32.value.count, 2U);
   zexpect_equal(overruns.natural32.value.elements[0], 0U);  // the simulation applies every plan
 
-  // Read only; the reset starts new statistics at the next record.
+  // Read only; RESET_TIMING starts new statistics at the next record.
   zexpect_equal(Integer(rig.Access(reg::kTimingControlCycle, Natural8(1U))), 0);
-  zexpect_equal(Integer(rig.Access(reg::kTimingReset, Natural8(2U))), 0);  // only 1
+  const auto kGone = rig.Access("unimoc.timing.reset", Empty());
+  zexpect_true(uavcan_register_Value_1_0_is_empty_(&kGone), "the reset is a command");
   const uint32_t kBeforeReset = kStats(reg::kTimingControlCycle).elements[3];
-  zexpect_equal(Integer(rig.Access(reg::kTimingReset, Natural8(1U))), 0);
+  zexpect_equal(rig.Command(cmd::kCmdResetTiming), cmd::kStatusSuccess);
   rig.Run(1U);
   const uint32_t kAfter = kStats(reg::kTimingControlCycle).elements[3];
   // Each access advances the simulation by a few cycles.

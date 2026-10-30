@@ -35,6 +35,7 @@ from sim_client import (
     real,
 )
 import cymon
+import unimoc.drive
 
 VALUE_TYPES = (
     "empty", "string", "unstructured", "bit",
@@ -142,7 +143,7 @@ def test_registers_json_describes_every_register_on_the_bus(dut, sim: SimClient,
 
     # The persistent settings, among them the e-bike registers past the 128th.
     settings = [entry for entry in entries if entry["persistent"] and entry["mutable"]]
-    assert len(settings) == 130
+    assert len(settings) == 132
     assert "unimoc.ebike.display_timeout" in by_name
 
 
@@ -196,8 +197,14 @@ def test_torque_setpoint_uses_the_torque_constant(sim: SimClient):
 
 def test_wheel_command_and_drive_status(sim: SimClient):
     torque_constant = 1.5 * 7 * 5e-3  # the motor of the test before
+    # The wheel command and the pedal state are stale after 0.1 s by default; on
+    # a loaded machine the publications of this client can pause that long.
+    assert sim.write("unimoc.cart.timeout", real(0.3)) == pytest.approx(0.3)
+    sim.hold(0.2, STANDBY)  # applied while disengaged
     sim.hold(1.0, ENGAGED, sim.wheel_command(2.0 * torque_constant))
-    assert sim.latest(sim.telemetry, settle=0.0).i_q_ref == pytest.approx(2.0, rel=1e-3)
+    telemetry = sim.latest(sim.telemetry, settle=0.0)
+    assert telemetry.engaged
+    assert telemetry.i_q_ref == pytest.approx(2.0, rel=1e-3)
     status = sim.latest(sim.drive_status, settle=0.0)
     assert status.engaged and not status.limp_home
     assert status.wheel == 0
@@ -222,6 +229,7 @@ def test_limp_home_on_the_pedals_without_the_vdc(sim: SimClient):
     sim.wait(0.5)
     assert not sim.latest(sim.telemetry).engaged
     assert "disengaged: readiness timeout" in sim.records
+    assert sim.write("unimoc.cart.timeout", real(0.1)) == pytest.approx(0.1)  # the default again
     sim.hold(0.2, SLEEP)
 
 
@@ -279,6 +287,49 @@ def test_speed_setpoint_runs_the_speed_loop(sim: SimClient):
     assert sim.write("unimoc.sim.shaft_mode", natural8(1)) == 1  # locked again (imposed 0 rad/s)
 
 
+START_HOMING = 0x0400
+HOMING_SEARCHING = 1
+HOMING_DONE = 3
+
+
+def test_homing_runs_against_the_stop(sim: SimClient):
+    # The motor and speed loop settings of the test above; the homing current bounds the push.
+    status, output = sim.command_output(START_HOMING)
+    assert status == 5 and "position control" in output  # not engaged
+    assert sim.write("unimoc.control.pos.homing_current", real(3.0)) == pytest.approx(3.0)
+    assert sim.write("unimoc.sim.shaft_mode", natural8(0)) == 0  # free shaft
+    sim.hold(0.2, STANDBY)  # the settings apply while disengaged
+    sim.hold(0.5, ENGAGED, sim.speed_setpoint(0.0))
+    status, output = sim.command_output(START_HOMING)
+    assert status == 5 and "position control" in output  # speed mode
+
+    sim.hold(0.5, ENGAGED, sim.position_setpoint(0.0))
+    assert sim.command(START_HOMING) == 0
+    sim.hold(0.5, ENGAGED, sim.position_setpoint(0.0))
+    assert sim.latest(sim.homing).value == HOMING_SEARCHING
+    assert sim.latest(sim.plant, settle=0.0).mechanical_speed == pytest.approx(5.0, abs=1.0)
+    status, output = sim.command_output(START_HOMING)
+    assert status == 5 and "runs already" in output
+
+    # The stop: a locked shaft. The run pushes with the homing current and takes the stop as zero.
+    assert sim.write("unimoc.sim.shaft_mode", natural8(1)) == 1
+    stop = sim.latest(sim.plant, settle=0.0).mechanical_angle
+    sim.hold(0.5, ENGAGED, sim.position_setpoint(0.0))
+    assert sim.latest(sim.homing).value == HOMING_DONE
+    assert abs(sim.latest(sim.telemetry, settle=0.0).i_q) <= 3.0 + 0.3
+
+    # The drive holds the home until the setpoint changes, then moves in the new frame.
+    assert sim.write("unimoc.sim.shaft_mode", natural8(0)) == 0
+    sim.hold(0.5, ENGAGED, sim.position_setpoint(0.0))
+    assert sim.latest(sim.plant, settle=0.0).mechanical_angle - stop == pytest.approx(0.0, abs=0.1)
+    sim.hold(1.5, ENGAGED, sim.position_setpoint(-2.0))
+    assert sim.latest(sim.plant, settle=0.0).mechanical_angle - stop == pytest.approx(-2.0, abs=0.1)
+
+    sim.hold(0.3, SLEEP)
+    assert sim.latest(sim.homing).value == HOMING_DONE  # the home holds across a disengage
+    assert sim.write("unimoc.sim.shaft_mode", natural8(1)) == 1
+
+
 def test_timing_registers_without_the_probes(sim: SimClient):
     # The application builds without CONFIG_UNIMOC_HOT_PATH_TIMING: the registers exist, nothing is counted.
     assert sim.read("unimoc.timing.clock_hz") == 1_000_000_000
@@ -286,7 +337,8 @@ def test_timing_registers_without_the_probes(sim: SimClient):
     assert list(response.value.natural32.value) == [0, 0, 0, 0]
     assert not response.mutable
     assert len(sim.access("unimoc.timing.overruns").value.natural32.value) == 2
-    assert sim.write("unimoc.timing.reset", natural8(1)) == 0
+    assert sim.command(0x0300) == 0  # RESET_TIMING
+    assert sim.access("unimoc.timing.reset").value.empty is not None  # the register is gone
 
 
 def test_dc_link_overvoltage_trips_the_drive(sim: SimClient):
@@ -396,22 +448,32 @@ def test_trace_triggers_on_a_current_step(sim: SimClient):
 
 
 def test_startup_aid_runs_steps_and_aborts(sim: SimClient):
+    status_type = unimoc.drive.CommissioningStatus_0_1
     sim.hold(0.2, SLEEP)
-    assert sim.read("unimoc.startup.step") == 0  # IDLE
-    assert sim.write("unimoc.startup.run", natural8(1)) == 1
-    assert sim.read("unimoc.startup.step") == 1  # PWM_DISABLE
+    status = sim.latest(sim.commissioning, settle=0.0)
+    assert status.state == status_type.STATE_IDLE
+    assert sim.command(status_type.COMMAND_CONTINUE) == 5  # BAD_STATE: nothing runs
+
+    assert sim.command(status_type.COMMAND_START_STARTUP_AID) == 0
+    status = sim.latest(sim.commissioning)
+    assert status.procedure == status_type.PROCEDURE_STARTUP_AID and status.step == 1  # PWM_DISABLE
     assert sim.latest(sim.telemetry).power_stage == 1  # the FSM releases the outputs
 
-    # A step write takes effect at the next FSM run, after the response.
-    assert sim.write("unimoc.startup.step", natural8(1)) == 1
+    # A continue is taken once the step has measured; while it measures it is refused, with the reason.
+    assert sim.command(status_type.COMMAND_CONTINUE) == 0
     sim.wait(0.1)
-    assert sim.read("unimoc.startup.step") == 2  # ADC_OFFSET_CAL
-    assert sim.write("unimoc.startup.ext_vdc_V", real(48.0)) == pytest.approx(48.0)
+    status = sim.latest(sim.commissioning, settle=0.0)
+    assert status.step == 2 and status.state == status_type.STATE_MEASURING  # ADC_OFFSET_CAL
+    assert sim.command_output(status_type.COMMAND_CONTINUE) == (5, "the step is still measuring")
+    assert sim.command_output(status_type.COMMAND_SET_READING, "vdc=x") == (4, "not a positive number")
+    assert sim.command(status_type.COMMAND_SET_READING, "vdc=48.0") == 0
     results = sim.access("unimoc.startup.results").value.natural8.value
     assert len(results) == 14 and results[1] == 1  # PWM_DISABLE passed
 
-    assert sim.write("unimoc.startup.run", natural8(0)) == 0  # abort
-    assert sim.read("unimoc.startup.step") == 13  # FAULT
+    assert sim.command(status_type.COMMAND_ABORT) == 0
+    status = sim.latest(sim.commissioning)
+    assert status.step == 13 and status.state == status_type.STATE_ABORTED  # FAULT
+    assert status.fault == status_type.FAULT_ABORTED
     assert sim.latest(sim.telemetry).power_stage == 0  # DISABLED
 
 
@@ -420,7 +482,7 @@ def test_paused_simulation_advances_by_whole_cycles(sim: SimClient):
     assert sim.read("unimoc.sim.cycle_period_ns") == 62500  # 32 kHz PWM, four half periods
     assert sim.write("unimoc.sim.paused", natural8(1))
     start = sim.read("unimoc.sim.cycle_count")
-    sim.wait(0.2)
+    sim.wait(0.2, wall=True)
     assert sim.read("unimoc.sim.cycle_count") == start  # virtual time stands still
 
     sim.write("unimoc.sim.advance", natural16(1600))  # 0.1 s of virtual time, run before the response
@@ -440,9 +502,9 @@ def test_paused_simulation_advances_by_whole_cycles(sim: SimClient):
 
     # A settings restart of the controller keeps the pause (the count restarts with it).
     assert sim.write("unimoc.control.speed.kp", real(0.01)) == pytest.approx(0.01)
-    sim.hold(0.2, STANDBY)
+    sim.hold(0.2, STANDBY, wall=True)
     restarted = sim.read("unimoc.sim.cycle_count")
-    sim.wait(0.2)
+    sim.wait(0.2, wall=True)
     assert sim.read("unimoc.sim.cycle_count") == restarted
 
     assert not sim.write("unimoc.sim.paused", natural8(0))

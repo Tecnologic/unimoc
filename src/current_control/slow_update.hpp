@@ -162,7 +162,7 @@ class SlowUpdate {
   static constexpr std::size_t kMaxHallEvents = 8U;
 
   /// Measurement noise of the flux angle at an electrical speed.
-  [[nodiscard]] float FluxNoise(unit::AngularVelocity omega) const noexcept;
+  [[nodiscard]] unit::AngleVariance FluxNoise(unit::AngularVelocity omega) const noexcept;
 
   /// Fuses the Hall events of the platform; drains them when Hall is off.
   void FuseHall(const SubStepBuffer& cycle) noexcept;
@@ -174,7 +174,7 @@ class SlowUpdate {
   const hardware::HardwareInterface* hardware_{nullptr};
 
   /// Speed weighting k of the flux measurement noise (R + k / omega^2).
-  float flux_r_speed_{0.0F};
+  unit::AngleVarianceSpeedWeight flux_r_speed_;
 
   /// Timestamp ticks from the first to the last sample of a cycle.
   uint32_t reference_offset_ticks_{0U};

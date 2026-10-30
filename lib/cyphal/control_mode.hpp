@@ -42,10 +42,10 @@ namespace unimoc::cyphal {
  *
  * POSITION
  *   A position P loop feeds a speed PI loop which drives the torque setpoint.
- *   Requires PositionTracker to be homed (is_homed == true) before commands
- *   are tracked; the application should refuse position commands until homed.
+ *   The position counts from the start, or from the stop of the last homing
+ *   run (ExecuteCommand cmd::kCmdStartHoming, current_control::OuterLoop).
  *   The position setpoint (PositionController::pos_ref_rad) is received via
- *   Cyphal; homing is triggered via a Cyphal service call.
+ *   Cyphal.
  */
 enum class ControlMode : unsigned char {
   /// Direct torque (q-axis current) command.

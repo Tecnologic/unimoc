@@ -61,7 +61,7 @@ unimoc::settings::NvmSettings MotorSettings(const unimoc::settings::NvmSettings&
   settings.dtc_dead_time = 0.0_s;
   settings.hall_enable = 1U;
   settings.hall_offset = Angle{};  // the simulated sensors are aligned
-  settings.pmsm_flux_obs_r_speed = 1.0F;
+  settings.pmsm_flux_obs_r_speed = 1.0_rad4_per_s2;
   return settings;
 }
 

@@ -375,10 +375,13 @@ void CyphalNode::HandleExecuteCommand(const Transfer& request) noexcept {
   uavcan_node_ExecuteCommand_Response_1_3 response{};
   response.status = cmd::kStatusBadCommand;
   if (command_handler_ != nullptr) {
-    response.status =
+    const CommandResult kResult =
         command_handler_->OnCommand(command.command,
                                     std::span<const uint8_t>{std::begin(command.parameter.elements),
                                                              command.parameter.count});
+    response.status = kResult.status;
+    response.output.count = std::min(kResult.output.size(), kCommandOutputMaxLength);
+    std::copy_n(kResult.output.begin(), response.output.count, std::begin(response.output.elements));
   }
   std::size_t size = tx_buffer_.size();
   if (uavcan_node_ExecuteCommand_Response_1_3_serialize_(&response, OutputBytes(tx_buffer_), &size) >= 0) {

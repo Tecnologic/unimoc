@@ -1,0 +1,89 @@
+# State of the commissioning procedure of a drive: the hardware startup aid
+# and (later) the motor identification (docs/motor_identification_plan.md,
+# section 5.4). Published on every change and at 2 Hz while a procedure runs,
+# at 0.5 Hz otherwise, so a tool follows a run without polling and a tool that
+# joins late has the state within two seconds. The actions are ExecuteCommand
+# codes (COMMAND_* below); the measured values are registers.
+#
+# Payload 18 bytes, one CAN FD frame.
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+uint16 COMMAND_START_STARTUP_AID = 0x0200
+# Starts the startup aid from IDLE, DONE or FAULT; the drive releases its
+# outputs at neutral duty. BAD_STATE while engaged or while a procedure runs,
+# FAILURE when the outputs cannot be released (external enable missing).
+uint16 COMMAND_START_IDENTIFICATION = 0x0201
+# Reserved for the motor identification (not implemented: BAD_COMMAND).
+uint16 COMMAND_CONTINUE = 0x0202
+# Continues with the next step once the present one has measured; the
+# parameter is the confirmation the step waits for (see needs), for example
+# "motor-connected". BAD_STATE while the step measures or no procedure runs,
+# BAD_PARAMETER for a missing or wrong confirmation.
+uint16 COMMAND_SET_READING = 0x0203
+# An external meter reading in base units: "vdc=48.1" [V] or "current=0.85"
+# [A]. BAD_PARAMETER when malformed, not finite or not positive.
+uint16 COMMAND_ABORT = 0x0204
+# Aborts the running procedure: FAULT, outputs off. SUCCESS also when nothing
+# runs (no change).
+uint16 COMMAND_APPLY_IDENTIFICATION = 0x0205
+# Reserved for the motor identification (not implemented: BAD_COMMAND).
+
+uint8 procedure
+uint8 PROCEDURE_NONE = 0
+uint8 PROCEDURE_STARTUP_AID = 1
+uint8 PROCEDURE_IDENTIFICATION = 2
+# The procedure this status is about: the running one, else the last one.
+
+uint8 step
+# The step of the procedure. The startup aid: its FsmState (0 IDLE ..
+# 12 DONE, 13 FAULT; README, "Hardware Bring-Up Guide").
+
+uint8 state
+uint8 STATE_IDLE = 0
+uint8 STATE_MEASURING = 1
+uint8 STATE_WAITING = 2
+uint8 STATE_NEEDS_READING = 3
+uint8 STATE_DONE = 4
+uint8 STATE_FAILED = 5
+uint8 STATE_ABORTED = 6
+# MEASURING: the step collects its samples; CONTINUE is refused.
+# WAITING: the step has measured and waits for CONTINUE (with the confirmation
+# of needs, if any). NEEDS_READING: the step waits for SET_READING first.
+# DONE, FAILED (a trip, an overcurrent, a lost enable), ABORTED (the abort
+# command or the emergency stop): the procedure has ended.
+
+uint8 needs
+uint8 NEEDS_NONE = 0
+uint8 NEEDS_DC_LINK_VOLTAGE = 1
+uint8 NEEDS_PHASE_CURRENT = 2
+uint8 NEEDS_MOTOR_CONNECTED = 3
+uint8 NEEDS_SHAFT_FREE = 4
+uint8 NEEDS_ONE_TURN = 5
+# What the step waits for: a reading (SET_READING "vdc=" or "current="), or the
+# confirmation CONTINUE takes as its parameter: "motor-connected",
+# "shaft-free", "one-turn".
+
+uint8 progress
+# Progress of the measuring step, 0 to 100 [%].
+
+uint32 passed
+# One bit per step (bit n: step n passed its checks).
+
+uint32 failed
+# One bit per step (bit n: step n failed a check; the run goes on).
+
+uint8 fault
+uint8 FAULT_NONE = 0
+uint8 FAULT_ABORTED = 1
+uint8 FAULT_EMERGENCY_STOP = 2
+uint8 FAULT_OVERCURRENT = 3
+uint8 FAULT_TRIP = 4
+uint8 FAULT_ENABLE_LOST = 5
+uint8 FAULT_APPLY_FAILED = 6
+# Why the procedure ended in FAILED or ABORTED.
+
+uint32 counter
+# Events of the step (the electrical revolutions of a pole-pair count).
+
+@extent 63 * 8

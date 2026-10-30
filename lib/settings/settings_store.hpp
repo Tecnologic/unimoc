@@ -50,6 +50,17 @@ enum class SettingsStatus : uint8_t {
   kPersistBlocked,
 };
 
+/// Calibration of the current and DC-link sense (the startup aid, `unimoc.startup.*`).
+struct AdcCalibration {
+  unit::Current offset_a;           ///< Zero offset of phase A.
+  unit::Current offset_b;           ///< Zero offset of phase B.
+  unit::Current offset_c;           ///< Zero offset of phase C.
+  unit::Ratio gain_a{1.0_ratio};    ///< Gain correction of phase A.
+  unit::Ratio gain_b{1.0_ratio};    ///< Gain correction of phase B.
+  unit::Ratio gain_c{1.0_ratio};    ///< Gain correction of phase C.
+  unit::Ratio gain_vdc{1.0_ratio};  ///< Gain correction of the DC link.
+};
+
 namespace settings_store_internal {
 
 /// The zero of a value's unit, for sign checks without Value().
@@ -80,10 +91,10 @@ template <unit::UnitLike U>
          unit::IsFinite(settings.asm_r_s) && unit::IsFinite(settings.asm_l_s) &&
          unit::IsFinite(settings.asm_l_r) && unit::IsFinite(settings.asm_l_m) &&
          unit::IsFinite(settings.motor_j) && std::isfinite(settings.mech_obs_q) &&
-         std::isfinite(settings.mech_obs_r) && unit::IsFinite(settings.pmsm_flux_obs_c_d) &&
-         unit::IsFinite(settings.pmsm_flux_obs_c_q) && std::isfinite(settings.pmsm_flux_obs_r_speed) &&
-         unit::IsFinite(settings.hall_offset) && std::isfinite(settings.hall_r_edge) &&
-         std::isfinite(settings.hall_r_sector) && unit::IsFinite(settings.asm_obs_g_i) &&
+         unit::IsFinite(settings.mech_obs_r) && unit::IsFinite(settings.pmsm_flux_obs_c_d) &&
+         unit::IsFinite(settings.pmsm_flux_obs_c_q) && unit::IsFinite(settings.pmsm_flux_obs_r_speed) &&
+         unit::IsFinite(settings.hall_offset) && unit::IsFinite(settings.hall_r_edge) &&
+         unit::IsFinite(settings.hall_r_sector) && unit::IsFinite(settings.asm_obs_g_i) &&
          unit::IsFinite(settings.asm_obs_g_flux) && unit::IsFinite(settings.asm_flux_kp) &&
          unit::IsFinite(settings.asm_flux_ki) && unit::IsFinite(settings.asm_flux_i_d_min) &&
          unit::IsFinite(settings.asm_flux_i_d_max) && unit::IsFinite(settings.fw_v_max) &&
@@ -103,10 +114,10 @@ template <unit::UnitLike U>
          unit::IsFinite(settings.pos_ki_speed) && unit::IsFinite(settings.pos_speed_limit) &&
          unit::IsFinite(settings.pos_accel_limit) && unit::IsFinite(settings.pos_position_tolerance) &&
          unit::IsFinite(settings.pos_speed_tolerance) && unit::IsFinite(settings.pos_homing_speed) &&
-         unit::IsFinite(settings.adc_offset_a) && unit::IsFinite(settings.adc_offset_b) &&
-         unit::IsFinite(settings.adc_gain_a) && unit::IsFinite(settings.adc_gain_b) &&
-         unit::IsFinite(settings.adc_gain_vdc) && unit::IsFinite(settings.phase_balance_a) &&
-         unit::IsFinite(settings.phase_balance_b) && unit::IsFinite(settings.phase_balance_c) &&
+         unit::IsFinite(settings.pos_homing_current) && unit::IsFinite(settings.adc_offset_a) &&
+         unit::IsFinite(settings.adc_offset_b) && unit::IsFinite(settings.adc_offset_c) &&
+         unit::IsFinite(settings.adc_gain_c) && unit::IsFinite(settings.adc_gain_a) &&
+         unit::IsFinite(settings.adc_gain_b) && unit::IsFinite(settings.adc_gain_vdc) &&
          unit::IsFinite(settings.telemetry_rate) && unit::IsFinite(settings.command_timeout) &&
          unit::IsFinite(settings.dc_link_regen_derate_start) && unit::IsFinite(settings.dc_link_trip) &&
          unit::IsFinite(settings.cart_timeout) && unit::IsFinite(settings.cart_status_rate) &&
@@ -193,7 +204,7 @@ template <std::size_t kCount>
       (settings.node_id == 0U && settings.sub_readiness_id == cyphal::kReadinessFollowsNodeId)
           ? cyphal::kUnsetPortId
           : cyphal::EffectiveReadinessId(settings.sub_readiness_id, settings.node_id);
-  const std::array<uint16_t, 11U> kSubjects{kReadiness,
+  const std::array<uint16_t, 13U> kSubjects{kReadiness,
                                             settings.sub_current_setpoint_id,
                                             settings.sub_torque_setpoint_id,
                                             settings.sub_speed_setpoint_id,
@@ -203,7 +214,9 @@ template <std::size_t kCount>
                                             settings.sub_wheel_command_id,
                                             settings.sub_pedal_state_id,
                                             settings.sub_battery_status_id,
-                                            settings.pub_drive_status_id};
+                                            settings.pub_drive_status_id,
+                                            settings.pub_commissioning_id,
+                                            settings.pub_homing_state_id};
   const std::array<uint16_t, 5U> kServices{settings.srv_cymon_variables_id,
                                            settings.srv_cymon_buffer_info_id,
                                            settings.srv_cymon_setup_id,
@@ -252,14 +265,17 @@ template <std::size_t kCount>
       settings.dtc_f_pwm <= ZeroOf(settings.dtc_f_pwm) ||
       settings.excitation_obs_tau <= ZeroOf(settings.excitation_obs_tau) ||
       settings.pos_position_tolerance < ZeroOf(settings.pos_position_tolerance) ||
-      settings.pos_speed_tolerance < ZeroOf(settings.pos_speed_tolerance)) {
+      settings.pos_speed_tolerance < ZeroOf(settings.pos_speed_tolerance) ||
+      settings.pos_homing_current < ZeroOf(settings.pos_homing_current)) {
     return SettingsStatus::kOutOfRange;
   }
 
   // Noise variances are positive; gains, weights and limits are not negative.
-  if (settings.mech_obs_r <= 0.0F || settings.pmsm_flux_obs_r_speed < 0.0F || settings.hall_r_edge <= 0.0F ||
-      settings.hall_r_sector <= 0.0F || settings.speed_kp < ZeroOf(settings.speed_kp) ||
-      settings.speed_ki < ZeroOf(settings.speed_ki) ||
+  if (settings.mech_obs_r <= ZeroOf(settings.mech_obs_r) ||
+      settings.pmsm_flux_obs_r_speed < ZeroOf(settings.pmsm_flux_obs_r_speed) ||
+      settings.hall_r_edge <= ZeroOf(settings.hall_r_edge) ||
+      settings.hall_r_sector <= ZeroOf(settings.hall_r_sector) ||
+      settings.speed_kp < ZeroOf(settings.speed_kp) || settings.speed_ki < ZeroOf(settings.speed_ki) ||
       settings.speed_accel_limit < ZeroOf(settings.speed_accel_limit)) {
     return SettingsStatus::kOutOfRange;
   }
@@ -271,10 +287,8 @@ template <std::size_t kCount>
       !kIsRatio(settings.svm_duty_min) || !kIsRatio(settings.svm_duty_max) ||
       settings.svm_duty_min > settings.svm_duty_max || settings.adc_gain_a <= ZeroOf(settings.adc_gain_a) ||
       settings.adc_gain_b <= ZeroOf(settings.adc_gain_b) ||
-      settings.adc_gain_vdc <= ZeroOf(settings.adc_gain_vdc) ||
-      settings.phase_balance_a <= ZeroOf(settings.phase_balance_a) ||
-      settings.phase_balance_b <= ZeroOf(settings.phase_balance_b) ||
-      settings.phase_balance_c <= ZeroOf(settings.phase_balance_c)) {
+      settings.adc_gain_c <= ZeroOf(settings.adc_gain_c) ||
+      settings.adc_gain_vdc <= ZeroOf(settings.adc_gain_vdc)) {
     return SettingsStatus::kOutOfRange;
   }
 
@@ -297,6 +311,7 @@ template <std::size_t kCount>
   // Cart: limp-home must start before the readiness times out.
   if (!kIsSubjectId(settings.sub_wheel_command_id) || !kIsSubjectId(settings.sub_pedal_state_id) ||
       !kIsSubjectId(settings.sub_battery_status_id) || !kIsSubjectId(settings.pub_drive_status_id) ||
+      !kIsSubjectId(settings.pub_commissioning_id) || !kIsSubjectId(settings.pub_homing_state_id) ||
       settings.cart_timeout <= ZeroOf(settings.cart_timeout) ||
       settings.cart_timeout > settings.command_timeout ||
       settings.cart_status_rate < ZeroOf(settings.cart_status_rate) ||
@@ -500,18 +515,10 @@ class SettingsOperations {
 
   /**
    * @brief Commits ADC calibration results as one transaction.
-   * @param offset_a Phase-A current offset.
-   * @param offset_b Phase-B current offset.
-   * @param gain_a Phase-A current-sense gain.
-   * @param gain_b Phase-B current-sense gain.
-   * @param gain_vdc DC-link voltage-sense gain.
+   * @param calibration Offsets and gain corrections of the startup aid.
    * @return The validation result.
    */
-  [[nodiscard]] SettingsStatus ApplyAdcCalibration(unit::Current offset_a,
-                                                   unit::Current offset_b,
-                                                   unit::Ratio gain_a,
-                                                   unit::Ratio gain_b,
-                                                   unit::Ratio gain_vdc) const;
+  [[nodiscard]] SettingsStatus ApplyAdcCalibration(const AdcCalibration& calibration) const;
 
   /**
    * @brief Returns the immutable hardware capabilities used for validation.
@@ -786,17 +793,15 @@ inline SettingsStatus SettingsOperations::SetNodeName(std::string_view name) con
   return Update([name](NvmSettings& settings) { settings.identity.SetName(name); });
 }
 
-inline SettingsStatus SettingsOperations::ApplyAdcCalibration(unit::Current offset_a,
-                                                              unit::Current offset_b,
-                                                              unit::Ratio gain_a,
-                                                              unit::Ratio gain_b,
-                                                              unit::Ratio gain_vdc) const {
-  return Update([=](NvmSettings& settings) {
-    settings.adc_offset_a = offset_a;
-    settings.adc_offset_b = offset_b;
-    settings.adc_gain_a = gain_a;
-    settings.adc_gain_b = gain_b;
-    settings.adc_gain_vdc = gain_vdc;
+inline SettingsStatus SettingsOperations::ApplyAdcCalibration(const AdcCalibration& calibration) const {
+  return Update([&calibration](NvmSettings& settings) {
+    settings.adc_offset_a = calibration.offset_a;
+    settings.adc_offset_b = calibration.offset_b;
+    settings.adc_offset_c = calibration.offset_c;
+    settings.adc_gain_a = calibration.gain_a;
+    settings.adc_gain_b = calibration.gain_b;
+    settings.adc_gain_c = calibration.gain_c;
+    settings.adc_gain_vdc = calibration.gain_vdc;
   });
 }
 

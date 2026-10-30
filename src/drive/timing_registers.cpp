@@ -18,7 +18,6 @@
 #include <array>
 #include <cstdint>
 #include <limits>
-#include <optional>
 #include <span>
 #include "current_control_isr.hpp"
 #include "cyphal/cyphal_interface.hpp"
@@ -30,15 +29,14 @@ namespace unimoc::drive {
 
 namespace {
 
-enum class TimingRegister : uint8_t { kSampleIsr, kControlCycle, kObserver, kOverruns, kClockHz, kReset };
+enum class TimingRegister : uint8_t { kSampleIsr, kControlCycle, kObserver, kOverruns, kClockHz };
 
-constexpr std::array<std::string_view, 6> kNames{
+constexpr std::array<std::string_view, 5> kNames{
     cyphal::reg::kTimingSampleIsr,
     cyphal::reg::kTimingControlCycle,
     cyphal::reg::kTimingObserver,
     cyphal::reg::kTimingOverruns,
     cyphal::reg::kTimingClockHz,
-    cyphal::reg::kTimingReset,
 };
 
 using cyphal::RegisterEffect;
@@ -49,7 +47,6 @@ constexpr std::array<cyphal::RegisterDescription, kNames.size()> kDescriptions{{
     {"cycles", -kInf, kInf, RegisterEffect::kImmediate, "Observer run time: min, mean, max, count"},
     {{}, -kInf, kInf, RegisterEffect::kImmediate, "Overruns: duty updates too late, observer runs skipped"},
     {"Hz", -kInf, kInf, RegisterEffect::kImmediate, "Clock of the run time counters"},
-    {{}, 1.0F, 1.0F, RegisterEffect::kImmediate, "1 resets the run time statistics"},
 }};
 
 void SetNatural32Array(cyphal::RegisterValue& value, const std::span<const uint32_t> numbers) noexcept {
@@ -101,9 +98,6 @@ cyphal::RegisterFlags TimingRegisters::Read(const std::size_t index,
     case TimingRegister::kClockHz:
       cyphal::SetNatural32(value, hardware::kTimestampFrequency);
       break;
-    case TimingRegister::kReset:
-      cyphal::SetNatural8(value, 0U);
-      return {true, false};
     default:
       cyphal::SetEmpty(value);
       return {false, false};
@@ -111,25 +105,15 @@ cyphal::RegisterFlags TimingRegisters::Read(const std::size_t index,
   return {false, false};
 }
 
-cyphal::RegisterWriteResult TimingRegisters::Write(const std::size_t index,
-                                                   const cyphal::RegisterValue& value) noexcept {
-  if (index >= kNames.size()) {
-    return cyphal::RegisterWriteResult::kReadOnly;
-  }
-  if (static_cast<TimingRegister>(index) != TimingRegister::kReset) {
-    return cyphal::RegisterWriteResult::kReadOnly;
-  }
-  const std::optional<int64_t> kNumber = cyphal::GetInteger(value);
-  if (!kNumber.has_value()) {
-    return cyphal::RegisterWriteResult::kTypeMismatch;
-  }
-  if (*kNumber != 1) {
-    return cyphal::RegisterWriteResult::kOutOfRange;
-  }
+cyphal::RegisterWriteResult TimingRegisters::Write(std::size_t /*index*/,
+                                                   const cyphal::RegisterValue& /*value*/) noexcept {
+  return cyphal::RegisterWriteResult::kReadOnly;
+}
+
+void TimingRegisters::ResetStatistics() noexcept {
   hardware::timing::ProbeOf(hardware::timing::Section::kSampleIsr).Reset();
   hardware::timing::ProbeOf(hardware::timing::Section::kControlCycle).Reset();
   hardware::timing::ProbeOf(hardware::timing::Section::kObserver).Reset();
-  return cyphal::RegisterWriteResult::kAccepted;
 }
 
 }  // namespace unimoc::drive

@@ -231,7 +231,7 @@ struct NvmSettings {
   /// Kalman filter measurement noise variance R.
   /// Increase to smooth angle corrections at the cost of slower tracking.
   /// Register: `unimoc.observer.mech.R`
-  float mech_obs_r{1e-4F};
+  unit::AngleVariance mech_obs_r{1e-4_rad2};
 
   // =========================================================================
   // PMSM flux observer (PmsmFluxObserver) gains
@@ -250,7 +250,7 @@ struct NvmSettings {
   /// its measurement noise is R_flux = mech_obs_r + k / ω² (electrical ω).
   /// 0 keeps R_flux = mech_obs_r at every speed.
   /// Register: `unimoc.observer.pmsm_flux.R_speed`
-  float pmsm_flux_obs_r_speed{0.0F};
+  unit::AngleVarianceSpeedWeight pmsm_flux_obs_r_speed{0.0_rad4_per_s2};
 
   // =========================================================================
   // Hall sensors (fused into the mechanical observer)
@@ -267,11 +267,11 @@ struct NvmSettings {
 
   /// Measurement noise of a Hall edge [rad²] (alignment and capture jitter).
   /// Register: `unimoc.observer.hall.R_edge`
-  float hall_r_edge{3e-3F};
+  unit::AngleVariance hall_r_edge{3e-3_rad2};
 
   /// Measurement noise of the Hall sector bound [rad²].
   /// Register: `unimoc.observer.hall.R_sector`
-  float hall_r_sector{3e-2F};
+  unit::AngleVariance hall_r_sector{3e-2_rad2};
 
   // =========================================================================
   // ASM flux observer gains
@@ -494,13 +494,18 @@ struct NvmSettings {
   /// Register: `unimoc.control.pos.homing_speed`
   unit::AngularVelocity pos_homing_speed{5.0_rad_per_s};
 
+  /// Current bound of the homing run [A]; 0: homing off.
+  /// Register: `unimoc.control.pos.homing_current`
+  unit::Current pos_homing_current{2.0_A};
+
   // =========================================================================
   // ADC calibration (populated by the hardware startup aid)
   //
   // These values are measured by HwStartup and stored here for persistence.
-  // The hardware-specific adc_read_injected() implementation should apply
-  // them as:  i_cal = (i_raw - adc_offset_X) * adc_gain_X
-  //           v_cal = v_raw * adc_gain_vdc
+  // The control cycle applies them to every sample (CurrentControlIsr):
+  //   i_cal = (i_raw - adc_offset_X) * adc_gain_X   (X = a, b, c)
+  //   v_cal = v_raw * adc_gain_vdc
+  // HwStartup itself measures the uncalibrated values.
   // =========================================================================
 
   /// Phase-A current-sense ADC zero offset [A].
@@ -511,6 +516,10 @@ struct NvmSettings {
   /// Register: `unimoc.startup.adc_offset_b`
   unit::Current adc_offset_b{0.0_A};
 
+  /// Phase-C current-sense ADC zero offset [A].
+  /// Register: `unimoc.startup.adc_offset_c`
+  unit::Current adc_offset_c{0.0_A};
+
   /// Phase-A current-sense ADC gain correction factor [dimensionless].
   /// Apply as: i_cal_a = (i_raw_a - adc_offset_a) * adc_gain_a.
   /// Register: `unimoc.startup.gain_a`
@@ -520,31 +529,14 @@ struct NvmSettings {
   /// Register: `unimoc.startup.gain_b`
   unit::Ratio adc_gain_b{1.0_ratio};
 
+  /// Phase-C current-sense ADC gain correction factor [dimensionless].
+  /// Register: `unimoc.startup.gain_c`
+  unit::Ratio adc_gain_c{1.0_ratio};
+
   /// DC-link voltage ADC gain correction factor [dimensionless].
   /// Apply as: v_cal = v_raw * adc_gain_vdc.
   /// Register: `unimoc.startup.gain_vdc`
   unit::Ratio adc_gain_vdc{1.0_ratio};
-
-  // =========================================================================
-  // Phase current balance correction
-  //
-  // Per-phase ADC gain correction factors, dimensionless (nominal value 1.0).
-  // Applied to the raw phase-current ADC reading of each channel to
-  // compensate for hardware gain/offset mismatch between the three current
-  // sense paths.  Identified by CMD_MEASURE_BALANCE.
-  // =========================================================================
-
-  /// Phase-A ADC gain correction factor [dimensionless, ≈ 1.0].
-  /// Register: `unimoc.motor.balance.gain_a`
-  unit::Ratio phase_balance_a{1.0_ratio};
-
-  /// Phase-B ADC gain correction factor [dimensionless, ≈ 1.0].
-  /// Register: `unimoc.motor.balance.gain_b`
-  unit::Ratio phase_balance_b{1.0_ratio};
-
-  /// Phase-C ADC gain correction factor [dimensionless, ≈ 1.0].
-  /// Register: `unimoc.motor.balance.gain_c`
-  unit::Ratio phase_balance_c{1.0_ratio};
 
   // =========================================================================
   // Cyphal ports and timing
@@ -640,6 +632,14 @@ struct NvmSettings {
   /// Drive status publication (unimoc.cart.DriveStatus.0.1).
   /// Register: `uavcan.pub.drive_status.id`
   uint16_t pub_drive_status_id{cyphal::kPubDriveStatus};
+
+  /// Commissioning status publication (unimoc.drive.CommissioningStatus.0.1).
+  /// Register: `uavcan.pub.commissioning.id`
+  uint16_t pub_commissioning_id{cyphal::kPubCommissioning};
+
+  /// Homing state publication (uavcan.primitive.scalar.Natural8.1.0).
+  /// Register: `uavcan.pub.homing_state.id`
+  uint16_t pub_homing_state_id{cyphal::kPubHomingState};
 
   /// Wheel of this drive (unimoc.cart.WheelCommand.WHEEL_*), 0 to 3.
   /// Register: `unimoc.cart.wheel`

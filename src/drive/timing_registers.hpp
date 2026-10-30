@@ -31,9 +31,10 @@ namespace unimoc::drive {
  * - `unimoc.timing.overruns` (natural32[2], read only): duty plans applied
  *   late and control cycles that started while the observer still ran.
  * - `unimoc.timing.clock_hz` (natural32[1], read only): the timestamp clock.
- * - `unimoc.timing.reset` (natural8[1]): write 1 to start new statistics.
  *
- * None of these registers is persistent. The provider runs in the Cyphal thread.
+ * New statistics start with the vendor command RESET_TIMING
+ * (cyphal::cmd::kCmdResetTiming, ResetStatistics()). None of these registers
+ * is persistent. The provider runs in the Cyphal thread.
  */
 class TimingRegisters final : public cyphal::RegisterProvider {
  public:
@@ -44,6 +45,9 @@ class TimingRegisters final : public cyphal::RegisterProvider {
   [[nodiscard]] cyphal::RegisterWriteResult Write(std::size_t index,
                                                   const cyphal::RegisterValue& value) noexcept override;
   [[nodiscard]] cyphal::RegisterDescription Describe(std::size_t index) const noexcept override;
+
+  /// Starts new run time statistics; the overrun counters keep counting.
+  static void ResetStatistics() noexcept;
 };
 
 }  // namespace unimoc::drive

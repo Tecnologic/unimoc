@@ -21,7 +21,7 @@ target_sources(app PRIVATE
   ${UNIMOC_ROOT}/src/drive/drive_node.cpp
   ${UNIMOC_ROOT}/src/ebike/ebike_control.cpp
   ${UNIMOC_ROOT}/src/drive/settings_register_provider.cpp
-  ${UNIMOC_ROOT}/src/drive/startup_registers.cpp
+  ${UNIMOC_ROOT}/src/drive/commissioning.cpp
   ${UNIMOC_ROOT}/src/drive/timing_registers.cpp
   ${UNIMOC_ROOT}/src/startup/hw_startup.cpp
   ${UNIMOC_ROOT}/hardware/zephyr_common/system_interface.cpp
