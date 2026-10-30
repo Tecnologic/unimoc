@@ -196,7 +196,7 @@ takes effect after a restart.
 ### Settings via registers
 
 Every persistent setting (`ForEachRegister()` in
-`lib/settings/settings_registers.hpp`, 130 registers) is a Cyphal register
+`lib/settings/settings_registers.hpp`, 132 registers) is a Cyphal register
 under the same name; `yakut rl <node>` lists them.  Units and floats are
 `real32[1]`, counts and enums `natural8[1]`, `uavcan.node.id` and the port-IDs
 `natural16[1]`, the name a string; writes accept any numeric type.  A write is
@@ -252,6 +252,7 @@ validation decides, also on limits between registers or of the hardware
 | `uavcan.sub.pedal_state.id` | 111 | `unimoc.cart.PedalState.0.1` | Cart: pedals for limp-home mode |
 | `uavcan.sub.battery_status.id` | 112 | `unimoc.cart.BatteryStatus.0.1` | Cart: current limits of the BMS, replace `unimoc.battery.limits.*` while fresh |
 | `uavcan.pub.drive_status.id` | 214 | `unimoc.cart.DriveStatus.0.1` | Cart: wheel speed, torque, drive and brake torque limits, DC link, flags at `unimoc.cart.status_rate` (50 Hz) |
+| `uavcan.pub.commissioning.id` | 215 | `unimoc.drive.CommissioningStatus.0.1` | Commissioning (startup aid): step, state, needs, progress, passed and failed steps; on every change, 2 Hz in a run, 0.5 Hz otherwise ([Commands and Status](#commands-and-status)) |
 | `uavcan.pub.homing_state.id` | 204 | `uavcan.primitive.scalar.Natural8.1.0` | Homing: 0 IDLE, 1 SEARCHING, 3 DONE, 4 FAULT; on every change, 2 Hz while searching, 0.5 Hz otherwise ([Homing](#homing)) |
 | `uavcan.pub.sim_plant.id` (sim only) | 213 | `unimoc.sim.Plant.0.1` | Plant truth: phase currents, shaft angle and speed, torque, Hall code |
 | `uavcan.srv.cymon_variables.id` | 120 | `cymon.GetVariableList.0.1` | Trace variables: index -> name and unit |

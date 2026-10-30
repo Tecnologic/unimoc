@@ -27,7 +27,7 @@ Cyphal register service / shell / startup FSM                 (threads)
 
 - **One key per register.** The key is the Cyphal register name
   (`cyphal::reg`), the Zephyr entry is `unimoc/<register name>`. The table of
-  130 persistent registers is `ForEachRegister()` in
+  132 persistent registers is `ForEachRegister()` in
   `lib/settings/settings_registers.hpp`; adding a register is one line there
   (with its description, below) plus the field in `NvmSettings`. The same
   table drives the Cyphal register service and the register description
