@@ -375,18 +375,22 @@ def test_settings_that_need_a_restart_are_reported_while_engaged(sim: SimClient)
     assert sim.write("unimoc.control.current.kp_q", real(0.6)) == pytest.approx(0.6)
     sim.hold(0.2, ENGAGED, sim.current_setpoint(0.0, 1.0))
     assert not sim.read("unimoc.settings.pending")
-    assert sim.write("unimoc.motor.limits.i_max", real(19.0)) == pytest.approx(19.0)
-    sim.hold(0.2, ENGAGED, sim.current_setpoint(0.0, 1.0))
-    assert sim.read("unimoc.settings.pending")
-    assert "settings wait for the disengage: unimoc.motor.limits.i_max" in sim.records
-    sim.hold(1.2, ENGAGED, sim.current_setpoint(0.0, 1.0))
-    assert sim.heartbeat_now().vendor_specific_status_code & VENDOR_SETTINGS_PENDING
+    try:
+        assert sim.write("unimoc.motor.limits.i_max", real(19.0)) == pytest.approx(19.0)
+        sim.hold(0.2, ENGAGED, sim.current_setpoint(0.0, 1.0))
+        assert sim.read("unimoc.settings.pending")
+        assert "settings wait for the disengage: unimoc.motor.limits.i_max" in sim.records
+        sim.hold(1.2, ENGAGED, sim.current_setpoint(0.0, 1.0))
+        assert sim.heartbeat_now().vendor_specific_status_code & VENDOR_SETTINGS_PENDING
 
-    sim.hold(1.2, SLEEP)
-    assert not sim.read("unimoc.settings.pending")
-    assert "waiting settings applied" in sim.records
-    assert not sim.heartbeat_now().vendor_specific_status_code & VENDOR_SETTINGS_PENDING
-    assert sim.write("unimoc.motor.limits.i_max", real(20.0)) == pytest.approx(20.0)  # as before
+        sim.hold(1.2, SLEEP)
+        assert not sim.read("unimoc.settings.pending")
+        assert "waiting settings applied" in sim.records
+        assert not sim.heartbeat_now().vendor_specific_status_code & VENDOR_SETTINGS_PENDING
+    finally:
+        # Also after a failure: the store test below expects the limit of before.
+        sim.hold(0.2, SLEEP)
+        assert sim.write("unimoc.motor.limits.i_max", real(20.0)) == pytest.approx(20.0)  # as before
 
 
 def test_trace_variables_ports_and_registers(sim: SimClient):
@@ -449,28 +453,34 @@ def test_trace_triggers_on_a_current_step(sim: SimClient):
 
 def test_startup_aid_runs_steps_and_aborts(sim: SimClient):
     status_type = unimoc.drive.CommissioningStatus_0_1
+    # Phase 1 expects no motor: the plant's shaft stands, so it induces no current (overcurrent check).
+    assert sim.write("unimoc.sim.shaft_mode", natural8(1)) == 1
+    assert sim.write("unimoc.sim.imposed_speed", real(0.0)) == 0
     sim.hold(0.2, SLEEP)
     status = sim.latest(sim.commissioning, settle=0.0)
     assert status.state == status_type.STATE_IDLE
     assert sim.command(status_type.COMMAND_CONTINUE) == 5  # BAD_STATE: nothing runs
 
     assert sim.command(status_type.COMMAND_START_STARTUP_AID) == 0
-    status = sim.latest(sim.commissioning)
-    assert status.procedure == status_type.PROCEDURE_STARTUP_AID and status.step == 1  # PWM_DISABLE
-    assert sim.latest(sim.telemetry).power_stage == 1  # the FSM releases the outputs
+    try:
+        status = sim.latest(sim.commissioning)
+        assert status.procedure == status_type.PROCEDURE_STARTUP_AID and status.step == 1  # PWM_DISABLE
+        assert sim.latest(sim.telemetry).power_stage == 1  # the FSM releases the outputs
 
-    # A continue is taken once the step has measured; while it measures it is refused, with the reason.
-    assert sim.command(status_type.COMMAND_CONTINUE) == 0
-    sim.wait(0.1)
-    status = sim.latest(sim.commissioning, settle=0.0)
-    assert status.step == 2 and status.state == status_type.STATE_MEASURING  # ADC_OFFSET_CAL
-    assert sim.command_output(status_type.COMMAND_CONTINUE) == (5, "the step is still measuring")
-    assert sim.command_output(status_type.COMMAND_SET_READING, "vdc=x") == (4, "not a positive number")
-    assert sim.command(status_type.COMMAND_SET_READING, "vdc=48.0") == 0
-    results = sim.access("unimoc.startup.results").value.natural8.value
-    assert len(results) == 14 and results[1] == 1  # PWM_DISABLE passed
-
-    assert sim.command(status_type.COMMAND_ABORT) == 0
+        # A continue is taken once the step has measured; while it measures it is refused, with the reason.
+        # ADC_OFFSET_CAL takes one sample per spin of the Cyphal thread (1024, about a second), so the
+        # refusal is checked right after the continue, before anything else.
+        assert sim.command(status_type.COMMAND_CONTINUE) == 0
+        assert sim.command_output(status_type.COMMAND_CONTINUE) == (5, "the step is still measuring")
+        status = sim.latest(sim.commissioning, settle=0.0)
+        assert status.step == 2  # ADC_OFFSET_CAL
+        assert sim.command_output(status_type.COMMAND_SET_READING, "vdc=x") == (4, "not a positive number")
+        assert sim.command(status_type.COMMAND_SET_READING, "vdc=48.0") == 0
+        results = sim.access("unimoc.startup.results").value.natural8.value
+        assert len(results) == 14 and results[1] == 1  # PWM_DISABLE passed
+    finally:
+        # Also after a failure: a running aid keeps the outputs and refuses the simulation reset below.
+        assert sim.command(status_type.COMMAND_ABORT) == 0
     status = sim.latest(sim.commissioning)
     assert status.step == 13 and status.state == status_type.STATE_ABORTED  # FAULT
     assert status.fault == status_type.FAULT_ABORTED

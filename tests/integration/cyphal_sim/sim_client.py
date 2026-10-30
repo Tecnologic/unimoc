@@ -8,6 +8,12 @@
 # simulation runs only about 1.4 times faster than real time, so on a loaded
 # machine (twister builds the other scenarios in parallel) it falls behind the
 # wall clock, and a timeout of the drive would not have elapsed yet.
+#
+# The readiness and setpoint of hold() stay on the bus after it returns, also
+# while the client waits for a service response or a message: a slow response
+# on a loaded machine would otherwise outlast the 0.5 s command timeout and
+# disengage the drive between two holds. wait() and publish_for() end them,
+# where a test wants the drive to see the readiness stop.
 
 from __future__ import annotations
 
@@ -109,6 +115,7 @@ class SimClient:
         self.records: list[str] = []
         self.virtual_time = 0.0  # [s] control cycles seen in the telemetry; continues over a controller restart
         self._last_cycles: int | None = None
+        self._stream: asyncio.Task | None = None  # readiness and setpoint of the last hold()
         self._run(self._start())
 
     def _run(self, coroutine):
@@ -173,6 +180,7 @@ class SimClient:
     def close(self) -> None:
         if self.node is None:
             return
+        self._stop_stream()
         self.node.close()
         self.node = None
         self._run(asyncio.sleep(0.5))  # let the media threads stop
@@ -326,16 +334,27 @@ class SimClient:
 
     def hold(self, seconds: float, readiness: int, setpoint: Callable[[], None] | None = None,
              period: float = 0.05, wall: bool = False) -> None:
-        """Publishes readiness (and a setpoint) every @p period of wall time for @p seconds."""
+        """Publishes readiness (and a setpoint) every @p period of wall time for @p seconds.
+
+        The publications go on in the background after the return (see the
+        header) until the next hold(), wait(), publish_for() or close().
+        """
         async def publish():
             await self.readiness.publish(reg.udral.service.common.Readiness_0_1(readiness))
             if setpoint is not None:
                 await setpoint()
 
-        self._run(self._repeat(publish, seconds, period, wall))
+        self._stop_stream()
+
+        async def start():
+            self._stream = asyncio.ensure_future(self._repeat_forever(publish, period))
+            await self._sleep(seconds, wall)
+
+        self._run(start())
 
     def publish_for(self, seconds: float, setpoint: Callable[[], None], period: float = 0.02) -> None:
         """Publishes @p setpoint every @p period of wall time for @p seconds, without the readiness."""
+        self._stop_stream()
         self._run(self._repeat(setpoint, seconds, period, False))
 
     async def _repeat(self, publish: Callable[[], Any], seconds: float, period: float, wall: bool) -> None:
@@ -347,6 +366,24 @@ class SimClient:
                 await asyncio.wait([done], timeout=period)
         finally:
             done.cancel()
+
+    @staticmethod
+    async def _repeat_forever(publish: Callable[[], Any], period: float) -> None:
+        """Calls @p publish every @p period of wall time while the event loop runs, until cancelled."""
+        while True:
+            await publish()
+            await asyncio.sleep(period)
+
+    def _stop_stream(self) -> None:
+        """Ends the background publications of the last hold()."""
+        if self._stream is None:
+            return
+        self._stream.cancel()
+        try:
+            self._run(self._stream)
+        except asyncio.CancelledError:
+            pass
+        self._stream = None
 
     def wheel_command(self, front_left: float):
         """Wheel command with @p front_left [N m] for the drive's wheel, the others zero."""
@@ -404,5 +441,9 @@ class SimClient:
         return publish
 
     def wait(self, seconds: float, wall: bool = False) -> None:
-        """Waits @p seconds of virtual time, or of wall time with @p wall (see _sleep)."""
+        """Waits @p seconds of virtual time, or of wall time with @p wall (see _sleep), without publishing.
+
+        Ends the readiness and setpoint of the last hold(): the drive sees them stop.
+        """
+        self._stop_stream()
         self._run(self._sleep(seconds, wall))
