@@ -197,8 +197,14 @@ def test_torque_setpoint_uses_the_torque_constant(sim: SimClient):
 
 def test_wheel_command_and_drive_status(sim: SimClient):
     torque_constant = 1.5 * 7 * 5e-3  # the motor of the test before
+    # The wheel command and the pedal state are stale after 0.1 s by default; on
+    # a loaded machine the publications of this client can pause that long.
+    assert sim.write("unimoc.cart.timeout", real(0.3)) == pytest.approx(0.3)
+    sim.hold(0.2, STANDBY)  # applied while disengaged
     sim.hold(1.0, ENGAGED, sim.wheel_command(2.0 * torque_constant))
-    assert sim.latest(sim.telemetry, settle=0.0).i_q_ref == pytest.approx(2.0, rel=1e-3)
+    telemetry = sim.latest(sim.telemetry, settle=0.0)
+    assert telemetry.engaged
+    assert telemetry.i_q_ref == pytest.approx(2.0, rel=1e-3)
     status = sim.latest(sim.drive_status, settle=0.0)
     assert status.engaged and not status.limp_home
     assert status.wheel == 0
@@ -223,6 +229,7 @@ def test_limp_home_on_the_pedals_without_the_vdc(sim: SimClient):
     sim.wait(0.5)
     assert not sim.latest(sim.telemetry).engaged
     assert "disengaged: readiness timeout" in sim.records
+    assert sim.write("unimoc.cart.timeout", real(0.1)) == pytest.approx(0.1)  # the default again
     sim.hold(0.2, SLEEP)
 
 
