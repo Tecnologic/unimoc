@@ -313,7 +313,8 @@ def test_homing_runs_against_the_stop(sim: SimClient):
 
     # The stop: a locked shaft. The run pushes with the homing current and takes the stop as zero.
     assert sim.write("unimoc.sim.shaft_mode", natural8(1)) == 1
-    stop = sim.latest(sim.plant, settle=0.0).mechanical_angle
+    # Settled: a plant message sent before the lock would still show the shaft turning.
+    stop = sim.latest(sim.plant).mechanical_angle
     sim.hold(0.5, ENGAGED, sim.position_setpoint(0.0))
     assert sim.latest(sim.homing).value == HOMING_DONE
     assert abs(sim.latest(sim.telemetry, settle=0.0).i_q) <= 3.0 + 0.3

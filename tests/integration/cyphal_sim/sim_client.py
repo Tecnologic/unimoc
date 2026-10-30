@@ -166,15 +166,22 @@ class SimClient:
         """Sleeps @p seconds of virtual time, or of wall time with @p wall.
 
         Virtual time advances in steps of the telemetry period (50 ms), so the
-        sleep ends up to one step later. Without telemetry (a paused
-        simulation, a restart) it ends after ten times @p seconds of wall time.
+        sleep ends up to one step later. When virtual time stands still (a
+        paused simulation, a restart, no telemetry) for ten times @p seconds
+        of wall time, the sleep ends; a slow simulation that still advances
+        (a loaded machine) gets all the wall time it needs.
         """
         if wall:
             await asyncio.sleep(seconds)
             return
         start = self.virtual_time
-        deadline = self.loop.time() + 10.0 * seconds + 1.0
-        while self.virtual_time - start < seconds and self.loop.time() < deadline:
+        stall_limit = 10.0 * seconds + 1.0
+        last_progress, last_time = self.loop.time(), self.virtual_time
+        while self.virtual_time - start < seconds:
+            if self.virtual_time != last_time:
+                last_progress, last_time = self.loop.time(), self.virtual_time
+            elif self.loop.time() - last_progress > stall_limit:
+                break
             await asyncio.sleep(0.01)
 
     def close(self) -> None:
@@ -268,13 +275,13 @@ class SimClient:
         return self.call(cymon.ReadSamples_0_1, request, port=PORT_CYMON_READ)
 
     def trace_wait_complete(self, timeout: float = 5.0) -> cymon.ReadSamples_0_1.Response:
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
+        """Polls the capture until it is complete, for at most @p timeout seconds of virtual time."""
+        for _ in range(round(timeout / 0.05)):
             status = self.trace_read()
             if status.state.value == cymon.CaptureState_0_1.COMPLETE:
                 return status
             self.wait(0.05)
-        raise AssertionError("the capture did not complete")
+        raise AssertionError(f"the capture did not complete (state {status.state.value})")
 
     def trace_frames(self) -> list[list[float]]:
         """Reads a complete capture page by page; one list of channel values per frame."""
