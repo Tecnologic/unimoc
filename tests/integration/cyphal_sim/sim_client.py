@@ -2,6 +2,12 @@
 #
 # Synchronous wrapper around a pycyphal node for the integration tests: one
 # CAN interface (slcan, classic CAN), local node-ID 127, the drive at node-ID 10.
+#
+# Durations (wait, hold, publish_for, the settle time of latest) are virtual
+# time of the drive, counted by the control cycles of its telemetry: the
+# simulation runs only about 1.4 times faster than real time, so on a loaded
+# machine (twister builds the other scenarios in parallel) it falls behind the
+# wall clock, and a timeout of the drive would not have elapsed yet.
 
 from __future__ import annotations
 
@@ -66,6 +72,8 @@ VENDOR_EMERGENCY_STOP = 0x20
 VENDOR_SETTINGS_PENDING = 0x40
 VENDOR_LOCAL_CONTROL = 0x80
 
+CONTROL_CYCLE = 62.5e-6  # [s], unimoc.sim.cycle_period_ns at the default 32 kHz PWM
+
 ENGAGED = reg.udral.service.common.Readiness_0_1.ENGAGED
 SLEEP = reg.udral.service.common.Readiness_0_1.SLEEP
 STANDBY = reg.udral.service.common.Readiness_0_1.STANDBY
@@ -99,6 +107,8 @@ class SimClient:
         self.loop = loop
         self.pty = pty
         self.records: list[str] = []
+        self.virtual_time = 0.0  # [s] control cycles seen in the telemetry; continues over a controller restart
+        self._last_cycles: int | None = None
         self._run(self._start())
 
     def _run(self, coroutine):
@@ -123,6 +133,9 @@ class SimClient:
         self.port_list = self.node.make_subscriber(uavcan.node.port.List_1_0)
         self.diagnostic = self.node.make_subscriber(uavcan.diagnostic.Record_1_1)
         self.diagnostic.receive_in_background(self._on_record)
+        # A second subscriber of the telemetry for the clock; latest(self.telemetry) keeps its own queue.
+        self._clock = self.node.make_subscriber(unimoc.drive.Telemetry_0_1, PORT_TELEMETRY)
+        self._clock.receive_in_background(self._on_clock)
         self.readiness = self.node.make_publisher(reg.udral.service.common.Readiness_0_1, PORT_READINESS)
         self.current = self.node.make_publisher(unimoc.drive.CurrentSetpoint_0_1, PORT_CURRENT_SETPOINT)
         self.torque = self.node.make_publisher(uavcan.si.unit.torque.Scalar_1_0, PORT_TORQUE_SETPOINT)
@@ -134,6 +147,28 @@ class SimClient:
 
     async def _on_record(self, record: uavcan.diagnostic.Record_1_1, _meta) -> None:
         self.records.append(record.text.tobytes().decode())
+
+    async def _on_clock(self, telemetry: unimoc.drive.Telemetry_0_1, _meta) -> None:
+        cycles = int(telemetry.control_cycles)
+        if self._last_cycles is not None:
+            # A restart of the controller (settings, reset of the simulation) counts from 0 again.
+            self.virtual_time += (cycles - self._last_cycles if cycles >= self._last_cycles else cycles) * CONTROL_CYCLE
+        self._last_cycles = cycles
+
+    async def _sleep(self, seconds: float, wall: bool = False) -> None:
+        """Sleeps @p seconds of virtual time, or of wall time with @p wall.
+
+        Virtual time advances in steps of the telemetry period (50 ms), so the
+        sleep ends up to one step later. Without telemetry (a paused
+        simulation, a restart) it ends after ten times @p seconds of wall time.
+        """
+        if wall:
+            await asyncio.sleep(seconds)
+            return
+        start = self.virtual_time
+        deadline = self.loop.time() + 10.0 * seconds + 1.0
+        while self.virtual_time - start < seconds and self.loop.time() < deadline:
+            await asyncio.sleep(0.01)
 
     def close(self) -> None:
         if self.node is None:
@@ -277,7 +312,8 @@ class SimClient:
     def latest(self, subscriber, settle: float = 0.3):
         """The newest message after @p settle seconds (drops what was queued before)."""
         async def go():
-            await asyncio.sleep(settle)
+            if settle > 0.0:
+                await self._sleep(settle)
             last = None
             while (result := await subscriber.receive_for(0.0)) is not None:
                 last = result
@@ -289,27 +325,28 @@ class SimClient:
         return self._run(go())
 
     def hold(self, seconds: float, readiness: int, setpoint: Callable[[], None] | None = None,
-             period: float = 0.05) -> None:
-        """Publishes readiness (and a setpoint) every @p period for @p seconds."""
-        async def go():
-            deadline = self.loop.time() + seconds
-            while self.loop.time() < deadline:
-                await self.readiness.publish(reg.udral.service.common.Readiness_0_1(readiness))
-                if setpoint is not None:
-                    await setpoint()
-                await asyncio.sleep(period)
+             period: float = 0.05, wall: bool = False) -> None:
+        """Publishes readiness (and a setpoint) every @p period of wall time for @p seconds."""
+        async def publish():
+            await self.readiness.publish(reg.udral.service.common.Readiness_0_1(readiness))
+            if setpoint is not None:
+                await setpoint()
 
-        self._run(go())
+        self._run(self._repeat(publish, seconds, period, wall))
 
     def publish_for(self, seconds: float, setpoint: Callable[[], None], period: float = 0.02) -> None:
-        """Publishes @p setpoint every @p period for @p seconds, without the readiness."""
-        async def go():
-            deadline = self.loop.time() + seconds
-            while self.loop.time() < deadline:
-                await setpoint()
-                await asyncio.sleep(period)
+        """Publishes @p setpoint every @p period of wall time for @p seconds, without the readiness."""
+        self._run(self._repeat(setpoint, seconds, period, False))
 
-        self._run(go())
+    async def _repeat(self, publish: Callable[[], Any], seconds: float, period: float, wall: bool) -> None:
+        """Calls @p publish every @p period of wall time until @p seconds have passed (see _sleep)."""
+        done = asyncio.ensure_future(self._sleep(seconds, wall))
+        try:
+            while not done.done():
+                await publish()
+                await asyncio.wait([done], timeout=period)
+        finally:
+            done.cancel()
 
     def wheel_command(self, front_left: float):
         """Wheel command with @p front_left [N m] for the drive's wheel, the others zero."""
@@ -366,5 +403,6 @@ class SimClient:
 
         return publish
 
-    def wait(self, seconds: float) -> None:
-        self._run(asyncio.sleep(seconds))
+    def wait(self, seconds: float, wall: bool = False) -> None:
+        """Waits @p seconds of virtual time, or of wall time with @p wall (see _sleep)."""
+        self._run(self._sleep(seconds, wall))

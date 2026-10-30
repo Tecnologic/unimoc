@@ -223,3 +223,4 @@ down. The boundaries are documented in `CONTEXT.md` ("Unit Boundaries").
 
  - [x] P0: Virtual-time cycle contract (`tests/sim/irq_cadence`), injectable ADC/PWM I/O, reusable runtime (`current_control::StartRuntime()`), virtual clock harness (`hardware/zephyr_sim/sim_control.hpp`).
  - [x] P1: PMSM plant (`lib/sim/`, `MotorSimulation`, 120 degree Hall sensors) with plant tests, connected to `hardware/zephyr_sim`; end-to-end step response, cadence and finite-state tests (`tests/sim/closed_loop`).
+ - [x] pycyphal tests in virtual time (2026-10-30): `wait`, `hold`, `publish_for` and the settle time of `latest` in `tests/integration/cyphal_sim/sim_client.py` count the control cycles of the telemetry instead of the wall clock. The simulation runs only about 1.4 times faster than real time, so on a loaded CI runner it fell behind and the readiness timeout and the holds were too short (10 of 25 failed on PR #40, on `develop` too under the same load).

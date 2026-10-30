@@ -475,7 +475,7 @@ def test_paused_simulation_advances_by_whole_cycles(sim: SimClient):
     assert sim.read("unimoc.sim.cycle_period_ns") == 62500  # 32 kHz PWM, four half periods
     assert sim.write("unimoc.sim.paused", natural8(1))
     start = sim.read("unimoc.sim.cycle_count")
-    sim.wait(0.2)
+    sim.wait(0.2, wall=True)
     assert sim.read("unimoc.sim.cycle_count") == start  # virtual time stands still
 
     sim.write("unimoc.sim.advance", natural16(1600))  # 0.1 s of virtual time, run before the response
@@ -495,9 +495,9 @@ def test_paused_simulation_advances_by_whole_cycles(sim: SimClient):
 
     # A settings restart of the controller keeps the pause (the count restarts with it).
     assert sim.write("unimoc.control.speed.kp", real(0.01)) == pytest.approx(0.01)
-    sim.hold(0.2, STANDBY)
+    sim.hold(0.2, STANDBY, wall=True)
     restarted = sim.read("unimoc.sim.cycle_count")
-    sim.wait(0.2)
+    sim.wait(0.2, wall=True)
     assert sim.read("unimoc.sim.cycle_count") == restarted
 
     assert not sim.write("unimoc.sim.paused", natural8(0))

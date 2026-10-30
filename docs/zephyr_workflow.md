@@ -131,6 +131,9 @@ across a restart over the
 first slcan pseudo terminal. The DSDL is compiled into
 `<tmp>/unimoc_pycyphal` on the first run; without pycyphal the tests are
 skipped.
+The durations of the tests are virtual time, counted by the control cycles
+of the telemetry (`SimClient.virtual_time`): on a loaded machine the
+simulation falls behind the wall clock.
 
 ## Power stage release
 
