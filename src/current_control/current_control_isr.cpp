@@ -57,6 +57,10 @@ void CurrentControlIsr::Init(const settings::NvmSettings& settings,
                                                .gain_b = settings.adc_gain_b,
                                                .gain_c = settings.adc_gain_c,
                                                .gain_vdc = settings.adc_gain_vdc};
+  // The hardware checks every uncalibrated DC-link sample: the trip level before the calibration.
+  hardware.SetOvervoltageLimit(state.calibration.gain_vdc > Ratio{}
+                                   ? state.dc_link_trip / state.calibration.gain_vdc
+                                   : state.dc_link_trip);
   hfi.Init(settings);
   dtc.Init(settings);
   svm.Init(settings);
@@ -99,6 +103,7 @@ void CurrentControlIsr::Init(const settings::NvmSettings& settings,
   // A restart leaves a bring-up mode: the control loop runs again, from zero
   // current until the outer loop hands over a reference.
   force_duty_active_.store(false, std::memory_order_release);
+  holding_ = false;
   state.i_ref = system::Rotor<unit::Current>{0.0F, 0.0F};
   state.i_ref_mailbox.Write(state.i_ref);
   state.i_dq_last = system::Rotor<unit::Current>{0.0F, 0.0F};
@@ -154,6 +159,13 @@ void CurrentControlIsr::OnControlCycle() noexcept {
   state.phase_currents = kSamples.phase_currents[kNumSubSteps - 1U];
   state.dc_link = kDcLinkVoltage;
   state.i_ref = state.i_ref_mailbox.Read();
+  // The motor identification replaces the outer loop's reference (its angle is SlowUpdate's).
+  const IdentificationDrive kIdentification = identification_.Read();
+  const IdentificationDrive* const kDrive =
+      identification_active_.load(std::memory_order_acquire) ? &kIdentification : nullptr;
+  if (kDrive != nullptr) {
+    state.i_ref = kDrive->current_ref;
+  }
   if (gains_pending_.load(std::memory_order_acquire)) {
     gains_pending_.store(false, std::memory_order_relaxed);
     const CurrentGains kGains = gains_.Read();
@@ -180,8 +192,10 @@ void CurrentControlIsr::OnControlCycle() noexcept {
     }
   }
   // 1c. DC-link overvoltage: no braking current can be taken any more; the
-  //     outer loop has derated regenerative braking before this level.
-  if (!state.overvoltage_tripped && !(kSamples.dc_link < state.dc_link_trip)) {
+  //     outer loop has derated regenerative braking before this level. The
+  //     hardware has checked every DC-link sample and tripped the stage
+  //     already; the cycle repeats the check on the calibrated last sample.
+  if (!state.overvoltage_tripped && (kSamples.overvoltage || !(kSamples.dc_link < state.dc_link_trip))) {
     hardware::hot_path::TripPowerStage();
     state.overvoltage_tripped = true;
   }
@@ -210,6 +224,10 @@ void CurrentControlIsr::OnControlCycle() noexcept {
   const uint8_t kActiveBuffer = state.double_buf.active.load(std::memory_order_acquire);
   SubStepBuffer& buffer = state.double_buf.buf[kActiveBuffer];
   buffer.timestamp = kSamples.timestamp;
+  buffer.cycle = state.control_cycles;
+  buffer.dc_link = kDcLinkVoltage;
+  buffer.injection_amplitude = kDrive != nullptr ? kDrive->injection_amplitude : unit::Voltage{};
+  buffer.injection_axis = kDrive != nullptr ? static_cast<uint8_t>(kDrive->injection_axis) : 0U;
 
   // -------------------------------------------------------------------------
   // 3. Clarke per sample, Park with the angle of the sample, mean d/q current.
@@ -229,10 +247,10 @@ void CurrentControlIsr::OnControlCycle() noexcept {
   state.i_dq_last = i_dq_mean;
 
   // -------------------------------------------------------------------------
-  // 4. Current PI with decoupling feedforward, once per cycle.
+  // 4. Current PI with decoupling feedforward, once per cycle; frozen (its
+  //    last output held) when the identification asks for it.
   // -------------------------------------------------------------------------
-  const system::Rotor<unit::Voltage> kVoltageDq =
-      cc.Update(state.i_ref, i_dq_mean, mech_obs.omega, state.dt_slow, kDcLinkVoltage);
+  const system::Rotor<unit::Voltage> kVoltageDq = ControlVoltage(kDrive, i_dq_mean, kDcLinkVoltage);
   buffer.u_dq = kVoltageDq;
   state.u_dq_last = kVoltageDq;
 
@@ -241,12 +259,13 @@ void CurrentControlIsr::OnControlCycle() noexcept {
   //    entry, HFI step k, dead-time compensation from the newest current, SVM.
   //    One reciprocal of V_dc for all entries (M2).
   // -------------------------------------------------------------------------
-  const system::Stator<unit::Ratio> kDtcRatio = dtc.Calculate(buffer.i_ab_samples[kNumSubSteps - 1U]);
+  const system::Stator<unit::Ratio> kDtcRatio = DeadTimeRatio(kDrive, buffer.i_ab_samples[kNumSubSteps - 1U]);
   const auto kInverseVDc = control::Svm::InverseDcLinkVoltage(kSamples.dc_link);
   hardware::DutyPlan plan{};
   for (uint8_t k = 0U; k < kNumSubSteps; ++k) {
     const system::SinCos<unit::Ratio>& sc_out = buffer.sc_out[k];
-    system::Stator<unit::Voltage> u_ab = kVoltageDq.ToStator(sc_out);
+    system::Stator<unit::Voltage> u_ab =
+        WithInjection(kVoltageDq, kDrive, state.control_cycles, k).ToStator(sc_out);
     if (hfi_active) {
       u_ab = u_ab + hfi.GetInjectionVoltage(static_cast<int>(k), sc_out.sin, sc_out.cos);
     }
@@ -322,5 +341,49 @@ void CurrentControlIsr::SetDutyPlan(const hardware::DutyPlan& plan) noexcept {
 }
 
 void CurrentControlIsr::FinishCycleWithoutControl() noexcept { state.samples_ready = true; }
+
+// =============================================================================
+// motor identification helpers of the control cycle
+// =============================================================================
+
+system::Rotor<unit::Voltage> CurrentControlIsr::ControlVoltage(const IdentificationDrive* const drive,
+                                                               const system::Rotor<unit::Current>& i_dq_mean,
+                                                               const unit::Voltage dc_link) noexcept {
+  if (drive != nullptr && drive->hold_voltage) {
+    if (!holding_) {
+      held_voltage_ = state.u_dq_last;  // the PI's last output; its integrators keep their state
+      holding_ = true;
+    }
+    return held_voltage_;
+  }
+  holding_ = false;
+  return cc.Update(state.i_ref, i_dq_mean, mech_obs.omega, state.dt_slow, dc_link);
+}
+
+system::Stator<unit::Ratio> CurrentControlIsr::DeadTimeRatio(
+    const IdentificationDrive* const drive, const system::Stator<unit::Current>& i_ab) const noexcept {
+  if (drive != nullptr && !drive->dead_time_compensation) {
+    return system::Stator<unit::Ratio>{0.0F, 0.0F};
+  }
+  return dtc.Calculate(i_ab);
+}
+
+system::Rotor<unit::Voltage> CurrentControlIsr::WithInjection(system::Rotor<unit::Voltage> u_dq,
+                                                              const IdentificationDrive* const drive,
+                                                              const uint32_t cycle,
+                                                              const uint8_t entry) noexcept {
+  if (drive == nullptr || drive->injection_amplitude == unit::Voltage{}) {
+    return u_dq;
+  }
+  // The sine of M2 at the middle of the entry's half period (no libm: the table).
+  const unit::Voltage kSine =
+      drive->injection_amplitude * InjectionSinCos(InjectionEntryPhase(cycle, entry)).sin;
+  if (drive->injection_axis == InjectionAxis::kD) {
+    u_dq.d += kSine;
+  } else {
+    u_dq.q += kSine;
+  }
+  return u_dq;
+}
 
 }  // namespace unimoc::current_control

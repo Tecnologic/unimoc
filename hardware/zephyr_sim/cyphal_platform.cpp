@@ -59,6 +59,9 @@ struct PlantInputs {
   float imposed_speed{0.0F};  ///< Mechanical speed in ShaftMode::kImposedSpeed [rad/s].
   float load_torque{0.0F};    ///< Load torque [N m]; positive opposes positive rotation.
   float dc_link_voltage{48.0F};
+  float dc_link_capacitance{0.0F};  ///< [F]; 0: the ideal source.
+  float battery_resistance{0.05F};  ///< [Ohm], with a DC-link capacitor.
+  bool contactor_closed{true};
   bool external_enable{true};
   bool follow_settings{true};
 };
@@ -76,8 +79,25 @@ void ApplyInputs() noexcept {
   plant.SetShaftMode(g_inputs.shaft_mode, unit::AngularVelocity{g_inputs.imposed_speed});
   plant.SetInput(::unimoc::sim::SimulationInput{unit::Torque{g_inputs.load_torque}, unit::Voltage{}});
   plant.SetDcLinkVoltage(unit::Voltage{g_inputs.dc_link_voltage});
+  plant.SetContactorClosed(g_inputs.contactor_closed);
   irq_unlock(kKey);
   sim::SetExternalEnable(g_inputs.external_enable);
+}
+
+/// The DC link of the registers on top of the given plant parameters.
+::unimoc::sim::SimulationParameters WithDcLink(::unimoc::sim::SimulationParameters parameters) noexcept {
+  parameters.dc_link_voltage = unit::Voltage{g_inputs.dc_link_voltage};
+  parameters.dc_link.capacitance = unit::Capacitance{g_inputs.dc_link_capacitance};
+  parameters.dc_link.battery_resistance = unit::Resistance{g_inputs.battery_resistance};
+  return parameters;
+}
+
+/// Configures the plant with @p parameters (the plant restarts at standstill); the cycle timer is held off.
+::unimoc::sim::Status ConfigurePlant(const ::unimoc::sim::SimulationParameters& parameters) noexcept {
+  const unsigned int kKey = irq_lock();
+  const auto kStatus = sim::Plant().Configure(parameters);
+  irq_unlock(kKey);
+  return kStatus;
 }
 
 enum class SimRegister : uint8_t {
@@ -94,12 +114,16 @@ enum class SimRegister : uint8_t {
   kCycleCount,
   kCyclePeriodNs,
   kReset,
+  kRunUntil,
+  kDcLinkCapacitance,
+  kBatteryResistance,
+  kContactorClosed,
 };
 
 /// Most control cycles one write of `unimoc.sim.advance` runs (1 s of virtual time at 16 kHz).
 constexpr int64_t kMaxAdvanceCycles = 16000;
 
-constexpr std::array<std::string_view, 13> kNames{
+constexpr std::array<std::string_view, 17> kNames{
     "unimoc.sim.shaft_mode",
     "unimoc.sim.imposed_speed",
     "unimoc.sim.load_torque",
@@ -113,6 +137,10 @@ constexpr std::array<std::string_view, 13> kNames{
     "unimoc.sim.cycle_count",
     "unimoc.sim.cycle_period_ns",
     "unimoc.sim.reset",
+    "unimoc.sim.run_until",
+    "unimoc.sim.dc_link_capacitance",
+    "unimoc.sim.battery_resistance",
+    "unimoc.sim.contactor_closed",
 };
 
 constexpr float kInf = std::numeric_limits<float>::infinity();
@@ -146,7 +174,7 @@ constexpr std::array<cyphal::RegisterDescription, kNames.size()> kDescriptions{{
      -kInf,
      kInf,
      RegisterEffect::kImmediate,
-     "1 stops the control cycles (virtual time); readiness timeouts run on"},
+     "1 stops the control cycles; the drive's timeouts then follow the virtual time"},
     {"cycles",
      0.0F,
      16000.0F,
@@ -159,6 +187,26 @@ constexpr std::array<cyphal::RegisterDescription, kNames.size()> kDescriptions{{
      1.0F,
      RegisterEffect::kImmediate,
      "1: plant to standstill, virtual time 0, controller restarted"},
+    {"cycles",
+     0.0F,
+     kInf,
+     RegisterEffect::kImmediate,
+     "Runs a paused simulation up to this cycle count (16000 ahead at most); stops early on a trip"},
+    {"F",
+     0.0F,
+     kInf,
+     RegisterEffect::kImmediate,
+     "DC-link capacitance; 0: ideal source (restarts the plant)"},
+    {"Ohm",
+     0.0F,
+     kInf,
+     RegisterEffect::kImmediate,
+     "Internal resistance of the simulated battery with a DC-link capacitor (restarts the plant)"},
+    {{},
+     -kInf,
+     kInf,
+     RegisterEffect::kImmediate,
+     "0 opens the contactor between battery and DC-link capacitor"},
 }};
 
 /**
@@ -178,6 +226,32 @@ bool ResetSimulation() noexcept {
   return current_control::StartRuntime(g_applied_settings,
                                        kMotors[0],
                                        kSettings.GetSettingsProfile().capabilities.max_phase_current);
+}
+
+/// Runs a paused simulation to the cycle count of @p value (unimoc.sim.run_until), before the response.
+RegisterWriteResult WriteRunUntil(const RegisterValue& value) noexcept {
+  const auto kTarget = cyphal::GetInteger(value);
+  const int64_t kNow = sim::CycleCount();
+  if (!sim::IsPaused() || !kTarget.has_value() || *kTarget < kNow || *kTarget - kNow > kMaxAdvanceCycles) {
+    return RegisterWriteResult::kOutOfRange;
+  }
+  (void)sim::RunUntil(static_cast<uint32_t>(*kTarget));
+  return RegisterWriteResult::kAccepted;
+}
+
+/// Sets the DC-link capacitance or the battery resistance and restarts the plant; false: refused.
+bool WriteDcLink(const bool capacitance, const float value) noexcept {
+  if (value < 0.0F || (!capacitance && value == 0.0F) ||
+      kPowerStage.GetState() == PowerStageState::kEnabled) {
+    return false;
+  }
+  const PlantInputs kPrevious = g_inputs;
+  (capacitance ? g_inputs.dc_link_capacitance : g_inputs.battery_resistance) = value;
+  if (ConfigurePlant(WithDcLink(sim::Plant().Parameters())) != ::unimoc::sim::Status::kOk) {
+    g_inputs = kPrevious;
+    return false;
+  }
+  return true;
 }
 
 /// Registers of the simulated plant; not persistent, the plant starts from the defaults.
@@ -233,6 +307,18 @@ class SimRegisters final : public cyphal::RegisterProvider {
         return {false, false};
       case SimRegister::kReset:
         cyphal::SetNatural8(value, 0U);  // write 1: reset
+        break;
+      case SimRegister::kRunUntil:
+        cyphal::SetNatural32(value, sim::CycleCount());  // write: the cycle count to run to
+        break;
+      case SimRegister::kDcLinkCapacitance:
+        cyphal::SetReal32(value, g_inputs.dc_link_capacitance);
+        break;
+      case SimRegister::kBatteryResistance:
+        cyphal::SetReal32(value, g_inputs.battery_resistance);
+        break;
+      case SimRegister::kContactorClosed:
+        cyphal::SetBit(value, g_inputs.contactor_closed);
         break;
     }
     return {true, false};
@@ -303,6 +389,17 @@ class SimRegisters final : public cyphal::RegisterProvider {
           return RegisterWriteResult::kOutOfRange;
         }
         return RegisterWriteResult::kAccepted;
+      case SimRegister::kRunUntil:
+        return WriteRunUntil(value);
+      case SimRegister::kDcLinkCapacitance:
+      case SimRegister::kBatteryResistance:
+        if (!WriteDcLink(static_cast<SimRegister>(index) == SimRegister::kDcLinkCapacitance, kValue)) {
+          return RegisterWriteResult::kOutOfRange;
+        }
+        break;
+      case SimRegister::kContactorClosed:
+        g_inputs.contactor_closed = kValue != 0.0F;
+        break;
     }
     ApplyInputs();
     return RegisterWriteResult::kAccepted;
@@ -431,6 +528,34 @@ void CyphalPlatformSpin(cyphal::CyphalNode& node, const uint64_t now_us) noexcep
   }
 }
 
+uint64_t CyphalPlatformDriveTimeUs(const uint64_t now_us) noexcept {
+  // The interval since the last call counts in the time base of the state it
+  // started in: real time while running, the advanced virtual time while paused.
+  struct DriveClock {
+    bool started{false};
+    bool paused{false};
+    uint64_t drive_ns{0U};
+    uint64_t real_us{0U};
+    uint64_t virtual_ns{0U};
+  };
+  static DriveClock clock{};
+  const uint64_t kVirtualNs = sim::VirtualTimeNs();
+  if (!clock.started) {
+    clock = DriveClock{true, sim::IsPaused(), now_us * 1000U, now_us, kVirtualNs};
+    return now_us;
+  }
+  if (clock.paused) {
+    // A reset of the simulation sets the virtual time back to 0: nothing advanced.
+    clock.drive_ns += (kVirtualNs >= clock.virtual_ns) ? kVirtualNs - clock.virtual_ns : 0U;
+  } else {
+    clock.drive_ns += (now_us - clock.real_us) * 1000U;
+  }
+  clock.paused = sim::IsPaused();
+  clock.real_us = now_us;
+  clock.virtual_ns = kVirtualNs;
+  return clock.drive_ns / 1000U;
+}
+
 void CyphalPlatformSettingsApplied(const settings::NvmSettings& settings) noexcept {
   g_applied_settings = settings;
   SetPlantRate(settings);
@@ -438,10 +563,11 @@ void CyphalPlatformSettingsApplied(const settings::NvmSettings& settings) noexce
     return;
   }
   // The simulated motor takes the motor parameters of the settings; the
-  // plant restarts at standstill with the inputs of the registers.
-  const unsigned int kKey = irq_lock();
-  const auto kStatus = sim::Plant().Configure(settings);
-  irq_unlock(kKey);
+  // plant restarts at standstill with the inputs of the registers and keeps
+  // its inverter (dead time).
+  ::unimoc::sim::SimulationParameters parameters = ::unimoc::sim::ParametersFromSettings(settings);
+  parameters.inverter = sim::Plant().Parameters().inverter;
+  const auto kStatus = ConfigurePlant(WithDcLink(parameters));
   if (kStatus != ::unimoc::sim::Status::kOk) {
     LOG_WRN("plant rejected the motor settings (%d)", static_cast<int>(kStatus));
   }

@@ -34,9 +34,9 @@ namespace unimoc::hardware::foc_stm32g4 {
  *    peak (up-counting) and CC6 before the valley (down-counting).
  *  - The end of the ADC1 injected sequence raises the sample interrupt (zero
  *    latency). It copies the raw phase currents into the cycle array and
- *    compares them with the overcurrent window; a violation trips the power
- *    stage at once. Every kHalfPeriodsPerCycle-th sample it calls
- *    ControlCycleHandler() directly and pends the observer interrupt.
+ *    compares them with the overcurrent window, and the raw DC link with the
+ *    overvoltage limit; a violation trips the power stage at once. Every kHalfPeriodsPerCycle-th sample it
+ * calls ControlCycleHandler() directly and pends the observer interrupt.
  *  - Every update event requests a DMA burst of three words (TIM8_DCR/DMAR)
  *    into CCR1..3 from a circular buffer of kHalfPeriodsPerCycle slots. The
  *    control cycle writes duty entry 0 directly into the preload (after the
@@ -130,6 +130,7 @@ struct CycleRaw {
   std::array<RawCurrents, kHalfPeriodsPerCycle> currents;  ///< oldest first
   uint32_t vdc;                                            ///< of the last sample
   bool overcurrent;                                        ///< a sample left the window
+  bool overvoltage;                                        ///< a DC-link sample reached the limit
   uint32_t timestamp;                                      ///< Timestamp() at the last sample
 };
 
@@ -156,6 +157,18 @@ struct CycleRaw {
  * low = 0 and high = 4095 disable the check.
  */
 void SetOvercurrentWindow(uint32_t low, uint32_t high) noexcept;
+
+/// Raw DC-link count of SetOvervoltageCounts() that never trips (above the 12-bit range).
+inline constexpr uint32_t kOvervoltageCheckOff = 0xFFFFFFFFU;
+
+/**
+ * @brief Raw limit of the per-sample DC-link overvoltage check.
+ *
+ * A DC-link conversion at or above @p counts trips the power stage in the
+ * sample interrupt, like the overcurrent window. kOvervoltageCheckOff
+ * disables the check.
+ */
+void SetOvervoltageCounts(uint32_t counts) noexcept;
 
 /// Raw injected results (12 bit, unsigned, right aligned) of the last sequence.
 struct RawSamples {

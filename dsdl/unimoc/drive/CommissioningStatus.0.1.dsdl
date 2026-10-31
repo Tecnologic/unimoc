@@ -14,7 +14,11 @@ uint16 COMMAND_START_STARTUP_AID = 0x0200
 # outputs at neutral duty. BAD_STATE while engaged or while a procedure runs,
 # FAILURE when the outputs cannot be released (external enable missing).
 uint16 COMMAND_START_IDENTIFICATION = 0x0201
-# Reserved for the motor identification (not implemented: BAD_COMMAND).
+# Starts the motor identification; the parameter names the measurements,
+# "M1" (stator resistance, dead time), "M2" (L_d, L_q) or "M1,M2" (empty:
+# both). BAD_STATE while engaged, while a procedure runs or after an emergency
+# stop, BAD_PARAMETER for an unknown measurement, FAILURE when the outputs
+# cannot be released.
 uint16 COMMAND_CONTINUE = 0x0202
 # Continues with the next step once the present one has measured; the
 # parameter is the confirmation the step waits for (see needs), for example
@@ -37,7 +41,8 @@ uint8 PROCEDURE_IDENTIFICATION = 2
 
 uint8 step
 # The step of the procedure. The startup aid: its FsmState (0 IDLE ..
-# 12 DONE, 13 FAULT; README, "Hardware Bring-Up Guide").
+# 12 DONE, 13 FAULT; README, "Hardware Bring-Up Guide"). The identification:
+# 0 IDLE, 1 M1, 2 M2 d axis, 3 M2 q axis, 4 DONE, 5 FAULT.
 
 uint8 state
 uint8 STATE_IDLE = 0
@@ -84,6 +89,7 @@ uint8 FAULT_APPLY_FAILED = 6
 # Why the procedure ended in FAILED or ABORTED.
 
 uint32 counter
-# Events of the step (the electrical revolutions of a pole-pair count).
+# Events of the step (the operating points measured; the electrical
+# revolutions of a pole-pair count).
 
 @extent 63 * 8

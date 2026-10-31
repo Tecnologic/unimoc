@@ -62,6 +62,9 @@ inline constexpr unit::Current kCurrentPerCount =
   return unit::Voltage{CountsToVolts(static_cast<float>(raw)) * kVoltageDividerRatio};
 }
 
+/// DC-link voltage of one count: the resolution of the DC-link channel.
+inline constexpr unit::Voltage kVoltagePerCount = CountsToVoltage(1U);
+
 /// Crank torque from the sensor voltage above its nominal rest voltage (the voltage at the connector, behind
 /// the input divider). The offset of the individual sensor remains; the pedal observer (lib/ebike) trims it.
 [[nodiscard]] constexpr unit::Torque CountsToTorque(const uint32_t raw) noexcept {

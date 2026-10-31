@@ -242,10 +242,12 @@ DriveNode::DriveNode(cyphal::CyphalNode& node,
       settings_registers_{store},
       info_registers_{unique_id, settings_waiting_, bus_off_count_},
       startup_{CurrentControlIsr::Instance(), store.GetOperations()},
-      commissioning_{startup_, engaged_, emergency_stop_} {}
+      identification_{CurrentControlIsr::Instance(), current_control::SlowUpdate::Instance()},
+      commissioning_{startup_, identification_, engaged_, emergency_stop_} {}
 
 bool DriveNode::Start(const uint64_t now_us) noexcept {
   now_us_ = now_us;
+  drive_us_ = now_us;
   const settings::SettingsSnapshot kSnapshot = store_->GetSnapshot();
   const settings::NvmSettings& live = kSnapshot.Get();
   // 0 is "not assigned" in the settings: request a node-ID by plug-and-play.
@@ -316,11 +318,12 @@ bool DriveNode::Start(const uint64_t now_us) noexcept {
   return subscribed;
 }
 
-void DriveNode::Spin(const uint64_t now_us) noexcept {
+void DriveNode::Spin(const uint64_t now_us, const uint64_t drive_us) noexcept {
   now_us_ = now_us;
+  drive_us_ = drive_us;
   node_->Spin(now_us);  // dispatches the received messages and commands
   WatchBus();
-  SpinLocalControl(now_us);
+  SpinLocalControl(drive_us);
 
   if (engage_requested_) {
     engage_requested_ = false;
@@ -328,7 +331,7 @@ void DriveNode::Spin(const uint64_t now_us) noexcept {
   }
   SpinStartup();
   PublishCommissioning(now_us);
-  SpinEngagement(now_us);
+  SpinEngagement(drive_us);
   // The outer loop commands zero current while the drive is disengaged.
   OuterSetpoint setpoint = setpoint_;
   setpoint.active = engaged_;
@@ -433,6 +436,7 @@ void DriveNode::LoadParameters(const settings::NvmSettings& settings) noexcept {
   drive_status_period_us_ = PeriodMicroseconds(settings.cart_status_rate);
   cart_wheel_ = settings.cart_wheel;
   cart_.Configure(CartParameters::From(settings));
+  identification_.Configure(settings);
   // Not while engaged: it restarts the pedal observer and the assist ramp, so e-bike changes wait for the
   // disengage.
   if (ebike_ != nullptr && !engaged_) {
@@ -444,6 +448,7 @@ void DriveNode::LoadParameters(const settings::NvmSettings& settings) noexcept {
 }
 
 void DriveNode::SpinStartup() noexcept {
+  identification_.RunOnce();  // the identification ends with the outputs off by itself
   if (startup_.IsActive()) {
     startup_active_ = true;
     startup_.RunOnce();  // one sample of the control cycle per spin
@@ -511,25 +516,27 @@ void DriveNode::TuneLive() noexcept {
   applied_writes_ = checked_writes_;
 }
 
-void DriveNode::OnMessage(const cyphal::Transfer& transfer, const uint64_t now_us) noexcept {
+void DriveNode::OnMessage(const cyphal::Transfer& transfer, uint64_t /*now_us*/) noexcept {
+  // Messages count in the drive's time (see Spin()), as do the timeouts that check them.
+  const uint64_t kDriveUs = drive_us_;
   if (transfer.port_id == readiness_port_) {
-    OnReadiness(transfer, now_us);
+    OnReadiness(transfer, kDriveUs);
   } else if (transfer.port_id == current_setpoint_port_) {
-    OnCurrentSetpoint(transfer, now_us);
+    OnCurrentSetpoint(transfer, kDriveUs);
   } else if (transfer.port_id == torque_setpoint_port_) {
-    OnTorqueSetpoint(transfer, now_us);
+    OnTorqueSetpoint(transfer, kDriveUs);
   } else if (transfer.port_id == speed_setpoint_port_) {
-    OnSpeedSetpoint(transfer, now_us);
+    OnSpeedSetpoint(transfer, kDriveUs);
   } else if (transfer.port_id == position_setpoint_port_) {
-    OnPositionSetpoint(transfer, now_us);
+    OnPositionSetpoint(transfer, kDriveUs);
   } else if (transfer.port_id == servo_setpoint_port_) {
-    OnServoSetpoint(transfer, now_us);
+    OnServoSetpoint(transfer, kDriveUs);
   } else if (transfer.port_id == wheel_command_port_) {
-    OnWheelCommand(transfer, now_us);
+    OnWheelCommand(transfer, kDriveUs);
   } else if (transfer.port_id == pedal_state_port_) {
-    OnPedalState(transfer, now_us);
+    OnPedalState(transfer, kDriveUs);
   } else if (transfer.port_id == battery_status_port_) {
-    OnBatteryStatus(transfer, now_us);
+    OnBatteryStatus(transfer, kDriveUs);
   }
 }
 
@@ -742,6 +749,11 @@ void DriveNode::Engage() noexcept {
     (void)node_->Log(cyphal::Severity::kWarning, "engage refused: the startup aid is running");
     return;
   }
+  if (identification_.IsActive()) {
+    rearm_required_ = true;
+    (void)node_->Log(cyphal::Severity::kWarning, "engage refused: the identification is running");
+    return;
+  }
   if (settings_pending_ || settings_registers_.WriteCount() != applied_writes_) {
     if (!ApplySettings()) {
       return;
@@ -767,8 +779,8 @@ void DriveNode::Disengage(const std::string_view reason) noexcept {
   ClearSetpoint();
   cart_.Reset();
   OuterLoop::Instance().SetSetpoint(OuterSetpoint{});
-  if (engaged_ || !startup_.IsActive()) {
-    kPowerStage.Disable();  // the outputs of a startup run stay with the FSM
+  if (engaged_ || !commissioning_.Active()) {
+    kPowerStage.Disable();  // the outputs of a startup or identification run stay with its FSM
   }
   if (engaged_) {
     engaged_ = false;
@@ -786,6 +798,7 @@ cyphal::CommandResult DriveNode::OnCommand(const uint16_t command,
   switch (command) {
     case cyphal::cmd::kCommandRestart:
       startup_.RequestAbort();
+      identification_.Abort();
       Disengage("restart");
       restart_requested_ = true;
       restart_at_us_ = now_us_ + kRestartDelayUs;
@@ -793,6 +806,7 @@ cyphal::CommandResult DriveNode::OnCommand(const uint16_t command,
     case cyphal::cmd::kCommandEmergencyStop:
       emergency_stop_ = true;
       startup_.RequestAbort(startup::StartupFault::kEmergencyStop);
+      identification_.Abort(identification::Fault::kEmergencyStop);
       Disengage("emergency stop");
       return {cyphal::cmd::kStatusSuccess, ""};
     case cyphal::cmd::kCmdResetTiming:
@@ -810,7 +824,7 @@ cyphal::CommandResult DriveNode::OnCommand(const uint16_t command,
                  : cyphal::CommandResult{cyphal::cmd::kStatusFailure, "flash write failed"};
     }
     case cyphal::cmd::kCommandFactoryReset: {
-      if (engaged_ || startup_.IsActive()) {
+      if (engaged_ || commissioning_.Active()) {
         return {cyphal::cmd::kStatusBadState, ""};
       }
       if (operations.ResetToFactoryDefaults() != settings::SettingsStatus::kSuccess) {

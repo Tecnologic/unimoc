@@ -38,12 +38,13 @@ simulation.
    - [Phase 2 — Motor Connected](#phase-2--motor-connected)
    - [Calibration Results and NVM Commit](#calibration-results-and-nvm-commit)
    - [Aborting or Recovering from FAULT](#aborting-or-recovering-from-fault)
-7. [Getting Started](#getting-started)
+7. [Motor Identification](#motor-identification)
+8. [Getting Started](#getting-started)
    - [Running the Tests](#running-the-tests)
    - [Generating the API Documentation](#generating-the-api-documentation)
    - [Building Firmware (Zephyr)](#building-firmware-zephyr)
-8. [Contributing](#contributing)
-9. [License](#license)
+9. [Contributing](#contributing)
+10. [License](#license)
 
 ---
 
@@ -252,7 +253,7 @@ validation decides, also on limits between registers or of the hardware
 | `uavcan.sub.pedal_state.id` | 111 | `unimoc.cart.PedalState.0.1` | Cart: pedals for limp-home mode |
 | `uavcan.sub.battery_status.id` | 112 | `unimoc.cart.BatteryStatus.0.1` | Cart: current limits of the BMS, replace `unimoc.battery.limits.*` while fresh |
 | `uavcan.pub.drive_status.id` | 214 | `unimoc.cart.DriveStatus.0.1` | Cart: wheel speed, torque, drive and brake torque limits, DC link, flags at `unimoc.cart.status_rate` (50 Hz) |
-| `uavcan.pub.commissioning.id` | 215 | `unimoc.drive.CommissioningStatus.0.1` | Commissioning (startup aid): step, state, needs, progress, passed and failed steps; on every change, 2 Hz in a run, 0.5 Hz otherwise ([Commands and Status](#commands-and-status)) |
+| `uavcan.pub.commissioning.id` | 215 | `unimoc.drive.CommissioningStatus.0.1` | Commissioning (startup aid, motor identification): step, state, needs, progress, passed and failed steps; on every change, 2 Hz in a run, 0.5 Hz otherwise ([Commands and Status](#commands-and-status)) |
 | `uavcan.pub.homing_state.id` | 204 | `uavcan.primitive.scalar.Natural8.1.0` | Homing: 0 IDLE, 1 SEARCHING, 3 DONE, 4 FAULT; on every change, 2 Hz while searching, 0.5 Hz otherwise ([Homing](#homing)) |
 | `uavcan.pub.sim_plant.id` (sim only) | 213 | `unimoc.sim.Plant.0.1` | Plant truth: phase currents, shaft angle and speed, torque, Hall code |
 | `uavcan.srv.cymon_variables.id` | 120 | `cymon.GetVariableList.0.1` | Trace variables: index -> name and unit |
@@ -513,6 +514,19 @@ speed), `unimoc.sim.imposed_speed` [rad/s], `unimoc.sim.load_torque` [N m],
 `unimoc.sim.plant_follows_settings` (the plant takes the motor parameters of
 the settings when they are applied).
 
+DC link: by default the simulated DC link is an ideal source at
+`unimoc.sim.dc_link_voltage`. A capacitance in `unimoc.sim.dc_link_capacitance`
+[F] (refused while the outputs are released; the plant restarts at
+standstill) turns it into a capacitor fed by the battery
+(`unimoc.sim.dc_link_voltage`, open-circuit) through
+`unimoc.sim.battery_resistance` [Ohm] and a contactor
+(`unimoc.sim.contactor_closed`). Then the drive's own current moves the DC
+link, an open contactor leaves the capacitor alone with the inverter, and a
+spinning permanent-magnet motor charges it through the body diodes of the
+switched-off bridge once its line-to-line back-EMF exceeds the DC link (an
+averaged six-step rectifier), so the overvoltage trip and the regenerative
+derating can be exercised. The plant message reports the DC-link voltage.
+
 Deterministic runs: `unimoc.sim.paused` (bit) stops the cycle timer, also
 across a settings restart of the controller; then a write of
 `unimoc.sim.advance` (natural32, at most 16000 = 1 s) runs that many control
@@ -521,9 +535,17 @@ cycles before the response.  `unimoc.sim.cycle_count` and
 count restarts with the controller.  A write of 1 to `unimoc.sim.reset`
 (refused while the power stage is enabled) puts the plant back to
 standstill, the virtual time to 0 and restarts the controller with the
-applied settings; register inputs and a pause stay.  The drive's readiness and setpoint
-timeouts still run in real time, so keep publishing the readiness while
-paused.
+applied settings; register inputs and a pause stay.  A write of
+`unimoc.sim.run_until` (natural32, a cycle count at most 16000 ahead) runs a
+paused simulation up to that count and stops early after a cycle in which
+the power stage left the enabled state (a trip, a lost enable).
+
+While paused, the drive's timeouts (readiness, setpoints, cart commands)
+follow the virtual time: the real time of the pause does not count, an
+advance does. They are checked between two register writes, so advance in
+steps shorter than `unimoc.control.command_timeout` while the drive is
+engaged and the readiness is published. The heartbeat, the telemetry and the
+other publications stay in real time.
 
 The rotor angle of the controller comes from its observer only (the Hall
 fusion is milestone M5/M6 of `docs/hotpath_plan.md`); at standstill the
@@ -1015,6 +1037,48 @@ y cmd 42 512
 
 This resets all accumulators and results, then re-enters PWM_DISABLE from the
 beginning.
+
+---
+
+## Motor Identification
+
+The drive measures the electrical data of a PMSM at standstill
+([docs/motor_identification_plan.md](docs/motor_identification_plan.md),
+milestones I0 to I2). Run it after the startup aid, disengaged, with the
+nameplate current limit in `unimoc.motor.limits.i_max`; the motor may jerk
+once while it aligns, the shaft need not be locked.
+
+| Command | Code | Parameter | Effect |
+|---------|------|-----------|--------|
+| START_IDENTIFICATION | `0x0201` (513) | `M1`, `M2` or `M1,M2` (empty: both) | releases the outputs and runs the measurements; refused while engaged, while the startup aid runs or after an emergency stop |
+| ABORT | `0x0204` (516) | none | ends the run with the outputs off |
+
+- **M1, stator resistance and dead time:** a d current at five levels of each
+  sign (10 % to 50 % of the current limit) at 0, 120 and 240 degrees
+  electrical, without the dead-time compensation; the regression
+  u = R i + U_dt sign(i) gives R from the slope and the dead time from the
+  step at zero. The three slopes must agree within 10 %.
+- **M2, L_d and L_q:** a d bias of 20 % of the limit at angle 0, the current PI
+  frozen, a sine at f_pwm / 64 (500 Hz at 32 kHz PWM) on the d axis, then on
+  the q axis, its amplitude scaled until the current answers with 10 % of the
+  limit; the impedance U / I gives L from its imaginary part, its real part
+  must agree with R of M1 within 20 %.
+
+The progress is the commissioning status message with procedure
+IDENTIFICATION (step 1 M1, 2 the d axis, 3 the q axis, 4 DONE, 5 FAULT),
+the results are read-only registers, NaN until measured:
+`unimoc.identify.result.R`, `.dead_time`, `.dead_time_voltage`, `.L_d`,
+`.L_q`, `.L` and `.R_ac` (the M2 check). The run writes no setting; apply the
+reviewed values to `unimoc.motor.stator.R`, `unimoc.motor.pmsm.L_d`, `.L_q`,
+`unimoc.motor.stator.L` and `unimoc.control.dtc.dead_time` (APPLY_IDENTIFICATION,
+the gains and the cypilot card follow, milestone I6). Every wait of the run
+is counted in control cycles, so it takes the same virtual time in a paused
+simulation. Not run on the board yet.
+
+```
+y cmd 42 513 M1,M2                 # START_IDENTIFICATION
+y r 42 unimoc.identify.result.R
+```
 
 ---
 

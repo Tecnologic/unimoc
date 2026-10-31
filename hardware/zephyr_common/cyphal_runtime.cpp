@@ -194,7 +194,7 @@ void CyphalThread(void* /*unused*/, void* /*unused*/, void* /*unused*/) {
   while (true) {
     (void)k_sem_take(&g_cyphal_wake, K_MSEC(1));
     const uint64_t kNow = NowUs();
-    drive.Spin(kNow);
+    drive.Spin(kNow, CyphalPlatformDriveTimeUs(kNow));
     trace_node.Spin();
     CyphalPlatformSpin(node, kNow);
     uint8_t level = 0U;

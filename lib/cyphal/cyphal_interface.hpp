@@ -438,6 +438,14 @@ inline constexpr const char* kCurrentVMax = "unimoc.control.current.v_max";
 /// Read-back of pass/fail status flags, one byte per FSM step (1=pass, 0=fail/pending).
 /// Type: uint8[<=14] (read-only)
 inline constexpr const char* kStartupResults = "unimoc.startup.results";
+/// Results of the motor identification (real32, base units, read only; NaN: not measured).
+inline constexpr const char* kIdentifyResultR = "unimoc.identify.result.R";
+inline constexpr const char* kIdentifyResultDeadTime = "unimoc.identify.result.dead_time";
+inline constexpr const char* kIdentifyResultDeadTimeVoltage = "unimoc.identify.result.dead_time_voltage";
+inline constexpr const char* kIdentifyResultLd = "unimoc.identify.result.L_d";
+inline constexpr const char* kIdentifyResultLq = "unimoc.identify.result.L_q";
+inline constexpr const char* kIdentifyResultL = "unimoc.identify.result.L";
+inline constexpr const char* kIdentifyResultRAc = "unimoc.identify.result.R_ac";
 
 /// Computed phase-A current-sense gain correction factor [dimensionless].
 /// Type: real32[1] (read-only after CURRENT_SENSE_CALIBRATION step)

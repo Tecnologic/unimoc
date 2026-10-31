@@ -97,6 +97,10 @@ def natural16(value: int) -> uavcan.register.Value_1_0:
     return uavcan.register.Value_1_0(natural16=uavcan.primitive.array.Natural16_1_0([value]))
 
 
+def natural32(value: int) -> uavcan.register.Value_1_0:
+    return uavcan.register.Value_1_0(natural32=uavcan.primitive.array.Natural32_1_0([value]))
+
+
 def scalar(value: uavcan.register.Value_1_0) -> Any:
     """First element of a numeric register value, or the text of a string."""
     if value.string is not None:

@@ -32,6 +32,7 @@ from sim_client import (
     SimClient,
     natural8,
     natural16,
+    natural32,
     real,
 )
 import cymon
@@ -523,6 +524,76 @@ def test_paused_simulation_advances_by_whole_cycles(sim: SimClient):
     assert sim.read("unimoc.sim.cycle_count") > restarted + 1000  # real time again
     sim.write("unimoc.sim.advance", natural16(10))  # only while paused
     assert not sim.read("unimoc.sim.paused")
+
+
+def test_paused_drive_timeouts_follow_virtual_time(sim: SimClient):
+    assert sim.write("unimoc.sim.shaft_mode", natural8(1)) == 1  # locked rotor
+    sim.hold(0.5, ENGAGED, sim.current_setpoint(0.0, 1.0))
+    assert sim.latest(sim.telemetry, settle=0.0).engaged
+    try:
+        assert sim.write("unimoc.sim.paused", natural8(1))
+        sim.wait(1.2, wall=True)  # no readiness for longer than the 0.5 s command timeout, but paused
+        assert sim.latest(sim.telemetry).engaged  # the telemetry goes on in real time
+
+        start = sim.read("unimoc.sim.cycle_count")
+        assert sim.write("unimoc.sim.run_until", natural32(start + 4800)) is not None  # 0.3 s of virtual time
+        assert sim.read("unimoc.sim.cycle_count") == start + 4800
+        sim.wait(0.1, wall=True)
+        assert sim.latest(sim.telemetry).engaged  # still inside the timeout
+        assert sim.write("unimoc.sim.run_until", natural32(start)) is not None  # backwards: refused
+        assert sim.read("unimoc.sim.cycle_count") == start + 4800
+
+        sim.write("unimoc.sim.advance", natural16(4800))  # 0.6 s since the last readiness
+        sim.wait(0.1, wall=True)
+        assert not sim.latest(sim.telemetry).engaged
+        assert "disengaged: readiness timeout" in sim.records
+    finally:
+        sim.write("unimoc.sim.paused", natural8(0))
+
+
+def test_dc_link_capacitor_registers(sim: SimClient):
+    sim.hold(0.2, SLEEP)
+    assert sim.read("unimoc.sim.dc_link_capacitance") == 0.0  # the ideal source by default
+    assert sim.write("unimoc.sim.dc_link_capacitance", real(2e-3)) == pytest.approx(2e-3)
+    try:
+        assert sim.write("unimoc.sim.battery_resistance", real(0.0)) == pytest.approx(0.05)  # refused
+        assert sim.write("unimoc.sim.battery_resistance", real(0.1)) == pytest.approx(0.1)
+        assert sim.write("unimoc.sim.dc_link_capacitance", real(-1.0)) == pytest.approx(2e-3)  # refused
+        assert sim.read("unimoc.sim.contactor_closed")
+        sim.hold(0.3, SLEEP)
+        assert sim.latest(sim.plant).dc_link_voltage == pytest.approx(48.0, abs=0.1)  # charged at the start
+        assert sim.latest(sim.telemetry).dc_link_voltage == pytest.approx(48.0, abs=0.5)
+    finally:
+        assert sim.write("unimoc.sim.dc_link_capacitance", real(0.0)) == 0.0
+
+
+def test_identification_measures_the_simulated_motor(sim: SimClient):
+    status_type = unimoc.drive.CommissioningStatus_0_1
+    assert sim.write("unimoc.sim.shaft_mode", natural8(1)) == 1  # standstill on a held shaft
+    assert sim.write("unimoc.sim.imposed_speed", real(0.0)) == 0
+    sim.hold(0.2, SLEEP)
+    assert sim.command_output(status_type.COMMAND_START_IDENTIFICATION, "M3") == (4, "expected M1, M2 or M1,M2")
+    assert sim.command(status_type.COMMAND_START_IDENTIFICATION, "M1,M2") == 0
+    try:
+        status = sim.latest(sim.commissioning, settle=0.0)
+        assert status.procedure == status_type.PROCEDURE_IDENTIFICATION
+        assert status.state == status_type.STATE_MEASURING
+        assert sim.command(status_type.COMMAND_START_STARTUP_AID) == 5  # BAD_STATE: one procedure at a time
+        assert sim.latest(sim.telemetry).power_stage == 1  # the FSM releases the outputs
+        for _ in range(60):  # about 4 s of virtual time
+            status = sim.latest(sim.commissioning)
+            if status.state != status_type.STATE_MEASURING:
+                break
+        assert status.state == status_type.STATE_DONE, status
+    finally:
+        assert sim.command(status_type.COMMAND_ABORT) == 0
+    assert status.failed == 0
+    assert sim.latest(sim.telemetry).power_stage == 0  # DISABLED
+    # The plant takes the motor of the settings (the test motor: 0.1 Ohm, 1 mH, an ideal bridge).
+    assert sim.read("unimoc.identify.result.R") == pytest.approx(sim.read("unimoc.motor.stator.R"), rel=0.03)
+    assert sim.read("unimoc.identify.result.L_d") == pytest.approx(sim.read("unimoc.motor.pmsm.L_d"), rel=0.03)
+    assert sim.read("unimoc.identify.result.L_q") == pytest.approx(sim.read("unimoc.motor.pmsm.L_q"), rel=0.03)
+    assert sim.read("unimoc.identify.result.dead_time") == pytest.approx(0.0, abs=2e-8)
 
 
 def test_emergency_stop_latches_until_the_restart(sim: SimClient):

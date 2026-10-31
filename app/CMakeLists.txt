@@ -28,6 +28,7 @@ target_sources(unimoc_core PRIVATE
   ${UNIMOC_ROOT}/src/current_control/slow_update.cpp
   ${UNIMOC_ROOT}/src/current_control/outer_loop.cpp
   ${UNIMOC_ROOT}/src/startup/hw_startup.cpp
+  ${UNIMOC_ROOT}/src/identification/motor_identification.cpp
   ${UNIMOC_ROOT}/src/drive/cart_control.cpp
   ${UNIMOC_ROOT}/src/ebike/ebike_control.cpp
   ${UNIMOC_ROOT}/src/drive/drive_node.cpp
@@ -42,6 +43,7 @@ target_include_directories(unimoc_core PUBLIC
   ${UNIMOC_ROOT}/src/ebike
   ${UNIMOC_ROOT}/src/trace
   ${UNIMOC_ROOT}/src/startup
+  ${UNIMOC_ROOT}/src/identification
   ${UNIMOC_PLATFORM_DIR})
 target_link_libraries(unimoc_core PRIVATE
   zephyr_interface

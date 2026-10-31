@@ -141,6 +141,58 @@ class SlowUpdate {
   bool RunOnce() noexcept;
 
   // =========================================================================
+  // Motor identification (docs/motor_identification_plan.md, section 5)
+  // =========================================================================
+
+  /**
+   * @brief Replaces the observer's angle in the angle buffers by a forced one.
+   *
+   * From the next cycle on the control cycle works at @p angle, which then
+   * turns at @p speed (zero: a fixed angle, M1 and M2; a ramp: I/f). The
+   * mechanical observer keeps running in the background. One writer thread.
+   *
+   * @param angle Electrical angle from the next cycle on.
+   * @param speed Electrical speed of the forced angle.
+   */
+  void SetForcedAngle(unit::Angle angle, unit::AngularVelocity speed) noexcept {
+    forced_.Write(ForcedAngle{angle, speed});
+    forced_state_.store(kForcedNew, std::memory_order_release);
+  }
+
+  /// Back to the observer's angle from the next cycle on.
+  void ReleaseForcedAngle() noexcept { forced_state_.store(kForcedOff, std::memory_order_release); }
+
+  /**
+   * @brief Starts a measurement window of @p cycles control cycles.
+   *
+   * The observer sums the means and the phasors of the identification
+   * (IdentificationWindowResult) over the next @p cycles cycles; TakeWindow()
+   * returns them once complete. A new request replaces a running window. One
+   * thread (the identification FSM) requests and takes.
+   */
+  void RequestWindow(uint32_t cycles) noexcept {
+    window_cycles_ = cycles;
+    window_generation_.fetch_add(1U, std::memory_order_release);
+  }
+
+  /// Takes the result of the requested window; false while it is not complete.
+  [[nodiscard]] bool TakeWindow(IdentificationWindowResult& result) noexcept {
+    const uint32_t kRequested = window_generation_.load(std::memory_order_relaxed);
+    if (window_done_.load(std::memory_order_acquire) != kRequested) {
+      return false;
+    }
+    result = window_result_;
+    window_done_.store(kRequested - 1U, std::memory_order_relaxed);  // taken: not done again
+    return true;
+  }
+
+  /// Ends the requested window without a result.
+  void CancelWindow() noexcept {
+    window_cycles_ = 0U;
+    window_generation_.fetch_add(1U, std::memory_order_release);
+  }
+
+  // =========================================================================
   // Observer instance (public so outer loop can read psi_pm_d etc.)
   // =========================================================================
 
@@ -166,6 +218,29 @@ class SlowUpdate {
 
   /// Fuses the Hall events of the platform; drains them when Hall is off.
   void FuseHall(const SubStepBuffer& cycle) noexcept;
+
+  /// Adds the cycle to the requested measurement window; completes it after its cycles.
+  void AccumulateWindow(const SubStepBuffer& cycle) noexcept;
+
+  /// The angle of the next cycle, the observer's or the forced one.
+  struct ForcedAngle {
+    unit::Angle angle;
+    unit::AngularVelocity speed;
+  };
+  static constexpr uint8_t kForcedOff = 0U;
+  static constexpr uint8_t kForcedNew = 1U;
+  static constexpr uint8_t kForcedOn = 2U;
+  Mailbox<ForcedAngle> forced_{};
+  std::atomic<uint8_t> forced_state_{kForcedOff};
+  ForcedAngle forced_now_{};  ///< Observer only: the forced angle of the next cycle.
+
+  /// Measurement window: requested by generation, done when window_done_ equals it.
+  uint32_t window_cycles_{0U};
+  std::atomic<uint32_t> window_generation_{0U};
+  std::atomic<uint32_t> window_done_{0xFFFFFFFFU};
+  uint32_t window_running_{0U};  ///< Observer only: the generation being summed.
+  IdentificationWindowResult window_sums_{};
+  IdentificationWindowResult window_result_{};
 
   /// Pointer to the ISR instance set by Init().
   CurrentControlIsr* isr_{nullptr};

@@ -25,6 +25,7 @@
 #include "ebike_control.hpp"
 #include "hardware_interface.hpp"
 #include "hw_startup.hpp"
+#include "motor_identification.hpp"
 #include "outer_loop.hpp"
 #include "settings_register_provider.hpp"
 #include "settings_store.hpp"
@@ -166,7 +167,20 @@ class DriveNode final : public cyphal::MessageListener,
   [[nodiscard]] bool Start(uint64_t now_us) noexcept;
 
   /// Runs the node and the drive logic; call every millisecond or faster.
-  void Spin(uint64_t now_us) noexcept;
+  void Spin(uint64_t now_us) noexcept { Spin(now_us, now_us); }
+
+  /**
+   * @brief Runs the node and the drive logic with a separate clock for the drive's timeouts.
+   *
+   * The node (heartbeat, services) and the publication periods follow
+   * @p now_us; the readiness, setpoint and cart timeouts, the cart ramps and
+   * the local control follow @p drive_us, the time the drive lives in (the
+   * virtual time of a paused simulation, CyphalPlatformDriveTimeUs()).
+   *
+   * @param now_us Monotonic time [us].
+   * @param drive_us Monotonic drive time [us].
+   */
+  void Spin(uint64_t now_us, uint64_t drive_us) noexcept;
 
   /// True while the power stage is released for the setpoint.
   [[nodiscard]] bool IsEngaged() const noexcept { return engaged_; }
@@ -184,6 +198,11 @@ class DriveNode final : public cyphal::MessageListener,
 
   /// The startup FSM of the drive (state and results).
   [[nodiscard]] const startup::HwStartup& Startup() const noexcept { return startup_; }
+
+  /// The motor identification (docs/motor_identification_plan.md).
+  [[nodiscard]] const identification::MotorIdentification& Identification() const noexcept {
+    return identification_;
+  }
 
   void OnMessage(const cyphal::Transfer& transfer, uint64_t now_us) noexcept override;
   [[nodiscard]] cyphal::CommandResult OnCommand(uint16_t command,
@@ -237,6 +256,7 @@ class DriveNode final : public cyphal::MessageListener,
   SettingsRegisterProvider settings_registers_;
   DriveInfoRegisters info_registers_;
   startup::HwStartup startup_;
+  identification::MotorIdentification identification_;
   Commissioning commissioning_;
   TimingRegisters timing_registers_{};
   bool startup_active_{false};
@@ -296,6 +316,7 @@ class DriveNode final : public cyphal::MessageListener,
   bool restart_requested_{false};
   uint64_t restart_at_us_{0U};
   uint64_t now_us_{0U};
+  uint64_t drive_us_{0U};  ///< Drive time of the present spin; the received messages are stamped with it.
 };
 
 }  // namespace unimoc::drive

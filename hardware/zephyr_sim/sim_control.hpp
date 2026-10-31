@@ -108,6 +108,16 @@ void Reset() noexcept;
 /// Runs @p count control cycles synchronously (see StepCycle()).
 void AdvanceCycles(uint32_t count) noexcept;
 
+/**
+ * @brief Runs control cycles synchronously until CycleCount() reaches @p cycle.
+ *
+ * Stops early after the cycle in which the power stage left the enabled
+ * state (a trip, a lost enable), so a deterministic run ends at the fault.
+ *
+ * @return The control cycles run.
+ */
+uint32_t RunUntil(uint32_t cycle) noexcept;
+
 /// Virtual time since Initialize(): CycleCount() control periods, exact in nanoseconds.
 [[nodiscard]] uint64_t VirtualTimeNs() noexcept;
 

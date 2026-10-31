@@ -82,6 +82,7 @@ bool SlowUpdate::RunOnce() noexcept {
   const uint8_t kFinishedBuffer = state.observer_buffer;
   const SubStepBuffer& cycle = state.double_buf.buf[kFinishedBuffer];
   const system::Rotor<unit::Current> kCurrentDqMean = cycle.i_dq_mean;
+  AccumulateWindow(cycle);
 
   // -------------------------------------------------------------------------
   // 2. Covariance prediction of the cycle, then the angle measurements, each
@@ -129,8 +130,17 @@ bool SlowUpdate::RunOnce() noexcept {
   // -------------------------------------------------------------------------
   SubStepBuffer& next = state.double_buf.buf[1U - kFinishedBuffer];
 
-  const unit::Angle kThetaNow = mech_obs.theta;
-  const unit::Angle kStep = mech_obs.omega * kDtFast;
+  // The identification's forced angle replaces the estimate (plan section 5.1).
+  const uint8_t kForced = forced_state_.load(std::memory_order_acquire);
+  if (kForced == kForcedNew) {
+    forced_now_ = forced_.Read();
+    forced_state_.store(kForcedOn, std::memory_order_relaxed);
+  } else if (kForced == kForcedOn) {
+    forced_now_.angle = forced_now_.angle + (forced_now_.speed * kDtSlow);
+  }
+  const bool kUseForced = kForced != kForcedOff;
+  const unit::Angle kThetaNow = kUseForced ? forced_now_.angle : mech_obs.theta;
+  const unit::Angle kStep = (kUseForced ? forced_now_.speed : mech_obs.omega) * kDtFast;
   const float kOutOffset = static_cast<float>(kNumSubSteps - 1U) + state.output_delay_half_periods;
 
   for (uint8_t k = 0U; k < kNumSubSteps; ++k) {
@@ -145,6 +155,45 @@ bool SlowUpdate::RunOnce() noexcept {
   state.double_buf.active.store(static_cast<uint8_t>(1U - kFinishedBuffer), std::memory_order_release);
   state.observer_pending.store(false, std::memory_order_release);
   return true;
+}
+
+// =============================================================================
+// accumulate_window — the measurement windows of the motor identification
+// =============================================================================
+
+void SlowUpdate::AccumulateWindow(const SubStepBuffer& cycle) noexcept {
+  const uint32_t kGeneration = window_generation_.load(std::memory_order_acquire);
+  if (kGeneration != window_running_) {
+    window_running_ = kGeneration;
+    window_sums_ = IdentificationWindowResult{};
+  }
+  const uint32_t kCycles = window_cycles_;
+  if (kCycles == 0U || window_sums_.cycles >= kCycles) {
+    return;  // cancelled, or complete and not yet requested again
+  }
+  window_sums_.current_mean = window_sums_.current_mean + cycle.i_dq_mean;
+  window_sums_.voltage_mean = window_sums_.voltage_mean + cycle.u_dq;
+  window_sums_.dc_link_mean = window_sums_.dc_link_mean + cycle.dc_link;
+  // The phasors of the sine: the currents at the phases of their samples, the
+  // voltage of each duty entry at the phase of its middle.
+  const bool kAxisD = cycle.injection_axis == static_cast<uint8_t>(InjectionAxis::kD);
+  for (uint8_t k = 0U; k < kNumSubSteps; ++k) {
+    const system::Rotor<unit::Current> kCurrent = cycle.i_ab_samples[k].ToRotor(cycle.sc[k]);
+    window_sums_.current_phasor.Add(kAxisD ? kCurrent.d : kCurrent.q,
+                                    InjectionSinCos(InjectionSamplePhase(cycle.cycle, k)));
+    const system::SinCos<unit::Ratio> kEntry = InjectionSinCos(InjectionEntryPhase(cycle.cycle, k));
+    window_sums_.voltage_phasor.Add(cycle.injection_amplitude * kEntry.sin, kEntry);
+  }
+  ++window_sums_.cycles;
+  if (window_sums_.cycles < kCycles) {
+    return;
+  }
+  const float kInverse = 1.0F / static_cast<float>(kCycles);
+  window_result_ = window_sums_;
+  window_result_.current_mean = window_sums_.current_mean * kInverse;
+  window_result_.voltage_mean = window_sums_.voltage_mean * kInverse;
+  window_result_.dc_link_mean = window_sums_.dc_link_mean * kInverse;
+  window_done_.store(kGeneration, std::memory_order_release);
 }
 
 // =============================================================================
