@@ -59,11 +59,12 @@ hardware. Finished items are collected under "Done" at the end.
     fast de-excitation with A_L and B_H. PMSM: brake resistor between DC+ and
     leg B, leg B low side as the chopper. Drawn in `hardware_4850` (sheet
     `aux_leg`); system plan section 5.2.1.
-12. The 4850 logic board becomes an **STM32G474RET6** and uses the G4
+12. The 4850 logic board becomes an **STM32G473RET6** (the part at hand, the
+    BCC's MCU; the G474 adds only the HRTIM) and uses the G4
     peripherals: OPAMP4 as PGA for the aux shunt, COMP plus DAC for
-    overcurrent, overvoltage and the chopper, HRTIM for the aux bridge, TIM1
+    overcurrent, overvoltage and the chopper, TIM8 for the aux bridge, TIM1
     for the phases, CORDIC and CCM SRAM in the hot path. The F7 is faster but
-    has no CAN FD. Concept and pins: `hardware_4850/docs/g474_logic_board.md`;
+    has no CAN FD. Concept and pins: `hardware_4850/docs/g473_logic_board.md`;
     system plan section 5.2.
 
 ## Next: Cyphal/CAN-FD (focus)
@@ -101,7 +102,7 @@ Plan: [docs/motor_identification_plan.md](docs/motor_identification_plan.md) (al
 ## Cart system
 
  - [ ] Measure the CPU load of the hot path on the BCC (DWT cycle counter: sample ISR, control cycle, observer) before the 4850 logic board is ordered; the estimate is about 45 % at 32 kHz PWM.
- - [ ] Check the internal G4 routes for the 4850 logic board in CubeMX: DAC to the COMP inverting inputs, COMP to the TIM1 break and to HRTIM events and faults, HRTIM sync with TIM1, ADC triggers for ADC1 to ADC4.
+ - [ ] Check the internal G4 routes for the 4850 logic board in CubeMX: DAC to the COMP inverting inputs, COMP to the TIM1 and TIM8 break, COMP3 to the TIM8 OCREF clear (OCRSEL), TIM8 as a slave of TIM1 (ITR0), ADC triggers for ADC1 to ADC4.
  - [ ] EESM data (field current, resistance, inductance) and brake resistor rating for the aux shunt value, the PGA gains and the de-excitation time.
  - [ ] Generalize `hardware/zephyr_bcc` to the G4 family so the 4850 logic board shares the hot path (board differences in the devicetree).
  - [ ] Fourth half bridge in the firmware: a platform-independent auxiliary output next to `hardware/power_stage_interface.hpp` with two roles selected by the motor type, excitation (EESM: `ExcitationController` sets the duty) and brake chopper (PMSM: DC-link threshold with hysteresis, on together with the overvoltage trip; resistor energy and temperature limit in a thread). The chopper reacts in hardware (G4 comparator to timer) where the routing allows it, the firmware sets the thresholds. Simulated first (see "Motor types").
@@ -210,7 +211,7 @@ down. The boundaries are documented in `CONTEXT.md` ("Unit Boundaries").
  - [x] Settings follow-ups: `PowerStageInterface::Enable()` is held off while a flash save runs, and `SettingsStore` takes a platform lock (Zephyr `k_mutex`) around every operation.
  - [x] Persist settings per register with the Zephyr settings subsystem on ZMS, live RAM tuning and a gated `SaveToFlash()` ([docs/settings_plan.md](docs/settings_plan.md)).
  - [x] Review fixes (2026-10-22): `PowerStageEnable()` checks the break flag again after the release (BCC and sim, not run on the board).
- - [x] Requirements and part choice for the STM32G4 redesign of the hardware_4850 logic board (2026-10-31, decisions 11 and 12): STM32G474RET6, pin assignment from ST's pin data, aux bridge on the power board with HRTIM, OPAMP PGA and COMP chopper path (system plan sections 5.2 and 5.2.1).
+ - [x] Requirements and part choice for the STM32G4 redesign of the hardware_4850 logic board (2026-10-31, decisions 11 and 12): STM32G473RET6, pin assignment from ST's pin data, aux bridge on the power board with TIM8, OPAMP PGA and COMP chopper path (system plan sections 5.2 and 5.2.1).
 
 ### Hot path and Zephyr port
 
