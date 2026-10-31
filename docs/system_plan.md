@@ -13,6 +13,10 @@
 >   steering angle sensor only.
 > - (2026-10-23) The new 4850 hardware gets a fourth half bridge: excitation
 >   winding of an EESM, or brake resistor with a PMSM (section 5.2.1).
+> - (2026-10-31) Design: the aux output is two half bridges on the power board
+>   (asymmetric H-bridge, low-side shunt, EESM first), and the logic board
+>   becomes an STM32G474RET6 that uses its OPAMPs, comparators, DACs and HRTIM
+>   (sections 5.2 and 5.2.1).
 > - (2026-10-23) Current focus: Cyphal/CAN-FD (cart messages, bus error
 >   handling, multi-node simulation; the order is in `TODO.md`, "Next").
 
@@ -35,18 +39,20 @@ connect to the VDC directly (IMU, GNSS, steering angle sensor, display).
 
 ### 2.1 What the 4850 hardware is (from the KiCad schematics)
 
-- **Power stage (`power/phase.sch`, three sheets):** per phase BSC040N08
-  MOSFETs (80 V), an LM5109B half-bridge driver, 2 mΩ shunts with an
-  INA240A1 inline current amplifier, NTC on the heat sink. Proven over years
+- **Power stage (`phase.kicad_sch`, three sheets):** per phase NCEP6080AG
+  MOSFETs as on the PCB (the KiCad 5 schematic still said BSC040N08), an
+  LM5109B half-bridge driver, 2 mΩ shunts with an INA240A1 inline current
+  amplifier, NTC on the heat sink. Proven over years
   in the quad (1.6 kW) and kept as it is.
 - **Logic (`logic/`):** STM32F730R8 (LQFP64), TCAN334 CAN transceiver
   (CAN FD capable), USB mini-B, 24LC04 EEPROM, Hall and motor temperature
   inputs, GS8632 op-amp filters for the current and voltage channels, LM5008
   and LMR12010 supplies from 48 V.
 
-The G4 redesign replaces only the logic board. Interfaces to the power
-board (PWM, ADC, supply) stay the same, so the power stage keeps its track
-record.
+The project is one KiCad 10 project since 2026-10-31. The G4 redesign
+replaces the logic board; the power board keeps its phases and connectors
+(PWM, ADC, supply) and gets the aux bridge (section 5.2.1) with its own
+connector.
 
 ## 3. System Architecture
 
@@ -94,12 +100,12 @@ record.
 | Message size | Every message fits in **one CAN FD frame** (at most 63 bytes payload). | No multi-frame transfers in the control loop; a later move to UDP or SPE only swaps the transport. |
 | Single Pair Ethernet | Later option, not in the first cart (section 6.5). | The Zephyr drivers and the Cyphal/UDP library are young. |
 | Simulation and PC transport | Cyphal/CAN-FD as well: `native_sim` on SocketCAN `vcan`, PC tools on a USB CAN FD adapter. Fallback if WSL2 has no `vcan`: Cyphal/UDP over the `native_sim` TAP driver (section 6.4). | One transport everywhere; the simulation tests the transport of the cart. |
-| Logic board MCU | **STM32G4** for the 4850 logic board (section 5.2), the same family as the BCC. | One hot-path platform: `hardware/zephyr_bcc` is the base, no H7 port. FDCAN on chip. |
+| Logic board MCU | **STM32G474RET6** for the 4850 logic board (2026-10-31, section 5.2), the same family as the BCC; the design uses its OPAMPs, comparators, DACs, HRTIM and CORDIC. | One hot-path platform: `hardware/zephyr_bcc` is the base, no H7 port. FDCAN on chip (the F7 has none). Protection and the chopper in hardware. CPU load measured on the BCC before the order. |
 | VDC firmware | **In this repository**, as a second Zephyr application (`apps/vdc/`) with a portable `lib/vehicle/`. The MCU is a Zephyr-supported STM32 (G4 or H7, section 5.3); a Raspberry Pi or an ESP32-P4 are out, they do not run this repository's Zephyr build. | One toolchain, one CI, shared libraries and DSDL, the whole cart in the simulation. |
 | Cyphal/serial | Not used. | No maintained C implementation (libserard). |
 | USB | Firmware update (DFU) only, later. The CDC-ACM console and the shell were dropped (2026-10-21): the bench log is on RTT, the log also goes out as `uavcan.diagnostic.Record`. | One operating interface; USB stays the recovery path. |
 | Settings | Cyphal registers on the existing `SettingsStore` (`docs/settings_plan.md`). | Already designed that way. |
-| Fourth half bridge on the 4850 | **One auxiliary half bridge per drive** (2026-10-23): excitation winding with an EESM, brake resistor on the DC link with a PMSM (section 5.2.1). | The overvoltage trip opens the phases, but above the back-EMF peak a PMSM keeps charging the DC link through the body diodes (section 7.1); a local chopper holds the DC link without the bus or the BMS. The same output makes the EESM usable on the 4850. |
+| Aux bridge on the 4850 | **Two half bridges on the power board** per drive (2026-10-23, design 2026-10-31): asymmetric H-bridge for the excitation winding of an EESM (priority), brake chopper with a PMSM, low-side shunt (section 5.2.1). | The overvoltage trip opens the phases, but above the back-EMF peak a PMSM keeps charging the DC link through the body diodes (section 7.1); a local chopper holds the DC link without the bus or the BMS. The same output makes the EESM usable on the 4850. |
 | Firmware update | Cyphal file service into flash bank 2 (512 KB dual-bank G4, `docs/settings_plan.md`); USB DFU as recovery. | Update all nodes over the bus without opening the cart. |
 
 ## 5. Hardware Plan
@@ -112,73 +118,84 @@ record.
   `TODO.md`).
 - Its hot path is the reference for the 4850 logic board.
 
-### 5.2 New 4850 logic board (STM32G4)
+### 5.2 New 4850 logic board (STM32G474RET6)
 
-Requirements for the redesign of [`logic/`](https://github.com/Tecnologic/hardware_4850/tree/master/logic):
+Decided 2026-10-31: the logic board is redesigned around an **STM32G474RET6**
+(LQFP64, 512 KB dual-bank flash) and uses the G4 peripherals throughout,
+instead of external parts. The hardware concept with the pin assignment is
+[`docs/g474_logic_board.md`](https://github.com/Tecnologic/hardware_4850/blob/master/docs/g474_logic_board.md)
+in `hardware_4850`.
 
-- **MCU:** an STM32G473 or STM32G474 with 512 KB dual-bank flash (for the
-  firmware update into bank 2), in LQFP64 like the current STM32F730R8
-  (for example STM32G473RET6). Check against the current interfaces: TIM1 or
-  TIM8 with the six PWM outputs and the break input, enough ADC channels on
-  at least three ADCs for simultaneous injected sampling of the three phase
-  currents and the DC link (the BCC uses ADC1 to ADC4), FDCAN1 pins, USB,
-  SWD, Hall inputs, temperatures.
-- **Current sensing:** the INA240A1 inline phase amplifiers stay. Like the
-  BCC (`kCurrentSenseIsLowSide = false`), they measure the phase current
-  independent of the switching state; check the gain, the offset and the
-  filter of the GS8632 stages against the G4 ADC range.
-- **CAN FD:** keep the TCAN334 (CAN FD capable), with a split termination
-  that can be populated at the bus ends.
-- **Keep:** USB for DFU, SWD, Hall and temperature inputs, the power board
-  connector and the supply topology.
+- **Why not the F7:** the STM32F7 is about twice as fast per MHz, but the
+  whole family has only bxCAN (no CAN FD), and the F730R8 has 64 KB flash.
+- **CPU load:** the hot-path estimate is about 45 % at 32 kHz PWM
+  (`docs/hotpath_plan.md`); the excitation loop adds a few hundred cycles.
+  Measured on the BCC (DWT cycle counter) before the board is ordered. If it is
+  far above the estimate, the fallback is an STM32H7 with a new platform port.
+- **Phase currents:** the INA240 inline amplifiers stay. The external op-amp
+  filter stages are dropped (RC anti-alias filter only). Simultaneous injected
+  sampling of Ia, Ib, Ic on ADC1 to ADC3 from TIM1, Vdc as the second rank.
+- **Aux current:** OPAMP4 in PGA mode directly at the Kelvin pair of the aux
+  shunt; the gain is set per motor type (high for the field current, low for
+  the chopper current). Its output pin is also ADC4_IN3.
+- **Protection without the CPU:** COMP1/2/4 with DAC thresholds on the phase
+  currents to the TIM1 break; COMP3 on Vdc (overvoltage) to the TIM1 break and
+  as an HRTIM event that starts the chopper or the de-excitation; COMP6 on the
+  aux shunt to an HRTIM fault. The external E-stop goes to TIM1_BKIN and
+  HRTIM_FLT2.
+- **PWM:** phases on TIM1 (the BCC uses TIM8; the timer is a devicetree
+  property). The aux bridge on HRTIM timers E and F, synchronized with TIM1,
+  with its own faults, so a phase trip does not stop the chopper.
+- **Computation:** CORDIC for sin/cos/atan2, hot code and data in CCM SRAM.
+- **CAN FD:** TCAN334 on FDCAN2, with a split termination that can be
+  populated at the bus ends.
+- **Keep:** USB for DFU, SWD/SWO, Hall and temperature inputs, the power board
+  connectors J103/J104 and the supply topology.
 - **Replace:** the 24LC04 EEPROM is no longer needed (settings on ZMS in the
   G4 flash, `docs/settings_plan.md`).
-- **Prepare for the later steering variant:** an SPI or I2C connector for an
+- **Prepare for the later steering variant:** an SPI connector (SPI3) for an
   absolute angle sensor.
-- **Fourth half bridge:** see section 5.2.1.
 - **Platform layer:** generalize `hardware/zephyr_bcc` to the G4 family, with
   the board differences (pins, ADC channels, timer, dead time, sample times)
-  in the devicetree (`foc0` node, as in `boards/unimoc/bcc/bcc.dts`). A new
-  board definition `boards/unimoc/drive4850/` (name to decide).
+  in the devicetree (`foc0` node, as in `boards/unimoc/bcc/bcc.dts`), plus the
+  HRTIM aux output, the OPAMP gain and the comparator thresholds. A new board
+  definition `boards/unimoc/drive4850/` (name to decide).
 
-#### 5.2.1 Fourth half bridge: excitation or brake chopper
+#### 5.2.1 Aux bridge: excitation or brake chopper
 
-Decided 2026-10-23: the new 4850 hardware gets one more half bridge next to
-the three phases. Its role follows the motor type (`unimoc.motor.type`):
+Decided 2026-10-23 (an auxiliary output per drive) and 2026-10-31 (design):
+the **power board** gets **two more half bridges** next to the three phases,
+an asymmetric H-bridge with a low-side shunt in each leg. Parts as the phases
+on the existing PCB (NCEP6080AG, LM5109B). The schematic is drawn in
+`hardware_4850` (sheet `aux_leg`, used as `aux_a` and `aux_b`); the layout is
+open. The EESM has priority; its role follows `unimoc.motor.type`:
 
-| Motor | Load on the half bridge | Function |
+| Motor | Load | Operation |
 |---|---|---|
-| EESM | Excitation (field) winding | `ExcitationController` (current or flux mode) sets the duty; `ExcitationObserver` filters the measured field current. |
-| PMSM | Brake resistor on the DC link | Brake chopper: switches on above a DC-link threshold (hysteresis or PWM) and while the overvoltage trip holds the phases off, so the body-diode charging of section 7.1 goes into the resistor. |
-| ASM | none (or brake resistor) | The ASM has no excitation winding; the output can serve as a chopper as with the PMSM. |
+| EESM | Field winding between F1 (leg A) and F2 (leg B) | Leg B low side stays on, leg A switches with synchronous freewheeling: the field current always flows through the leg B shunt, so it is measured in every switching state. `ExcitationController` sets the duty, `ExcitationObserver` filters the current. Fast de-excitation: A_L and B_H on, −Vdc across the winding. |
+| PMSM | Brake resistor between DC+ and F2 | Leg B low side is the chopper switch, leg B high side the freewheel. Switches on above a DC-link threshold and while the overvoltage trip holds the phases off (section 7.1). Leg A may stay unpopulated. |
+| ASM | none (or brake resistor) | As with the PMSM. |
 
-Requirements to settle in the schematic (nothing is designed yet):
-
-- **Placement:** on the new logic board or as an addition to the power board,
-  which otherwise stays unchanged (section 2.1). Same parts as the phases
-  (BSC040N08, LM5109B) where the rating fits.
-- **PWM:** a fourth channel synchronized with the phase timer (for example a
-  spare channel of TIM1/TIM8 or the HRTIM of the G474), with the same break
-  input, so the E-stop and the overcurrent break also stop it.
-- **Measurement:** the current of the half bridge (field current for the
-  excitation loop, resistor current for the chopper energy), the DC-link
-  voltage at the bridge.
-- **Chopper without the CPU:** like the BMS chopper (section 5.5), a G4
-  comparator with a DAC threshold drives the half bridge directly; the
-  firmware sets the thresholds and watches the resistor energy and
-  temperature in a thread. If the routing does not allow it, the chopper runs
-  in the zero-latency sample ISR (no kernel calls, no locks).
-- **Ratings:** field current and field voltage of the intended EESM; resistor
-  power and energy from the braking case (section 12, question 7), per drive.
-- **Field decay (EESM):** with the field current at zero the EESM has no
-  back-EMF, so a trip cannot charge the DC link once the field has decayed.
-  A single half bridge can only freewheel the field current, which decays
-  slowly; whether a faster de-excitation (asymmetric H-bridge, a second half
-  bridge, a freewheeling resistor) is needed depends on the field time
-  constant. Not checked against a real machine.
+- **EESM without chopper:** with the field current at zero the EESM has no
+  back-EMF. On an overvoltage trip the fast de-excitation removes the source
+  of the DC-link charging; the field energy (½·L·I²) goes back into the DC
+  link. A chopper is not needed for the EESM.
+- **Measurement:** the low-side shunt of leg B, Kelvin pair to the logic board
+  (OPAMP PGA, section 5.2). Its value follows from the field current; it also
+  carries the chopper current, so its power rating follows from the brake
+  resistor.
+- **Chopper without the CPU:** COMP3 (Vdc) with a DAC threshold and hysteresis
+  sets and resets the HRTIM output of leg B directly; the firmware sets the
+  thresholds and watches the resistor energy and temperature in a thread.
+- **Connector:** J110 AUX (2×5) on the power board: the four PWM signals, the
+  Kelvin pairs of both shunts and GNDPWR. J103 and J104 stay unchanged.
 - **Firmware:** an auxiliary output next to `hardware/power_stage_interface.hpp`
   and the hot-path bindings; the simulation models it first (`lib/sim`, ASM and
   EESM plants and a DC-link model, `TODO.md`, "Motor types").
+- **Open:** field current, resistance and inductance of the intended EESM
+  (shunt value, PGA gain, de-excitation time ≈ L_f·I_f/V_dc); brake resistor
+  power (section 12, question 7); the ground offset between the boards for the
+  millivolt Kelvin signals.
 
 ### 5.3 VDC
 
@@ -534,8 +551,8 @@ Not a safety concept; a list of what one must cover.
 ## 12. Open Questions
 
 1. **VDC MCU:** STM32G4 (recommended start) or STM32H7.
-2. **G4 part for the 4850 logic:** STM32G473RET6 or STM32G474RET6 (LQFP64,
-   512 KB); pin and ADC check against the current interfaces.
+2. **CPU load of the hot path on the G4:** measured on the BCC before the
+   4850 logic board is ordered (STM32G474RET6 decided, section 5.2).
 3. **Bit rates and cycle rate:** 1/4 or 1/2 Mbit/s, 250 or 500 Hz; from the
    bus test C2.
 4. **`vcan` on WSL2:** available, or the UDP-over-TAP fallback for the
@@ -546,10 +563,9 @@ Not a safety concept; a list of what one must cover.
 7. **Brake resistor:** power and energy rating from the cart mass, top speed
    and longest braking; chopper switch and its cooling.
 8. **Steering assist:** concept, torque sensor, interface (later).
-9. **Fourth half bridge (section 5.2.1):** placement (logic or power board),
-   PWM timer channel and comparator routing, current measurement, field and
-   resistor ratings, de-excitation of the EESM; whether the BMS still needs
-   its own chopper.
+9. **Aux bridge (section 5.2.1):** field current, resistance and inductance of
+   the EESM; brake resistor rating; ground offset of the Kelvin signals between
+   the boards; whether the BMS still needs its own chopper.
 
 ## 13. Risks
 
@@ -569,7 +585,13 @@ Not a safety concept; a list of what one must cover.
 - **ASM and EESM without a plant model:** the libraries exist, but the
   simulation and the runtime run the PMSM only; the fourth half bridge and
   the EESM are first tested in the sim once its plants exist.
-- **G4 pin and ADC budget in LQFP64:** checked before the schematic of
-  phase D; a larger package changes the logic board layout.
+- **G4 pin and ADC budget in LQFP64:** a pin assignment for the
+  STM32G474RET6 from ST's pin data exists (`hardware_4850`,
+  `docs/g474_logic_board.md`); the internal routes (DAC to COMP, COMP to the
+  TIM1 break and to the HRTIM, HRTIM sync with TIM1) still have to be checked
+  in CubeMX.
+- **G4 CPU load:** the hot path is estimated at about 45 % at 32 kHz PWM; if
+  the measurement on the BCC is far above that, the logic board needs an H7
+  and a new platform port.
 - **Vehicle model effort:** the VDC cannot be tested in the sim without it
   (phase F).

@@ -51,6 +51,21 @@ hardware. Finished items are collected under "Done" at the end.
 10. Work focuses on Cyphal/CAN-FD. The plans and this list were consolidated
     around it; the next steps are under "Next".
 
+### 2026-10-31
+
+11. The aux output of decision 9 is two half bridges on the **power board**
+    (asymmetric H-bridge, parts as the phases, low-side shunt with a Kelvin
+    pair to the logic board). EESM first: leg B low side on, leg A switches,
+    fast de-excitation with A_L and B_H. PMSM: brake resistor between DC+ and
+    leg B, leg B low side as the chopper. Drawn in `hardware_4850` (sheet
+    `aux_leg`); system plan section 5.2.1.
+12. The 4850 logic board becomes an **STM32G474RET6** and uses the G4
+    peripherals: OPAMP4 as PGA for the aux shunt, COMP plus DAC for
+    overcurrent, overvoltage and the chopper, HRTIM for the aux bridge, TIM1
+    for the phases, CORDIC and CCM SRAM in the hot path. The F7 is faster but
+    has no CAN FD. Concept and pins: `hardware_4850/docs/g474_logic_board.md`;
+    system plan section 5.2.
+
 ## Next: Cyphal/CAN-FD (focus)
 
 In this order; all without hardware unless marked.
@@ -85,7 +100,9 @@ Plan: [docs/motor_identification_plan.md](docs/motor_identification_plan.md) (al
 
 ## Cart system
 
- - [ ] Requirements and part choice for the STM32G4 redesign of the hardware_4850 logic board (STM32G473RET6 or G474RET6, pin and ADC check, system plan section 5.2), including the fourth half bridge (decision 9): its PWM channel synchronized with the phase timer, its current measurement (excitation current, resistor current), the comparator path for the chopper and the board it sits on.
+ - [ ] Measure the CPU load of the hot path on the BCC (DWT cycle counter: sample ISR, control cycle, observer) before the 4850 logic board is ordered; the estimate is about 45 % at 32 kHz PWM.
+ - [ ] Check the internal G4 routes for the 4850 logic board in CubeMX: DAC to the COMP inverting inputs, COMP to the TIM1 break and to HRTIM events and faults, HRTIM sync with TIM1, ADC triggers for ADC1 to ADC4.
+ - [ ] EESM data (field current, resistance, inductance) and brake resistor rating for the aux shunt value, the PGA gains and the de-excitation time.
  - [ ] Generalize `hardware/zephyr_bcc` to the G4 family so the 4850 logic board shares the hot path (board differences in the devicetree).
  - [ ] Fourth half bridge in the firmware: a platform-independent auxiliary output next to `hardware/power_stage_interface.hpp` with two roles selected by the motor type, excitation (EESM: `ExcitationController` sets the duty) and brake chopper (PMSM: DC-link threshold with hysteresis, on together with the overvoltage trip; resistor energy and temperature limit in a thread). The chopper reacts in hardware (G4 comparator to timer) where the routing allows it, the firmware sets the thresholds. Simulated first (see "Motor types").
  - [ ] Regenerative braking, open parts (the drive side, the BMS limits and the reporting to the VDC are done): the estimated speed in the limit on a dyno (the observer's torque model expects the shaft to slow; settles within some 300 ms in the sim), the BCC voltage ratings from the schematic, a per-sample overvoltage check in the sample interrupt.
@@ -193,6 +210,7 @@ down. The boundaries are documented in `CONTEXT.md` ("Unit Boundaries").
  - [x] Settings follow-ups: `PowerStageInterface::Enable()` is held off while a flash save runs, and `SettingsStore` takes a platform lock (Zephyr `k_mutex`) around every operation.
  - [x] Persist settings per register with the Zephyr settings subsystem on ZMS, live RAM tuning and a gated `SaveToFlash()` ([docs/settings_plan.md](docs/settings_plan.md)).
  - [x] Review fixes (2026-10-22): `PowerStageEnable()` checks the break flag again after the release (BCC and sim, not run on the board).
+ - [x] Requirements and part choice for the STM32G4 redesign of the hardware_4850 logic board (2026-10-31, decisions 11 and 12): STM32G474RET6, pin assignment from ST's pin data, aux bridge on the power board with HRTIM, OPAMP PGA and COMP chopper path (system plan sections 5.2 and 5.2.1).
 
 ### Hot path and Zephyr port
 
