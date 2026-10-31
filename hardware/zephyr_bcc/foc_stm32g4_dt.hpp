@@ -75,7 +75,7 @@ struct AdcDescription {
   AdcDescription {                                                                           \
     DT_REG_ADDR(UNIMOC_FOC_ADC(first)), UNIMOC_FOC_ADC_CH(first), UNIMOC_FOC_ADC_CH(second), \
         UNIMOC_FOC_SAMPLE_CODE(first_index), UNIMOC_FOC_SAMPLE_CODE(second_index),           \
-        UNIMOC_CLOCK_INFO(0, UNIMOC_FOC_ADC(first))                                          \
+        UNIMOC_CLOCK_INFO(0, DT_PARENT(UNIMOC_FOC_ADC(first)))                               \
   }
 // NOLINTEND(cppcoreguidelines-macro-usage)
 

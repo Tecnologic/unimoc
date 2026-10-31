@@ -29,7 +29,7 @@ uses the directory above the manifest repository):
     #   unpack it and run ./setup.sh -t arm-zephyr-eabi -h -c
     sudo apt-get install clang-tidy              # LLVM 18, as on the CI runner
 
-CMake >= 3.20 (Zephyr's minimum) and Ninja are required. The CI job
+CMake >= 3.28 (Zephyr's minimum since 4.5) and Ninja are required. The CI job
 (`.github/workflows/ci-zephyr.yml`) does the same with
 `zephyrproject-rtos/action-zephyr-setup`.
 

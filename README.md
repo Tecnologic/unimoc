@@ -1022,8 +1022,8 @@ beginning.
 
 ### Building Firmware (Zephyr)
 
-Requirements: Zephyr 4.4.0 with the Zephyr SDK 1.0.1 (`arm-zephyr-eabi`),
-CMake ≥ 3.20 (Zephyr's minimum), Ninja, Python 3 with `west`.  On Windows, run the build in WSL2.
+Requirements: Zephyr 4.5.0 with the Zephyr SDK 1.0.1 (`arm-zephyr-eabi`),
+CMake ≥ 3.28 (Zephyr's minimum since 4.5), Ninja, Python 3 with `west`.  On Windows, run the build in WSL2.
 The setup steps are in [`docs/zephyr_workflow.md`](docs/zephyr_workflow.md).
 
 Run these from the west workspace root, which contains `unimoc/` and `zephyr/`:

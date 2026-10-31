@@ -15,10 +15,10 @@
  */
 #pragma once
 
-// Zephyr generates <app_version.h> from the application's VERSION file.
+// Zephyr generates <zephyr/app_version.h> from the application's VERSION file.
 // Hosted builds do not have it and use the fallback below.
-#if __has_include(<app_version.h>)
-#include <app_version.h>
+#if __has_include(<zephyr/app_version.h>)
+#include <zephyr/app_version.h>
 #endif
 
 namespace unimoc::cyphal {
@@ -27,7 +27,7 @@ namespace unimoc::cyphal {
 /// Software major version from the Zephyr application VERSION file.
 inline constexpr unsigned kSwVersionMajor = APP_VERSION_MAJOR;
 #else
-/// Software major version (fallback without <app_version.h>).
+/// Software major version (fallback without <zephyr/app_version.h>).
 inline constexpr unsigned kSwVersionMajor = 1;
 #endif
 
@@ -35,7 +35,7 @@ inline constexpr unsigned kSwVersionMajor = 1;
 /// Software minor version from the Zephyr application VERSION file.
 inline constexpr unsigned kSwVersionMinor = APP_VERSION_MINOR;
 #else
-/// Software minor version (fallback without <app_version.h>).
+/// Software minor version (fallback without <zephyr/app_version.h>).
 inline constexpr unsigned kSwVersionMinor = 0;
 #endif
 

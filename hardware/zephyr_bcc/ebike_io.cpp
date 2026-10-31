@@ -117,7 +117,8 @@ void DisplayEdgeIsr(const void* /*argument*/) {
 }
 
 void DisplayUartIsr(const struct device* device, void* /*user_data*/) {
-  if (uart_irq_update(device) == 0 || uart_irq_tx_ready(device) == 0) {
+  uart_irq_update(device);  // void since Zephyr 4.5
+  if (uart_irq_tx_ready(device) == 0) {
     return;
   }
   std::array<uint8_t, 16> chunk{};

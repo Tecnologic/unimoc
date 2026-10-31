@@ -19,7 +19,7 @@ manifest:
   projects:
     - name: zephyr
       remote: zephyrproject-rtos
-      revision: v4.4.0
+      revision: v4.5.0
       import:
         # Only the modules UNIMOC needs. Extend when a feature requires one.
         name-allowlist:

@@ -27,7 +27,7 @@ log is on RTT and on the bus. The phase order below is the plan.
 
 | Topic | Decision |
 |---|---|
-| Zephyr version | 4.4.0 (released 2026-04-14), pinned in `west.yml`. A 4.5.0 release was not confirmed as of 2026-10-19; upgrade later via the migration guide. |
+| Zephyr version | 4.5.0, pinned in `west.yml` (from 4.4.0 on 2026-10-31, see "Zephyr 4.5 migration" below). |
 | Legacy firmware | Removed: the modm firmware, `cmake/Modm.cmake`, `cmake/ToolChain.cmake`, `requirements.txt` and `.github/workflows/ci-firmware.yml` were deleted in `6ca28d1`. The last legacy release stays on `main` until `develop` is merged there. |
 | Repository layout | Same repository. Zephyr application in `app/`, `lib/` consumed via `add_subdirectory`. |
 | Language standard | C++20 (`CONFIG_STD_CPP20`). `AGENTS.md`, `README.md` and the root `CMakeLists.txt` say C++20. |
@@ -131,8 +131,10 @@ log is on RTT and on the bus. The phase order below is the plan.
   multi-node simulation. Its upstream is a v3.0 alpha redesign, so pin a
   version deliberately.
 - native_sim: TAP driver (`eth_native_tap`) with Zephyr's IP stack. The
-  offloaded sockets (NSOS) of 4.4 pass no multicast socket options, which
-  Cyphal/UDP needs.
+  offloaded sockets (NSOS) of 4.4 passed no multicast socket options, which
+  Cyphal/UDP needs; the NSOS adapter of 4.5 maps `IP_ADD_MEMBERSHIP`,
+  `IP_MULTICAST_IF`, `IP_MULTICAST_TTL` and `IP_MULTICAST_LOOP` (source
+  check, not run), so NSOS may carry Cyphal/UDP without TAP.
 
 ### Phase 7 - CI and documentation
 - Done: twister (native_sim run, STM32G4 build) with clang-tidy as Zephyr
@@ -148,9 +150,16 @@ log is on RTT and on the bus. The phase order below is the plan.
 - C++20 with `std::atomic` and `<span>` under Zephyr's C++ library settings
   needs a short spike.
 - ZLI constraints on the callbacks behind `HardwareInterface`.
-- Zephyr 4.4 -> 4.5 upgrade: 4.5.0 is released and the update is in `TODO.md`;
-  expected to be a migration-guide exercise; no
-  4.5 feature is currently required.
+- Zephyr 4.5 migration (done 2026-10-31): generated headers only with the
+  `zephyr/` prefix (`<zephyr/app_version.h>`; with the old include,
+  `lib/cyphal/sw_version.hpp` would silently fall back to version 0.0), the
+  CAN state-change callback through `can_add_state_change_callback()`,
+  `uart_irq_update()` returns void, the STM32 ADC nodes are children of a
+  common node that carries the clock (`foc_stm32g4_dt.hpp` reads it from
+  the parent), twister takes `tags` only as a YAML list, CMake >= 3.28. The
+  BCC image grew by about 1 KB (text 188452 -> 189376 B, data 5544 -> 5656 B,
+  bss 73749 -> 73817 B); the sample ISR, the control cycle and the observer
+  interrupt kept their sizes and stay in flash. Not run on the board.
 - **CAN-FD on the BCC:** the transceiver is an SN65HVD230 (classic CAN, no CAN
   FD). Phase 5 needs a CAN-FD transceiver on the board, or it runs at classic
   CAN rates.

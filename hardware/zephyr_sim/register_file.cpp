@@ -19,7 +19,7 @@
  */
 
 #include "register_file.hpp"
-#include <app_version.h>
+#include <zephyr/app_version.h>
 #include <array>
 #include <charconv>
 #include <cinttypes>
