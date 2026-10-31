@@ -148,7 +148,8 @@ log is on RTT and on the bus. The phase order below is the plan.
 - C++20 with `std::atomic` and `<span>` under Zephyr's C++ library settings
   needs a short spike.
 - ZLI constraints on the callbacks behind `HardwareInterface`.
-- Zephyr 4.4 -> 4.5 upgrade: expected to be a migration-guide exercise; no
+- Zephyr 4.4 -> 4.5 upgrade: 4.5.0 is released and the update is in `TODO.md`;
+  expected to be a migration-guide exercise; no
   4.5 feature is currently required.
 - **CAN-FD on the BCC:** the transceiver is an SN65HVD230 (classic CAN, no CAN
   FD). Phase 5 needs a CAN-FD transceiver on the board, or it runs at classic
