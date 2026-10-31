@@ -161,6 +161,16 @@ template <typename U>
 concept ClampsWithScalars = requires(U value) { value.Clamp(0.0F, 1.0F); };
 static_assert(!ClampsWithScalars<Current>);
 
+ZTEST(units, test_noise_variances_follow_from_the_formula) {
+  // Angle noise of a speed-weighted measurement: R + k / omega^2.
+  const AngleVariance kNoise = 1e-4_rad2 + (4.0_rad4_per_s2 / (2.0_rad_per_s * 2.0_rad_per_s));
+  UNIMOC_EXPECT_FLOAT_EQ(kNoise, 1.0001_rad2);
+  // Speed noise of an angle variance spread over a time: R / tau^2.
+  const AngularVelocityVariance kSpeedNoise = 3e-2_rad2 / (0.1_s * 0.1_s);
+  UNIMOC_EXPECT_FLOAT_EQ(kSpeedNoise, 3.0_rad_per_s * 1.0_rad_per_s);
+  UNIMOC_EXPECT_FLOAT_EQ(Sqrt(0.25_rad2), 0.5_rad);
+}
+
 ZTEST(units, test_abs_min_max_keep_the_unit) {
   UNIMOC_EXPECT_FLOAT_EQ(Abs(-3.5_A), 3.5_A);
   UNIMOC_EXPECT_FLOAT_EQ(Abs(3.5_A), 3.5_A);

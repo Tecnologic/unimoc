@@ -2,6 +2,18 @@
 #
 # Synchronous wrapper around a pycyphal node for the integration tests: one
 # CAN interface (slcan, classic CAN), local node-ID 127, the drive at node-ID 10.
+#
+# Durations (wait, hold, publish_for, the settle time of latest) are virtual
+# time of the drive, counted by the control cycles of its telemetry: the
+# simulation runs only about 1.4 times faster than real time, so on a loaded
+# machine (twister builds the other scenarios in parallel) it falls behind the
+# wall clock, and a timeout of the drive would not have elapsed yet.
+#
+# The readiness and setpoint of hold() stay on the bus after it returns, also
+# while the client waits for a service response or a message: a slow response
+# on a loaded machine would otherwise outlast the 0.5 s command timeout and
+# disengage the drive between two holds. wait() and publish_for() end them,
+# where a test wants the drive to see the readiness stop.
 
 from __future__ import annotations
 
@@ -19,6 +31,7 @@ import uavcan.diagnostic
 import uavcan.node
 import uavcan.node.port
 import uavcan.primitive.array
+import uavcan.primitive.scalar
 import uavcan.register
 import uavcan.si.unit.angle
 import uavcan.si.unit.angular_acceleration
@@ -48,6 +61,8 @@ PORT_WHEEL_COMMAND = 110
 PORT_PEDAL_STATE = 111
 PORT_BATTERY_STATUS = 112
 PORT_DRIVE_STATUS = 214
+PORT_COMMISSIONING = 215
+PORT_HOMING_STATE = 204
 
 # Trace services (cymon), defaults of the uavcan.srv.cymon_*.id registers.
 PORT_CYMON_VARIABLES = 120
@@ -62,6 +77,8 @@ VENDOR_TRIP_LATCHED = 0x10
 VENDOR_EMERGENCY_STOP = 0x20
 VENDOR_SETTINGS_PENDING = 0x40
 VENDOR_LOCAL_CONTROL = 0x80
+
+CONTROL_CYCLE = 62.5e-6  # [s], unimoc.sim.cycle_period_ns at the default 32 kHz PWM
 
 ENGAGED = reg.udral.service.common.Readiness_0_1.ENGAGED
 SLEEP = reg.udral.service.common.Readiness_0_1.SLEEP
@@ -96,6 +113,9 @@ class SimClient:
         self.loop = loop
         self.pty = pty
         self.records: list[str] = []
+        self.virtual_time = 0.0  # [s] control cycles seen in the telemetry; continues over a controller restart
+        self._last_cycles: int | None = None
+        self._stream: asyncio.Task | None = None  # readiness and setpoint of the last hold()
         self._run(self._start())
 
     def _run(self, coroutine):
@@ -115,9 +135,14 @@ class SimClient:
         self.telemetry = self.node.make_subscriber(unimoc.drive.Telemetry_0_1, PORT_TELEMETRY)
         self.plant = self.node.make_subscriber(unimoc.sim.Plant_0_1, PORT_PLANT)
         self.drive_status = self.node.make_subscriber(unimoc.cart.DriveStatus_0_1, PORT_DRIVE_STATUS)
+        self.commissioning = self.node.make_subscriber(unimoc.drive.CommissioningStatus_0_1, PORT_COMMISSIONING)
+        self.homing = self.node.make_subscriber(uavcan.primitive.scalar.Natural8_1_0, PORT_HOMING_STATE)
         self.port_list = self.node.make_subscriber(uavcan.node.port.List_1_0)
         self.diagnostic = self.node.make_subscriber(uavcan.diagnostic.Record_1_1)
         self.diagnostic.receive_in_background(self._on_record)
+        # A second subscriber of the telemetry for the clock; latest(self.telemetry) keeps its own queue.
+        self._clock = self.node.make_subscriber(unimoc.drive.Telemetry_0_1, PORT_TELEMETRY)
+        self._clock.receive_in_background(self._on_clock)
         self.readiness = self.node.make_publisher(reg.udral.service.common.Readiness_0_1, PORT_READINESS)
         self.current = self.node.make_publisher(unimoc.drive.CurrentSetpoint_0_1, PORT_CURRENT_SETPOINT)
         self.torque = self.node.make_publisher(uavcan.si.unit.torque.Scalar_1_0, PORT_TORQUE_SETPOINT)
@@ -130,9 +155,39 @@ class SimClient:
     async def _on_record(self, record: uavcan.diagnostic.Record_1_1, _meta) -> None:
         self.records.append(record.text.tobytes().decode())
 
+    async def _on_clock(self, telemetry: unimoc.drive.Telemetry_0_1, _meta) -> None:
+        cycles = int(telemetry.control_cycles)
+        if self._last_cycles is not None:
+            # A restart of the controller (settings, reset of the simulation) counts from 0 again.
+            self.virtual_time += (cycles - self._last_cycles if cycles >= self._last_cycles else cycles) * CONTROL_CYCLE
+        self._last_cycles = cycles
+
+    async def _sleep(self, seconds: float, wall: bool = False) -> None:
+        """Sleeps @p seconds of virtual time, or of wall time with @p wall.
+
+        Virtual time advances in steps of the telemetry period (50 ms), so the
+        sleep ends up to one step later. When virtual time stands still (a
+        paused simulation, a restart, no telemetry) for ten times @p seconds
+        of wall time, the sleep ends; a slow simulation that still advances
+        (a loaded machine) gets all the wall time it needs.
+        """
+        if wall:
+            await asyncio.sleep(seconds)
+            return
+        start = self.virtual_time
+        stall_limit = 10.0 * seconds + 1.0
+        last_progress, last_time = self.loop.time(), self.virtual_time
+        while self.virtual_time - start < seconds:
+            if self.virtual_time != last_time:
+                last_progress, last_time = self.loop.time(), self.virtual_time
+            elif self.loop.time() - last_progress > stall_limit:
+                break
+            await asyncio.sleep(0.01)
+
     def close(self) -> None:
         if self.node is None:
             return
+        self._stop_stream()
         self.node.close()
         self.node = None
         self._run(asyncio.sleep(0.5))  # let the media threads stop
@@ -178,9 +233,14 @@ class SimClient:
             names.append(text)
         return names
 
-    def command(self, code: int) -> int:
-        request = uavcan.node.ExecuteCommand_1_3.Request(command=code)
-        return self.call(uavcan.node.ExecuteCommand_1_3, request).status
+    def command(self, code: int, parameter: str = "") -> int:
+        return self.command_output(code, parameter)[0]
+
+    def command_output(self, code: int, parameter: str = "") -> tuple[int, str]:
+        """The status and the output text of an ExecuteCommand."""
+        request = uavcan.node.ExecuteCommand_1_3.Request(command=code, parameter=parameter)
+        response = self.call(uavcan.node.ExecuteCommand_1_3, request)
+        return response.status, response.output.tobytes().decode()
 
     # --- Traces (cymon) -----------------------------------------------------------
 
@@ -215,13 +275,13 @@ class SimClient:
         return self.call(cymon.ReadSamples_0_1, request, port=PORT_CYMON_READ)
 
     def trace_wait_complete(self, timeout: float = 5.0) -> cymon.ReadSamples_0_1.Response:
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
+        """Polls the capture until it is complete, for at most @p timeout seconds of virtual time."""
+        for _ in range(round(timeout / 0.05)):
             status = self.trace_read()
             if status.state.value == cymon.CaptureState_0_1.COMPLETE:
                 return status
             self.wait(0.05)
-        raise AssertionError("the capture did not complete")
+        raise AssertionError(f"the capture did not complete (state {status.state.value})")
 
     def trace_frames(self) -> list[list[float]]:
         """Reads a complete capture page by page; one list of channel values per frame."""
@@ -267,7 +327,8 @@ class SimClient:
     def latest(self, subscriber, settle: float = 0.3):
         """The newest message after @p settle seconds (drops what was queued before)."""
         async def go():
-            await asyncio.sleep(settle)
+            if settle > 0.0:
+                await self._sleep(settle)
             last = None
             while (result := await subscriber.receive_for(0.0)) is not None:
                 last = result
@@ -279,27 +340,57 @@ class SimClient:
         return self._run(go())
 
     def hold(self, seconds: float, readiness: int, setpoint: Callable[[], None] | None = None,
-             period: float = 0.05) -> None:
-        """Publishes readiness (and a setpoint) every @p period for @p seconds."""
-        async def go():
-            deadline = self.loop.time() + seconds
-            while self.loop.time() < deadline:
-                await self.readiness.publish(reg.udral.service.common.Readiness_0_1(readiness))
-                if setpoint is not None:
-                    await setpoint()
-                await asyncio.sleep(period)
+             period: float = 0.05, wall: bool = False) -> None:
+        """Publishes readiness (and a setpoint) every @p period of wall time for @p seconds.
 
-        self._run(go())
+        The publications go on in the background after the return (see the
+        header) until the next hold(), wait(), publish_for() or close().
+        """
+        async def publish():
+            await self.readiness.publish(reg.udral.service.common.Readiness_0_1(readiness))
+            if setpoint is not None:
+                await setpoint()
+
+        self._stop_stream()
+
+        async def start():
+            self._stream = asyncio.ensure_future(self._repeat_forever(publish, period))
+            await self._sleep(seconds, wall)
+
+        self._run(start())
 
     def publish_for(self, seconds: float, setpoint: Callable[[], None], period: float = 0.02) -> None:
-        """Publishes @p setpoint every @p period for @p seconds, without the readiness."""
-        async def go():
-            deadline = self.loop.time() + seconds
-            while self.loop.time() < deadline:
-                await setpoint()
-                await asyncio.sleep(period)
+        """Publishes @p setpoint every @p period of wall time for @p seconds, without the readiness."""
+        self._stop_stream()
+        self._run(self._repeat(setpoint, seconds, period, False))
 
-        self._run(go())
+    async def _repeat(self, publish: Callable[[], Any], seconds: float, period: float, wall: bool) -> None:
+        """Calls @p publish every @p period of wall time until @p seconds have passed (see _sleep)."""
+        done = asyncio.ensure_future(self._sleep(seconds, wall))
+        try:
+            while not done.done():
+                await publish()
+                await asyncio.wait([done], timeout=period)
+        finally:
+            done.cancel()
+
+    @staticmethod
+    async def _repeat_forever(publish: Callable[[], Any], period: float) -> None:
+        """Calls @p publish every @p period of wall time while the event loop runs, until cancelled."""
+        while True:
+            await publish()
+            await asyncio.sleep(period)
+
+    def _stop_stream(self) -> None:
+        """Ends the background publications of the last hold()."""
+        if self._stream is None:
+            return
+        self._stream.cancel()
+        try:
+            self._run(self._stream)
+        except asyncio.CancelledError:
+            pass
+        self._stream = None
 
     def wheel_command(self, front_left: float):
         """Wheel command with @p front_left [N m] for the drive's wheel, the others zero."""
@@ -356,5 +447,10 @@ class SimClient:
 
         return publish
 
-    def wait(self, seconds: float) -> None:
-        self._run(asyncio.sleep(seconds))
+    def wait(self, seconds: float, wall: bool = False) -> None:
+        """Waits @p seconds of virtual time, or of wall time with @p wall (see _sleep), without publishing.
+
+        Ends the readiness and setpoint of the last hold(): the drive sees them stop.
+        """
+        self._stop_stream()
+        self._run(self._sleep(seconds, wall))

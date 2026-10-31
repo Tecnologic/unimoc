@@ -18,6 +18,7 @@
 #include "drive_node.hpp"
 #include <reg/udral/physics/dynamics/rotation/Planar_0_1.h>
 #include <reg/udral/service/common/Readiness_0_1.h>
+#include <uavcan/primitive/scalar/Natural8_1_0.h>
 #include <uavcan/si/unit/angle/Scalar_1_0.h>
 #include <uavcan/si/unit/angular_velocity/Scalar_1_0.h>
 #include <uavcan/si/unit/torque/Scalar_1_0.h>
@@ -25,6 +26,7 @@
 #include <unimoc/cart/DriveStatus_0_1.h>
 #include <unimoc/cart/PedalState_0_1.h>
 #include <unimoc/cart/WheelCommand_0_1.h>
+#include <unimoc/drive/CommissioningStatus_0_1.h>
 #include <unimoc/drive/CurrentSetpoint_0_1.h>
 #include <unimoc/drive/Telemetry_0_1.h>
 #include <array>
@@ -57,7 +59,7 @@ struct InfoRegister {
   std::string_view type;  ///< Empty: the unique-ID register.
 };
 
-constexpr std::array<InfoRegister, 19> kInfoRegisters{{
+constexpr std::array<InfoRegister, 21> kInfoRegisters{{
     {cyphal::reg::kSubReadinessType, "reg.udral.service.common.Readiness.0.1"},
     {cyphal::reg::kSubCurrentSetpointType, "unimoc.drive.CurrentSetpoint.0.1"},
     {cyphal::reg::kSubTorqueSetpointType, "uavcan.si.unit.torque.Scalar.1.0"},
@@ -69,6 +71,8 @@ constexpr std::array<InfoRegister, 19> kInfoRegisters{{
     {cyphal::reg::kSubPedalStateType, "unimoc.cart.PedalState.0.1"},
     {cyphal::reg::kSubBatteryStatusType, "unimoc.cart.BatteryStatus.0.1"},
     {cyphal::reg::kPubDriveStatusType, "unimoc.cart.DriveStatus.0.1"},
+    {cyphal::reg::kPubCommissioningType, "unimoc.drive.CommissioningStatus.0.1"},
+    {cyphal::reg::kPubHomingStateType, "uavcan.primitive.scalar.Natural8.1.0"},
     {cyphal::reg::kSrvCymonVariablesType, "cymon.GetVariableList.0.1"},
     {cyphal::reg::kSrvCymonBufferInfoType, "cymon.GetBufferInfo.0.1"},
     {cyphal::reg::kSrvCymonSetupType, "cymon.SetupCapture.0.1"},
@@ -169,7 +173,7 @@ template <std::size_t kSize>
 /// Measured current in the rotor frame of the observer angle (a snapshot without locking the control cycle).
 [[nodiscard]] system::Rotor<unit::Current> MeasuredCurrent(const CurrentControlIsr& isr) noexcept {
   const system::SinCos<unit::Ratio> kSinCos(isr.mech_obs.theta);
-  return isr.state.raw_phase_currents.ToStator().ToRotor(kSinCos);
+  return isr.state.phase_currents.ToStator().ToRotor(kSinCos);
 }
 
 }  // namespace
@@ -238,7 +242,7 @@ DriveNode::DriveNode(cyphal::CyphalNode& node,
       settings_registers_{store},
       info_registers_{unique_id, settings_waiting_, bus_off_count_},
       startup_{CurrentControlIsr::Instance(), store.GetOperations()},
-      startup_registers_{startup_, engaged_} {}
+      commissioning_{startup_, engaged_, emergency_stop_} {}
 
 bool DriveNode::Start(const uint64_t now_us) noexcept {
   now_us_ = now_us;
@@ -259,6 +263,8 @@ bool DriveNode::Start(const uint64_t now_us) noexcept {
   telemetry_ = cyphal::Publisher{live.pub_telemetry_id, cyphal::Priority::kHigh, 0U};
   // After the wheel command (VDC) and with the pedal state (system plan section 6.2).
   drive_status_ = cyphal::Publisher{live.pub_drive_status_id, cyphal::Priority::kFast, 0U};
+  commissioning_publisher_ = cyphal::Publisher{live.pub_commissioning_id, cyphal::Priority::kNominal, 0U};
+  homing_publisher_ = cyphal::Publisher{live.pub_homing_state_id, cyphal::Priority::kNominal, 0U};
   // The runtime was started by main() with these settings.
   applied_writes_ = settings_registers_.WriteCount();
   checked_writes_ = applied_writes_;
@@ -267,7 +273,7 @@ bool DriveNode::Start(const uint64_t now_us) noexcept {
 
   bool subscribed = node_->AddRegisterProvider(settings_registers_);
   subscribed = node_->AddRegisterProvider(info_registers_) && subscribed;
-  subscribed = node_->AddRegisterProvider(startup_registers_) && subscribed;
+  subscribed = node_->AddRegisterProvider(commissioning_) && subscribed;
   subscribed = node_->AddRegisterProvider(timing_registers_) && subscribed;
   subscribed =
       node_->Subscribe(readiness_port_, reg_udral_service_common_Readiness_0_1_EXTENT_BYTES_, *this) &&
@@ -297,6 +303,8 @@ bool DriveNode::Start(const uint64_t now_us) noexcept {
                subscribed;
   subscribed = node_->AddPublisher(telemetry_) && subscribed;
   subscribed = node_->AddPublisher(drive_status_) && subscribed;
+  subscribed = node_->AddPublisher(commissioning_publisher_) && subscribed;
+  subscribed = node_->AddPublisher(homing_publisher_) && subscribed;
   node_->SetCommandHandler(*this);
   node_->SetNodeIdListener(*this);
 
@@ -319,6 +327,7 @@ void DriveNode::Spin(const uint64_t now_us) noexcept {
     Engage();
   }
   SpinStartup();
+  PublishCommissioning(now_us);
   SpinEngagement(now_us);
   // The outer loop commands zero current while the drive is disengaged.
   OuterSetpoint setpoint = setpoint_;
@@ -341,6 +350,7 @@ void DriveNode::Spin(const uint64_t now_us) noexcept {
   if (Due(drive_status_period_us_, now_us, next_drive_status_us_)) {
     PublishDriveStatus();
   }
+  PublishHoming(now_us);
 
   if (restart_requested_ && now_us >= restart_at_us_ && hooks_.restart != nullptr) {
     restart_requested_ = false;
@@ -361,10 +371,10 @@ void DriveNode::SpinLocalControl(const uint64_t now_us) noexcept {
   vehicle.motor_speed = kOuter.speed;
   vehicle.torque_min = kOuter.torque_min;
   vehicle.torque_max = kOuter.torque_max;
-  vehicle.dc_link = isr.state.raw_vdc;
+  vehicle.dc_link = isr.state.dc_link;
   // Battery current from the mechanical power, as in the drive status.
   vehicle.battery_current =
-      (isr.state.raw_vdc > unit::Voltage{}) ? (kTorque * kOuter.speed) / isr.state.raw_vdc : unit::Current{};
+      (isr.state.dc_link > unit::Voltage{}) ? (kTorque * kOuter.speed) / isr.state.dc_link : unit::Current{};
   vehicle.motor_temperature = motor_->GetTemperatureMeasurements().motor.value_or(unit::Temperature{});
   vehicle.engaged = engaged_;
   vehicle.faulted = rearm_required_;
@@ -767,7 +777,11 @@ void DriveNode::Disengage(const std::string_view reason) noexcept {
   }
 }
 
-uint8_t DriveNode::OnCommand(const uint16_t command, std::span<const uint8_t> /*parameter*/) noexcept {
+cyphal::CommandResult DriveNode::OnCommand(const uint16_t command,
+                                           const std::span<const uint8_t> parameter) noexcept {
+  if (Commissioning::Handles(command)) {
+    return commissioning_.OnCommand(command, parameter);
+  }
   auto operations = store_->GetOperations();
   switch (command) {
     case cyphal::cmd::kCommandRestart:
@@ -775,37 +789,44 @@ uint8_t DriveNode::OnCommand(const uint16_t command, std::span<const uint8_t> /*
       Disengage("restart");
       restart_requested_ = true;
       restart_at_us_ = now_us_ + kRestartDelayUs;
-      return cyphal::cmd::kStatusSuccess;
+      return {cyphal::cmd::kStatusSuccess, ""};
     case cyphal::cmd::kCommandEmergencyStop:
       emergency_stop_ = true;
-      startup_.RequestAbort();
+      startup_.RequestAbort(startup::StartupFault::kEmergencyStop);
       Disengage("emergency stop");
-      return cyphal::cmd::kStatusSuccess;
+      return {cyphal::cmd::kStatusSuccess, ""};
+    case cyphal::cmd::kCmdResetTiming:
+      TimingRegisters::ResetStatistics();
+      return {cyphal::cmd::kStatusSuccess, ""};
+    case cyphal::cmd::kCmdStartHoming:
+      return StartHoming();
     case cyphal::cmd::kCommandStorePersistentStates: {
       const settings::SettingsStatus kStatus = operations.SaveToFlash();
       if (kStatus == settings::SettingsStatus::kSuccess) {
-        return cyphal::cmd::kStatusSuccess;
+        return {cyphal::cmd::kStatusSuccess, ""};
       }
-      return (kStatus == settings::SettingsStatus::kPersistBlocked) ? cyphal::cmd::kStatusBadState
-                                                                    : cyphal::cmd::kStatusFailure;
+      return (kStatus == settings::SettingsStatus::kPersistBlocked)
+                 ? cyphal::CommandResult{cyphal::cmd::kStatusBadState, "outputs released: disengage first"}
+                 : cyphal::CommandResult{cyphal::cmd::kStatusFailure, "flash write failed"};
     }
     case cyphal::cmd::kCommandFactoryReset: {
       if (engaged_ || startup_.IsActive()) {
-        return cyphal::cmd::kStatusBadState;
+        return {cyphal::cmd::kStatusBadState, ""};
       }
       if (operations.ResetToFactoryDefaults() != settings::SettingsStatus::kSuccess) {
-        return cyphal::cmd::kStatusFailure;
+        return {cyphal::cmd::kStatusFailure, ""};
       }
       settings_pending_ = true;
       const settings::SettingsStatus kStatus = operations.SaveToFlash();
       if (kStatus == settings::SettingsStatus::kSuccess) {
-        return cyphal::cmd::kStatusSuccess;
+        return {cyphal::cmd::kStatusSuccess, ""};
       }
-      return (kStatus == settings::SettingsStatus::kPersistBlocked) ? cyphal::cmd::kStatusBadState
-                                                                    : cyphal::cmd::kStatusFailure;
+      return (kStatus == settings::SettingsStatus::kPersistBlocked)
+                 ? cyphal::CommandResult{cyphal::cmd::kStatusBadState, "outputs released: disengage first"}
+                 : cyphal::CommandResult{cyphal::cmd::kStatusFailure, "flash write failed"};
     }
     default:
-      return cyphal::cmd::kStatusBadCommand;
+      return {cyphal::cmd::kStatusBadCommand, ""};
   }
 }
 
@@ -843,7 +864,7 @@ void DriveNode::PublishTelemetry() noexcept {
   telemetry.u_q = state.u_dq_last.q.Value();
   telemetry.electrical_angle = observer::WrapAnglePositive(kAngle).Value();
   telemetry.electrical_speed = isr.mech_obs.omega.Value();
-  telemetry.dc_link_voltage = state.raw_vdc.Value();
+  telemetry.dc_link_voltage = state.dc_link.Value();
   telemetry.power_stage = static_cast<uint8_t>(kPowerStage.GetState());
   telemetry.overcurrent_tripped = state.overcurrent_tripped;
   telemetry.engaged = engaged_;
@@ -877,10 +898,10 @@ void DriveNode::PublishDriveStatus() noexcept {
   status.estimated_torque = cart_.ToCart(kTorque).Value();
   status.drive_torque_limit = kDriveLimit.Value();
   status.brake_torque_limit = kBrakeLimit.Value();
-  status.dc_link_voltage = state.raw_vdc.Value();
+  status.dc_link_voltage = state.dc_link.Value();
   // Battery current from the mechanical power (the estimate of control::DcLinkLimit).
-  status.dc_link_current = (state.raw_vdc > unit::Voltage{})
-                               ? ((kTorque * kOuter.speed) / state.raw_vdc).Value()
+  status.dc_link_current = (state.dc_link > unit::Voltage{})
+                               ? ((kTorque * kOuter.speed) / state.dc_link).Value()
                                : std::numeric_limits<float>::quiet_NaN();
   status.power_stage_temperature = Kelvin(kTemperatures.bridge);
   status.motor_temperature = Kelvin(kTemperatures.motor);
@@ -897,6 +918,59 @@ void DriveNode::PublishDriveStatus() noexcept {
   if (unimoc_cart_DriveStatus_0_1_serialize_(&status, reinterpret_cast<uint8_t*>(buffer.data()), &size) >=
       0) {
     (void)node_->Publish(drive_status_, std::span<const std::byte>{buffer.data(), size});
+  }
+}
+
+cyphal::CommandResult DriveNode::StartHoming() noexcept {
+  if (!engaged_ || setpoint_.mode != cyphal::ControlMode::kPosition) {
+    return {cyphal::cmd::kStatusBadState, "engage in position control first"};
+  }
+  if (!(applied_settings_.pos_homing_current > unit::Current{})) {
+    return {cyphal::cmd::kStatusBadState, "homing off: homing_current is 0"};
+  }
+  if (!(unit::Abs(applied_settings_.pos_homing_speed) > unit::AngularVelocity{})) {
+    return {cyphal::cmd::kStatusBadState, "homing off: homing_speed is 0"};
+  }
+  if (OuterLoop::Instance().Status().homing == control::HomingState::kSearching) {
+    return {cyphal::cmd::kStatusBadState, "homing runs already"};
+  }
+  OuterLoop::Instance().StartHoming();
+  (void)node_->Log(cyphal::Severity::kInfo, "homing started");
+  return {cyphal::cmd::kStatusSuccess, ""};
+}
+
+void DriveNode::PublishHoming(const uint64_t now_us) noexcept {
+  const control::HomingState kState = OuterLoop::Instance().Status().homing;
+  if (homing_published_ && kState == last_homing_ && now_us < next_homing_us_) {
+    return;
+  }
+  const bool kSearching = kState == control::HomingState::kSearching;
+  next_homing_us_ = now_us + (kSearching ? kHomingActivePeriodUs : kHomingIdlePeriodUs);
+  last_homing_ = kState;
+  homing_published_ = true;
+
+  uavcan_primitive_scalar_Natural8_1_0 message{};
+  message.value = static_cast<uint8_t>(kState);
+  std::array<std::byte, uavcan_primitive_scalar_Natural8_1_0_SERIALIZATION_BUFFER_SIZE_BYTES_> buffer{};
+  std::size_t size = buffer.size();
+  if (uavcan_primitive_scalar_Natural8_1_0_serialize_(&message,
+                                                      reinterpret_cast<uint8_t*>(buffer.data()),
+                                                      &size) >= 0) {
+    (void)node_->Publish(homing_publisher_, std::span<const std::byte>{buffer.data(), size});
+  }
+}
+
+void DriveNode::PublishCommissioning(const uint64_t now_us) noexcept {
+  unimoc_drive_CommissioningStatus_0_1 status{};
+  if (!commissioning_.Due(now_us, status)) {
+    return;
+  }
+  std::array<std::byte, unimoc_drive_CommissioningStatus_0_1_SERIALIZATION_BUFFER_SIZE_BYTES_> buffer{};
+  std::size_t size = buffer.size();
+  if (unimoc_drive_CommissioningStatus_0_1_serialize_(&status,
+                                                      reinterpret_cast<uint8_t*>(buffer.data()),
+                                                      &size) >= 0) {
+    (void)node_->Publish(commissioning_publisher_, std::span<const std::byte>{buffer.data(), size});
   }
 }
 

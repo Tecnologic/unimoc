@@ -116,7 +116,12 @@ wake the control thread every eighth cycle).
 ### Control cycle (target 1500 cycles, 9 µs)
 
 1. Samples of the cycle from the hardware (scaled, the disturbed phase
-   reconstructed). Repeat of the overcurrent check, latch, neutral plan.
+   reconstructed), then the calibration of the startup aid on every sample:
+   i = (i_raw - offset) · gain per phase, v = v_raw · gain_vdc (2026-10-29;
+   the raw sample stays in `raw_phase_currents` for the startup aid). Repeat
+   of the overcurrent check on the calibrated currents, latch, neutral plan.
+   The per-sample check of the sample interrupt stays on raw counts: it is
+   off by at most the offset and the gain error.
 2. Clarke and Park per sample with `sc[k]`, mean.
 3. PI with decoupling once per cycle (dt = 62.5 µs).
 4. Four entries: inverse Park with `sc_out[k]`, plus HFI step k, dead-time
@@ -197,6 +202,10 @@ hardware layer does not expose the Hall signals yet (M5).
 - **D2** `MechanicalObserver`: separate covariance prediction and measurement update
   (`PredictCovariance(dt)`, `UpdateAngle(ε, R)`); `PmsmFluxObserver::calculate()` returns the angle
   error; optional `SinCos` table in the observer. The flux observer runs always, also with an encoder.
+  Each measurement carries its noise as a typed variance (`unit::AngleVariance` for an angle,
+  `unit::AngularVelocityVariance` for the Hall speed bound R_sector/τ², checked against the unit of the
+  innovation at compile time); the covariance P stays `float` (mixed-unit state vector). The Hall
+  timing (tick period, edge age, time since the last change) is `unit::Time` (2026-10-29).
 - **D3** Decoupling from the mean current of the cycle.
 - **D4** Dedicated angle table for the output side (`sc_out`), delay as a parameter.
 - **Integer arithmetic: no.** On Cortex-M4F float add and multiply cost one cycle; the time goes into

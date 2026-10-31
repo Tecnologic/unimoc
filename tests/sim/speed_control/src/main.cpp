@@ -62,7 +62,7 @@ unimoc::settings::NvmSettings MotorSettings(const unimoc::settings::NvmSettings&
   settings.current_ki_q = VoltagePerCurrentTime{0.05F * kWc};
   settings.dtc_dead_time = 0.0_s;
   settings.hall_enable = 1U;
-  settings.pmsm_flux_obs_r_speed = 1.0F;
+  settings.pmsm_flux_obs_r_speed = 1.0_rad4_per_s2;
   settings.speed_kp = TorquePerAngularVelocity{1e-4F * kSpeedWc};
   settings.speed_ki = InverseTime{kSpeedWc / 4.0F};
   settings.speed_accel_limit = 2000.0_rad_per_s2;
@@ -278,6 +278,64 @@ ZTEST_F(sim_speed_control, test_position_speed_stays_below_the_limit) {
   zexpect_true(fastest > 35.0_rad_per_s && fastest < 1.35F * 40.0_rad_per_s,
                "fastest %f",
                static_cast<double>(fastest.Value()));
+}
+
+ZTEST_F(sim_speed_control, test_homing_takes_the_stop_as_zero) {
+  using unimoc::control::HomingState;
+  auto settings = fixture->settings;
+  settings.pos_homing_speed = 5.0_rad_per_s;
+  settings.pos_homing_current = 4.0_A;
+  Start(settings);
+  OuterLoop::Instance().SetSetpoint(Position(0.0_rad));
+  RunMs(200U);
+  zexpect_equal(OuterLoop::Instance().Status().homing, HomingState::kIdle);
+
+  OuterLoop::Instance().StartHoming();
+  RunMs(300U);
+  zexpect_equal(OuterLoop::Instance().Status().homing, HomingState::kSearching);
+  zexpect_within(MechanicalSpeed(), 5.0_rad_per_s, 0.5_rad_per_s);
+
+  // The stop: the shaft locks, the run pushes with at most the homing current.
+  sim::Plant().SetShaftMode(unimoc::sim::ShaftMode::kImposedSpeed);
+  const Angle kStop = MechanicalAngle();
+  Current largest;
+  for (unsigned ms = 0U; ms < 300U; ++ms) {
+    RunMs(1U);
+    largest = Max(largest, CurrentControlIsr::Instance().state.i_ref.Length());
+  }
+  zexpect_true(largest <= 4.0_A + 1e-3_A, "the homing current bounds the push");
+  const auto kHomed = OuterLoop::Instance().Status();
+  zexpect_equal(kHomed.homing, HomingState::kDone);
+  zexpect_within(kHomed.position, 0.0_rad, 0.01_rad);
+
+  // Held at the home while the setpoint stays; then in the frame of the stop.
+  sim::Plant().SetShaftMode(unimoc::sim::ShaftMode::kFree);
+  RunMs(300U);
+  zexpect_within(MechanicalAngle() - kStop, 0.0_rad, kHalfSector + 0.03_rad);
+  OuterLoop::Instance().SetSetpoint(Position(-2.0_rad));
+  RunMs(1000U);
+  zexpect_within(MechanicalAngle() - kStop, -2.0_rad, kHalfSector + 0.03_rad);
+  zexpect_equal(OuterLoop::Instance().Status().homing, HomingState::kDone);
+}
+
+ZTEST_F(sim_speed_control, test_homing_needs_the_position_mode) {
+  using unimoc::control::HomingState;
+  OuterLoop::Instance().SetSetpoint(Speed(10.0_rad_per_s));
+  RunMs(50U);
+  OuterLoop::Instance().StartHoming();
+  RunMs(10U);
+  zexpect_equal(OuterLoop::Instance().Status().homing, HomingState::kFault);
+
+  // A disengage ends a run; the next one starts again.
+  OuterLoop::Instance().SetSetpoint(Position(0.0_rad));
+  RunMs(50U);
+  OuterLoop::Instance().StartHoming();
+  RunMs(50U);
+  zexpect_equal(OuterLoop::Instance().Status().homing, HomingState::kSearching);
+  OuterLoop::Instance().SetSetpoint(OuterSetpoint{});
+  RunMs(10U);
+  zexpect_equal(OuterLoop::Instance().Status().homing, HomingState::kFault);
+  zexpect_equal(OuterLoop::Instance().Status().current_reference.q, 0.0_A);
 }
 
 ZTEST_SUITE(sim_speed_control, nullptr, Setup, Before, After, nullptr);

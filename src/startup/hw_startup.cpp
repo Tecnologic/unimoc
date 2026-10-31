@@ -26,10 +26,14 @@ namespace unimoc::startup {
 
 namespace {
 
-using unit::operator""_ratio;
-
 /// Both switches of a leg for the same time: no voltage across the motor.
 constexpr unit::Ratio kNeutralDuty = 0.5_ratio;
+
+/// The log boundary: a `%f` argument of LogFormatted() in the base unit.
+template <unit::UnitLike U>
+[[nodiscard]] double LogValue(const U value) noexcept {
+  return static_cast<double>(value.Value());
+}
 
 }  // namespace
 
@@ -66,9 +70,9 @@ void LogFormatted(const hardware::LogLevel level, const char* const format, ...)
 // request_run
 // =============================================================================
 
-void HwStartup::RequestRun() noexcept {
+StartupStart HwStartup::RequestRun() noexcept {
   if (IsActive()) {
-    return;  // a run is in progress; DONE and FAULT start a new one
+    return StartupStart::kRunning;  // a run is in progress; DONE and FAULT start a new one
   }
   state_ = FsmState::kIdle;
   results.current_state = FsmState::kIdle;
@@ -79,8 +83,12 @@ void HwStartup::RequestRun() noexcept {
   sweep_pos_ = 0U;
   step_done_ = false;
   next_step_requested_ = false;
-  ext_current_ = 0.0F;
-  ext_vdc_ = 0.0F;
+  ext_current_ = unit::Current{};
+  ext_vdc_ = unit::Voltage{};
+  reading_prompted_ = false;
+  completed_ = 0U;
+  fault_ = StartupFault::kNone;
+  oc_limit_ = settings_operations_.GetHardwareCapabilities().max_phase_current * oc_fraction;
 
   // A new run is the explicit acknowledgement of a latched break and of an
   // overcurrent trip. The external enable must still be present (Enable() checks).
@@ -94,8 +102,8 @@ void HwStartup::RequestRun() noexcept {
       "[STARTUP] ================================================\n"
       "[STARTUP] Hardware bring-up sequence started.\n"
       "[STARTUP] Phase 1 - NO MOTOR CONNECTED.\n"
-      "[STARTUP] Advance each step by writing 1 to\n"
-      "[STARTUP]   unimoc.startup.step\n"
+      "[STARTUP] Continue each step with the commissioning\n"
+      "[STARTUP]   command CONTINUE (0x0202)\n"
       "[STARTUP] ================================================\n");
 
   // Release the outputs at neutral duty. Without the external enable (jumper,
@@ -106,33 +114,136 @@ void HwStartup::RequestRun() noexcept {
     LogFormatted(hardware::LogLevel::kError,
                  "[STARTUP] Power stage not released (external enable missing or break active). Not "
                  "started.\n");
-    return;
+    return StartupStart::kNotReleased;
   }
 
+  started_ = true;
   TransitionTo(FsmState::kPwmDisable);
+  return StartupStart::kStarted;
 }
 
 // =============================================================================
 // request_next_step
 // =============================================================================
 
-void HwStartup::RequestNextStep() noexcept {
+StartupContinue HwStartup::RequestNextStep(const bool motor_connected) noexcept {
   if (!IsActive()) {
-    return;
+    return StartupContinue::kNotRunning;
+  }
+  switch (Needs()) {
+    case StartupNeeds::kDcLinkVoltage:
+    case StartupNeeds::kPhaseCurrent:
+      return StartupContinue::kNeedsReading;
+    case StartupNeeds::kMotorConnected:
+      if (!motor_connected) {
+        return StartupContinue::kNeedsConfirmation;
+      }
+      break;
+    case StartupNeeds::kNone:
+      if (motor_connected) {
+        return StartupContinue::kUnexpectedConfirmation;
+      }
+      break;
+  }
+  // A request before the step has measured would continue on its own later:
+  // refused, so every continue is a decision on a measured step.
+  if (!step_done_) {
+    return StartupContinue::kMeasuring;
   }
   next_step_requested_ = true;
+  return StartupContinue::kAccepted;
+}
+
+// =============================================================================
+// status — for the commissioning status message
+// =============================================================================
+
+StartupNeeds HwStartup::Needs() const noexcept {
+  if (!IsActive()) {
+    return StartupNeeds::kNone;
+  }
+  switch (state_) {
+    case FsmState::kDcLinkVoltageCheck:
+      // Measured, the reading still missing (the step completes with it).
+      return (!step_done_ && sample_count_ >= kNCal) ? StartupNeeds::kDcLinkVoltage : StartupNeeds::kNone;
+    case FsmState::kCurrentSenseCalibration:
+      return (!step_done_ && sample_count_ >= kNCal) ? StartupNeeds::kPhaseCurrent : StartupNeeds::kNone;
+    case FsmState::kConnectMotor:
+      return step_done_ ? StartupNeeds::kMotorConnected : StartupNeeds::kNone;
+    default:
+      return StartupNeeds::kNone;
+  }
+}
+
+uint8_t HwStartup::Progress() const noexcept {
+  if (!IsActive()) {
+    return state_ == FsmState::kDone ? 100U : 0U;
+  }
+  if (step_done_) {
+    return 100U;
+  }
+  uint32_t done = sample_count_;
+  uint32_t total = 1U;
+  switch (state_) {
+    case FsmState::kAdcOffsetCal:
+    case FsmState::kAdcNoiseFloor:
+    case FsmState::kDcLinkVoltageCheck:
+    case FsmState::kCurrentSenseCalibration:
+      total = kNCal;
+      break;
+    case FsmState::kDutyForceLow:
+    case FsmState::kDutyForceMid:
+    case FsmState::kDutyForceHigh:
+      total = kHoldSamples;
+      break;
+    case FsmState::kGateDriverEnableCheck:
+      done = gate_phase_disabled_ ? sample_count_ : kNGate + sample_count_;
+      total = 2U * kNGate;
+      break;
+    case FsmState::kPhaseAdcAlignment:
+      done = (sweep_pos_ * kNAlignSamples) + sample_count_;
+      total = kNSweepSteps * kNAlignSamples;
+      break;
+    default:
+      break;
+  }
+  return static_cast<uint8_t>(std::min<uint32_t>(done, total) * 100U / total);
+}
+
+StartupStatus HwStartup::Status() const noexcept {
+  StartupStatus status{};
+  status.step = state_;
+  status.active = IsActive();
+  status.measured = status.active && step_done_;
+  status.needs = Needs();
+  status.progress = Progress();
+  for (uint8_t i = 0U; i < kNumStartupSteps; ++i) {
+    if (results.passed[i]) {
+      status.passed |= 1U << i;
+    }
+  }
+  uint32_t finished = completed_;
+  if (status.measured) {
+    finished |= 1U << static_cast<uint8_t>(state_);
+  }
+  status.failed = finished & ~status.passed;
+  status.fault = fault_;
+  status.started = started_;
+  return status;
 }
 
 // =============================================================================
 // request_abort
 // =============================================================================
 
-void HwStartup::RequestAbort() noexcept {
-  // No-op if the FSM was never started or has already completed.
-  if (state_ == FsmState::kIdle || state_ == FsmState::kDone) {
+void HwStartup::RequestAbort(const StartupFault reason) noexcept {
+  // No-op unless a run is active: in IDLE, DONE and FAULT the outputs are
+  // already the drive's, and a second EnterFault() would force the duties
+  // again with nobody left to release them.
+  if (!IsActive()) {
     return;
   }
-  EnterFault("user abort");
+  EnterFault(reason == StartupFault::kEmergencyStop ? "emergency stop" : "user abort", reason);
 }
 
 // =============================================================================
@@ -149,14 +260,17 @@ void HwStartup::RunOnce() noexcept {
   // OC check applies to all Phase-2 states
   // The stage is released for the whole run. If it is not any more (hard
   // overcurrent trip in the ISR, external break, e-stop), stop here.
-  if (state_ != FsmState::kIdle && state_ != FsmState::kDone && state_ != FsmState::kFault &&
+  // CONNECT_MOTOR holds the outputs off while the motor is connected.
+  if (IsActive() && state_ != FsmState::kConnectMotor &&
       hardware::kPowerStage.GetState() != hardware::PowerStageState::kEnabled) {
     const char* const kTrip = cc_->TripName();
-    EnterFault(kTrip != nullptr ? kTrip : "power stage broken or blocked");
+    EnterFault(kTrip != nullptr ? kTrip : "power stage broken or blocked",
+               kTrip != nullptr ? StartupFault::kTrip : StartupFault::kEnableLost);
     return;
   }
 
-  if (state_ >= FsmState::kConnectMotor && state_ < FsmState::kDone) {
+  // In every step: in phase 1 a current means a motor is still connected.
+  if (IsActive()) {
     if (CheckMotorOc()) {
       return;  // enter_fault already called
     }
@@ -172,7 +286,7 @@ void HwStartup::RunOnce() noexcept {
       if (!step_done_) {
         LogInfo(
             "[STARTUP] Step PWM_DISABLE: 50 % duty applied on all phases.\n"
-            "[STARTUP] Verify gate-driver outputs are toggling. Press NEXT when ready.\n");
+            "[STARTUP] Verify gate-driver outputs are toggling, then continue.\n");
         step_done_ = true;
       }
       if (step_done_ && next_step_requested_ && ValidateCurrentState()) {
@@ -245,6 +359,7 @@ void HwStartup::TransitionTo(FsmState next) noexcept {
   sample_count_ = 0U;
   accum_a_ = 0.0;
   accum_b_ = 0.0;
+  accum_c_ = 0.0;
   accum_sq_a_ = 0.0;
   accum_sq_b_ = 0.0;
 
@@ -259,11 +374,13 @@ void HwStartup::TransitionTo(FsmState next) noexcept {
 
 void HwStartup::AdvanceToNextState() noexcept {
   next_step_requested_ = false;
+  completed_ |= 1U << static_cast<uint8_t>(state_);
 
   const auto kState = static_cast<uint8_t>(state_);
   const auto kNextRaw = static_cast<uint8_t>(kState + 1U);
 
-  if (kNextRaw >= static_cast<uint8_t>(FsmState::kNumStates)) {
+  // The last measuring step ends in DONE: commit the calibration, outputs off.
+  if (kNextRaw >= static_cast<uint8_t>(FsmState::kDone)) {
     RunDone();
     return;
   }
@@ -277,18 +394,18 @@ void HwStartup::AdvanceToNextState() noexcept {
 
 bool HwStartup::ValidateCurrentState() noexcept {
   if (state_ == FsmState::kCurrentSenseCalibration) {
-    if (ext_current_ < 1e-3F) {
+    if (ext_current_ < 1e-3_A) {
       LogWarning(
-          "[STARTUP] CURRENT_SENSE_CALIBRATION: ext_current_A is zero. "
-          "Please enter the clamp-meter reading via unimoc.startup.ext_current_A before advancing.\n");
+          "[STARTUP] CURRENT_SENSE_CALIBRATION: enter the clamp-meter reading (SET_READING current=) "
+          "before continuing.\n");
       return false;
     }
   }
   if (state_ == FsmState::kDcLinkVoltageCheck) {
     if (ext_vdc_ < vdc_min_valid) {
       LogWarning(
-          "[STARTUP] DC_LINK_VOLTAGE_CHECK: ext_vdc_V is not set. "
-          "Please enter the multimeter reading via unimoc.startup.ext_vdc_V before advancing.\n");
+          "[STARTUP] DC_LINK_VOLTAGE_CHECK: enter the multimeter reading (SET_READING vdc=) "
+          "before continuing.\n");
       return false;
     }
   }
@@ -299,7 +416,8 @@ bool HwStartup::ValidateCurrentState() noexcept {
 // enter_fault
 // =============================================================================
 
-void HwStartup::EnterFault(const char* reason) noexcept {
+void HwStartup::EnterFault(const char* reason, const StartupFault fault) noexcept {
+  fault_ = fault;
   state_ = FsmState::kFault;
   results.current_state = FsmState::kFault;
   cc_->ForceDuty(kNeutralDuty, kNeutralDuty, kNeutralDuty);  // safe neutral
@@ -313,11 +431,9 @@ void HwStartup::EnterFault(const char* reason) noexcept {
 
 bool HwStartup::CheckMotorOc() noexcept {
   const auto& phase_currents = cc_->state.raw_phase_currents;
-  const float kIa = phase_currents.a.Value();
-  const float kIb = phase_currents.b.Value();
-  const float kIc = phase_currents.c.Value();
-  if ((std::abs(kIa) > oc_limit_) || (std::abs(kIb) > oc_limit_) || (std::abs(kIc) > oc_limit_)) {
-    EnterFault("over-current detected");
+  if ((unit::Abs(phase_currents.a) > oc_limit_) || (unit::Abs(phase_currents.b) > oc_limit_) ||
+      (unit::Abs(phase_currents.c) > oc_limit_)) {
+    EnterFault("over-current detected", StartupFault::kOvercurrent);
     return true;
   }
   return false;
@@ -332,10 +448,33 @@ bool HwStartup::CollectSample(uint32_t n_samples) noexcept {
   const auto kIb = static_cast<double>(cc_->state.raw_phase_currents.b.Value());
   accum_a_ += kIa;
   accum_b_ += kIb;
+  accum_c_ += static_cast<double>(cc_->state.raw_phase_currents.c.Value());
   accum_sq_a_ += kIa * kIa;
   accum_sq_b_ += kIb * kIb;
   ++sample_count_;
   return (sample_count_ >= n_samples);
+}
+
+// =============================================================================
+// mean_current, mean_voltage, rms_current  — the accumulators back into units
+// =============================================================================
+
+unit::Current HwStartup::MeanCurrent(const double sum, const uint32_t n_samples) noexcept {
+  return unit::Current{static_cast<float>(sum) / static_cast<float>(n_samples)};
+}
+
+unit::Voltage HwStartup::MeanVoltage(const double sum, const uint32_t n_samples) noexcept {
+  return unit::Voltage{static_cast<float>(sum) / static_cast<float>(n_samples)};
+}
+
+unit::Current HwStartup::RmsCurrent(const double sum,
+                                    const double sum_of_squares,
+                                    const uint32_t n_samples) noexcept {
+  const auto kSampleCount = static_cast<double>(n_samples);
+  // variance = E[x²] - E[x]², in double (see the accumulators)
+  const auto kVariance =
+      static_cast<float>(sum_of_squares / kSampleCount - (sum / kSampleCount) * (sum / kSampleCount));
+  return unit::Current{(kVariance > 0.0F) ? std::sqrt(kVariance) : 0.0F};
 }
 
 // =============================================================================
@@ -348,32 +487,35 @@ void HwStartup::RunAdcOffsetCal() noexcept {
 
   if (!step_done_) {
     if (CollectSample(kNCal)) {
-      const auto kSampleCount = static_cast<float>(kNCal);
-      const float kMeanA = static_cast<float>(accum_a_) / kSampleCount;
-      const float kMeanB = static_cast<float>(accum_b_) / kSampleCount;
+      const unit::Current kMeanA = MeanCurrent(accum_a_, kNCal);
+      const unit::Current kMeanB = MeanCurrent(accum_b_, kNCal);
+      const unit::Current kMeanC = MeanCurrent(accum_c_, kNCal);
 
       results.adc_offset_a = kMeanA;
       results.adc_offset_b = kMeanB;
+      results.adc_offset_c = kMeanC;
 
-      const bool kPass = (std::abs(kMeanA) < offset_threshold) && (std::abs(kMeanB) < offset_threshold);
+      const bool kPass = (unit::Abs(kMeanA) < offset_threshold) && (unit::Abs(kMeanB) < offset_threshold) &&
+                         (unit::Abs(kMeanC) < offset_threshold);
 
       results.passed[static_cast<uint8_t>(FsmState::kAdcOffsetCal)] = kPass;
 
       LogFormatted(hardware::LogLevel::kInfo,
-                   "[STARTUP] ADC_OFFSET_CAL: offset_a=%f A, offset_b=%f A  %s\n",
-                   static_cast<double>(kMeanA),
-                   static_cast<double>(kMeanB),
+                   "[STARTUP] ADC_OFFSET_CAL: offset_a=%f A, offset_b=%f A, offset_c=%f A  %s\n",
+                   LogValue(kMeanA),
+                   LogValue(kMeanB),
+                   LogValue(kMeanC),
                    kPass ? "PASS" : "FAIL");
 
       if (!kPass) {
         LogFormatted(hardware::LogLevel::kWarning,
                      "[STARTUP] ADC offset exceeds threshold (%f A). Check op-amp supply, resistors, and PCB "
                      "connections.\n",
-                     static_cast<double>(offset_threshold));
+                     LogValue(offset_threshold));
       }
 
       step_done_ = true;
-      LogInfo("[STARTUP] Press NEXT to continue.\n");
+      LogInfo("[STARTUP] Continue with the next step.\n");
     }
   }
 
@@ -391,15 +533,8 @@ void HwStartup::RunAdcNoiseFloor() noexcept {
 
   if (!step_done_) {
     if (CollectSample(kNCal)) {
-      const auto kSampleCount = static_cast<double>(kNCal);
-      // variance = E[x²] - E[x]²
-      const auto kVarA = static_cast<float>(accum_sq_a_ / kSampleCount -
-                                            (accum_a_ / kSampleCount) * (accum_a_ / kSampleCount));
-      const auto kVarB = static_cast<float>(accum_sq_b_ / kSampleCount -
-                                            (accum_b_ / kSampleCount) * (accum_b_ / kSampleCount));
-
-      results.adc_noise_rms_a = (kVarA > 0.0F) ? std::sqrt(kVarA) : 0.0F;
-      results.adc_noise_rms_b = (kVarB > 0.0F) ? std::sqrt(kVarB) : 0.0F;
+      results.adc_noise_rms_a = RmsCurrent(accum_a_, accum_sq_a_, kNCal);
+      results.adc_noise_rms_b = RmsCurrent(accum_b_, accum_sq_b_, kNCal);
 
       const bool kPass =
           (results.adc_noise_rms_a < noise_threshold) && (results.adc_noise_rms_b < noise_threshold);
@@ -408,19 +543,19 @@ void HwStartup::RunAdcNoiseFloor() noexcept {
 
       LogFormatted(hardware::LogLevel::kInfo,
                    "[STARTUP] ADC_NOISE_FLOOR: rms_a=%f A, rms_b=%f A  %s\n",
-                   static_cast<double>(results.adc_noise_rms_a),
-                   static_cast<double>(results.adc_noise_rms_b),
+                   LogValue(results.adc_noise_rms_a),
+                   LogValue(results.adc_noise_rms_b),
                    kPass ? "PASS" : "FAIL");
 
       if (!kPass) {
         LogFormatted(hardware::LogLevel::kWarning,
                      "[STARTUP] ADC noise exceeds threshold (%f A). Check decoupling caps, layout, and "
                      "ground paths.\n",
-                     static_cast<double>(noise_threshold));
+                     LogValue(noise_threshold));
       }
 
       step_done_ = true;
-      LogInfo("[STARTUP] Press NEXT to continue.\n");
+      LogInfo("[STARTUP] Continue with the next step.\n");
     }
   }
 
@@ -447,9 +582,9 @@ void HwStartup::RunDutyForce(const unit::Ratio duty) noexcept {
 
     LogFormatted(hardware::LogLevel::kInfo,
                  "[STARTUP] %s: duty=%f applied for %u samples. PASS-MANUAL (verify with scope).\n"
-                 "[STARTUP] Press NEXT to continue.\n",
+                 "[STARTUP] Continue with the next step.\n",
                  StateName(state_),
-                 static_cast<double>(duty.Value()),  // the log takes plain numbers
+                 LogValue(duty),
                  static_cast<unsigned int>(kHoldSamples));
 
     step_done_ = true;
@@ -486,19 +621,19 @@ void HwStartup::RunDcLinkVoltageCheck() noexcept {
   }
 
   // kNCal samples collected; compute the kNCal-sample average V_dc reading.
-  const float kMeasuredVdc = static_cast<float>(accum_a_) / static_cast<float>(kNCal);
+  const unit::Voltage kMeasuredVdc = MeanVoltage(accum_a_, kNCal);
 
   if (ext_vdc_ > vdc_min_valid) {
     results.gain_vdc = kMeasuredVdc / ext_vdc_;
-    const bool kPass = std::abs(results.gain_vdc - 1.0F) < vdc_gain_tolerance;
+    const bool kPass = unit::Abs(results.gain_vdc - 1.0_ratio) < vdc_gain_tolerance;
 
     results.passed[static_cast<uint8_t>(FsmState::kDcLinkVoltageCheck)] = kPass;
 
     LogFormatted(hardware::LogLevel::kInfo,
                  "[STARTUP] DC_LINK_VOLTAGE_CHECK: adc_vdc=%f V, ext=%f V, gain=%f  %s\n",
-                 static_cast<double>(kMeasuredVdc),
-                 static_cast<double>(ext_vdc_),
-                 static_cast<double>(results.gain_vdc),
+                 LogValue(kMeasuredVdc),
+                 LogValue(ext_vdc_),
+                 LogValue(results.gain_vdc),
                  kPass ? "PASS" : "FAIL");
 
     if (!kPass) {
@@ -506,19 +641,18 @@ void HwStartup::RunDcLinkVoltageCheck() noexcept {
                    "[STARTUP] V_dc gain error exceeds %f %%. Check voltage-divider resistors on V_dc sense "
                    "circuit.\n"
                    "[STARTUP] Suggested correction factor: %f\n",
-                   static_cast<double>(vdc_gain_tolerance * 100.0F),
-                   static_cast<double>(results.gain_vdc));
+                   LogValue(vdc_gain_tolerance * 100.0F),
+                   LogValue(results.gain_vdc));
     }
 
     step_done_ = true;
-    LogInfo("[STARTUP] Press NEXT to continue.\n");
+    LogInfo("[STARTUP] Continue with the next step.\n");
   } else if (sample_count_ == kNCal) {
     // Log the "waiting" prompt exactly once (bump sample_count_ as sentinel).
     LogFormatted(hardware::LogLevel::kInfo,
-                 "[STARTUP] DC_LINK_VOLTAGE_CHECK: adc_vdc=%f V. Enter multimeter reading via "
-                 "unimoc.startup.ext_vdc_V, "
-                 "then press NEXT.\n",
-                 static_cast<double>(kMeasuredVdc));
+                 "[STARTUP] DC_LINK_VOLTAGE_CHECK: adc_vdc=%f V. Enter the multimeter reading "
+                 "(SET_READING vdc=).\n",
+                 LogValue(kMeasuredVdc));
     ++sample_count_;
     // step_done_ stays false; keep polling until ext_vdc_ is provided.
   }
@@ -538,7 +672,6 @@ void HwStartup::RunGateDriverEnableCheck() noexcept {
 
   static constexpr unit::Ratio kGateTestDutyHigh = 0.55_ratio;
   static constexpr unit::Ratio kGateTestDutyLow = 0.45_ratio;
-  static constexpr uint32_t kNGate = 512U;
 
   // Keep the step idle once results have been collected.
   if (step_done_) {
@@ -552,17 +685,20 @@ void HwStartup::RunGateDriverEnableCheck() noexcept {
     // Collecting disabled (neutral) baseline
     cc_->ForceDuty(kNeutralDuty, kNeutralDuty, kNeutralDuty);
     if (CollectSample(kNGate)) {
-      gate_mean_disabled_ = static_cast<float>(accum_a_) / static_cast<float>(kNGate);
+      gate_mean_disabled_ = MeanCurrent(accum_a_, kNGate);
       // Reset accumulators for enabled phase
       sample_count_ = 0U;
       accum_a_ = 0.0;
       accum_b_ = 0.0;
+      accum_c_ = 0.0;
+      accum_c_ = 0.0;
+      accum_c_ = 0.0;
       accum_sq_a_ = 0.0;
       accum_sq_b_ = 0.0;
       gate_phase_disabled_ = false;
       LogFormatted(hardware::LogLevel::kInfo,
                    "[STARTUP] GATE_DRIVER_ENABLE_CHECK: baseline mean_ia=%f A\n",
-                   static_cast<double>(gate_mean_disabled_));
+                   LogValue(gate_mean_disabled_));
     }
     return;  // continue next call
   }
@@ -570,18 +706,18 @@ void HwStartup::RunGateDriverEnableCheck() noexcept {
   // Collecting "enabled" phase (small imbalance duty)
   cc_->ForceDuty(kGateTestDutyHigh, kGateTestDutyLow, kGateTestDutyLow);
   if (CollectSample(kNGate)) {
-    gate_mean_enabled_ = static_cast<float>(accum_a_) / static_cast<float>(kNGate);
+    gate_mean_enabled_ = MeanCurrent(accum_a_, kNGate);
 
-    const float kDelta = std::abs(gate_mean_enabled_ - gate_mean_disabled_);
-    const float kThreshold = 2.0F * results.adc_noise_rms_a;
+    const unit::Current kDelta = unit::Abs(gate_mean_enabled_ - gate_mean_disabled_);
+    const unit::Current kThreshold = 2.0F * results.adc_noise_rms_a;
     const bool kPass = (kDelta > kThreshold);
 
     results.passed[static_cast<uint8_t>(FsmState::kGateDriverEnableCheck)] = kPass;
 
     LogFormatted(hardware::LogLevel::kInfo,
                  "[STARTUP] GATE_DRIVER_ENABLE_CHECK: delta_ia=%f A, threshold=%f A  %s\n",
-                 static_cast<double>(kDelta),
-                 static_cast<double>(kThreshold),
+                 LogValue(kDelta),
+                 LogValue(kThreshold),
                  kPass ? "PASS" : "FAIL");
 
     if (!kPass) {
@@ -593,7 +729,7 @@ void HwStartup::RunGateDriverEnableCheck() noexcept {
     // Reset flag for potential re-run
     gate_phase_disabled_ = true;
     step_done_ = true;
-    LogInfo("[STARTUP] Press NEXT to continue.\n");
+    LogInfo("[STARTUP] Continue with the next step.\n");
   }
 }
 
@@ -605,18 +741,23 @@ void HwStartup::RunConnectMotorWait() noexcept {
   cc_->ForceDuty(kNeutralDuty, kNeutralDuty, kNeutralDuty);
 
   if (!step_done_) {
-    oc_limit_ = settings_operations_.GetHardwareCapabilities().max_phase_current.Value() * oc_fraction;
+    // The motor is connected with the outputs off and the logic powered: a
+    // power cycle would restart the drive and end the run.
+    hardware::kPowerStage.Disable();
+    oc_limit_ = settings_operations_.GetHardwareCapabilities().max_phase_current * oc_fraction;
 
     LogWarning(
         "\n"
         "[STARTUP] !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n"
         "[STARTUP] !!  PHASE 1 COMPLETE - PREPARE FOR PHASE 2       !!\n"
         "[STARTUP] !!                                                !!\n"
+        "[STARTUP] !!  The outputs are OFF now.                      !!\n"
         "[STARTUP] !!  ACTION REQUIRED:                              !!\n"
-        "[STARTUP] !!    1. POWER OFF the drive now.                 !!\n"
-        "[STARTUP] !!    2. CONNECT the motor (UVW + PE).            !!\n"
-        "[STARTUP] !!    3. POWER ON again.                          !!\n"
-        "[STARTUP] !!    4. Write 1 to unimoc.startup.step           !!\n"
+        "[STARTUP] !!    1. CONNECT the motor (UVW + PE). Keep the   !!\n"
+        "[STARTUP] !!       logic powered: a power cycle ends the    !!\n"
+        "[STARTUP] !!       run. Switch the DC link off only if the  !!\n"
+        "[STARTUP] !!       logic has a supply of its own.           !!\n"
+        "[STARTUP] !!    2. CONTINUE with motor-connected            !!\n"
         "[STARTUP] !!       ONLY after motor is securely connected.  !!\n"
         "[STARTUP] !!                                                !!\n"
         "[STARTUP] !!  CAUTION: Phase 2 injects LIVE voltages.       !!\n"
@@ -626,16 +767,38 @@ void HwStartup::RunConnectMotorWait() noexcept {
                  "[STARTUP] !!  %f A (%f%% of max).\n"
                  "[STARTUP] !!  Ensure motor shaft is FREE to rotate.        !!\n"
                  "[STARTUP] !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n\n",
-                 static_cast<double>(oc_limit_),
-                 static_cast<double>(oc_fraction * 100.0F));
+                 LogValue(oc_limit_),
+                 LogValue(oc_fraction * 100.0F));
 
     results.passed[static_cast<uint8_t>(FsmState::kConnectMotor)] = true;
     step_done_ = true;
   }
 
   if (step_done_ && next_step_requested_ && ValidateCurrentState()) {
+    // Release the outputs again at neutral duty for phase 2. The continue is
+    // the acknowledgement of a break latched while the outputs were off (the
+    // external enable pulled while the motor was connected), as RequestRun().
+    if (hardware::kPowerStage.GetState() == hardware::PowerStageState::kFault) {
+      hardware::kPowerStage.ClearFault();
+    }
+    if (!hardware::kPowerStage.Enable()) {
+      EnterFault("power stage not released for phase 2 (external enable missing or break active)",
+                 StartupFault::kEnableLost);
+      return;
+    }
     AdvanceToNextState();
   }
+}
+
+// =============================================================================
+// inject_alpha_current  — a small voltage on the alpha axis (phase A out, B and C back)
+// =============================================================================
+
+void HwStartup::InjectAlphaCurrent() noexcept {
+  const unit::Ratio kDa = kNeutralDuty + v_cal_fraction;
+  const unit::Ratio kDb = kNeutralDuty - v_cal_fraction * 0.5F;
+  const unit::Ratio kDc = kNeutralDuty - v_cal_fraction * 0.5F;
+  cc_->ForceDuty(kDa, kDb, kDc);
 }
 
 // =============================================================================
@@ -643,11 +806,9 @@ void HwStartup::RunConnectMotorWait() noexcept {
 // =============================================================================
 
 void HwStartup::RunPhaseAdcAlignment() noexcept {
-  // Force a known asymmetric duty so phase A carries more current than B/C.
-  static constexpr unit::Ratio kDa = 0.8_ratio;
-  static constexpr unit::Ratio kDb = 0.2_ratio;
-  static constexpr unit::Ratio kDc = 0.2_ratio;
-  cc_->ForceDuty(kDa, kDb, kDc);
+  // A small current in phase A, the injection of CURRENT_SENSE_CALIBRATION:
+  // a large asymmetric duty would drive the motor into the overcurrent limit.
+  InjectAlphaCurrent();
 
   if (step_done_) {
     if (next_step_requested_ && ValidateCurrentState()) {
@@ -666,7 +827,7 @@ void HwStartup::RunPhaseAdcAlignment() noexcept {
   if (sweep_pos_ >= kNSweepSteps) {
     // Find sweep position with minimum noise
     uint32_t best_pos = 0U;
-    float best_noise = sweep_noise_a_[0U];
+    unit::Current best_noise = sweep_noise_a_[0U];
     for (uint32_t i = 1U; i < kNSweepSteps; ++i) {
       if (sweep_noise_a_[i] < best_noise) {
         best_noise = sweep_noise_a_[i];
@@ -685,7 +846,7 @@ void HwStartup::RunPhaseAdcAlignment() noexcept {
     results.adc_trigger_offset_optimal = kOptimalTicks;
 
     // Pass: min noise < 2× noise floor from ADC_NOISE_FLOOR step
-    const float kNoiseFloor = results.adc_noise_rms_a;
+    const unit::Current kNoiseFloor = results.adc_noise_rms_a;
     const bool kPass = (best_noise < 2.0F * kNoiseFloor);
     results.passed[static_cast<uint8_t>(FsmState::kPhaseAdcAlignment)] = kPass;
 
@@ -693,7 +854,7 @@ void HwStartup::RunPhaseAdcAlignment() noexcept {
                  "[STARTUP] PHASE_ADC_ALIGNMENT: best_pos=%u, optimal_offset=%u ticks, min_noise=%f A  %s\n",
                  static_cast<unsigned int>(best_pos),
                  static_cast<unsigned int>(kOptimalTicks),
-                 static_cast<double>(best_noise),
+                 LogValue(best_noise),
                  kPass ? "PASS" : "FAIL");
 
     if (!kPass) {
@@ -705,7 +866,7 @@ void HwStartup::RunPhaseAdcAlignment() noexcept {
     LogFormatted(hardware::LogLevel::kInfo,
                  "[STARTUP] Suggest writing adc_trigger_offset=%u to NvmSettings to persist the optimal "
                  "offset.\n"
-                 "[STARTUP] Press NEXT to continue.\n",
+                 "[STARTUP] Continue with the next step.\n",
                  static_cast<unsigned int>(kOptimalTicks));
 
     cc_->SetAdcTriggerOffset(kOptimalTicks);
@@ -715,16 +876,15 @@ void HwStartup::RunPhaseAdcAlignment() noexcept {
 
   // Collecting kNAlignSamples at the current sweep position
   if (CollectSample(kNAlignSamples)) {
-    const auto kSampleCount = static_cast<double>(kNAlignSamples);
-    const auto kVar = static_cast<float>(accum_sq_a_ / kSampleCount -
-                                         (accum_a_ / kSampleCount) * (accum_a_ / kSampleCount));
-    sweep_noise_a_[sweep_pos_] = (kVar > 0.0F) ? std::sqrt(kVar) : 0.0F;
+    sweep_noise_a_[sweep_pos_] = RmsCurrent(accum_a_, accum_sq_a_, kNAlignSamples);
 
     // Advance sweep
     ++sweep_pos_;
     sample_count_ = 0U;
     accum_a_ = 0.0;
     accum_b_ = 0.0;
+    accum_c_ = 0.0;
+    accum_c_ = 0.0;
     accum_sq_a_ = 0.0;
     accum_sq_b_ = 0.0;
 
@@ -742,66 +902,72 @@ void HwStartup::RunPhaseAdcAlignment() noexcept {
 // =============================================================================
 
 void HwStartup::RunCurrentSenseCalibration() noexcept {
-  // Force pure alpha-axis current injection (small voltage differential)
-  const unit::Ratio kDa = kNeutralDuty + v_cal_fraction;
-  const unit::Ratio kDb = kNeutralDuty - v_cal_fraction * 0.5F;
-  const unit::Ratio kDc = kNeutralDuty - v_cal_fraction * 0.5F;
-  cc_->ForceDuty(kDa, kDb, kDc);
-
-  if (!step_done_ && !CollectSample(kNCal)) {
-    return;  // still collecting
-  }
+  InjectAlphaCurrent();
 
   if (!step_done_) {
-    // Measurement complete
-    const auto kSampleCount = static_cast<float>(kNCal);
-    const float kMeanIa = static_cast<float>(accum_a_) / kSampleCount;
-    const float kMeanIb = static_cast<float>(accum_b_) / kSampleCount;
-
-    LogFormatted(hardware::LogLevel::kInfo,
-                 "[STARTUP] CURRENT_SENSE_CALIBRATION: mean_ia=%f A, mean_ib=%f A\n",
-                 static_cast<double>(kMeanIa),
-                 static_cast<double>(kMeanIb));
-
-    if (ext_current_ >= 1e-3F) {
-      // gain = adc_reading / ext_reference; ideal = 1.0
-      results.gain_a = (std::abs(kMeanIa) > 1e-4F) ? (kMeanIa / ext_current_) : 0.0F;
-      results.gain_b = (std::abs(kMeanIb) > 1e-4F) ? (kMeanIb / (-ext_current_ * 0.5F)) : 0.0F;
-
-      const bool kPass = (std::abs(results.gain_a - 1.0F) < gain_tolerance) &&
-                         (results.gain_b > 1e-4F && std::abs(results.gain_b - 1.0F) < gain_tolerance);
-
-      results.passed[static_cast<uint8_t>(FsmState::kCurrentSenseCalibration)] = kPass;
-
-      LogFormatted(hardware::LogLevel::kInfo,
-                   "[STARTUP] CURRENT_SENSE_CALIBRATION: ext=%f A, gain_a=%f, gain_b=%f  %s\n",
-                   static_cast<double>(ext_current_),
-                   static_cast<double>(results.gain_a),
-                   static_cast<double>(results.gain_b),
-                   kPass ? "PASS" : "FAIL");
-
-      if (!kPass) {
-        LogFormatted(hardware::LogLevel::kWarning,
-                     "[STARTUP] Gain error exceeds %f %%. Check voltage-divider and op-amp gain resistors "
-                     "for current-sense channels.\n"
-                     "[STARTUP] Correction factors: adc_gain_a=%f, adc_gain_b=%f\n",
-                     static_cast<double>(gain_tolerance * 100.0F),
-                     static_cast<double>(1.0F / results.gain_a),
-                     static_cast<double>(1.0F / results.gain_b));
-      }
-
-    } else {
-      LogInfo(
-          "[STARTUP] CURRENT_SENSE_CALIBRATION: waiting for ext_current_A. "
-          "Enter clamp-meter reading via unimoc.startup.ext_current_A, then press NEXT.\n");
+    if (sample_count_ < kNCal && !CollectSample(kNCal)) {
+      return;  // still collecting
     }
-
+    // Measured; the gains need the clamp-meter reading (SET_READING), which may come later.
+    if (ext_current_ < 1e-3_A) {
+      if (!reading_prompted_) {
+        reading_prompted_ = true;
+        LogInfo("[STARTUP] CURRENT_SENSE_CALIBRATION: measured. Enter the clamp-meter reading of phase A.\n");
+      }
+      return;
+    }
+    FinishCurrentSenseCalibration();
     step_done_ = true;
-    LogInfo("[STARTUP] Press NEXT to continue.\n");
+    LogInfo("[STARTUP] Continue with the next step.\n");
   }
 
   if (step_done_ && next_step_requested_ && ValidateCurrentState()) {
     AdvanceToNextState();
+  }
+}
+
+void HwStartup::FinishCurrentSenseCalibration() noexcept {
+  const unit::Current kMeanIa = MeanCurrent(accum_a_, kNCal);
+  const unit::Current kMeanIb = MeanCurrent(accum_b_, kNCal);
+  const unit::Current kMeanIc = MeanCurrent(accum_c_, kNCal);
+
+  // gain = adc_reading / ext_reference; ideal = 1.0. The reading less the
+  // zero offset of ADC_OFFSET_CAL: the raw samples do not carry the
+  // calibration. Phases B and C each carry -I/2.
+  const unit::Current kSignalA = kMeanIa - results.adc_offset_a;
+  const unit::Current kSignalB = kMeanIb - results.adc_offset_b;
+  const unit::Current kSignalC = kMeanIc - results.adc_offset_c;
+  const unit::Current kHalfReturn = -ext_current_ * 0.5F;
+  results.gain_a = (unit::Abs(kSignalA) > 1e-4_A) ? (kSignalA / ext_current_) : unit::Ratio{};
+  results.gain_b = (unit::Abs(kSignalB) > 1e-4_A) ? (kSignalB / kHalfReturn) : unit::Ratio{};
+  results.gain_c = (unit::Abs(kSignalC) > 1e-4_A) ? (kSignalC / kHalfReturn) : unit::Ratio{};
+
+  const auto kWithin = [this](const unit::Ratio gain) {
+    return gain > 1e-4_ratio && unit::Abs(gain - 1.0_ratio) < gain_tolerance;
+  };
+  const bool kPass = kWithin(results.gain_a) && kWithin(results.gain_b) && kWithin(results.gain_c);
+  results.passed[static_cast<uint8_t>(FsmState::kCurrentSenseCalibration)] = kPass;
+
+  LogFormatted(hardware::LogLevel::kInfo,
+               "[STARTUP] CURRENT_SENSE_CALIBRATION: mean_ia=%f A, mean_ib=%f A, mean_ic=%f A, ext=%f A, "
+               "gain_a=%f, gain_b=%f, gain_c=%f  %s\n",
+               LogValue(kMeanIa),
+               LogValue(kMeanIb),
+               LogValue(kMeanIc),
+               LogValue(ext_current_),
+               LogValue(results.gain_a),
+               LogValue(results.gain_b),
+               LogValue(results.gain_c),
+               kPass ? "PASS" : "FAIL");
+  if (!kPass) {
+    LogFormatted(hardware::LogLevel::kWarning,
+                 "[STARTUP] Gain error exceeds %f %%. Check voltage-divider and op-amp gain resistors "
+                 "for current-sense channels.\n"
+                 "[STARTUP] Correction factors: adc_gain_a=%f, adc_gain_b=%f, adc_gain_c=%f\n",
+                 LogValue(gain_tolerance * 100.0F),
+                 LogValue(1.0_ratio / results.gain_a),
+                 LogValue(1.0_ratio / results.gain_b),
+                 LogValue(1.0_ratio / results.gain_c));
   }
 }
 
@@ -814,18 +980,20 @@ void HwStartup::RunDone() noexcept {
   hardware::kPowerStage.Disable();
   cc_->ReleaseForceDuty();
 
-  const float kGainA = (results.gain_a > 1e-4F) ? (1.0F / results.gain_a) : 1.0F;
-  const float kGainB = (results.gain_b > 1e-4F) ? (1.0F / results.gain_b) : 1.0F;
-  const float kGainVdc = (results.gain_vdc > 1e-4F) ? (1.0F / results.gain_vdc) : 1.0F;
-
-  const settings::SettingsStatus kCommitStatus =
-      settings_operations_.ApplyAdcCalibration(unit::Current{results.adc_offset_a},
-                                               unit::Current{results.adc_offset_b},
-                                               unit::Ratio{kGainA},
-                                               unit::Ratio{kGainB},
-                                               unit::Ratio{kGainVdc});
+  // A gain that was not measured (0) keeps the correction at 1.
+  const auto kCorrection = [](const unit::Ratio gain) {
+    return (gain > 1e-4_ratio) ? (1.0_ratio / gain) : 1.0_ratio;
+  };
+  const settings::SettingsStatus kCommitStatus = settings_operations_.ApplyAdcCalibration(
+      settings::AdcCalibration{.offset_a = results.adc_offset_a,
+                               .offset_b = results.adc_offset_b,
+                               .offset_c = results.adc_offset_c,
+                               .gain_a = kCorrection(results.gain_a),
+                               .gain_b = kCorrection(results.gain_b),
+                               .gain_c = kCorrection(results.gain_c),
+                               .gain_vdc = kCorrection(results.gain_vdc)});
   if (kCommitStatus != settings::SettingsStatus::kSuccess) {
-    EnterFault("failed to apply calibration settings");
+    EnterFault("failed to apply calibration settings", StartupFault::kApplyFailed);
     return;
   }
 
@@ -859,21 +1027,25 @@ void HwStartup::LogSummary() noexcept {
   LogFormatted(hardware::LogLevel::kInfo,
                "[STARTUP] adc_offset_a  = %f A\n"
                "[STARTUP] adc_offset_b  = %f A\n"
+               "[STARTUP] adc_offset_c  = %f A\n"
                "[STARTUP] adc_noise_a   = %f A\n"
                "[STARTUP] adc_noise_b   = %f A\n"
                "[STARTUP] gain_vdc      = %f\n"
                "[STARTUP] gain_a        = %f\n"
                "[STARTUP] gain_b        = %f\n"
+               "[STARTUP] gain_c        = %f\n"
                "[STARTUP] adc_trig_opt  = %u ticks\n"
                "[STARTUP] NVM calibration fields updated.\n"
                "[STARTUP] ====================================================\n\n",
-               static_cast<double>(results.adc_offset_a),
-               static_cast<double>(results.adc_offset_b),
-               static_cast<double>(results.adc_noise_rms_a),
-               static_cast<double>(results.adc_noise_rms_b),
-               static_cast<double>(results.gain_vdc),
-               static_cast<double>(results.gain_a),
-               static_cast<double>(results.gain_b),
+               LogValue(results.adc_offset_a),
+               LogValue(results.adc_offset_b),
+               LogValue(results.adc_offset_c),
+               LogValue(results.adc_noise_rms_a),
+               LogValue(results.adc_noise_rms_b),
+               LogValue(results.gain_vdc),
+               LogValue(results.gain_a),
+               LogValue(results.gain_b),
+               LogValue(results.gain_c),
                static_cast<unsigned int>(results.adc_trigger_offset_optimal));
 }
 

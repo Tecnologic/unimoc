@@ -100,10 +100,10 @@ void OnControlCycle(const current_control::CurrentControlIsr& isr) noexcept {
   signals.u_q = state.u_dq_last.q.Value();
   signals.electrical_angle = observer::WrapAnglePositive(isr.mech_obs.theta).Value();
   signals.electrical_speed = isr.mech_obs.omega.Value();
-  signals.dc_link_voltage = state.raw_vdc.Value();
-  signals.i_a = state.raw_phase_currents.a.Value();
-  signals.i_b = state.raw_phase_currents.b.Value();
-  signals.i_c = state.raw_phase_currents.c.Value();
+  signals.dc_link_voltage = state.dc_link.Value();
+  signals.i_a = state.phase_currents.a.Value();
+  signals.i_b = state.phase_currents.b.Value();
+  signals.i_c = state.phase_currents.c.Value();
   cymon::Device* const kDevice = Storage().device.load(std::memory_order_acquire);
   if (kDevice != nullptr) {
     (void)kDevice->Tick();

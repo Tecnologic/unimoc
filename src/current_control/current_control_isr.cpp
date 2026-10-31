@@ -50,6 +50,13 @@ void CurrentControlIsr::Init(const settings::NvmSettings& settings,
   state.adc_trigger_offset = static_cast<uint32_t>(std::roundf(1e-6F * static_cast<float>(timer_clock_hz)));
 
   state.dc_link_trip = settings.dc_link_trip;
+  state.calibration = settings::AdcCalibration{.offset_a = settings.adc_offset_a,
+                                               .offset_b = settings.adc_offset_b,
+                                               .offset_c = settings.adc_offset_c,
+                                               .gain_a = settings.adc_gain_a,
+                                               .gain_b = settings.adc_gain_b,
+                                               .gain_c = settings.adc_gain_c,
+                                               .gain_vdc = settings.adc_gain_vdc};
   hfi.Init(settings);
   dtc.Init(settings);
   svm.Init(settings);
@@ -111,6 +118,19 @@ static bool Exceeds(const system::ThreePhase<unit::Current>& currents, const uni
   return unit::Abs(currents.a) > limit || unit::Abs(currents.b) > limit || unit::Abs(currents.c) > limit;
 }
 
+/// The samples with the calibration of the startup aid: i = (i_raw - offset) * gain, v = v_raw * gain.
+static hardware::ControlCycleSamples Calibrated(const hardware::ControlCycleSamples& raw,
+                                                const settings::AdcCalibration& calibration) noexcept {
+  hardware::ControlCycleSamples samples = raw;
+  for (auto& currents : samples.phase_currents) {
+    currents.a = (currents.a - calibration.offset_a) * calibration.gain_a;
+    currents.b = (currents.b - calibration.offset_b) * calibration.gain_b;
+    currents.c = (currents.c - calibration.offset_c) * calibration.gain_c;
+  }
+  samples.dc_link = raw.dc_link * calibration.gain_vdc;
+  return samples;
+}
+
 void CurrentControlIsr::OnControlCycle() noexcept {
   if (hardware_ == nullptr) {
     return;
@@ -120,15 +140,19 @@ void CurrentControlIsr::OnControlCycle() noexcept {
   // -------------------------------------------------------------------------
   // 1. Samples of the cycle (oldest first) from the hardware boundary.
   // -------------------------------------------------------------------------
-  const hardware::ControlCycleSamples kSamples = hardware::hot_path::GetControlCycleSamples();
+  const hardware::ControlCycleSamples kRawSamples = hardware::hot_path::GetControlCycleSamples();
+  const hardware::ControlCycleSamples kSamples = Calibrated(kRawSamples, state.calibration);
   const unit::Voltage kDcLinkVoltage = kSamples.dc_link;
 
   // -------------------------------------------------------------------------
-  // 1a. Store the newest raw sample — always, regardless of control mode.
-  //     The startup FSM reads it from a lower-priority context.
+  // 1a. Store the newest sample, raw and calibrated — always, regardless of
+  //     control mode. The startup FSM reads the raw one from a lower-priority
+  //     context.
   // -------------------------------------------------------------------------
-  state.raw_phase_currents = kSamples.phase_currents[kNumSubSteps - 1U];
-  state.raw_vdc = kDcLinkVoltage;
+  state.raw_phase_currents = kRawSamples.phase_currents[kNumSubSteps - 1U];
+  state.raw_vdc = kRawSamples.dc_link;
+  state.phase_currents = kSamples.phase_currents[kNumSubSteps - 1U];
+  state.dc_link = kDcLinkVoltage;
   state.i_ref = state.i_ref_mailbox.Read();
   if (gains_pending_.load(std::memory_order_acquire)) {
     gains_pending_.store(false, std::memory_order_relaxed);

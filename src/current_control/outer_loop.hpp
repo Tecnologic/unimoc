@@ -82,6 +82,9 @@ struct OuterStatus {
   /// The charge limit is reduced: by the BMS below the settings, or by the
   /// DC-link overvoltage derating.
   bool regen_derated{false};
+  /// Homing run of the position mode (StartHoming()); kDone while the home
+  /// of the last run holds, kIdle again after Init().
+  control::HomingState homing{control::HomingState::kIdle};
 };
 
 /**
@@ -109,13 +112,23 @@ struct OuterStatus {
  *
  * The position is counted from the electrical angle estimate; the step
  * unwraps it, which needs |electrical speed| < pi / (kCyclesPerStep * dt)
- * (6283 rad/s at a 16 kHz control cycle). Homing over Cyphal is not
- * implemented yet: the home is the position at Init().
+ * (6283 rad/s at a 16 kHz control cycle).
+ *
+ * Homing: the home is the position at Init() until a homing run sets it.
+ * StartHoming() runs the shaft at `unimoc.control.pos.homing_speed` with at
+ * most `unimoc.control.pos.homing_current` until it stalls against the stop
+ * (kHomingBlockTime at the torque bound, below half the homing speed); that
+ * position becomes zero and the loop holds it until the position setpoint
+ * changes. A run needs the position mode engaged; a disengage or another
+ * mode ends it in kFault.
  */
 class OuterLoop {
  public:
   /// Control cycles per outer-loop step.
   static constexpr uint32_t kCyclesPerStep = 8U;
+
+  /// Time the shaft must stall at the homing torque before it counts as home.
+  static constexpr unit::Time kHomingBlockTime{0.1F};
 
   /// Return the single global instance.
   static OuterLoop& Instance() noexcept {
@@ -145,6 +158,17 @@ class OuterLoop {
    * Init(); invalid limits return to the settings. One writer: the drive.
    */
   void SetBatteryLimits(const BatteryLimits& limits) noexcept { battery_.Write(limits); }
+
+  /**
+   * @brief Starts a homing run (one writer: the drive).
+   *
+   * The control thread takes it at its next step: in the engaged position
+   * mode it starts searching (kSearching, also again after kDone or kFault),
+   * otherwise it ends in kFault. Status().homing reports the run.
+   */
+  void StartHoming() noexcept {
+    homing_requests_.store(homing_requests_.load(std::memory_order_relaxed) + 1U, std::memory_order_release);
+  }
 
   /**
    * @brief Observer side, after every control cycle.
@@ -192,6 +216,8 @@ class OuterLoop {
     control::DcLinkLimit dc_link;        ///< Battery current limits, regenerative derating.
     unit::AngularVelocity speed_min;     ///< Mechanical, from the electrical limits.
     unit::AngularVelocity speed_max;
+    unit::AngularVelocity homing_speed;  ///< Mechanical speed of the homing run.
+    unit::Current homing_current;        ///< Current bound of the homing run.
     Gains gains;
   };
 
@@ -207,6 +233,14 @@ class OuterLoop {
   void LoadParameters(const Parameters& parameters) noexcept;
   void ApplyGains(const Gains& gains) noexcept;
   void Restart(unit::AngularVelocity speed) noexcept;
+  [[nodiscard]] unit::Torque PositionTorque(unit::Angle setpoint,
+                                            unit::AngularVelocity measured,
+                                            const control::DcLinkLimit::TorqueRange& range) noexcept;
+  void UpdateHoming(const OuterSetpoint& setpoint, unit::AngularVelocity speed) noexcept;
+  void TakeHomingRequest(const OuterSetpoint& setpoint, unit::AngularVelocity speed) noexcept;
+  [[nodiscard]] unit::Torque SearchHome(unit::AngularVelocity speed,
+                                        const control::DcLinkLimit::TorqueRange& range,
+                                        unit::Angle setpoint) noexcept;
   [[nodiscard]] system::Rotor<unit::Current> TorqueToCurrent(unit::Torque torque) const noexcept;
   [[nodiscard]] system::Rotor<unit::Current> LimitCurrent(
       system::Rotor<unit::Current> current) const noexcept;
@@ -217,6 +251,7 @@ class OuterLoop {
   Mailbox<Parameters> parameters_{};
   Mailbox<Gains> gains_{};
   std::atomic<uint32_t> gains_generation_{0U};  ///< Counts SetGains(); the control thread compares.
+  std::atomic<uint32_t> homing_requests_{0U};   ///< Counts StartHoming(); the control thread compares.
   SeqLock<ObserverState> observer_{};
   SeqLock<OuterStatus> status_{};
   uint32_t observer_cycles_{0U};
@@ -225,6 +260,11 @@ class OuterLoop {
   // Control thread only.
   Parameters active_{};
   uint32_t applied_gains_generation_{0U};
+  uint32_t applied_homing_requests_{0U};
+  control::HomingState homing_{control::HomingState::kIdle};
+  uint32_t blocked_steps_{0U};  ///< Steps the homing run has stalled at its torque bound.
+  bool hold_home_{false};       ///< After a homing run: hold zero until the setpoint changes.
+  unit::Angle held_setpoint_;   ///< The position setpoint when the run ended.
   control::SpeedController speed_{};
   control::PositionController<float> position_{};
   observer::PositionTracker tracker_{};

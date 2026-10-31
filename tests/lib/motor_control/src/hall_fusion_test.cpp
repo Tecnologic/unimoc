@@ -33,7 +33,7 @@ namespace {
 
 constexpr float kPi = std::numbers::pi_v<float>;
 constexpr Angle kDegree = 1.0_deg;
-constexpr float kSecondsPerTick = 1e-9F;   // nanosecond timestamps, as on native_sim
+constexpr Time kTickPeriod{1e-9F};         // nanosecond timestamps, as on native_sim
 constexpr uint32_t kCycleTicks = 62'500U;  // 16 kHz
 constexpr Time kDt{62.5e-6F};
 const system::Rotor<Current> kNoCurrent{Current{}, Current{}};
@@ -49,15 +49,15 @@ uint8_t CodeOf(const Angle angle) {
 }
 
 struct Rig {
-  Rig() {
+  explicit Rig(const AngleVariance edge_noise = 3e-3_rad2) {
     settings::NvmSettings settings{};
     settings.motor_j = 1e-3_kg_m2;
     settings.motor_omega_max = 10000.0_rad_per_s;
     settings.motor_omega_min = -10000.0_rad_per_s;
     settings.mech_obs_q = 1e-5F;
     settings.hall_enable = 1U;
-    settings.hall_r_edge = 3e-3F;
-    settings.hall_r_sector = 3e-2F;
+    settings.hall_r_edge = edge_noise;
+    settings.hall_r_sector = 3e-2_rad2;
     observer.Init(settings);
     fusion.Init(settings);
   }
@@ -65,7 +65,7 @@ struct Rig {
   /// One observer cycle: the events since the last cycle, reference time `now`.
   void Cycle(const std::vector<HallEvent>& events) {
     observer.PredictCovariance(kDt);
-    fusion.Update(events, now, kSecondsPerTick, observer);
+    fusion.Update(events, now, kTickPeriod, observer);
     observer.Predict(kNoCurrent, kDt);
     now += kCycleTicks;
   }
@@ -169,6 +169,31 @@ ZTEST(hall_fusion, test_missed_edges_and_invalid_codes_are_counted_not_fused) {
   }
   UNIMOC_EXPECT_NEAR(rig.observer.theta, kNow, 1e-4_rad);
   (void)kBefore;
+}
+
+ZTEST(hall_fusion, test_edge_noise_weights_the_edge) {
+  Rig precise{3e-3_rad2};
+  Rig noisy{3e-1_rad2};
+  for (Rig* rig : {&precise, &noisy}) {
+    rig->Cycle({HallEvent{5U, 0U}});  // sector 0: the estimate starts at its center, 30 degrees
+    for (int i = 0; i < 100; ++i) {
+      rig->Cycle({});
+    }
+  }
+  const Angle kBefore = precise.observer.theta;
+  UNIMOC_EXPECT_NEAR(kBefore, 30.0F * kDegree, 0.1F * kDegree);
+  UNIMOC_EXPECT_FLOAT_EQ(noisy.observer.theta, kBefore);
+  // The edge into sector 1 (60 degrees) comes just after the reference time:
+  // only the edge is fused, the estimate still lies in the sector of the code.
+  for (Rig* rig : {&precise, &noisy}) {
+    rig->Cycle({HallEvent{1U, rig->now + 1000U}});
+  }
+  zexpect_equal(precise.fusion.Edges(), 1U);
+  zexpect_equal(noisy.fusion.Edges(), 1U);
+  const Angle kPreciseStep = precise.observer.theta - kBefore;
+  const Angle kNoisyStep = noisy.observer.theta - kBefore;
+  zexpect_true(kNoisyStep > 0.0_rad);
+  zexpect_true(kPreciseStep > 10.0F * kNoisyStep);
 }
 
 ZTEST(hall_fusion, test_init_loads_the_hall_settings) {

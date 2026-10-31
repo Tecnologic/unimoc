@@ -134,8 +134,8 @@ struct MechanicalObserver {
   /// Process noise variance Q (applied to all three state covariances).
   T Q{static_cast<T>(1e-5)};
 
-  /// Default measurement noise variance R of an angle measurement [rad²].
-  T R{static_cast<T>(1e-4)};
+  /// Default measurement noise variance R of an angle measurement.
+  unit::AngleVariance R{1e-4_rad2};
 
   // =========================================================================
   // Observer state
@@ -273,20 +273,21 @@ struct MechanicalObserver {
    * @brief Kalman update with an angle measurement (H = [0, 1, 0]).
    *
    * @param innovation  ε = θ_measured − θ̂; wrapped to (−π, π] here.
-   * @param noise       Measurement noise variance of this measurement [rad²]; positive.
+   * @param noise       Measurement noise variance of this measurement; positive.
    */
-  constexpr void UpdateAngle(const unit::Angle innovation, const T noise) noexcept {
-    Correct(1U, WrapAngle(innovation).Value(), noise);
+  constexpr void UpdateAngle(const unit::Angle innovation, const unit::AngleVariance noise) noexcept {
+    Correct(1U, WrapAngle(innovation), noise);
   }
 
   /**
    * @brief Kalman update with a speed measurement (H = [1, 0, 0]).
    *
    * @param innovation  ε = ω_measured − ω̂ [rad/s, electrical].
-   * @param noise       Measurement noise variance of this measurement [(rad/s)²]; positive.
+   * @param noise       Measurement noise variance of this measurement; positive.
    */
-  constexpr void UpdateSpeed(const unit::AngularVelocity innovation, const T noise) noexcept {
-    Correct(0U, innovation.Value(), noise);
+  constexpr void UpdateSpeed(const unit::AngularVelocity innovation,
+                             const unit::AngularVelocityVariance noise) noexcept {
+    Correct(0U, innovation, noise);
   }
 
   /**
@@ -373,10 +374,16 @@ struct MechanicalObserver {
    * @brief Scalar Kalman update of the measured state @p state (0 = ω, 1 = θ).
    *
    *   S = P[s][s] + noise,   k = P[:, s] / S,   P = P − k · P[s, :],   x += k · ε
+   *
+   * The noise is the variance of the innovation's unit. The covariance P
+   * mixes the units of the states, so the update runs on plain numbers.
    */
-  constexpr void Correct(const std::size_t state, const T innovation, const T noise) noexcept {
-    const T kVariance = p[state][state] + noise;
-    if (!(kVariance > static_cast<T>(0)) || !std::isfinite(innovation)) {
+  template <unit::UnitLike Innovation, unit::UnitLike Noise>
+    requires std::same_as<Noise, decltype(Innovation{} * Innovation{})>
+  constexpr void Correct(const std::size_t state, const Innovation innovation, const Noise noise) noexcept {
+    const T kInnovation = innovation.Value();
+    const T kVariance = p[state][state] + noise.Value();
+    if (!(kVariance > static_cast<T>(0)) || !std::isfinite(kInnovation)) {
       return;  // no usable measurement
     }
     s = static_cast<T>(1) / kVariance;
@@ -390,9 +397,9 @@ struct MechanicalObserver {
       }
     }
 
-    omega += unit::AngularVelocity{k[0] * innovation};
-    theta += unit::Angle{k[1] * innovation};
-    m_l += unit::Torque{k[2] * innovation};
+    omega += unit::AngularVelocity{k[0] * kInnovation};
+    theta += unit::Angle{k[1] * kInnovation};
+    m_l += unit::Torque{k[2] * kInnovation};
     ClampSpeed();
 
     theta = observer::WrapAngle(theta);

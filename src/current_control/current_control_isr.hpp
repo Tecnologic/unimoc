@@ -26,6 +26,7 @@
 #include "mechanical_observer.hpp"
 #include "nvm_settings.hpp"
 #include "rotor_system.hpp"
+#include "settings_store.hpp"
 #include "stator_system.hpp"
 #include "sub_step_buffer.hpp"
 #include "svm.hpp"
@@ -152,11 +153,21 @@ struct CurrentControlState {
   /// Most recently requested normalized phase duties (entry 0 of duty_plan).
   system::ThreePhase<unit::Ratio> phase_duties{0.5_ratio, 0.5_ratio, 0.5_ratio};
 
-  /// Newest raw ADC sample of the last cycle; updated by every control cycle
-  /// regardless of control mode. Safe to read from lower-priority contexts
-  /// (e.g. the startup FSM). The phase-current vector preserves ia + ib + ic = 0.
+  /// Newest raw ADC sample of the last cycle, without the calibration;
+  /// updated by every control cycle regardless of control mode. Safe to read
+  /// from lower-priority contexts: the startup FSM measures the calibration
+  /// from it.
   system::ThreePhase<unit::Current> raw_phase_currents;
   unit::Voltage raw_vdc;
+
+  /// The same sample with the calibration applied: what the control uses, and
+  /// what the telemetry, the outer loop and the traces report.
+  system::ThreePhase<unit::Current> phase_currents;
+  unit::Voltage dc_link;
+
+  /// Calibration of the current and DC-link sense from the settings (the
+  /// startup aid), applied to every sample of the cycle. Set by Init().
+  settings::AdcCalibration calibration{};
 
   /// Hard phase-current limit [A]. The hardware checks every sample against
   /// it and trips the power stage; the control cycle checks all samples of the

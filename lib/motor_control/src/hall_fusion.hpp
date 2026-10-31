@@ -114,13 +114,13 @@ class HallFusion {
    *
    * @param events Hall events, oldest first.
    * @param reference Timestamp that the estimate of @p mech_obs refers to.
-   * @param seconds_per_tick Period of the timestamp clock [s].
+   * @param tick_period Period of the timestamp clock.
    * @param mech_obs Observer that receives the measurements; its covariance
    *                 must already be predicted for this cycle.
    */
   constexpr void Update(const std::span<const HallEvent> events,
                         const uint32_t reference,
-                        const float seconds_per_tick,
+                        const unit::Time tick_period,
                         MechanicalObserver<T>& mech_obs) noexcept {
     uint8_t code_at_reference = code_;
     for (const HallEvent& event : events) {
@@ -131,7 +131,7 @@ class HallFusion {
       if (!HallDecoder::Sector(event.code).has_value()) {
         ++invalid_codes_;
       } else if (const std::optional<unit::Angle> kEdge = decoder_.EdgeAngle(code_, event.code)) {
-        const unit::Time kAge{static_cast<float>(kTicksAfterEvent) * seconds_per_tick};
+        const unit::Time kAge = tick_period * static_cast<float>(kTicksAfterEvent);
         const unit::Angle kMeasured = *kEdge + mech_obs.omega * kAge;
         mech_obs.UpdateAngle(WrapAngle(kMeasured - mech_obs.theta), r_edge_);
         ++edges_;
@@ -168,8 +168,8 @@ class HallFusion {
     if (kTicksSinceChange <= 0) {
       return;
     }
-    const float kSinceChange = static_cast<float>(kTicksSinceChange) * seconds_per_tick;
-    const unit::AngularVelocity kBound{HallDecoder::kSectorWidth.Value() / kSinceChange};
+    const unit::Time kSinceChange = tick_period * static_cast<float>(kTicksSinceChange);
+    const unit::AngularVelocity kBound = HallDecoder::kSectorWidth / kSinceChange;
     const unit::AngularVelocity kLimit = kBound * 2.0F;
     const unit::AngularVelocity kSpeed = mech_obs.omega;
     if (kSpeed > kLimit || kSpeed < -kLimit) {
@@ -197,13 +197,13 @@ class HallFusion {
   /// Largest age of the last code change the speed bound uses [ticks].
   static constexpr int32_t kMaxAgeTicks = 0x4000'0000;
 
-  /// Time without an edge after which the rotor counts as standing [s]: below
+  /// Time without an edge after which the rotor counts as standing: below
   /// 2 rad/s electrical a sector takes longer.
-  static constexpr float kStandstillTime = 0.5F;
+  static constexpr unit::Time kStandstillTime = 0.5_s;
 
   HallDecoder decoder_;
-  T r_edge_{static_cast<T>(3e-3)};
-  T r_sector_{static_cast<T>(3e-2)};
+  unit::AngleVariance r_edge_{3e-3_rad2};
+  unit::AngleVariance r_sector_{3e-2_rad2};
   bool enabled_{false};
   bool valid_{false};    ///< The last cycle had a valid code.
   bool started_{false};  ///< A valid code was fused since Reset().

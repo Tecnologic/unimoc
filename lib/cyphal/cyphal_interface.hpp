@@ -71,8 +71,9 @@
  * updates the parameter in RAM; a store command persists it.  The complete
  * drive configuration (motor parameters, controller gains, limits, identity,
  * ports) is accessible without physical access to the hardware. The
- * `unimoc.startup.*` run/step/result registers of the startup FSM are served
- * by the drive (src/drive/startup_registers.hpp); they are not persistent.
+ * `unimoc.startup.results` register of the startup FSM is served by the drive
+ * (src/drive/commissioning.hpp); it is not persistent. The FSM itself runs on
+ * the commissioning commands and status message.
  */
 
 namespace unimoc::cyphal {
@@ -362,6 +363,11 @@ inline constexpr const char* kPosSpeedTol = "unimoc.control.pos.speed_tolerance"
 /// Type: real32[1] (read/write, persistent)
 inline constexpr const char* kPosHomingSpeed = "unimoc.control.pos.homing_speed";
 
+/// Current bound of the homing run [A]; reached at the stop, it ends the
+/// search. 0: homing off (START_HOMING refused).
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kPosHomingCurrent = "unimoc.control.pos.homing_current";
+
 // --- Motor operating limits ---
 
 /// Maximum motor (resultant stator vector) current [A].
@@ -425,23 +431,9 @@ inline constexpr const char* kCurrentVMax = "unimoc.control.current.v_max";
 // Hardware startup aid
 // =========================================================================
 
-/// Write 1 to start the startup FSM; write 0 to abort.
-/// Type: uint8[1] (write-only)
-inline constexpr const char* kStartupRun = "unimoc.startup.run";
-
-/// Current FSM step (read) or step to advance to (write 1 = next step).
-/// Type: uint8[1] (read/write)
-inline constexpr const char* kStartupStep = "unimoc.startup.step";
-
-/// User-entered external current measurement [A] (clamp-meter reading).
-/// Used by CURRENT_SENSE_CALIBRATION step to compute gain_a / gain_b.
-/// Type: real32[1] (read/write)
-inline constexpr const char* kStartupExtCurrentA = "unimoc.startup.ext_current_A";
-
-/// User-entered external DC-link voltage measurement [V] (multimeter).
-/// Used by DC_LINK_VOLTAGE_CHECK step to compute gain_vdc.
-/// Type: real32[1] (read/write)
-inline constexpr const char* kStartupExtVdcV = "unimoc.startup.ext_vdc_V";
+// The actions of the startup aid are commissioning commands
+// (unimoc.drive.CommissioningStatus.0.1 COMMAND_*), its state the status
+// message on kPubCommissioning; the results stay registers.
 
 /// Read-back of pass/fail status flags, one byte per FSM step (1=pass, 0=fail/pending).
 /// Type: uint8[<=14] (read-only)
@@ -455,6 +447,10 @@ inline constexpr const char* kStartupGainA = "unimoc.startup.gain_a";
 /// Type: real32[1] (read-only after CURRENT_SENSE_CALIBRATION step)
 inline constexpr const char* kStartupGainB = "unimoc.startup.gain_b";
 
+/// Computed phase-C current-sense gain correction factor [dimensionless].
+/// Type: real32[1] (read-only after CURRENT_SENSE_CALIBRATION step)
+inline constexpr const char* kStartupGainC = "unimoc.startup.gain_c";
+
 /// Computed DC-link voltage ADC gain correction factor [dimensionless].
 /// Type: real32[1] (read-only after DC_LINK_VOLTAGE_CHECK step)
 inline constexpr const char* kStartupGainVdc = "unimoc.startup.gain_vdc";
@@ -466,6 +462,10 @@ inline constexpr const char* kStartupAdcOffsetA = "unimoc.startup.adc_offset_a";
 /// Measured phase-B current-sense zero offset [A].
 /// Type: real32[1] (read-only after ADC_OFFSET_CAL step)
 inline constexpr const char* kStartupAdcOffsetB = "unimoc.startup.adc_offset_b";
+
+/// Measured phase-C current-sense zero offset [A].
+/// Type: real32[1] (read-only after ADC_OFFSET_CAL step)
+inline constexpr const char* kStartupAdcOffsetC = "unimoc.startup.adc_offset_c";
 
 // =========================================================================
 // Execution times of the interrupts (M0, CONFIG_UNIMOC_HOT_PATH_TIMING)
@@ -493,25 +493,7 @@ inline constexpr const char* kTimingOverruns = "unimoc.timing.overruns";
 /// Type: natural32[1] (read-only)
 inline constexpr const char* kTimingClockHz = "unimoc.timing.clock_hz";
 
-/// Write 1: start new statistics (the overrun counters keep counting).
-/// Type: natural8[1] (read 0, write 1)
-inline constexpr const char* kTimingReset = "unimoc.timing.reset";
-
-// --- Phase current balance correction ---
-
-/// Phase-A ADC gain correction factor [dimensionless, ≈ 1.0].
-/// Applied to the raw phase-A current sample to compensate hardware offset/gain
-/// mismatch between ADC channels.  Identified by CMD_MEASURE_BALANCE.
-/// Type: real32[1] (read/write, persistent)
-inline constexpr const char* kBalanceGainA = "unimoc.motor.balance.gain_a";
-
-/// Phase-B ADC gain correction factor [dimensionless, ≈ 1.0].
-/// Type: real32[1] (read/write, persistent)
-inline constexpr const char* kBalanceGainB = "unimoc.motor.balance.gain_b";
-
-/// Phase-C ADC gain correction factor [dimensionless, ≈ 1.0].
-/// Type: real32[1] (read/write, persistent)
-inline constexpr const char* kBalanceGainC = "unimoc.motor.balance.gain_c";
+// New statistics: ExecuteCommand cmd::kCmdResetTiming (the overrun counters keep counting).
 
 // --- Cyphal ports of the drive (standard port-ID registers) ---
 //
@@ -606,6 +588,20 @@ inline constexpr const char* kSubBatteryStatusType = "uavcan.sub.battery_status.
 inline constexpr const char* kPubDriveStatusId = "uavcan.pub.drive_status.id";
 /// Type name of the drive status publication. Type: string (read-only)
 inline constexpr const char* kPubDriveStatusType = "uavcan.pub.drive_status.type";
+
+/// Commissioning status publication (startup aid, motor identification).
+/// Data type: unimoc.drive.CommissioningStatus.0.1
+/// Type: natural16[1] (read/write, persistent)
+inline constexpr const char* kPubCommissioningId = "uavcan.pub.commissioning.id";
+/// Type name of the commissioning status publication. Type: string (read-only)
+inline constexpr const char* kPubCommissioningType = "uavcan.pub.commissioning.type";
+
+/// Homing state publication (0 IDLE, 1 SEARCHING, 2 ZEROING, 3 DONE, 4 FAULT).
+/// Data type: uavcan.primitive.scalar.Natural8.1.0
+/// Type: natural16[1] (read/write, persistent)
+inline constexpr const char* kPubHomingStateId = "uavcan.pub.homing_state.id";
+/// Type name of the homing state publication. Type: string (read-only)
+inline constexpr const char* kPubHomingStateType = "uavcan.pub.homing_state.type";
 
 /// Wheel of this drive: 0 front left, 1 front right, 2 rear left, 3 rear right.
 /// Type: natural8[1] (read/write, persistent)
@@ -888,10 +884,8 @@ inline constexpr uint16_t kSubCurrentSetpoint = 107U;
 /// Register: `uavcan.sub.servo_setpoint.id`
 inline constexpr uint16_t kSubServoSetpoint = 108U;
 
-/// Homing trigger: any value on this subject starts the homing sequence.
-/// Data type: uavcan.primitive.scalar.Bit.1.0
-/// Register: `uavcan.sub.homing_trigger.id`
-inline constexpr uint16_t kSubHomingTrigger = 105U;
+// Homing starts with ExecuteCommand cmd::kCmdStartHoming (subject 105 held
+// the former homing trigger, never subscribed).
 
 /// Wheel command of the vehicle dynamics controller.
 /// Data type: unimoc.cart.WheelCommand.0.1
@@ -933,7 +927,8 @@ inline constexpr uint16_t kPubShaftPosition = 202U;
 /// Register: `uavcan.pub.in_position.id`
 inline constexpr uint16_t kPubInPosition = 203U;
 
-/// Homing state: 0=IDLE, 1=SEARCHING, 2=ZEROING, 3=DONE, 4=FAULT.
+/// Homing state: 0=IDLE, 1=SEARCHING, 2=ZEROING, 3=DONE, 4=FAULT, on every
+/// change, at 2 Hz while searching and 0.5 Hz otherwise.
 /// Data type: uavcan.primitive.scalar.Natural8.1.0
 /// Register: `uavcan.pub.homing_state.id`
 inline constexpr uint16_t kPubHomingState = 204U;
@@ -953,41 +948,6 @@ inline constexpr uint16_t kPubPhaseCurrent = 206U;
 /// Register: `uavcan.pub.excitation_current.id`
 inline constexpr uint16_t kPubExcitationCurrent = 207U;
 
-// ---- Motor identification / self-test result subjects ----
-//
-// These subjects carry the result of an identification run triggered by a
-// CMD_MEASURE_* execute command.  Each subject is published exactly once at
-// the end of the measurement; periodic publication is not used.
-//
-// If the port is disabled (UNSET_PORT_ID) the result is still applied to
-// RAM / NVM according to the command `parameter` bitmask, but no Cyphal
-// message is emitted.
-
-/// Measured stator resistance R_s [Ω].
-/// Published at the end of a CMD_MEASURE_RS run.
-/// Data type: uavcan.primitive.scalar.Real32.1.0
-/// Register: `uavcan.pub.meas_rs.id`
-inline constexpr uint16_t kPubMeasRs = 208U;
-
-/// Measured inductance pair [L_d, L_q] [H] as a 2-element real array.
-/// Published at the end of a CMD_MEASURE_LD_LQ run.
-/// Data type: uavcan.primitive.array.Real32.1.0 (length 2: [L_d, L_q])
-/// Register: `uavcan.pub.meas_ld_lq.id`
-inline constexpr uint16_t kPubMeasLdLq = 209U;
-
-/// Measured permanent-magnet (or rotor) flux linkage ψ_PM [Wb].
-/// Published at the end of a CMD_MEASURE_PSI run.
-/// Data type: uavcan.primitive.scalar.Real32.1.0
-/// Register: `uavcan.pub.meas_psi.id`
-inline constexpr uint16_t kPubMeasPsi = 210U;
-
-/// Measured phase current balance correction factors [gain_a, gain_b, gain_c]
-/// [dimensionless, ≈ 1.0] as a 3-element real array.
-/// Published at the end of a CMD_MEASURE_BALANCE run.
-/// Data type: uavcan.primitive.array.Real32.1.0 (length 3: [gain_a, gain_b, gain_c])
-/// Register: `uavcan.pub.meas_balance.id`
-inline constexpr uint16_t kPubMeasBalance = 211U;
-
 /// Current-controller trace.
 /// Data type: unimoc.drive.Telemetry.0.1
 /// Register: `uavcan.pub.telemetry.id`
@@ -1002,6 +962,11 @@ inline constexpr uint16_t kPubSimPlant = 213U;
 /// Data type: unimoc.cart.DriveStatus.0.1
 /// Register: `uavcan.pub.drive_status.id`
 inline constexpr uint16_t kPubDriveStatus = 214U;
+
+/// State of the commissioning procedure (startup aid, motor identification).
+/// Data type: unimoc.drive.CommissioningStatus.0.1
+/// Register: `uavcan.pub.commissioning.id`
+inline constexpr uint16_t kPubCommissioning = 215U;
 
 /// @}
 
@@ -1038,42 +1003,30 @@ inline constexpr uint16_t kSrvCymonRead = 124U;
 // Codes 0xFF00..0xFFFF are reserved by the Cyphal specification; all other
 // values below 0x8000 are vendor-specific and available to UNIMOC.
 //
-// Vendor-specific telemetry commands (0x0001..0x00FF)
-// ---------------------------------------------------
-// Sending any CMD_GET_* command causes the node to publish a single
-// on-demand measurement frame on the corresponding subject even when the
-// periodic publication interval is set to zero (port disabled).  The command
-// parameter field is ignored.  The node responds with STATUS_SUCCESS once the
-// measurement has been enqueued for transmission, or STATUS_BAD_COMMAND if
-// the measurement is not available (e.g. EESM-only measurement on a PMSM
-// node).
+// Retired vendor codes (0x0001..0x01FF)
+// --------------------------------------
+// The former CMD_GET_* and CMD_MEASURE_* codes, never implemented; they are
+// not reused, an old client gets STATUS_BAD_COMMAND.
 //
-// Vendor-specific motor identification commands (0x0100..0x01FF)
-// --------------------------------------------------------------
-// Sending any CMD_MEASURE_* command starts an automated measurement
-// procedure (the motor must be at rest unless otherwise specified).  The
-// node responds with STATUS_SUCCESS immediately to acknowledge that the
-// procedure has been started, or one of the STATUS_BAD_* codes if it cannot
-// be started (e.g. motor still running).
+// Commissioning commands (0x0200..0x02FF)
+// ---------------------------------------
+// The startup aid and the motor identification take their actions as
+// ExecuteCommand (COMMAND_* of unimoc.drive.CommissioningStatus.0.1: start,
+// continue with a confirmation, a meter reading, abort, apply); the answer
+// says at once whether the action was taken, with the reason in `output`.
+// Progress and completion are the status message on kPubCommissioning; the
+// measured values are registers (docs/motor_identification_plan.md, 5.4).
 //
-// The `parameter` field of the request is a bitmask that controls what
-// happens with the measurement result:
+// Diagnostics commands (0x0300..0x03FF)
+// -------------------------------------
+// Actions on the diagnostics of the drive, allowed in every state; the
+// values themselves stay read-only registers.
 //
-//   Bit 0  PARAM_APPLY_TO_RAM   — apply the result to in-RAM parameters
-//                                 (takes effect immediately for the next
-//                                 control cycle).
-//   Bit 1  PARAM_PERSIST_TO_NVM — flush the in-RAM parameters to NVM after
-//                                 applying (only meaningful when bit 0 is set).
-//
-// Typical usage:
-//   parameter == 0x0000  → measure, publish on PUB_MEAS_* subject only;
-//                           do not change any parameter.
-//   parameter == 0x0001  → measure, publish, and apply to RAM (live effect)
-//                           without persisting to NVM.
-//   parameter == 0x0003  → measure, publish, apply to RAM, and flush to NVM.
-//
-// At the end of the procedure the result is published on the corresponding
-// PUB_MEAS_* subject (if that port is configured / not UNSET_PORT_ID).
+// Motion commands (0x0400..0x04FF)
+// --------------------------------
+// One-shot motions of the engaged drive; the answer says whether the motion
+// started (the reason of a refusal in `output`), the progress is a status
+// subject. Enabling stays on the readiness subject.
 // ============================================================================
 
 /// @defgroup exec_commands uavcan.node.ExecuteCommand constants
@@ -1130,84 +1083,22 @@ inline constexpr uint16_t kCommandEmergencyStop = 65531U;
 inline constexpr uint16_t kCommandStorePersistentStates = 65530U;
 
 // -------------------------------------------------------------------------
-// Vendor-specific measurement commands (on-demand single-shot publications)
+// Vendor-specific diagnostics commands
 // -------------------------------------------------------------------------
 
-/// Request a single publication of the estimated rotor electrical angle [rad].
-/// Subject: PUB_ROTOR_ANGLE (port 200).
-inline constexpr uint16_t kCmdGetRotorAngle = 0x0001U;
-
-/// Request a single publication of the estimated electrical angular velocity
-/// [rad/s].
-/// Subject: PUB_ROTOR_SPEED (port 201).
-inline constexpr uint16_t kCmdGetRotorSpeed = 0x0002U;
-
-/// Request a single publication of the absolute shaft position [rad],
-/// referenced to home.
-/// Subject: PUB_SHAFT_POSITION (port 202).
-inline constexpr uint16_t kCmdGetShaftPosition = 0x0003U;
-
-/// Request a single publication of the in-position flag.
-/// Subject: PUB_IN_POSITION (port 203).
-inline constexpr uint16_t kCmdGetInPosition = 0x0004U;
-
-/// Request a single publication of the homing state
-/// (0=IDLE, 1=SEARCHING, 2=ZEROING, 3=DONE, 4=FAULT).
-/// Subject: PUB_HOMING_STATE (port 204).
-inline constexpr uint16_t kCmdGetHomingState = 0x0005U;
-
-/// Request a single publication of the DC-link voltage [V].
-/// Subject: PUB_DC_VOLTAGE (port 205).
-inline constexpr uint16_t kCmdGetDcVoltage = 0x0006U;
-
-/// Request a single publication of the phase current magnitude [A].
-/// Subject: PUB_PHASE_CURRENT (port 206).
-inline constexpr uint16_t kCmdGetPhaseCurrent = 0x0007U;
-
-/// Request a single publication of the estimated rotor excitation current
-/// î_f [A] (EESM only; returns STATUS_BAD_STATE for PMSM/ASM nodes).
-/// Subject: PUB_EXCITATION_CURRENT (port 207).
-inline constexpr uint16_t kCmdGetExcitationCurrent = 0x0008U;
+/// Start new run time statistics of `unimoc.timing.*` (min, mean, max and
+/// count); the overrun counters keep counting. The parameter is ignored.
+inline constexpr uint16_t kCmdResetTiming = 0x0300U;
 
 // -------------------------------------------------------------------------
-// Vendor-specific motor identification / self-test commands (0x0100..0x01FF)
-//
-// All CMD_MEASURE_* commands accept a `parameter` bitmask:
-//   PARAM_APPLY_TO_RAM    (bit 0) — write result into in-RAM parameters
-//   PARAM_PERSIST_TO_NVM  (bit 1) — additionally flush RAM to NVM
+// Vendor-specific motion commands
 // -------------------------------------------------------------------------
 
-/// Bitmask bit 0: apply measurement result to in-RAM parameters.
-inline constexpr uint16_t kParamApplyToRam = 0x0001U;
-
-/// Bitmask bit 1: persist in-RAM parameters to NVM after applying.
-/// Only meaningful when PARAM_APPLY_TO_RAM is also set.
-inline constexpr uint16_t kParamPersistToNvm = 0x0002U;
-
-/// Measure stator resistance R_s via DC injection (motor at rest).
-/// Result published on PUB_MEAS_RS (port 208).
-/// If successful, `stator_R` is updated per `parameter` bitmask.
-inline constexpr uint16_t kCmdMeasureRs = 0x0100U;
-
-/// Measure d/q-axis inductances L_d and L_q via AC impedance sweep
-/// (HFI-style, motor at rest).
-/// Result published on PUB_MEAS_LD_LQ (port 209) as [L_d, L_q].
-/// If successful, `L_d` and `L_q` are updated per `parameter` bitmask.
-inline constexpr uint16_t kCmdMeasureLdLq = 0x0101U;
-
-/// Measure permanent-magnet (or rotor) flux linkage ψ_PM via back-EMF
-/// observation (motor must be spinning at a known speed; ensure the shaft
-/// is free to rotate before issuing this command).
-/// Result published on PUB_MEAS_PSI (port 210).
-/// If successful, `flux_pm` is updated per `parameter` bitmask.
-inline constexpr uint16_t kCmdMeasurePsi = 0x0102U;
-
-/// Measure phase current balance by injecting equal test currents and
-/// comparing ADC readings across all three phases (motor at rest).
-/// Result published on PUB_MEAS_BALANCE (port 211) as
-/// [gain_a, gain_b, gain_c].
-/// If successful, `phase_balance_a/b/c` are updated per `parameter` bitmask.
-inline constexpr uint16_t kCmdMeasureBalance = 0x0103U;
+/// Start a homing run: the shaft runs at `unimoc.control.pos.homing_speed`
+/// against its stop, where `unimoc.control.pos.homing_current` ends the
+/// search and the position becomes zero. Only engaged in position control;
+/// the state is kPubHomingState. The parameter is ignored.
+inline constexpr uint16_t kCmdStartHoming = 0x0400U;
 
 }  // namespace cmd
 
