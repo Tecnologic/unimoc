@@ -1037,7 +1037,9 @@ west build -b bcc unimoc/app -d unimoc/app/build/bcc
 
 ```
 
-The BCC has not run on hardware yet.
+The BCC has not run on hardware yet. The image (194 KB flash, 79 KB RAM in
+v0.4.0) needs the 512 KB STM32G473CET6 of the board definition; it does not
+fit an STM32G473CBT6 (128 KB).
 
 ### Running the Tests
 
