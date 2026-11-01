@@ -34,6 +34,8 @@ import pycyphal
 import pycyphal.application
 from pycyphal.transport.can import CANTransport
 from pycyphal.transport.can.media.pythoncan import PythonCANMedia
+import can.interfaces.slcan
+import serial
 
 # DSDL namespaces, compiled by the pycyphal import hook (CYPHAL_PATH in conftest.py).
 import uavcan.diagnostic
@@ -53,6 +55,35 @@ import cymon
 import unimoc.cart
 import unimoc.drive
 import unimoc.sim
+
+
+
+def _read_slcan_line(self, timeout: float | None) -> str | None:
+    """python-can's slcanBus._read, reading what is waiting at once instead of byte by byte.
+
+    The byte-wise reader of python-can makes one system call per character:
+    on a loaded machine it cannot keep up with the drive's telemetry, the
+    pseudo terminal fills up and the drive drops frames, service responses
+    among them. Same contract: the next line with its terminator (CR or BEL),
+    None when @p timeout expires first.
+    """
+    deadline = serial.Timeout(timeout)
+    with can.interfaces.slcan.error_check("Could not read from serial device"):
+        while True:
+            ends = [index for index in (self._buffer.find(self._OK), self._buffer.find(self._ERROR)) if index >= 0]
+            if ends:
+                end = min(ends) + 1
+                line = self._buffer[:end].decode()
+                del self._buffer[:end]
+                return line
+            chunk = self.serialPortOrig.read(max(1, self.serialPortOrig.in_waiting))  # waits for the port timeout
+            if chunk:
+                self._buffer.extend(chunk)
+            elif deadline.expired():
+                return None
+
+
+can.interfaces.slcan.slcanBus._read = _read_slcan_line
 
 DRIVE = 10
 LOCAL = 127
