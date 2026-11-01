@@ -27,6 +27,13 @@
 		zephyr,canbus = &fdcan3;
 	};
 
+	/* The status LEDs of hardware/status_leds.hpp. */
+	aliases {
+		unimoc-led-run = &led_run;
+		unimoc-led-pwm = &led_pwm;
+		unimoc-led-error = &led_error;
+	};
+
 	/* Status LEDs, anode at the MCU pin through 470 R, cathode at GND. */
 	leds {
 		compatible = "gpio-leds";

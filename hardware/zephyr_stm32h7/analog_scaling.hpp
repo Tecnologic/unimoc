@@ -63,6 +63,9 @@ inline constexpr unit::Current kCurrentPerCount =
   return unit::Voltage{CountsToVolts(static_cast<float>(raw)) * kVoltageDividerRatio};
 }
 
+/// DC-link voltage of one count: the resolution of the DC-link channel.
+inline constexpr unit::Voltage kVoltagePerCount = CountsToVoltage(1U);
+
 static_assert(CountsToCurrent(static_cast<uint32_t>(kCurrentZeroCounts)) == unit::Current{});
 static_assert(kCurrentPerCount > unit::Current{});
 

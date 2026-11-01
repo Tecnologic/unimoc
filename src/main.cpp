@@ -18,10 +18,12 @@
 #include "cyphal_platform.hpp"
 #include "hardware_interface.hpp"
 #include "hot_path_interface.hpp"
+#include "hot_path_timing.hpp"
 #include "outer_loop.hpp"
 #include "settings_save_gate.hpp"
 #include "settings_store.hpp"
 #include "slow_update.hpp"
+#include "status_leds.hpp"
 #include "trace_signals.hpp"
 
 // Called directly by the platform (hot_path_interface.hpp), no registration.
@@ -89,6 +91,12 @@ int main() {
 
   // Outer loop (speed, position, setpoints) of motor 0, below the observer.
   unimoc::hardware::StartControlThread();
+
+  // RUN, PWM and ERROR LEDs; the error LED also flashes for a missed deadline.
+  unimoc::hardware::StartStatusLeds([]() noexcept {
+    return unimoc::hardware::timing::DutyOverruns() +
+           unimoc::current_control::CurrentControlIsr::Instance().state.observer_overruns;
+  });
 
   // Cyphal/CAN: setpoints, registers, telemetry and the log (motor 0).
   unimoc::hardware::StartCyphal(settings_store);

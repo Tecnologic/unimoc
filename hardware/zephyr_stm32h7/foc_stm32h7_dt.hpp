@@ -65,7 +65,7 @@
         {UNIMOC_FOC_SAMPLE_CODE(first_index),                                               \
          UNIMOC_FOC_SAMPLE_CODE(second_index),                                              \
          UNIMOC_FOC_SAMPLE_CODE(third_index)},                                              \
-        UNIMOC_CLOCK_INFO(0, UNIMOC_FOC_ADC(first))                                         \
+        UNIMOC_CLOCK_INFO(0, DT_PARENT(UNIMOC_FOC_ADC(first)))                              \
   }
 
 #define UNIMOC_FOC_SAME_ADC(first, second) \

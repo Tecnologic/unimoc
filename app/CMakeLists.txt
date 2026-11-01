@@ -17,7 +17,7 @@ elseif(CONFIG_UNIMOC_PLATFORM_SIM)
   set(UNIMOC_PLATFORM_LIBRARIES unimoc_sim)
 elseif(CONFIG_UNIMOC_PLATFORM_STM32H7)
   set(UNIMOC_PLATFORM_DIR ${UNIMOC_ROOT}/hardware/zephyr_stm32h7)
-  set(UNIMOC_PLATFORM_EXTRA_SOURCES foc_stm32h7.cpp cyphal_platform.cpp ebike_io.cpp status_leds.cpp)
+  set(UNIMOC_PLATFORM_EXTRA_SOURCES foc_stm32h7.cpp cyphal_platform.cpp ebike_io.cpp)
 else()
   message(FATAL_ERROR "No UNIMOC platform for board '${BOARD}'.")
 endif()
@@ -59,6 +59,7 @@ target_sources(app PRIVATE
   ${UNIMOC_ROOT}/hardware/zephyr_common/system_interface.cpp
   ${UNIMOC_ROOT}/hardware/zephyr_common/zephyr_settings_storage.cpp
   ${UNIMOC_ROOT}/hardware/zephyr_common/control_thread.cpp
+  ${UNIMOC_ROOT}/hardware/zephyr_common/status_leds.cpp
   ${UNIMOC_ROOT}/hardware/zephyr_common/cyphal_runtime.cpp
   ${UNIMOC_ROOT}/hardware/zephyr_common/zephyr_can_media.cpp
   ${UNIMOC_PLATFORM_DIR}/hardware_interface.cpp)

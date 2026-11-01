@@ -13,6 +13,26 @@
  */
 
 / {
+	/* Status LEDs of hardware/status_leds.hpp on LD1 (green), LD2 (yellow) and LD3 (red). */
+	aliases {
+		unimoc-led-run = &green_led;
+		unimoc-led-pwm = &yellow_led;
+		unimoc-led-error = &red_led;
+	};
+
+	/* LD3 (PB14) is a plain GPIO output here; the board file wires it to TIM12 PWM. */
+	red_leds {
+		compatible = "gpio-leds";
+		red_led: led_red {
+			gpios = <&gpiob 14 GPIO_ACTIVE_HIGH>;
+			label = "User LD3";
+		};
+	};
+
+	pwmleds {
+		status = "disabled";
+	};
+
 	/*
 	 * Power stage: TIM1, centre-aligned PWM on CH1..CH3 + CH1N..CH3N
 	 * (PE8..PE13, all on port E as on the 4850 proposal). TRGO2 (rising
@@ -151,4 +171,8 @@
 			reg = <0x001c0000 DT_SIZE_K(256)>;
 		};
 	};
+};
+
+&timers12 {
+	status = "disabled";
 };
