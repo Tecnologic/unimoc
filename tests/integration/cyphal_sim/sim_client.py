@@ -292,13 +292,16 @@ class SimClient:
         return self.call(cymon.ReadSamples_0_1, request, port=PORT_CYMON_READ)
 
     def trace_wait_complete(self, timeout: float = 5.0) -> cymon.ReadSamples_0_1.Response:
-        """Polls the capture until it is complete, for at most @p timeout seconds of virtual time."""
-        for _ in range(round(timeout / 0.05)):
-            status = self.trace_read()
-            if status.state.value == cymon.CaptureState_0_1.COMPLETE:
-                return status
+        """Polls the capture until it is complete, for at most @p timeout seconds of drive time."""
+        status = self.trace_read()
+        start = self.virtual_time
+        deadline = time.monotonic() + 10.0 * timeout + 1.0  # the drive time stands still (paused)
+        while status.state.value != cymon.CaptureState_0_1.COMPLETE:
+            if self.virtual_time - start >= timeout or time.monotonic() > deadline:
+                raise AssertionError(f"the capture did not complete (state {status.state.value})")
             self.wait(0.05)
-        raise AssertionError(f"the capture did not complete (state {status.state.value})")
+            status = self.trace_read()
+        return status
 
     def trace_frames(self) -> list[list[float]]:
         """Reads a complete capture page by page; one list of channel values per frame."""
@@ -317,11 +320,18 @@ class SimClient:
 
     # --- Subjects ----------------------------------------------------------------
 
-    def receive(self, subscriber, timeout: float = 3.0):
+    def receive(self, subscriber, timeout: float = 5.0):
+        """The oldest queued message, or the next one within @p timeout of drive time (see _sleep)."""
         async def go():
-            result = await subscriber.receive_for(timeout)
-            assert result is not None, "no message"
-            return result
+            done = asyncio.ensure_future(self._sleep(timeout))
+            try:
+                while not done.done():
+                    result = await subscriber.receive_for(0.05)
+                    if result is not None:
+                        return result
+            finally:
+                done.cancel()
+            raise AssertionError(f"no message within {timeout} s of drive time")
 
         return self._run(go())
 
