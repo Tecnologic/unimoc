@@ -5,7 +5,7 @@
  *    / /_/ / /|  // // /  / / / /___
  *    \____/_/ |_/___/_/  /_/\____/\____/
  *
- *    @file dead_time.hpp
+ *    @file stm32_dead_time.hpp
  *    @brief DTG encoding of the STM32 advanced timer dead time.
  *
  *    SPDX-License-Identifier: GPL-3.0-or-later
@@ -18,14 +18,15 @@
 #include <cstdint>
 #include <optional>
 
-namespace unimoc::hardware::foc_stm32g4 {
+namespace unimoc::hardware::stm32 {
 
 /// Longest dead time the DTG field can encode, in ticks of the dead time clock t_DTS.
 inline constexpr uint32_t kMaxDeadTimeTicks = 63U * 16U;
 
 /// Converts a dead time in ticks of t_DTS into the 8 bit DTG field of TIM_BDTR.
 ///
-/// The field has four ranges with growing step size (RM0440, TIMx_BDTR):
+/// The field has four ranges with growing step size (TIMx_BDTR, the same on
+/// the STM32G4, RM0440, and the STM32H7, RM0433):
 ///   0xx xxxx: DT = DTG[7:0] * t_DTS                  0 .. 127
 ///   10x xxxx: DT = (64 + DTG[5:0]) * 2 * t_DTS     128 .. 254
 ///   110 xxxx: DT = (32 + DTG[4:0]) * 8 * t_DTS     256 .. 504
@@ -81,4 +82,4 @@ static_assert(DecodeDeadTime(*EncodeDeadTime(1008U)) == 1008U);
 static_assert(!EncodeDeadTime(1009U).has_value());
 static_assert(DeadTimeTicks(400U, 170000000U) == 68U);
 
-}  // namespace unimoc::hardware::foc_stm32g4
+}  // namespace unimoc::hardware::stm32

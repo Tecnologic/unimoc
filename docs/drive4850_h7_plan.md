@@ -147,7 +147,49 @@ Only the MCU side of the traces moves.
 - With the control cycle on every sample, `docs/hotpath_plan.md` gets the
   new cadence as a configuration of the platform, not as a second hot path.
 
-## 7. Open points
+## 7. Bring-up on a NUCLEO-H743ZI
+
+Started 2026-11-01 on a first-revision NUCLEO-H743ZI (silicon rev. Y), so
+the platform runs before the logic board is drawn. The board is Zephyr's
+`nucleo_h743zi`; `app/boards/nucleo_h743zi.overlay` and `.conf` add the
+UNIMOC parts. Built, not run on the board yet.
+
+- Clock: 400 MHz core (rev. Y limit), HCLK 200 MHz, TIM1 200 MHz; ADC
+  kernel clock PLL2 P 120 MHz / 4 = 30 MHz; FDCAN1 from PLL2 Q (80 MHz).
+- Platform `hardware/zephyr_stm32h7/` (binding `unimoc,foc-stm32h7`): the
+  G4 driver ported to the H7 ADC (asynchronous clock, boost by silicon
+  revision, linearity calibration, channel preselection `PCSEL`, 12 bit),
+  three injected conversions per ADC, the duty DMA on DMA1 stream 0 through
+  DMAMUX1 from a `__nocache` buffer in AXI SRAM, the unlocked M7 cycle
+  counter. The hot path still runs from flash with the caches on; ITCM/DTCM
+  placement and the control cycle on every sample are the next steps.
+- Image: 191 KB flash, 77 KB RAM (bank 1); settings (ZMS, 2 x 128 KB) and
+  the DFU slot in bank 2.
+
+Nucleo pins (the Ethernet PHY, the LEDs and the ST-LINK UART take some of
+the 4850 proposal):
+
+| Signal | Pin | ADC input / function |
+|---|---|---|
+| PWM CH1..CH3, CH1N..CH3N | PE9, PE11, PE13, PE8, PE10, PE12 | TIM1 |
+| Break (external enable) | PE15 | TIM1_BKIN, pull-down: tie to 3V3 to release |
+| ia, va, bridge temperature | PA6, PF11, PF12 | ADC1 INP3, INP2, INP6 |
+| ib, vb, motor temperature | PB1, PF13, PF14 | ADC2 INP5, INP2, INP6 |
+| ic, vdc, vc | PC2_C, PC3_C, PF10 | ADC3 INP0, INP1, INP6 |
+| Hall A, B, C | PD12, PD13, PD14 | GPIO with interrupt |
+| CAN | PD0 (RX), PD1 (TX) | FDCAN1, to an external transceiver module |
+| Log | PD8, PD9 | USART3, ST-LINK virtual COM port |
+
+All analog inputs take 0 to 3.3 V only. Wired to the 4850 power board, the
+INA240 outputs and the dividers need a check of their range first.
+
+Steps on the board: (1) boot and log, settings saved and read back after a
+reset; (2) PWM and dead time on the scope with PE15 high, break by pulling
+PE15 low; (3) ADC samples with potentiometers, `unimoc.timing.*` with
+`CONFIG_UNIMOC_HOT_PATH_TIMING=y`; (4) Cyphal over a CAN transceiver
+module; (5) the 4850 power board through an adapter.
+
+## 8. Open points
 
 1. Logic board size in the RND 455-00370 enclosure with an LQFP100.
 2. Silicon revision of the bought parts (rev. V for 480 MHz).

@@ -27,11 +27,11 @@
 #include <array>
 #include <atomic>
 #include <cstddef>
-#include "dead_time.hpp"
 #include "foc_stm32g4_dt.hpp"
 #include "hardware_interface_config.hpp"
 #include "hot_path_interface.hpp"
 #include "hot_path_timing.hpp"
+#include "stm32_dead_time.hpp"
 
 // Zephyr's pinctrl macro defines the pin table as a C array.
 // NOLINTBEGIN(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays,cppcoreguidelines-pro-bounds-array-to-pointer-decay)
@@ -351,7 +351,7 @@ bool InitTimer(const uint32_t pwm_hz, const uint32_t trigger_offset) noexcept {
       TIM_CCER_CC1E | TIM_CCER_CC1NE | TIM_CCER_CC2E | TIM_CCER_CC2NE | TIM_CCER_CC3E | TIM_CCER_CC3NE;
 
   // Dead time: t_DTS = t_CK_INT (CKD = 0), the timer clock.
-  const auto kDtg = EncodeDeadTime(DeadTimeTicks(kDeadTimeNs, g_timer_clock_hz));
+  const auto kDtg = stm32::EncodeDeadTime(stm32::DeadTimeTicks(kDeadTimeNs, g_timer_clock_hz));
   if (!kDtg.has_value()) {
     return false;
   }

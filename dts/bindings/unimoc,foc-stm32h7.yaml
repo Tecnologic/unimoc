@@ -1,0 +1,66 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+description: |
+  UNIMOC three-phase FOC power stage on an STM32H7 (hardware/zephyr_stm32h7).
+
+  One advanced timer (TIM1 or TIM8) drives the half bridges. Its TRGO2
+  output starts the injected sequences of three ADCs at the same instant.
+  Each phase current is rank 0 of its own ADC, so the three currents are
+  sampled together. All pins are listed in pinctrl-0, all ADC channels in
+  io-channels.
+
+  The injected sequences are fixed, three conversions per ADC, in this
+  io-channel order:
+    ADC of phase A: "ia", "va", "bridge-temperature"
+    ADC of phase B: "ib", "vb", "motor-temperature"
+    ADC of phase C: "ic", "vdc", "vc"
+  The end of the sequence of the phase A ADC is the sample interrupt.
+
+compatible: "unimoc,foc-stm32h7"
+
+include: [base.yaml, pinctrl-device.yaml]
+
+properties:
+  timer:
+    type: phandle
+    required: true
+    description: |
+      PWM timer (st,stm32-timers), timers1 or timers8. Its update interrupt
+      and compare registers are used directly by the hardware layer.
+
+  dead-time-ns:
+    type: int
+    required: true
+    description: |
+      Dead time between the high side and the low side gate signal of each
+      half bridge, in nanoseconds. The hardware layer rounds it up to the
+      next step the timer can generate (5 ns at 200 MHz up to 635 ns,
+      coarser above, at most 5 us).
+
+  io-channels:
+    type: phandle-array
+    required: true
+    description: Injected ADC channels in sequence order, three per ADC.
+
+  io-channel-names:
+    type: string-array
+    required: true
+    description: Signal name of each entry in io-channels.
+
+  sample-times:
+    type: string-array
+    required: true
+    description: |
+      Sampling time in ADC clock cycles of each entry in io-channels, same
+      order (SMPx codes 0 to 7 of the STM32H7 ADC). Low-impedance sources
+      such as the INA240 current amplifiers can use short times, resistive
+      dividers and NTCs need longer ones.
+    enum:
+      - "1.5"
+      - "2.5"
+      - "8.5"
+      - "16.5"
+      - "32.5"
+      - "64.5"
+      - "387.5"
+      - "810.5"
