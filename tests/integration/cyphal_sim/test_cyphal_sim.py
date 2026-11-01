@@ -462,9 +462,10 @@ def test_trace_triggers_on_a_current_step(sim: SimClient):
     assert sim.trace_arm(cymon.TriggerMode_0_1.RISING, source=i_q_ref, level=2.0) == 0
     assert sim.trace_read().state.value == cymon.CaptureState_0_1.ARMED
     # Locked rotor (imposed speed 0 from the earlier tests), 4 A step.
-    sim.hold(0.5, ENGAGED, sim.current_setpoint(0.0, 4.0))
+    sim.hold(0.2, ENGAGED, sim.current_setpoint(0.0, 4.0))
+    sim.expect(sim.telemetry, lambda t: t.engaged and t.i_q_ref == pytest.approx(4.0))
+    sim.trace_wait_complete()  # the readiness stays on: a capture after the trigger
     sim.hold(0.2, SLEEP)
-    sim.trace_wait_complete()
     frames = sim.trace_frames()
     assert len(frames) == 400
     assert all(frame[0] < 2.0 for frame in frames[:40])  # before the trigger sample

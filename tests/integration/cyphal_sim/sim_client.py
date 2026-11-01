@@ -330,7 +330,7 @@ class SimClient:
         while status.state.value != cymon.CaptureState_0_1.COMPLETE:
             if self.virtual_time - start >= timeout or time.monotonic() > deadline:
                 raise AssertionError(f"the capture did not complete (state {status.state.value})")
-            self.wait(0.05)
+            self._run(self._sleep(0.05))  # the readiness and setpoint of the last hold() stay on
             status = self.trace_read()
         return status
 
