@@ -57,7 +57,7 @@
         {
             "label": "Zephyr: flash bcc",
             "type": "shell",
-            "command": "west flash -d unimoc/app/build/bcc",
+            "command": "west flash -d unimoc/app/build/bcc --runner openocd",
             "dependsOn": "Zephyr: build bcc",
             "problemMatcher": []
         },

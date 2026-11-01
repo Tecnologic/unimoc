@@ -18,6 +18,10 @@ CONFIG_ZERO_LATENCY_IRQS=y
 CONFIG_CLOCK_CONTROL=y
 CONFIG_PINCTRL=y
 
+# give the debugger thread info
+CONFIG_DEBUG_THREAD_INFO=y
+CONFIG_THREAD_NAME=y
+
 # Link into the 240 KB code partition only: an image that grows into the
 # settings storage partition fails to link instead of overwriting it.
 CONFIG_USE_DT_CODE_PARTITION=y
