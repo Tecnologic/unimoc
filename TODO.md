@@ -67,6 +67,17 @@ hardware. Finished items are collected under "Done" at the end.
     has no CAN FD. Concept and pins: `hardware_4850/docs/g473_logic_board.md`;
     system plan section 5.2.
 
+### 2026-11-01
+
+13. The BCC and the 4850 logic board are redesigned around the
+    **STM32H743VIT6** (M7, 480 MHz, 2 MB dual-bank flash, FDCAN, LQFP100),
+    one firmware platform for both; supersedes the G4 choice of decision 12.
+    The G473 at hand is the 48-pin part (38 I/O), too small for the 4850.
+    The H7 brings about four times the computing time per cycle but only two
+    comparators and two OPAMPs: the phase overcurrent uses an external
+    comparator. Concept: `hardware_4850/docs/h743_logic_board.md`; system
+    plan section 5.1.
+
 ## Next: Cyphal/CAN-FD (focus)
 
 In this order; all without hardware unless marked.
@@ -101,11 +112,11 @@ Plan: [docs/motor_identification_plan.md](docs/motor_identification_plan.md) (al
 
 ## Cart system
 
- - [ ] Measure the CPU load of the hot path on the BCC (DWT cycle counter: sample ISR, control cycle, observer) before the 4850 logic board is ordered; the estimate is about 45 % at 32 kHz PWM.
- - [ ] Check the internal G4 routes for the 4850 logic board in CubeMX: DAC to the COMP inverting inputs, COMP to the TIM1 and TIM8 break, COMP3 to the TIM8 OCREF clear (OCRSEL), TIM8 as a slave of TIM1 (ITR0), ADC triggers for ADC1 to ADC4.
+ - [ ] H7 platform `hardware/zephyr_h7` for the STM32H743VIT6 (decision 13): hot path (TIM1/TIM8, injected ADC1 to ADC3, duty DMA burst), hot code in ITCM, data in DTCM, DMA buffers in non-cached AXI/D2 SRAM, settings on ZMS with 128 KB sectors and 32-byte writes, FDCAN; the board differences in the devicetree as for the BCC. First on a NUCLEO-H743ZI2 as far as possible.
+ - [ ] Check the internal STM32H743 routes for the 4850 logic board in CubeMX: DAC1 to the COMP inputs, COMP1 to the TIM1 break 2 and the TIM8 OCREF clear, COMP2 to the TIM8 break, TIM8 as a slave of TIM1, injected ADC triggers from TIM1 (`hardware_4850/docs/h743_logic_board.md`).
  - [ ] EESM data (field current, resistance, inductance) and brake resistor rating for the aux shunt value, the PGA gains and the de-excitation time.
- - [ ] Generalize `hardware/zephyr_bcc` to the G4 family so the 4850 logic board shares the hot path (board differences in the devicetree).
- - [ ] Fourth half bridge in the firmware: a platform-independent auxiliary output next to `hardware/power_stage_interface.hpp` with two roles selected by the motor type, excitation (EESM: `ExcitationController` sets the duty) and brake chopper (PMSM: DC-link threshold with hysteresis, on together with the overvoltage trip; resistor energy and temperature limit in a thread). The chopper reacts in hardware (G4 comparator to timer) where the routing allows it, the firmware sets the thresholds. Simulated first (see "Motor types").
+ - [ ] BCC redesign on the STM32H743VIT6 (`Tecnologic/battery-case-controller`): pin assignment from the current functions (three phases with phase voltages, Hall, pulse inputs, display UART, crank torque, CAN FD transceiver).
+ - [ ] Fourth half bridge in the firmware: a platform-independent auxiliary output next to `hardware/power_stage_interface.hpp` with two roles selected by the motor type, excitation (EESM: `ExcitationController` sets the duty) and brake chopper (PMSM: DC-link threshold with hysteresis, on together with the overvoltage trip; resistor energy and temperature limit in a thread). The chopper reacts in hardware (on-chip comparator to the TIM8 OCREF clear) where the routing allows it, the firmware sets the thresholds. Simulated first (see "Motor types").
  - [ ] Regenerative braking, open parts (the drive side, the BMS limits and the reporting to the VDC are done): the estimated speed in the limit on a dyno (the observer's torque model expects the shaft to slow; settles within some 300 ms in the sim), the BCC voltage ratings from the schematic, a per-sample overvoltage check in the sample interrupt.
  - [ ] Split `app/` into `apps/drive/` and `apps/vdc/` (later `apps/pedal/` and `apps/bms/`) and add `lib/vehicle/`; update `AGENTS.md`, `README.md` and `docs/zephyr_workflow.md`. The VDC firmware lives in this repository (decided); the VDC MCU starts on a G4.
  - [ ] BMS controller as `apps/bms/` with `lib/battery/` (system plan section 5.5): board (BCC or new G4 board), cell monitoring front end, contactor and precharge, battery status message. Whether it still needs its own brake chopper next to the choppers in the drives is open (system plan section 12).

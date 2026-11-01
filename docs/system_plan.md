@@ -4,7 +4,8 @@
 > this file is built or verified on hardware. Decided so far:
 >
 > - Cyphal/CAN-FD for the cart; Single Pair Ethernet is a later option.
-> - The new 4850 logic board uses an STM32G4, the same MCU family as the BCC.
+> - The new 4850 logic board uses an STM32G4, the same MCU family as the BCC
+>   (superseded 2026-11-01: STM32H743VIT6 for the BCC and the 4850).
 > - The VDC firmware lives in this repository.
 > - A mechanical emergency brake, otherwise pure regenerative braking.
 > - A BMS controller with brake chopper is another bus node and another
@@ -15,8 +16,9 @@
 >   winding of an EESM, or brake resistor with a PMSM (section 5.2.1).
 > - (2026-10-31) Design: the aux output is two half bridges on the power board
 >   (asymmetric H-bridge, low-side shunt, EESM first), and the logic board
->   becomes an STM32G473RET6 that uses its OPAMPs, comparators, DACs and TIM8
->   (sections 5.2 and 5.2.1).
+>   gets its own redesign (sections 5.2 and 5.2.1).
+> - (2026-11-01) The BCC and the 4850 logic board are redesigned around the
+>   STM32H743VIT6, one firmware platform for both (section 5.1).
 > - (2026-10-23) Current focus: Cyphal/CAN-FD (cart messages, bus error
 >   handling, multi-node simulation; the order is in `TODO.md`, "Next").
 
@@ -33,7 +35,7 @@ connect to the VDC directly (IMU, GNSS, steering angle sensor, display).
 | Repository | Role in this plan |
 |---|---|
 | [Tecnologic/unimoc](https://github.com/Tecnologic/unimoc) (this repository, branch `develop`) | Firmware on Zephyr for all bus nodes: wheel drives, VDC, pedal unit and BMS controller. FOC hot path, observers, settings, vehicle dynamics, `native_sim` simulation, tests. |
-| [Tecnologic/hardware_4850](https://github.com/Tecnologic/hardware_4850) | 48 V / 50 A drive in an RND 455-00370 enclosure. [`power/`](https://github.com/Tecnologic/hardware_4850/tree/master/power): power stage, kept unchanged. [`logic/`](https://github.com/Tecnologic/hardware_4850/tree/master/logic): logic board, redesigned with an STM32G4 (section 5.2). |
+| [Tecnologic/hardware_4850](https://github.com/Tecnologic/hardware_4850) | 48 V / 50 A drive in an RND 455-00370 enclosure. One KiCad 10 project since 2026-10-31 (sheets `power` and `logic`): the power stage keeps its phases and gets the aux bridge (section 5.2.1); the logic board is redesigned with an STM32H743VIT6 (section 5.2). |
 | [Tecnologic/unimoc_old_software, branch `electric_quad`](https://github.com/Tecnologic/unimoc_old_software/tree/electric_quad) | Legacy firmware (ChibiOS, STM32F730) of the 1.6 kW children's quad on the 4850 hardware. Source for proven settings and features to port (section 9); not built any more. |
 | `lib/cymon` (submodule) | Tracing and monitoring over Cyphal (`docs/cymon_integration_plan.md`); host tool: cymon. |
 
@@ -85,7 +87,7 @@ connector.
 | Steering angle sensor | Standard sensor on the VDC (for example the AS5048 of the legacy firmware) | Steering angle for the vehicle dynamics; no bus node |
 | IMU, GNSS, display | Standard modules on the VDC | No bus node |
 | Steering assist | Later: UNIMOC | Out of scope until a steering concept exists |
-| G4 BCC (`boards/unimoc/bcc`) | Existing STM32G473 board | Development and bring-up platform; the reference for the G4 hot path; not part of the cart |
+| G4 BCC (`boards/unimoc/bcc`) | Existing STM32G473 board; redesign on the STM32H743VIT6 (section 5.1) | Development and bring-up platform until the H7 boards exist; not part of the cart |
 
 ## 4. Decisions
 
@@ -100,7 +102,7 @@ connector.
 | Message size | Every message fits in **one CAN FD frame** (at most 63 bytes payload). | No multi-frame transfers in the control loop; a later move to UDP or SPE only swaps the transport. |
 | Single Pair Ethernet | Later option, not in the first cart (section 6.5). | The Zephyr drivers and the Cyphal/UDP library are young. |
 | Simulation and PC transport | Cyphal/CAN-FD as well: `native_sim` on SocketCAN `vcan`, PC tools on a USB CAN FD adapter. Fallback if WSL2 has no `vcan`: Cyphal/UDP over the `native_sim` TAP driver (section 6.4). | One transport everywhere; the simulation tests the transport of the cart. |
-| Logic board MCU | **STM32G473RET6** for the 4850 logic board (2026-10-31, section 5.2), the same part as the BCC (LQFP64 instead of LQFP48); the design uses its OPAMPs, comparators, DACs, TIM8 and CORDIC. | One hot-path platform: `hardware/zephyr_bcc` is the base, no H7 port. FDCAN on chip (the F7 has none). Protection and the chopper in hardware. CPU load measured on the BCC before the order. |
+| Drive MCU | **STM32H743VIT6** for the BCC redesign and the 4850 logic board (2026-11-01, section 5.1). Earlier: STM32G4 (2026-10-23), STM32G473RET6 (2026-10-31). | One platform for both drives; about four times the G4 computing time per cycle; FDCAN on chip (the F7 has none); 2 MB flash; widely available. The G473 at hand is the 48-pin part with too few pins for the 4850. |
 | VDC firmware | **In this repository**, as a second Zephyr application (`apps/vdc/`) with a portable `lib/vehicle/`. The MCU is a Zephyr-supported STM32 (G4 or H7, section 5.3); a Raspberry Pi or an ESP32-P4 are out, they do not run this repository's Zephyr build. | One toolchain, one CI, shared libraries and DSDL, the whole cart in the simulation. |
 | Cyphal/serial | Not used. | No maintained C implementation (libserard). |
 | USB | Firmware update (DFU) only, later. The CDC-ACM console and the shell were dropped (2026-10-21): the bench log is on RTT, the log also goes out as `uavcan.diagnostic.Record`. | One operating interface; USB stays the recovery path. |
@@ -110,59 +112,74 @@ connector.
 
 ## 5. Hardware Plan
 
-### 5.1 G4 BCC (existing)
+### 5.1 MCU of the drives: STM32H743VIT6
 
-- Development target for the hot path (milestones M0 to M8 in
-  `docs/hotpath_plan.md`) and for Cyphal/CAN-FD.
-- Board change: CAN-FD transceiver instead of the SN65HVD230 (open item in
-  `TODO.md`).
-- Its hot path is the reference for the 4850 logic board.
+Decided 2026-11-01: the **BCC and the 4850 logic board are redesigned around
+the STM32H743VIT6** (Cortex-M7, 480 MHz, 2 MB dual-bank flash, 1 MB RAM,
+FDCAN1/2, three 16-bit ADCs, LQFP100). It is widely available, and both
+drives share one firmware platform again.
 
-### 5.2 New 4850 logic board (STM32G473RET6)
+- **Why not the G4:** the STM32G473 at hand is the 48-pin part of the BCC
+  (38 I/O); the 4850 logic board needs about 47 signals. The G4 in LQFP64 would
+  fit, but the H7 has about four times the computing time per control cycle,
+  so the hot-path budget is no longer a limit (`docs/hotpath_plan.md`, section
+  on the STM32H7: about 7500 cycles per half period).
+- **Why not the F7:** no CAN FD (bxCAN only).
+- **Less analog on chip than the G4:** two comparators, two OPAMPs, one DAC
+  with two channels, no CORDIC. The phase overcurrent uses an external
+  comparator into the TIM1 break; the two on-chip comparators guard the DC link
+  (overvoltage, chopper) and the aux current.
+- **Firmware platform:** a new `hardware/zephyr_h7` replaces `hardware/zephyr_bcc`
+  as the drive platform, with the board differences in the devicetree (`foc0`
+  node). The hot-path concept carries over (advanced timer, TRGO, preload, DMA
+  burst, injected ADC); new are the caches and the TCMs: hot code in ITCM, hot
+  data in DTCM, DMA buffers in AXI or D2 SRAM without caching (DMA cannot reach
+  the DTCM). Flash: 128 KB sectors, so the settings partition (ZMS) takes at
+  least two sectors (256 KB); the firmware update goes into bank 2.
+- **Today's G4 BCC** stays the development target for the hot path and
+  Cyphal/CAN-FD until the H7 boards exist; the portable code
+  (`lib/`, `src/`) does not change with the MCU.
 
-Decided 2026-10-31: the logic board is redesigned around an **STM32G473RET6**
-(LQFP64, 512 KB dual-bank flash; the part at hand and the BCC's MCU. It
-differs from the G474 only by the missing HRTIM, which this design does not
-need) and uses the G4 peripherals throughout,
-instead of external parts. The hardware concept with the pin assignment is
-[`docs/g473_logic_board.md`](https://github.com/Tecnologic/hardware_4850/blob/master/docs/g473_logic_board.md)
-in `hardware_4850`.
+### 5.2 Boards
 
-- **Why not the F7:** the STM32F7 is about twice as fast per MHz, but the
-  whole family has only bxCAN (no CAN FD), and the F730R8 has 64 KB flash.
-- **CPU load:** the hot-path estimate is about 45 % at 32 kHz PWM
-  (`docs/hotpath_plan.md`); the excitation loop adds a few hundred cycles.
-  Measured on the BCC (DWT cycle counter) before the board is ordered. If it is
-  far above the estimate, the fallback is an STM32H7 with a new platform port.
-- **Phase currents:** the INA240 inline amplifiers stay. The external op-amp
+**BCC redesign** (`Tecnologic/battery-case-controller`): same function as
+today (three phases with phase voltage sensing, Hall and pulse inputs, the
+e-bike display UART, crank torque, CAN), on the STM32H743VIT6 with a CAN FD
+transceiver instead of the SN65HVD230. The three ADCs take the three currents
+simultaneously and the phase voltages, DC link and torque in further ranks.
+The schematic is not started; the hardware repository is not part of this
+plan's work so far.
+
+**4850 logic board** (`hardware_4850`): concept with the pin assignment in
+[`docs/h743_logic_board.md`](https://github.com/Tecnologic/hardware_4850/blob/master/docs/h743_logic_board.md).
+
+- **Phase currents:** the INA240 inline amplifiers stay; the external op-amp
   filter stages are dropped (RC anti-alias filter only). Simultaneous injected
-  sampling of Ia, Ib, Ic on ADC1 to ADC3 from TIM1, Vdc as the second rank.
-- **Aux current:** OPAMP4 in PGA mode directly at the Kelvin pair of the aux
+  sampling of Ia, Ib, Ic on ADC1 to ADC3 from TIM1; Vdc and the aux current in
+  the second rank.
+- **Aux current:** OPAMP1 in PGA mode directly at the Kelvin pair of the aux
   shunt; the gain is set per motor type (high for the field current, low for
-  the chopper current). Its output pin is also ADC4_IN3.
-- **Protection without the CPU:** COMP1/2/4 with DAC thresholds on the phase
-  currents to the TIM1 break; COMP3 on Vdc (overvoltage) to the TIM1 break and
-  on the TIM8 OCREF clear that turns the chopper on, TIM8 break2 for the
-  de-excitation; COMP6 on the aux shunt to the TIM8 break. The external E-stop
-  goes to TIM1_BKIN and TIM8_BKIN.
-- **PWM:** phases on TIM1 (the BCC uses TIM8; the timer is a devicetree
-  property). The aux bridge on TIM8 (leg A CH3/CH3N, leg B CH1/CH1N), a
-  slave of TIM1, with its own break inputs, so a phase trip does not stop the
+  the chopper current). Its output pin is also an ADC input.
+- **Protection without the CPU:** an external quad comparator (window on the
+  three INA240 outputs, threshold from DAC1) into TIM1_BKIN; COMP1 on Vdc to
+  the TIM1 break 2 and to the TIM8 OCREF clear (chopper); COMP2 on the aux
+  current to the TIM8 break. The E-stop goes to TIM1_BKIN and TIM8_BKIN. The
+  sample ISR keeps its raw overcurrent check as the second level.
+- **PWM:** phases on TIM1 (the BCC uses TIM8 today; the timer is a devicetree
+  property). The aux bridge on TIM8 (leg A CH1/CH1N, leg B CH3/CH3N), a slave
+  of TIM1, with its own break inputs, so a phase trip does not stop the
   chopper.
-- **Computation:** CORDIC for sin/cos/atan2, hot code and data in CCM SRAM.
-- **CAN FD:** TCAN334 on FDCAN2, with a split termination that can be
+- **CAN FD:** TCAN334 on FDCAN1, with a split termination that can be
   populated at the bus ends.
 - **Keep:** USB for DFU, SWD/SWO, Hall and temperature inputs, the power board
-  connectors J103/J104 and the supply topology.
-- **Replace:** the 24LC04 EEPROM is no longer needed (settings on ZMS in the
-  G4 flash, `docs/settings_plan.md`).
+  connectors J103/J104 and the supply topology (3.3 V budget to be checked:
+  the H743 draws a few hundred mA).
+- **Replace:** the 24LC04 EEPROM is no longer needed (settings on ZMS in
+  flash, `docs/settings_plan.md`).
 - **Prepare for the later steering variant:** an SPI connector (SPI3) for an
   absolute angle sensor.
-- **Platform layer:** generalize `hardware/zephyr_bcc` to the G4 family, with
-  the board differences (pins, ADC channels, timer, dead time, sample times)
-  in the devicetree (`foc0` node, as in `boards/unimoc/bcc/bcc.dts`), plus the
-  TIM8 aux output, the OPAMP gain and the comparator thresholds. A new board
-  definition `boards/unimoc/drive4850/` (name to decide).
+- **Board definitions:** `boards/unimoc/drive4850/` and a new BCC revision
+  (names to decide).
 
 #### 5.2.1 Aux bridge: excitation or brake chopper
 
@@ -187,9 +204,9 @@ open. The EESM has priority; its role follows `unimoc.motor.type`:
   (OPAMP PGA, section 5.2). Its value follows from the field current; it also
   carries the chopper current, so its power rating follows from the brake
   resistor.
-- **Chopper without the CPU:** COMP3 (Vdc) with a DAC threshold and hysteresis
-  clears OC1REF of TIM8 through the OCREF clear input, which turns B_L
-  (CH1N) on until the next PWM period after the DC link drops below the
+- **Chopper without the CPU:** COMP1 (Vdc) with a DAC threshold and hysteresis
+  clears OC3REF of TIM8 through the OCREF clear input, which turns B_L
+  (CH3N) on until the next PWM period after the DC link drops below the
   threshold; the firmware sets the
   thresholds and watches the resistor energy and temperature in a thread.
 - **Connector:** J110 AUX (2×5) on the power board: the four PWM signals, the
@@ -215,9 +232,9 @@ this repository.
 | Display and logging | Small display on SPI, logging to an SD card on SPI or to flash | Parallel display (LTDC on some parts), SDMMC |
 | Platform effort | Shares the G4 board support | A second MCU family to support |
 
-**Recommendation:** start with the G4 (the logic board design and board
-support are shared). Move to an H7 only if the display or the logging need
-it; the firmware is portable between both.
+**Recommendation (2026-11-01):** the STM32H743VIT6 like the drives (section
+5.1): shared board support, enough RAM and compute for the display and the
+logging.
 
 **Impact on this repository:**
 
@@ -495,7 +512,7 @@ the simulation, not on hardware):
 | VDC application | `apps/vdc/` with `lib/vehicle/` | Torque distribution, vehicle state estimation, display, logging |
 | Pedal application | `apps/pedal/` | Pedal sensors, plausibility, publishing |
 | BMS application | `apps/bms/` with `lib/battery/` | Cell monitoring, contactor and precharge, state of charge, current limits, brake chopper |
-| Platforms | `hardware/zephyr_bcc` (generalized to the G4 family), `hardware/zephyr_sim` | Hot path per MCU, the rest shared through `hardware/zephyr_common` |
+| Platforms | `hardware/zephyr_bcc` (G4, until the H7 boards exist), `hardware/zephyr_h7` (BCC redesign and 4850, section 5.1), `hardware/zephyr_sim` | Hot path per MCU, the rest shared through `hardware/zephyr_common` |
 | Cyphal layer | `lib/cyphal` | `Transport` with a CAN-FD implementation (libcanard), register service on `SettingsStore`, heartbeat, GetInfo, file update; a UDP implementation (libudpard) only for the simulation fallback |
 | Simulation | `native_sim` | Single-process deterministic tests (`tests/sim/`), plus multi-process runs: one `native_sim` per node on `vcan` (section 6.4) |
 | Vehicle model | `lib/sim` (P4 in `TODO.md`) | Four wheels, tyres, steering angle, shared battery; needed for VDC tests |
@@ -526,7 +543,7 @@ Each phase keeps `check_format.sh` and `twister_sca.sh` green.
 | B | Cyphal v1.0 spike: `native_sim` on `vcan` with pycyphal (fallback UDP over TAP); DSDL namespace; register service, heartbeat, GetInfo | none | One register exchange and one telemetry subject with pycyphal |
 | C | G4 bring-up: M0 and M8 on the BCC, CAN-FD transceiver, Cyphal/CAN-FD | BCC | Closed current loop with the 50 A limit; registers over CAN FD |
 | C2 | CAN FD bus test: the BCC and G4 evaluation boards on a cart-length harness, 1/4 and 1/2 Mbit/s, bus load and latency at 250 and 500 Hz | BCC, evaluation boards, USB CAN FD adapter | Measured load and latency; bit rate and cycle rate chosen |
-| D | 4850 G4 logic board: schematic, layout, G4 platform generalized from the BCC, regenerative braking with DC-link limits, fourth half bridge (chopper, excitation; section 5.2.1), simulated first | new logic board, quad motor | Same tests as C on the 4850; braking into a full battery and with the battery disconnected on the bench, the local chopper holding the DC link |
+| D | 4850 H743 logic board and BCC redesign: schematics, layout, the H7 platform (`hardware/zephyr_h7`), regenerative braking with DC-link limits, fourth half bridge (chopper, excitation; section 5.2.1), simulated first | new logic board, quad motor | Same tests as C on the 4850; braking into a full battery and with the battery disconnected on the bench, the local chopper holding the DC link |
 | E | VDC (G4) and pedal unit hardware, steering angle sensor; `apps/` split | VDC, pedal unit | Pedal and angle published on the bus, VDC commands a drive on the bench |
 | E2 | BMS controller with brake chopper: board, `apps/bms/`, `lib/battery/`, chopper thresholds, contactor sequence | BMS board, battery, resistor | Regenerative braking into a full battery and with an open contactor on the bench, DC link held below the limit |
 | F | VDC firmware, multi-node sim with the vehicle model, fault reactions of section 7 in the sim | none, then VDC | All fault cases of section 7 pass in the sim |
@@ -557,7 +574,8 @@ Not a safety concept; a list of what one must cover.
 
 1. **VDC MCU:** STM32G4 (recommended start) or STM32H7.
 2. **CPU load of the hot path on the G4:** measured on the BCC before the
-   4850 logic board is ordered (STM32G473RET6 decided, section 5.2).
+   (obsolete with the STM32H743VIT6, section 5.1; the H7 budget is about
+   four times larger).
 3. **Bit rates and cycle rate:** 1/4 or 1/2 Mbit/s, 250 or 500 Hz; from the
    bus test C2.
 4. **`vcan` on WSL2:** available, or the UDP-over-TAP fallback for the
@@ -590,13 +608,12 @@ Not a safety concept; a list of what one must cover.
 - **ASM and EESM without a plant model:** the libraries exist, but the
   simulation and the runtime run the PMSM only; the fourth half bridge and
   the EESM are first tested in the sim once its plants exist.
-- **G4 pin and ADC budget in LQFP64:** a pin assignment for the
-  STM32G473RET6 from ST's pin data exists (`hardware_4850`,
-  `docs/g473_logic_board.md`); the internal routes (DAC to COMP, COMP to the
-  TIM1/TIM8 break, COMP3 to the TIM8 OCREF clear, TIM8 as a slave of TIM1) still have to be checked
-  in CubeMX.
-- **G4 CPU load:** the hot path is estimated at about 45 % at 32 kHz PWM; if
-  the measurement on the BCC is far above that, the logic board needs an H7
-  and a new platform port.
+- **H7 port:** the hot path, the ADC timing and the settings storage move to
+  the STM32H743 (caches, TCMs, 128 KB flash sectors, 32-byte flash writes for
+  ZMS); until the boards exist only the G4 BCC and `native_sim` test it.
+- **Internal routes of the H743:** DAC1 to the COMP inputs, COMP1 to the TIM1
+  break 2 and the TIM8 OCREF clear, COMP2 to the TIM8 break, TIM8 as a slave
+  of TIM1 still have to be checked in CubeMX (`hardware_4850`,
+  `docs/h743_logic_board.md`).
 - **Vehicle model effort:** the VDC cannot be tested in the sim without it
   (phase F).
