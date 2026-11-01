@@ -138,7 +138,11 @@ makes them slower. Their durations and timeouts are virtual time, counted by
 the control cycles of the telemetry (`SimClient.virtual_time`): on a loaded
 machine the simulation falls behind the wall clock. The slcan ports buffer
 16 KB each for a reader that falls behind (`SlcanMedia::kTxBufferSize`), so a
-slow test client gets its responses late instead of not at all.
+slow test client gets its responses late instead of not at all; the client
+reads the terminal in bulk (python-can reads it byte by byte, too slow on a
+loaded machine). The tests run with a 2 s `unimoc.control.command_timeout`
+(factory 0.5 s): the client publishes the readiness in wall time, and a
+starved client must not disengage the drive between two publications.
 
 ## Power stage release
 
