@@ -461,6 +461,10 @@ def test_trace_triggers_on_a_current_step(sim: SimClient):
     assert setup.result.value == 0
     assert sim.trace_arm(cymon.TriggerMode_0_1.RISING, source=i_q_ref, level=2.0) == 0
     assert sim.trace_read().state.value == cymon.CaptureState_0_1.ARMED
+    # The trigger counts once the pre-trigger part is recorded (40 samples, 80 control cycles):
+    # a step before that is no edge. The register read follows the arm in the drive's order.
+    armed_at = sim.read("unimoc.sim.cycle_count")
+    sim.expect_register("unimoc.sim.cycle_count", lambda cycles: cycles >= armed_at + 160)
     # Locked rotor (imposed speed 0 from the earlier tests), 4 A step.
     sim.hold(0.2, ENGAGED, sim.current_setpoint(0.0, 4.0))
     sim.expect(sim.telemetry, lambda t: t.engaged and t.i_q_ref == pytest.approx(4.0))
