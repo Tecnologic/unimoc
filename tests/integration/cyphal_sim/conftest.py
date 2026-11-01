@@ -60,7 +60,7 @@ for _name in ("pycyphal", "can", "nunavut", "pydsdl"):
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from sim_client import STANDBY, SimClient, natural8, real  # noqa: E402
+from sim_client import COMMAND_TIMEOUT, STANDBY, SimClient, natural8, real  # noqa: E402
 
 PTY_PATTERN = re.compile(r"uart_1 connected to pseudotty: (\S+)")
 
@@ -95,6 +95,10 @@ TEST_MOTOR = {
     "unimoc.control.current.ki_q": real(100.0),
     "unimoc.control.speed.kp": real(0.01),
     "unimoc.control.speed.ki": real(10.0),
+    # The readiness of the client comes in wall time, the drive counts its
+    # timeout in drive time: a client starved on a loaded machine must not
+    # disengage the drive between two of its publications (factory: 0.5 s).
+    "unimoc.control.command_timeout": real(COMMAND_TIMEOUT),
 }
 
 

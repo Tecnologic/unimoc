@@ -87,6 +87,10 @@ VENDOR_EMERGENCY_STOP = 0x20
 VENDOR_SETTINGS_PENDING = 0x40
 VENDOR_LOCAL_CONTROL = 0x80
 
+# [s] unimoc.control.command_timeout of the tests (conftest.py), the cart timeout below it.
+COMMAND_TIMEOUT = 2.0
+CART_TIMEOUT = 1.5
+
 CONTROL_CYCLE = 62.5e-6  # [s], unimoc.sim.cycle_period_ns at the default 32 kHz PWM
 
 ENGAGED = reg.udral.service.common.Readiness_0_1.ENGAGED

@@ -17,6 +17,9 @@ import pytest
 
 from conftest import wait_for_pty
 from sim_client import (
+    CART_TIMEOUT,
+    COMMAND_TIMEOUT,
+    CONTROL_CYCLE,
     DRIVE,
     ENGAGED,
     PORT_CYMON_READ,
@@ -175,7 +178,7 @@ def test_readiness_timeout_disengages_with_a_record(sim: SimClient):
     sim.hold(0.2, ENGAGED, sim.current_setpoint(0.0, 2.0))
     sim.expect(sim.telemetry, lambda t: t.engaged)
     mark = sim.record_mark()
-    sim.wait(0.0)  # the readiness stops: the 0.5 s command timeout disengages
+    sim.wait(0.0)  # the readiness stops: the command timeout disengages
     telemetry = sim.expect(sim.telemetry, lambda t: not t.engaged)
     assert telemetry.power_stage == 0  # DISABLED
     sim.expect_record("disengaged: readiness timeout", mark)
@@ -202,7 +205,7 @@ def test_wheel_command_and_drive_status(sim: SimClient):
     torque_constant = 1.5 * 7 * 5e-3  # the motor of the test before
     # The wheel command and the pedal state are stale after 0.1 s by default; on
     # a loaded machine the publications of this client can pause that long.
-    assert sim.write("unimoc.cart.timeout", real(0.3)) == pytest.approx(0.3)
+    assert sim.write("unimoc.cart.timeout", real(CART_TIMEOUT)) == pytest.approx(CART_TIMEOUT)
     sim.hold(0.2, STANDBY)  # applied while disengaged
     sim.hold(0.2, ENGAGED, sim.wheel_command(2.0 * torque_constant))
     sim.expect(sim.telemetry, lambda t: t.engaged and t.i_q_ref == pytest.approx(2.0, rel=1e-3))
@@ -224,13 +227,13 @@ def test_limp_home_on_the_pedals_without_the_vdc(sim: SimClient):
     sim.expect(sim.telemetry, lambda t: t.engaged)
     mark = sim.record_mark()
     # The VDC stops (readiness and wheel command), the pedal unit stays beyond the readiness timeout.
-    sim.hold(1.0, None, sim.pedals(1.0, 0.0), period=0.02)
+    sim.hold(COMMAND_TIMEOUT + 0.5, None, sim.pedals(1.0, 0.0), period=0.02)
     sim.expect(sim.telemetry, lambda t: t.engaged and t.i_q_ref == pytest.approx(2.0, rel=1e-3))
     sim.expect(sim.drive_status, lambda s: s.limp_home)
     assert "disengaged: readiness timeout" not in sim.records[mark:]
     # Without the pedals the torque ramps to zero and the readiness timeout disengages.
     sim.wait(0.0)
-    sim.expect(sim.telemetry, lambda t: not t.engaged)
+    sim.expect(sim.telemetry, lambda t: not t.engaged, timeout=10.0)
     sim.expect_record("disengaged: readiness timeout", mark)
     assert sim.write("unimoc.cart.timeout", real(0.1)) == pytest.approx(0.1)  # the default again
     sim.hold(0.2, SLEEP)
@@ -546,7 +549,7 @@ def test_paused_drive_timeouts_follow_virtual_time(sim: SimClient):
     sim.expect(sim.telemetry, lambda t: t.engaged)
     try:
         assert sim.write("unimoc.sim.paused", natural8(1))
-        sim.wait(1.2, wall=True)  # no readiness for longer than the 0.5 s command timeout, but paused
+        sim.wait(COMMAND_TIMEOUT + 0.5, wall=True)  # no readiness for longer than the command timeout, but paused
         assert sim.next(sim.telemetry).engaged  # the telemetry goes on in real time
 
         mark = sim.record_mark()
@@ -557,7 +560,12 @@ def test_paused_drive_timeouts_follow_virtual_time(sim: SimClient):
         assert sim.write("unimoc.sim.run_until", natural32(start)) is not None  # backwards: refused
         assert sim.read("unimoc.sim.cycle_count") == start + 4800
 
-        sim.write("unimoc.sim.advance", natural16(4800))  # 0.6 s since the last readiness
+        # Beyond the command timeout since the last readiness, at most 1 s per advance.
+        remaining = round((COMMAND_TIMEOUT + 0.1 - 0.3) / CONTROL_CYCLE)
+        while remaining > 0:
+            step = min(remaining, 16000)
+            sim.write("unimoc.sim.advance", natural16(step))
+            remaining -= step
         sim.expect(sim.telemetry, lambda t: not t.engaged)
         sim.expect_record("disengaged: readiness timeout", mark)
     finally:
