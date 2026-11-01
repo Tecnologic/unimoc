@@ -22,6 +22,7 @@
 #include "dead_time_compensation.hpp"
 #include "hardware_interface.hpp"
 #include "hfi.hpp"
+#include "identification_drive.hpp"
 #include "mailbox.hpp"
 #include "mechanical_observer.hpp"
 #include "nvm_settings.hpp"
@@ -178,8 +179,10 @@ struct CurrentControlState {
   /// stays frozen at neutral duties until ClearTrips().
   volatile bool overcurrent_tripped{false};
 
-  /// DC-link voltage at which the control cycle trips the power stage; set by
-  /// Init() from the settings. Infinity disables the check.
+  /// DC-link voltage at which the power stage trips; set by Init() from the
+  /// settings. The hardware checks every DC-link sample against it (before
+  /// the calibration, HardwareInterface::SetOvervoltageLimit()) and the control
+  /// cycle the calibrated last sample. Infinity disables the check.
   unit::Voltage dc_link_trip{std::numeric_limits<float>::infinity()};
 
   /// Set by the control cycle when the DC link reached `dc_link_trip`; the
@@ -369,6 +372,31 @@ class CurrentControlIsr {
    */
   void SetOvercurrentLimit(unit::Current limit) noexcept;
 
+  // =========================================================================
+  // Motor identification (docs/motor_identification_plan.md, section 5)
+  // =========================================================================
+
+  /**
+   * @brief Hands the control cycle to the motor identification.
+   *
+   * From the next cycle on the control cycle takes the current reference of
+   * @p drive instead of the outer loop's, optionally holds the PI output,
+   * leaves out the dead-time compensation and adds the sine of M2. The angle
+   * is SlowUpdate's forced angle. One writer thread (the identification FSM).
+   */
+  void SetIdentificationDrive(const IdentificationDrive& drive) noexcept {
+    identification_.Write(drive);
+    identification_active_.store(true, std::memory_order_release);
+  }
+
+  /// Gives the control cycle back to the outer loop.
+  void ClearIdentificationDrive() noexcept { identification_active_.store(false, std::memory_order_release); }
+
+  /// True while the identification drives the control cycle.
+  [[nodiscard]] bool IdentificationActive() const noexcept {
+    return identification_active_.load(std::memory_order_acquire);
+  }
+
   /// Acknowledges an overcurrent or overvoltage trip. The power stage fault is
   /// cleared separately (kPowerStage.ClearFault()).
   void ClearTrips() noexcept {
@@ -441,6 +469,21 @@ class CurrentControlIsr {
   /// Ends a cycle that did not run the controller: FSM signalled, observer not run.
   void FinishCycleWithoutControl() noexcept;
 
+  /// Voltage demand of the cycle: the current PI, or its held output for the identification.
+  [[nodiscard]] system::Rotor<unit::Voltage> ControlVoltage(const IdentificationDrive* drive,
+                                                            const system::Rotor<unit::Current>& i_dq_mean,
+                                                            unit::Voltage dc_link) noexcept;
+
+  /// Dead-time compensation of the cycle; none when the identification switches it off.
+  [[nodiscard]] system::Stator<unit::Ratio> DeadTimeRatio(
+      const IdentificationDrive* drive, const system::Stator<unit::Current>& i_ab) const noexcept;
+
+  /// @p u_dq with the identification's sine of duty entry @p entry of control cycle @p cycle.
+  [[nodiscard]] static system::Rotor<unit::Voltage> WithInjection(system::Rotor<unit::Voltage> u_dq,
+                                                                  const IdentificationDrive* drive,
+                                                                  uint32_t cycle,
+                                                                  uint8_t entry) noexcept;
+
   const hardware::HardwareInterface* hardware_{nullptr};
 
   /// Fixed duty cycles applied to CCR1/2/3 while force_duty_active_ is true.
@@ -457,6 +500,14 @@ class CurrentControlIsr {
   /// (release), read by the control cycle (acquire); cleared by
   /// ReleaseForceDuty().
   std::atomic<bool> force_duty_active_{false};
+
+  /// The identification's drive of the control cycle; taken while identification_active_.
+  Mailbox<IdentificationDrive> identification_{};
+  std::atomic<bool> identification_active_{false};
+
+  /// The voltage the frozen PI holds (IdentificationDrive::hold_voltage); control cycle only.
+  system::Rotor<unit::Voltage> held_voltage_{0.0F, 0.0F};
+  bool holding_{false};
 };
 
 }  // namespace unimoc::current_control

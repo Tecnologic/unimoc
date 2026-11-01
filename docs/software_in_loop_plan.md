@@ -201,7 +201,7 @@ The Cyphal application layer should:
 - Read and write registers through the settings operation boundary.
 - Deliver torque, speed, position, and excitation setpoints into the normal controller input path.
 - Publish angle, speed, current, voltage, state, and heartbeat telemetry.
-- Provide simulation controls for reset, fixed-cycle advance, run-until, snapshot, and virtual-clock status.
+- Provide simulation controls for reset, fixed-cycle advance, run-until, snapshot, and virtual-clock status. Done on the single-node simulation (registers `unimoc.sim.*`): reset, advance, run-until (to a cycle count, stopping at a trip) and the clock status; the drive's timeouts follow the virtual time while paused. Open: snapshot.
 - Keep continuous best-effort mode optional and separate from deterministic stepping.
 
 Add protocol-level tests for register operations, setpoint delivery, telemetry decoding, heartbeat, reset, stepping, and multi-node addressing. Add one end-to-end localhost UDP test that launches the simulator and verifies a known telemetry trace.

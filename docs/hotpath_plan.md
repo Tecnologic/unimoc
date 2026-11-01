@@ -262,7 +262,12 @@ functions and `memset`. No libm function (`sqrtf` was there before
   sample times and simultaneous triggers on all ADCs (as before).
 - **Overcurrent only in software.** The board has no comparators on the current channels; the check is
   per sample in the zero-latency interrupt (reaction within about 1 µs plus the half period until the
-  next sample). The analog watchdog of the ADCs is a possible addition.
+  next sample). The analog watchdog of the ADCs is a possible addition. The DC-link overvoltage is
+  checked the same way since 2026-10-31: the sample interrupt compares the raw DC-link conversion of
+  every sample with the trip level in counts (before the calibration, `SetOvervoltageCounts()`) and
+  breaks the timer; the control cycle repeats the check on the calibrated last sample. It reads one
+  more register of ADC4 per sample (the same assumption as for ADC2/3: its sequence is done at the
+  ADC1 JEOS). Not run on the board.
 - **Observer overrun.** If the observer does not finish within one cycle, the control cycle reuses the
   old angles (and the sample buffer can race); counted, to be measured in M0.
 - **FPU in zero-latency ISRs.** Lazy stacking costs cycles when a thread uses the FPU. Measure in M0.

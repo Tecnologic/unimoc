@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 common:
-  tags: unimoc sim cyphal
+  tags: [unimoc, sim, cyphal]
   platform_allow: native_sim/native/64
   integration_platforms:
     - native_sim/native/64

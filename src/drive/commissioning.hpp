@@ -22,6 +22,7 @@
 #include <string_view>
 #include "cyphal/node.hpp"
 #include "hw_startup.hpp"
+#include "motor_identification.hpp"
 
 namespace unimoc::drive {
 
@@ -37,8 +38,13 @@ namespace unimoc::drive {
  * - **Progress and completion** are the status message, published on every
  *   change and at 2 Hz while a run is active, at 0.5 Hz otherwise.
  * - **Values** stay registers: `unimoc.startup.results` (natural8[14], read
- *   only, 1 per passed step) here, the calibration among the persistent
- *   settings (`unimoc.startup.adc_offset_*`, `gain_*`).
+ *   only, 1 per passed step) and the identification's
+ *   `unimoc.identify.result.*` (real32, read only, NaN until measured) here,
+ *   the calibration among the persistent settings
+ *   (`unimoc.startup.adc_offset_*`, `gain_*`).
+ *
+ * The two procedures exclude each other; the status message is about the
+ * running one, else the last one started.
  *
  * The provider runs in the Cyphal thread, like the FSM it controls.
  */
@@ -51,11 +57,18 @@ class Commissioning final : public cyphal::RegisterProvider {
 
   /**
    * @param fsm Startup FSM; must outlive the provider.
+   * @param identification Motor identification; must outlive the provider.
    * @param engaged True while the drive is engaged; a start is refused then.
    * @param emergency_stop True while an emergency stop is latched; a start is refused then.
    */
-  Commissioning(startup::HwStartup& fsm, const bool& engaged, const bool& emergency_stop) noexcept
-      : fsm_{&fsm}, engaged_{&engaged}, emergency_stop_{&emergency_stop} {}
+  Commissioning(startup::HwStartup& fsm,
+                identification::MotorIdentification& identification,
+                const bool& engaged,
+                const bool& emergency_stop) noexcept
+      : fsm_{&fsm}, identification_{&identification}, engaged_{&engaged}, emergency_stop_{&emergency_stop} {}
+
+  /// True while the startup aid or the identification runs.
+  [[nodiscard]] bool Active() const noexcept { return fsm_->IsActive() || identification_->IsActive(); }
 
   /// True for the command codes this interface takes.
   [[nodiscard]] static bool Handles(uint16_t command) noexcept;
@@ -84,10 +97,14 @@ class Commissioning final : public cyphal::RegisterProvider {
 
  private:
   [[nodiscard]] cyphal::CommandResult Start() noexcept;
+  [[nodiscard]] cyphal::CommandResult StartIdentification(std::string_view measurements) noexcept;
+  [[nodiscard]] unimoc_drive_CommissioningStatus_0_1 IdentificationStatus() const noexcept;
   [[nodiscard]] cyphal::CommandResult Continue(std::string_view confirmation) noexcept;
   [[nodiscard]] cyphal::CommandResult SetReading(std::string_view reading) noexcept;
 
   startup::HwStartup* fsm_;
+  identification::MotorIdentification* identification_;
+  bool identification_last_{false};  ///< The last procedure started was the identification.
   const bool* engaged_;
   const bool* emergency_stop_;
   unimoc_drive_CommissioningStatus_0_1 last_{};

@@ -347,8 +347,9 @@ status at 50 to 100 Hz adds less than 1 % and is not in the table:
   pseudo terminals that form one classic CAN bus; pycyphal and yakut use them
   with their python-can slcan media (implemented 2026-10-21). Cyphal/UDP with
   the TAP driver and libudpard stays an option for multi-node simulations;
-  the offloaded sockets (NSOS) of Zephyr 4.4 pass no multicast socket
-  options, so they cannot carry Cyphal/UDP.
+  the offloaded sockets (NSOS) of Zephyr 4.4 passed no multicast socket
+  options; those of 4.5 map them (source check), so NSOS may carry
+  Cyphal/UDP without TAP.
 - **Cart:** pycyphal on a USB CAN FD adapter (SocketCAN on Linux).
 
 ### 6.5 Comparison with Single Pair Ethernet (10BASE-T1S)

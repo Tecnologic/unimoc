@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 common:
-  tags: unimoc ebike
+  tags: [unimoc, ebike]
   platform_allow: native_sim/native/64
   integration_platforms:
     - native_sim/native/64

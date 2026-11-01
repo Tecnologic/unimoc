@@ -78,6 +78,9 @@ external API requires different wording.
 | **torque mode** | Direct torque or `q`-axis current command without a speed or position outer loop. |
 | **speed mode** | A speed PI loop that generates the torque/current demand. |
 | **position mode** | A cascaded position and speed loop. It requires a homed position tracker. |
+| **drive time** | The clock of the drive's timeouts and ramps (`DriveNode::Spin(now_us, drive_us)`, `CyphalPlatformDriveTimeUs()`). On the board it is the uptime; in the simulation it leaves out the real time of a pause and adds the virtual time advanced while paused. The heartbeat and the publication periods stay in real time. |
+| **forced angle** | An electrical angle (fixed or a ramp) that `SlowUpdate` writes into the angle buffers instead of the observer's estimate, for the motor identification. |
+| **measurement window** | A number of control cycles over which `SlowUpdate` sums the means and the injection phasors for the motor identification (`RequestWindow()`, `TakeWindow()`). |
 | **homing** | The process of finding and latching the machine's mechanical zero position. |
 | **fault** | A state in which operation must be stopped or limited because a safety or validity condition failed. Use `FAULT` for the enum/state name. |
 
@@ -128,11 +131,11 @@ a boundary.
 
 | Boundary | Where | What crosses |
 |---|---|---|
-| **Bus (DSDL)** | `src/drive/drive_node.cpp`, `hardware/zephyr_sim/cyphal_platform.cpp` | `unimoc.drive.Telemetry`, `unimoc.sim.Plant`, the `uavcan.si.*` setpoints and the sim inputs: `float32` fields in base units, the electrical angle wrapped to [0, 2 pi). The cart messages (`unimoc.cart.*`) use `float16` fields in base units. |
+| **Bus (DSDL)** | `src/drive/drive_node.cpp`, `src/drive/commissioning.cpp`, `hardware/zephyr_sim/cyphal_platform.cpp` | `unimoc.drive.Telemetry`, `unimoc.sim.Plant`, the `uavcan.si.*` setpoints and the sim inputs: `float32` fields in base units, the electrical angle wrapped to [0, 2 pi). The cart messages (`unimoc.cart.*`) use `float16` fields in base units. |
 | **Registers** | `lib/settings/settings_registers.hpp`, `src/drive/settings_register_provider.cpp` | A unit setting is one `real32` register in its base unit (`EncodeRegisterValue()`/`DecodeRegisterValue()`). |
 | **Traces** | `src/trace/trace_signals.cpp`, the plant trace in `hardware/zephyr_sim/hardware_interface.cpp` | The cymon float mirror: one `float` per trace variable, sampled after the control cycle. |
-| **ADC and timer counts** | `hardware/zephyr_bcc/analog_scaling.hpp`, `hardware/zephyr_bcc/hardware_interface.cpp` | ADC counts in, units out (`CountsToCurrent()`, ...); the overcurrent limit back to ADC counts, a duty to compare counts. |
-| **Timer periods and timestamps** | `hardware/zephyr_bcc/foc_stm32g4.cpp`, `hardware/zephyr_sim/hardware_interface.cpp`, `src/current_control/current_control_isr.cpp`, `src/current_control/slow_update.cpp`, `src/drive/drive_node.cpp`, `hardware/zephyr_common/cyphal_runtime.cpp` | The PWM frequency in whole Hz for the timer setup, timestamp offsets in ticks, Hall edge times in ns, the telemetry and trace periods in us. |
+| **ADC and timer counts** | `hardware/zephyr_bcc/analog_scaling.hpp`, `hardware/zephyr_bcc/hardware_interface.cpp` | ADC counts in, units out (`CountsToCurrent()`, ...); the overcurrent and the overvoltage limit back to ADC counts, a duty to compare counts. |
+| **Timer periods and timestamps** | `hardware/zephyr_bcc/foc_stm32g4.cpp`, `hardware/zephyr_sim/hardware_interface.cpp`, `src/current_control/current_control_isr.cpp`, `src/current_control/slow_update.cpp`, `src/drive/drive_node.cpp`, `hardware/zephyr_common/cyphal_runtime.cpp`, `src/identification/motor_identification.cpp` (a settle time in control cycles) | The PWM frequency in whole Hz for the timer setup, timestamp offsets in ticks, Hall edge times in ns, the telemetry and trace periods in us. |
 | **Fixed-point angle** | `lib/motor_control/src/rotor_angle.hpp`, `sin_cos.hpp`, `angle_wrap.hpp` | The Q1.31 phase of `RotorAngle`, the sine-table index, the wrap loops; their public API is typed. |
 | **Mixed-unit filter state** | `lib/motor_control/src/mechanical_observer.hpp` | The Kalman covariance and gain (one state vector of rad/s, rad and N m/rad) stay `float`. The measurement noise is typed up to `Correct()` (`unit::AngleVariance`, `unit::AngularVelocityVariance`; the speed weight of the flux noise is `unit::AngleVarianceSpeedWeight`), which unpacks innovation and noise once. |
 | **libm** | `lib/motor_control/src/asm_flux_observer.hpp` | `atan2` of the flux angle (not in the firmware yet). Sine and cosine come from `system::SinCos`. |

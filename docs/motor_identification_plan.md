@@ -383,6 +383,49 @@ status|apply]` is the same at the terminal.
 | I6 | M7 derived gains; review, approval and apply in cypilot; profile | I1 .. I5 |
 | I7 | Bench: the hoverboard motor (data sheet values) and the 4850 motor; compare with an LCR meter (L), a 4-wire measurement (R), a coast-down on the scope (psi) | board access |
 
+### 8.1 Status (2026-10-31)
+
+I0 to I2 are in the firmware, tested on `native_sim` (`tests/sim/identification`,
+the pycyphal test `test_identification_measures_the_simulated_motor`); not run
+on the board. As implemented:
+
+- **Forced angle:** `SlowUpdate::SetForcedAngle()` (fixed angle or a ramp),
+  `ReleaseForcedAngle()`; the mechanical observer runs on in the background.
+- **The control cycle under the identification:**
+  `CurrentControlIsr::SetIdentificationDrive()` (`src/current_control/identification_drive.hpp`):
+  its own current reference instead of the outer loop's, the current PI frozen
+  on request (its last output held), the dead-time compensation off, and the
+  sine of M2 on one axis, added per duty entry at the phase of the entry's
+  middle from the integer phase of the hot path's sine table (no libm). The
+  sine has a fixed period of 128 PWM half periods, f_pwm / 64 (500 Hz at
+  32 kHz), counted from the first control cycle, so the observer knows the
+  phase of every current sample exactly; this replaces the Goertzel recursion
+  by its single-bin sum (`identification::PhasorAccumulator`).
+- **Online accumulation:** `SlowUpdate::RequestWindow()` / `TakeWindow()`
+  sum, over a number of control cycles, the mean d/q current, voltage demand
+  and DC link and the phasors of the injected voltage and the current of the
+  axis. Every wait of the FSM is such a window, so a run is counted in control
+  cycles (the same virtual time in a paused simulation).
+- **FSM:** `src/identification/motor_identification.*` in the Cyphal thread;
+  the estimators `resistance_regression.hpp` and `impedance_estimator.hpp` in
+  `lib/motor_control/src/` (flat, next to the other algorithms, not in a
+  subdirectory).
+- **Dead time:** with the current along one phase (the angles of M1) the
+  dead-time compensation's error is 4/3 t_dead f_pwm V_dc on the d axis, so
+  t_dead = 3/4 U_dt / (V_dc f_pwm) (`unimoc.identify.result.dead_time`, the
+  unit of `unimoc.control.dtc.dead_time`); the plan's `dt = 2 a / U_dc` of the
+  old script is not used. The sim inverter has the dead time
+  (`InverterParameters::dead_time`, d - sign(i) t_dead f_pwm per phase).
+- **Bus:** START_IDENTIFICATION with `M1`, `M2` or `M1,M2`; ABORT; the
+  status message with procedure IDENTIFICATION (steps 1 M1, 2 and 3 the axes
+  of M2, 4 DONE, 5 FAULT); `unimoc.identify.result.R`, `.dead_time`,
+  `.dead_time_voltage`, `.L_d`, `.L_q`, `.L`, `.R_ac` (NaN until measured).
+- **Open:** the cypilot card and `cypilot-ctl identify` (cypilot repository),
+  APPLY_IDENTIFICATION and the derived gains (I6), the saturation option of
+  M2, I3 to I5, and the board: the shaft moves when the rotor aligns at the
+  first level of each M1 angle (the sim test holds the shaft); the settle time
+  is five L/R of the present settings, at least 20 ms.
+
 ## 9. Decisions
 
 Taken on 2026-10-29:

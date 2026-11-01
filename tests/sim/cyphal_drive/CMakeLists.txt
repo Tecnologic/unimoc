@@ -24,6 +24,7 @@ target_sources(app PRIVATE
   ${UNIMOC_ROOT}/src/drive/commissioning.cpp
   ${UNIMOC_ROOT}/src/drive/timing_registers.cpp
   ${UNIMOC_ROOT}/src/startup/hw_startup.cpp
+  ${UNIMOC_ROOT}/src/identification/motor_identification.cpp
   ${UNIMOC_ROOT}/hardware/zephyr_common/system_interface.cpp
   ${UNIMOC_ROOT}/hardware/zephyr_common/zephyr_settings_storage.cpp
   ${UNIMOC_ROOT}/hardware/zephyr_sim/ebike_io.cpp
@@ -35,6 +36,7 @@ target_include_directories(app PRIVATE
   ${UNIMOC_ROOT}/src/drive
   ${UNIMOC_ROOT}/src/ebike
   ${UNIMOC_ROOT}/src/startup
+  ${UNIMOC_ROOT}/src/identification
   ${UNIMOC_ROOT}/hardware/zephyr_sim
   ${UNIMOC_ROOT}/hardware/zephyr_common
   ${UNIMOC_ROOT}/tests/common)

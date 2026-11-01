@@ -108,6 +108,8 @@ constexpr uint32_t PackWindow(const uint32_t low, const uint32_t high) noexcept 
   return (low & 0xFFFFU) | ((high & 0xFFFFU) << 16U);
 }
 std::atomic<uint32_t> g_overcurrent_window{PackWindow(0U, 0xFFFU)};
+// Raw DC-link limit; written by the thread context, read by the sample interrupt.
+std::atomic<uint32_t> g_overvoltage_counts{kOvervoltageCheckOff};
 static_assert(std::atomic<uint32_t>::is_always_lock_free);
 
 // What was active while the samples of the current cycle were taken.
@@ -230,13 +232,19 @@ ISR_DIRECT_DECLARE(SampleIsr) {
     kTim->EGR = TIM_EGR_BG;  // break: outputs off at once, BIF latched
     g_cycle.overcurrent = true;
   }
+  // The DC link of every sample (its ADC converts with the same trigger and sample time).
+  const uint32_t kVdc = kAdcVdc->JDR1;
+  if (kVdc >= g_overvoltage_counts.load(std::memory_order_relaxed)) {
+    kTim->EGR = TIM_EGR_BG;
+    g_cycle.overvoltage = true;
+  }
 
   if (kIndex + 1U < kHalfPeriodsPerCycle) {
     g_sample_index = kIndex + 1U;
     return 0;
   }
   g_sample_index = 0U;
-  g_cycle.vdc = kAdcVdc->JDR1;
+  g_cycle.vdc = kVdc;
   g_cycle.timestamp = DWT->CYCCNT;  // the control boundary, in the clock of the Hall events
   if constexpr (kTiming) {
     const uint32_t kStart = DWT->CYCCNT;
@@ -246,6 +254,7 @@ ISR_DIRECT_DECLARE(SampleIsr) {
     ControlCycleHandler();
   }
   g_cycle.overcurrent = false;
+  g_cycle.overvoltage = false;
   NVIC_SetPendingIRQ(static_cast<IRQn_Type>(kObserverIrq));
   if constexpr (kTiming) {
     timing::ProbeOf(timing::Section::kSampleIsr).Record(DWT->CYCCNT - kEntry);
@@ -546,6 +555,10 @@ bool SampleAtPeak(const uint8_t sample) noexcept {
 
 void SetOvercurrentWindow(const uint32_t low, const uint32_t high) noexcept {
   g_overcurrent_window.store(PackWindow(low, high), std::memory_order_relaxed);
+}
+
+void SetOvervoltageCounts(const uint32_t counts) noexcept {
+  g_overvoltage_counts.store(counts, std::memory_order_relaxed);
 }
 
 RawSamples ReadRaw() noexcept {

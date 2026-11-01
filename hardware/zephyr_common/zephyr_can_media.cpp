@@ -49,7 +49,12 @@ int ZephyrCanMedia::Init(const struct device* const device,
   if (result < 0) {
     return result;
   }
-  can_set_state_change_callback(device, OnStateChange, this);
+  state_callback_.self = this;
+  can_init_state_change_callback(&state_callback_.callback, OnStateChange);
+  result = can_add_state_change_callback(device, &state_callback_.callback);
+  if (result != 0 && result != -EALREADY) {
+    return result;
+  }
   result = can_start(device);
   return (result == -EALREADY) ? 0 : result;
 }
@@ -70,10 +75,10 @@ void ZephyrCanMedia::OnFrame(const struct device* /*device*/,
 }
 
 void ZephyrCanMedia::OnStateChange(const struct device* /*device*/,
+                                   struct can_state_change_callback* const callback,
                                    const enum can_state state,
-                                   struct can_bus_err_cnt /*error_count*/,
-                                   void* const user_data) {
-  auto* self = static_cast<ZephyrCanMedia*>(user_data);
+                                   struct can_bus_err_cnt /*error_count*/) {
+  ZephyrCanMedia* self = CONTAINER_OF(callback, StateCallback, callback)->self;
   cyphal::CanBusState bus_state = cyphal::CanBusState::kErrorActive;
   switch (state) {
     case CAN_STATE_ERROR_WARNING:

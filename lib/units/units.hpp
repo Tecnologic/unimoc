@@ -154,6 +154,8 @@ using Resistance = DimensionQuotient<Voltage, Current>;
 using MagneticFlux = DimensionProduct<Voltage, Time>;
 /// Inductance [H = Wb/A].
 using Inductance = DimensionQuotient<MagneticFlux, Current>;
+/// Capacitance [F = A s/V].
+using Capacitance = DimensionQuotient<DimensionProduct<Current, Time>, Voltage>;
 }  // namespace dim
 
 /**
@@ -421,6 +423,8 @@ using Resistance = Unit<float, std::ratio<1>, dim::Resistance>;
 using Inductance = Unit<float, std::ratio<1>, dim::Inductance>;
 /// Rotational inertia in kilogram square metres per square radian (kg m^2/rad^2).
 using Inertia = Unit<float, std::ratio<1>, dim::Inertia>;
+/// Capacitance in farads (F).
+using Capacitance = Unit<float, std::ratio<1>, dim::Capacitance>;
 
 // Helper units. Aliases of the same dimension are the same type: Frequency,
 // InverseTime and AngularVelocityPerAngle are 1/s; Resistance,
@@ -994,6 +998,22 @@ constexpr Inductance operator""_H(long double val) { return Inductance(static_ca
  */
 constexpr Unit<float, std::milli, dim::Inductance> operator""_mH(long double val) {
   return Unit<float, std::milli, dim::Inductance>(static_cast<float>(val));
+}
+
+/**
+ * @brief Creates a capacitance value from a farad literal.
+ * @param val Literal value in farads.
+ * @return Capacitance in farads.
+ */
+constexpr Capacitance operator""_F(long double val) { return Capacitance(static_cast<float>(val)); }
+
+/**
+ * @brief Creates a capacitance value from a millifarad literal.
+ * @param val Literal value in millifarads.
+ * @return Capacitance with a millifarad period.
+ */
+constexpr Unit<float, std::milli, dim::Capacitance> operator""_mF(long double val) {
+  return Unit<float, std::milli, dim::Capacitance>(static_cast<float>(val));
 }
 
 /**

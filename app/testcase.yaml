@@ -6,7 +6,7 @@ tests:
     platform_allow:
       - native_sim/native/64
       - bcc
-    tags: unimoc app
+    tags: [unimoc, app]
   # The M0 timing probes in the interrupts (CONFIG_UNIMOC_HOT_PATH_TIMING).
   unimoc.app.build.timing:
     build_only: true
@@ -14,7 +14,7 @@ tests:
       - bcc
     extra_configs:
       - CONFIG_UNIMOC_HOT_PATH_TIMING=y
-    tags: unimoc app
+    tags: [unimoc, app]
   # The e-bike control and its hardware (BCC: cadence capture, display line, UART; native_sim: the
   # simulated rider) compiled in (CONFIG_UNIMOC_EBIKE). The pytest scenario below runs without it:
   # with the e-bike the bus readiness no longer engages the drive.
@@ -25,7 +25,7 @@ tests:
       - bcc
     extra_configs:
       - CONFIG_UNIMOC_EBIKE=y
-    tags: unimoc app
+    tags: [unimoc, app]
   # The simulation as a Cyphal node, tested from pycyphal over its slcan
   # pseudo terminal (tests/integration/cyphal_sim). Needs pycyphal, python-can
   # and pyserial (scripts/requirements-cyphal-tools.txt); skipped without them.
@@ -46,4 +46,4 @@ tests:
         - "-p"
         - "no:platformdirs"
     timeout: 300
-    tags: unimoc app cyphal
+    tags: [unimoc, app, cyphal]

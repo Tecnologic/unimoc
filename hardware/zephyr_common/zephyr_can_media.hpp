@@ -64,12 +64,19 @@ class ZephyrCanMedia final : public cyphal::CanMedia {
  private:
   static void OnFrame(const struct device* device, struct can_frame* frame, void* user_data);
   static void OnStateChange(const struct device* device,
+                            struct can_state_change_callback* callback,
                             enum can_state state,
-                            struct can_bus_err_cnt error_count,
-                            void* user_data);
+                            struct can_bus_err_cnt error_count);
+
+  /// The state-change callback of the driver with the media it belongs to (CONTAINER_OF).
+  struct StateCallback {
+    struct can_state_change_callback callback;
+    ZephyrCanMedia* self;
+  };
 
   const struct device* device_{nullptr};
   struct k_sem* wake_{nullptr};
+  StateCallback state_callback_{};
   struct k_msgq rx_queue_{};
   alignas(4) std::array<char, kRxQueueLength * sizeof(struct can_frame)> rx_buffer_{};
   std::size_t mtu_{cyphal::kCanClassicMtu};

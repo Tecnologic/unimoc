@@ -14,6 +14,82 @@ There is no board access at the moment. Each section lists first what can be
 verified with twister on `native_sim` and the BCC build, then what waits for
 hardware. Finished items are collected under "Done" at the end.
 
+## Priorities (2026-10-31)
+
+The open points of this list and the plans, ranked. Tier 1 can be done and
+verified in a cloud development container (west workspace, Zephyr SDK,
+twister on `native_sim`, the BCC build, pycyphal over the slcan pseudo
+terminals); that container has no board, no `vcan` (the kernel has no CAN
+modules) and no access to cypilot's branches beyond its own repository.
+
+### Tier 1: in the development container, in this order
+
+Items 1 to 5 are done (2026-10-31, one pull request); 6 is next.
+
+1. Done: **Zephyr 4.5 update** ("Hot path and Zephyr port"). First, so every later
+   change lands on the new baseline while the diff against 4.4 is still only
+   the migration.
+2. Done: **Per-sample overvoltage check in the sample interrupt** ("Cart system",
+   regenerative braking). Small, safety-relevant, testable in the sim
+   (`tests/sim/`); keeps the zero-latency rules.
+3. Done: **DC-link model in the sim** (capacitor, battery with internal resistance,
+   contactor; "Motor types"). Makes the overvoltage trip, the body-diode
+   charging (decision 2) and later the brake chopper testable; prerequisite
+   of 6 and 8.
+4. Done: **Virtual time for the simulation**: the drive's timeouts in virtual time
+   and run-until ("Hot path and Zephyr port", SIL P2). Deterministic sim and
+   pytest runs for everything below.
+5. Done (firmware): **Motor identification I0 to I2** (forced angle, the
+   `MotorIdentification` FSM and `unimoc.identify.result.*`, M1 with dead time
+   in the sim inverter, M2). The next feature line; the decisions are taken
+   (plan section 9). I3 (phase-voltage sense in the sim) follows; the
+   cypilot side (C0) is in its own repository.
+6. **Fourth half bridge**: in the sim inverter, then the platform-independent
+   auxiliary output with the chopper role for the PMSM ("Cart system",
+   "Motor types"; electrical design still open, so the firmware stays behind
+   an interface and the thresholds in registers).
+7. **Small bus items**: `.type` registers for every port (`docs/gui_plan.md`
+   section 6.4), `unimoc.sim.pedal_*` registers with a pytest of the
+   simulated rider, persisting the learned pedal torque offset
+   (`docs/ebike_plan.md`), and new pycyphal tests with each bus feature.
+8. **ASM and EESM plants, then the motor-type selection in the runtime**
+   ("Motor types"), including the libm-free `atan2` of the ASM flux angle
+   and the excitation setpoint (SIL P2).
+9. **Cyphal file service and firmware update, sim part**: `uavcan.file.Read`
+   and `BEGIN_SOFTWARE_UPDATE` into a simulated bank 2; serving the register
+   description file over it (F3). The bank swap and the bootloader wait for
+   the board.
+10. **Structure for the cart**: generalize `hardware/zephyr_bcc` to the G4
+    family (build-checked only), split `app/` into `apps/drive/` and
+    `apps/vdc/` with `lib/vehicle/`.
+11. **SIL coordinator** (one process, N motor nodes, shared virtual clock,
+    load models, the host executable; SIL P2) and the simulator chapter of
+    `README.md`. Multi-node over `vcan` cannot run in the container.
+
+### Tier 2: decisions, no hardware needed (yours)
+
+ - CAN FD transceiver for the BCC ("Next"); it fixes the BCC bit timing.
+ - License of `dsdl/unimoc/` (`docs/gui_plan.md` section 2).
+ - VDC MCU and G4 part of the 4850 logic board (`docs/system_plan.md`
+   section 12); the fourth half bridge's placement, routing and ratings.
+ - Limp-home reverse (direction selector) and the VDC reaction to a lost
+   drive.
+
+### Tier 3: needs another machine
+
+ - `vcan` (CAN FD MTU) on WSL2, `scripts/sim_cluster.sh` and the multi-node
+   pycyphal tests on it; then multi-node tests in CI if the runner has `vcan`.
+ - cypilot C0 against the next UNIMOC release.
+
+### Tier 4: blocked on the board
+
+M0 timing (with the cost of the trace `Tick()`, then the CCM SRAM decision),
+M8 first step and remainder, ZMS and the dual-bank option, the duty DMA from
+the devicetree (after M8), Cyphal on the BCC and the CAN FD bus test C2 (then
+the bit rate and the 4850 bit timing), the e-bike tuning and the KT-LCD8
+display, identification I7, regenerative braking on a dyno, excitation and
+chopper on the 4850 bench.
+
 ## Decisions
 
 ### 2026-10-22, PR #26
@@ -74,9 +150,10 @@ In this order; all without hardware unless marked.
 Plan: [docs/motor_identification_plan.md](docs/motor_identification_plan.md) (algorithms of the old firmware carried over, an assisted flow in cypilot like the startup aid). Decisions in its section 9 first.
 
  - [ ] C0 in cypilot: the startup card, `cypilot-ctl startup` and the demo device on the commissioning commands and status message (event-driven), Home (START_HOMING, `cypilot-ctl run --home`) and `reset-timing`; needs a UNIMOC release with `unimoc.drive.CommissioningStatus.0.1` and the homing state for `DEFAULT_UNIMOC_REF`.
- - [ ] I0: forced angle in `SlowUpdate`, online accumulation of the measurement windows, `MotorIdentification` FSM on C0 with the result registers `unimoc.identify.result.*`, cypilot card and `cypilot-ctl identify`.
- - [ ] I1: M1 stator resistance and dead-time voltage (regression over current levels at three angles); dead time in the sim inverter.
- - [ ] I2: M2 L_d and L_q (sine injection per axis, Goertzel impedance).
+ - [x] I0, firmware (2026-10-31): forced angle in `SlowUpdate`, online accumulation of the measurement windows, `MotorIdentification` FSM on C0 (START_IDENTIFICATION `M1,M2`, ABORT, the status message) with the result registers `unimoc.identify.result.*` (plan section 8.1). Open: the cypilot card and `cypilot-ctl identify` (cypilot repository).
+ - [x] I1 (2026-10-31): M1 stator resistance and dead time (regression over five levels of each sign at three angles, without the dead-time compensation); dead time in the sim inverter. Sim: R and t_dead within 0.1 % of the plant.
+ - [x] I2 (2026-10-31): M2 L_d and L_q (a sine at f_pwm / 64 per axis on the held PI voltage, single-bin phasors with the exact phase of every sample, Z = U / I). Sim: within 0.2 %. Open: the saturation option (L_d at three biases).
+ - [ ] Identification on the board (I7 covers the bench comparison): the rotor alignment at each M1 angle with a free shaft, the settle time, the M2 amplitude adaptation on a real winding.
  - [ ] I3: phase voltages in `ControlCycleSamples` (BCC, the sim plant with open outputs), their calibration in the startup aid's DUTY_FORCE steps; M3 flux linkage by coast-down.
  - [ ] I4: M4 pole pairs (measured, or entered and checked); M5 Hall offset and order.
  - [ ] I5: M6 inertia and friction (the coast of M3, torque steps).
@@ -88,7 +165,7 @@ Plan: [docs/motor_identification_plan.md](docs/motor_identification_plan.md) (al
  - [ ] Requirements and part choice for the STM32G4 redesign of the hardware_4850 logic board (STM32G473RET6 or G474RET6, pin and ADC check, system plan section 5.2), including the fourth half bridge (decision 9): its PWM channel synchronized with the phase timer, its current measurement (excitation current, resistor current), the comparator path for the chopper and the board it sits on.
  - [ ] Generalize `hardware/zephyr_bcc` to the G4 family so the 4850 logic board shares the hot path (board differences in the devicetree).
  - [ ] Fourth half bridge in the firmware: a platform-independent auxiliary output next to `hardware/power_stage_interface.hpp` with two roles selected by the motor type, excitation (EESM: `ExcitationController` sets the duty) and brake chopper (PMSM: DC-link threshold with hysteresis, on together with the overvoltage trip; resistor energy and temperature limit in a thread). The chopper reacts in hardware (G4 comparator to timer) where the routing allows it, the firmware sets the thresholds. Simulated first (see "Motor types").
- - [ ] Regenerative braking, open parts (the drive side, the BMS limits and the reporting to the VDC are done): the estimated speed in the limit on a dyno (the observer's torque model expects the shaft to slow; settles within some 300 ms in the sim), the BCC voltage ratings from the schematic, a per-sample overvoltage check in the sample interrupt.
+ - [ ] Regenerative braking, open parts (the drive side, the BMS limits and the reporting to the VDC are done): the estimated speed in the limit on a dyno (the observer's torque model expects the shaft to slow; settles within some 300 ms in the sim), the BCC voltage ratings from the schematic. Done 2026-10-31: the per-sample overvoltage check in the sample interrupt (raw DC-link counts, `SetOvervoltageCounts()`; not run on the board).
  - [ ] Split `app/` into `apps/drive/` and `apps/vdc/` (later `apps/pedal/` and `apps/bms/`) and add `lib/vehicle/`; update `AGENTS.md`, `README.md` and `docs/zephyr_workflow.md`. The VDC firmware lives in this repository (decided); the VDC MCU starts on a G4.
  - [ ] BMS controller as `apps/bms/` with `lib/battery/` (system plan section 5.5): board (BCC or new G4 board), cell monitoring front end, contactor and precharge, battery status message. Whether it still needs its own brake chopper next to the choppers in the drives is open (system plan section 12).
 
@@ -118,7 +195,7 @@ no motor-type selection and runs the PMSM path only, and `lib/sim` has only
  - [ ] ASM plant in `lib/sim` (`AsmModel`: stator and rotor flux d/q model with rotor resistance and magnetizing inductance) behind the `MotorModel` concept; plant tests (slip, torque direction, flux build-up).
  - [ ] EESM plant in `lib/sim` (`EesmModel`: d/q model with saliency and a field winding, psi_f = L_m i_f, field voltage from `ElectricalInput::field_voltage`); plant tests (field build-up and decay, torque with and without excitation).
  - [ ] Fourth half bridge in the sim inverter: field voltage from its duty (EESM), or a brake resistor on the DC link (PMSM); field or resistor current as a measured channel.
- - [ ] DC-link model in the sim instead of the stiff source set by register: capacitor, battery with internal resistance and a contactor that can open, so the overvoltage trip, the body-diode charging (decision 2) and the chopper can be tested.
+ - [x] DC-link model in the sim (2026-10-31, `lib/sim/src/dc_link_model.hpp`): capacitor, battery with internal resistance and a contactor (`unimoc.sim.dc_link_capacitance`, `.battery_resistance`, `.contactor_closed`; the ideal source stays the default), the body-diode charging of the open bridge as an averaged six-step rectifier (decision 2), the dead time of the bridge. Open: the chopper (with the fourth half bridge), a test of the regenerative derating against the capacitor.
  - [ ] Motor-type selection in the runtime: ASM path (flux observer and controller; the `atan2` of `asm_flux_observer::flux_angle` must go without libm before it enters the control cycle) and EESM path (excitation controller and observer, excitation setpoint over Cyphal, the open "excitation" of the SIL setpoint item); closed-loop sim tests per motor type.
  - [ ] Hardware: excitation and chopper on the 4850 bench (after the board exists).
 
@@ -126,9 +203,10 @@ no motor-type selection and runs the PMSM path only, and `lib/sim` has only
 
 ### Without hardware
 
+ - [x] Update to the Zephyr 4.5 release (done 2026-10-31, `docs/zephyr_port_plan.md`, "Zephyr 4.5 migration"; NSOS of 4.5 maps the multicast options, source check only): bump the revision in `west.yml` and check the module allowlist, work through the 4.5 migration guide and release notes (devicetree bindings, Kconfig renames, the STM32 FDCAN and ADC drivers, `native_sim` and NSOS, ZMS and settings, ztest and twister, the C++ library settings), the Zephyr SDK version required by 4.5 in `docs/zephyr_workflow.md`, the CI workflows (`ci-zephyr.yml`, `build-firmware.yml`) and `README.md` ("Requirements"); `check_format.sh` and `twister_sca.sh` green on `native_sim` and `bcc`, the map file of the BCC build compared before and after (hot-path placement, flash and RAM use). Recheck whether NSOS in 4.5 passes the multicast socket options (the Cyphal/UDP fallback of the multi-node simulation). No 4.5 feature is required (`docs/zephyr_port_plan.md`, "Risks and Open Points").
  - [ ] Measure the cost of the trace `Tick()` in the control cycle on the BCC (M0, target < 1 us); move it to the observer interrupt if it is too slow.
  - [ ] Check whether the hot path (sample ISR, control cycle, buffers) belongs in CCM SRAM on the G4 (`docs/hotpath_plan.md`, "Risks and Open Points"); decide with the M0 timing numbers.
- - [ ] Simulation-control commands over Cyphal for deterministic runs (SIL P2): pause, fixed-cycle advance and reset done (`unimoc.sim.paused`, `.advance`, `.reset`, `.cycle_count`, `.cycle_period_ns`, pycyphal test); open: run-until, the drive's timeouts in virtual time.
+ - [x] Simulation-control commands over Cyphal for deterministic runs (SIL P2): pause, fixed-cycle advance, reset (`unimoc.sim.paused`, `.advance`, `.reset`, `.cycle_count`, `.cycle_period_ns`), run-until (`unimoc.sim.run_until`, stops at a trip) and the drive's timeouts in virtual time while paused (2026-10-31, `CyphalPlatformDriveTimeUs()`, pycyphal test).
 
 ### Blocked on hardware access
 
@@ -154,7 +232,7 @@ down. The boundaries are documented in `CONTEXT.md` ("Unit Boundaries").
  - [ ] P2: Host simulator executable around the coordinator.
  - [ ] P2: Excitation setpoints into the normal controller input path (torque, d/q current, speed, position and the UDRAL servo done); depends on the EESM runtime path.
  - [ ] P2: Telemetry and heartbeat with explicit virtual-time semantics (published in real time today; the telemetry carries the control-cycle count).
- - [ ] P2: Simulation-control commands run-until and snapshot (pause, fixed-cycle advance, reset and clock status done).
+ - [ ] P2: Simulation-control command snapshot (pause, fixed-cycle advance, reset, run-until and clock status done).
  - [ ] P2: Protocol and localhost end-to-end tests for multi-node operation (single node done: `unimoc.app.cyphal_integration`).
  - [ ] P3: The command-and-control GUI moved to cypilot (section "GUI" below).
  - [ ] P4: Startup, observer, field-weakening, homing and control-mode transition scenarios.

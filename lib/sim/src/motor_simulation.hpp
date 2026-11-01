@@ -16,7 +16,9 @@
 #pragma once
 
 #include <cstdint>
+#include <numbers>
 #include <variant>
+#include "dc_link_model.hpp"
 #include "hall_sensor.hpp"
 #include "inverter_model.hpp"
 #include "mechanical_model.hpp"
@@ -44,8 +46,12 @@ struct SimulationParameters {
   MechanicalParameters mechanics;
   /// Hall sensor parameters.
   HallParameters hall;
-  /// DC-link voltage of the ideal supply.
+  /// DC-link voltage of the ideal supply; the open-circuit battery voltage with a DC-link capacitor.
   unit::Voltage dc_link_voltage{unit::Voltage{48.0F}};
+  /// Dead time of the bridge.
+  InverterParameters inverter;
+  /// DC-link capacitor and battery resistance; the default (no capacitor) is the ideal source.
+  DcLinkParameters dc_link;
 };
 
 /**
@@ -87,6 +93,12 @@ struct SimulationOutput {
   system::ThreePhase<unit::Voltage> phase_voltages;
   /// DC-link voltage.
   unit::Voltage dc_link_voltage;
+  /// Mean current the bridge took from the DC link over the last step; negative while it charges it.
+  unit::Current dc_link_current;
+  /// Battery current of the last step; negative while the battery is charged.
+  unit::Current battery_current;
+  /// True while the body diodes of the switched-off bridge rectify the back-EMF into the DC link.
+  bool diodes_conducting{false};
   /// Stator current in the d/q frame of the rotor (simulation truth).
   system::Rotor<unit::Current> rotor_current;
   /// Field winding current (EESM), zero otherwise.
@@ -141,6 +153,14 @@ class MotorSimulation {
     if (parameters.dc_link_voltage <= unit::Voltage{}) {
       return Status::kInvalidDcLinkVoltage;
     }
+    if (parameters.inverter.dead_time < unit::Ratio{} || !(parameters.inverter.dead_time < kMaxDeadTime)) {
+      return Status::kInvalidDeadTime;
+    }
+    const DcLinkModel kDcLink(parameters.dc_link, parameters.dc_link_voltage);
+    const Status kDcLinkStatus = kDcLink.Validate();
+    if (kDcLinkStatus != Status::kOk) {
+      return kDcLinkStatus;
+    }
     const MechanicalModel kMechanics(parameters.mechanics);
     const Status kMechanicsStatus = kMechanics.Validate();
     if (kMechanicsStatus != Status::kOk) {
@@ -168,6 +188,7 @@ class MotorSimulation {
     model_ = model;
     pole_pairs_ = pole_pairs;
     mechanics_ = kMechanics;
+    dc_link_ = kDcLink;
     hall_ = HallSensor(parameters.hall);
     Reset();
     return Status::kOk;
@@ -205,12 +226,15 @@ class MotorSimulation {
   /**
    * @brief Returns all states to standstill at zero angle, with zero current and the bridge off.
    *
-   * The configuration, the shaft mode and the load input are kept.
+   * The configuration, the shaft mode and the load input are kept; the
+   * DC-link capacitor is charged to the battery voltage, the contactor closed.
    */
   constexpr void Reset() noexcept {
     std::visit(ResetVisitor{}, model_);
     mechanics_.Reset();
     inverter_ = InverterModel{};
+    inverter_.SetDeadTime(parameters_.inverter.dead_time);
+    dc_link_.Reset();
     UpdateOutput();
     hall_.Reset(output_.electrical_angle);
     output_.hall = hall_.Signals();
@@ -239,15 +263,31 @@ class MotorSimulation {
   constexpr void SetBridgeEnabled(bool enabled) noexcept { inverter_.SetEnabled(enabled); }
 
   /**
-   * @brief Sets the DC-link voltage of the ideal supply.
-   * @param voltage DC-link voltage; non-positive values are ignored.
+   * @brief Sets the DC-link voltage of the ideal supply, or the battery voltage behind the capacitor.
+   * @param voltage Voltage; non-positive values are ignored.
    */
   constexpr void SetDcLinkVoltage(unit::Voltage voltage) noexcept {
     if (voltage > unit::Voltage{}) {
       parameters_.dc_link_voltage = voltage;
-      output_.dc_link_voltage = voltage;
+      dc_link_.SetBatteryVoltage(voltage);
+      output_.dc_link_voltage = dc_link_.Voltage();
     }
   }
+
+  /**
+   * @brief Opens or closes the contactor between the battery and the DC-link capacitor.
+   *
+   * No effect on the ideal source (no capacitor configured).
+   *
+   * @param closed `false` leaves the capacitor alone with the inverter.
+   */
+  constexpr void SetContactorClosed(bool closed) noexcept { dc_link_.SetContactorClosed(closed); }
+
+  /**
+   * @brief Returns whether the contactor is closed.
+   * @return `true` while the battery is connected.
+   */
+  [[nodiscard]] constexpr bool ContactorClosed() const noexcept { return dc_link_.ContactorClosed(); }
 
   /**
    * @brief Sets the external inputs.
@@ -293,21 +333,60 @@ class MotorSimulation {
     }
 
     const unit::AngularVelocity kStartSpeed = ElectricalSpeed();
+    const unit::Voltage kDcLink = dc_link_.Voltage();
+    const system::ThreePhase<unit::Current> kStartCurrents = output_.phase_currents;
     // Hold the mechanical state over the step and sample the rotor angle at its middle.
+    const system::RotorAngle kAngle = output_.electrical_angle + (kStartSpeed * time_step * 0.5F);
+    // Duties that connect the phases to the DC link: the bridge's, the body
+    // diodes' of an open bridge, or none (the stator is open).
+    system::ThreePhase<unit::Ratio> conduction{};
+    bool connected = inverter_.Enabled();
+    system::Stator<unit::Voltage> stator_voltage = inverter_.StatorVoltage(kDcLink, kStartCurrents);
+    output_.diodes_conducting = false;
+    if (connected) {
+      conduction = inverter_.Duties();
+    } else if (BodyDiodesConduct(kDcLink, kStartSpeed)) {
+      conduction = DiodeDuties(kStartSpeed, kAngle);
+      InverterModel diodes;
+      diodes.SetEnabled(true);
+      diodes.SetDuties(conduction);
+      stator_voltage = diodes.StatorVoltage(kDcLink);
+      connected = true;
+      output_.diodes_conducting = true;
+    }
     const ElectricalInput kElectricalInput{
-        inverter_.StatorVoltage(parameters_.dc_link_voltage),
-        output_.electrical_angle + (kStartSpeed * time_step * 0.5F),
+        stator_voltage,
+        kAngle,
         kStartSpeed,
-        inverter_.Enabled(),
+        connected,
         input_.field_voltage,
     };
+    const Model kBefore = model_;
     std::visit([&kElectricalInput, time_step](auto& model) { StepModel(model, kElectricalInput, time_step); },
                model_);
+    if (output_.diodes_conducting && DcCurrent(conduction, kStartCurrents, kAngle) > unit::Current{}) {
+      // The diodes would feed the motor from the DC link: they block, the stator is open.
+      model_ = kBefore;
+      ElectricalInput open = kElectricalInput;
+      open.stator_connected = false;
+      std::visit([&open, time_step](auto& model) { StepModel(model, open, time_step); }, model_);
+      conduction = {};
+      output_.diodes_conducting = false;
+    }
 
     const ElectricalOutput kElectrical = std::visit(OutputVisitor{}, model_);
     mechanics_.Step(kElectrical.torque, input_.load_torque, time_step);
 
     UpdateOutput();
+    // The DC link carries the mean of the phase currents through the conducting switches.
+    const auto kMean = [](unit::Current start, unit::Current end) { return (start + end) * 0.5F; };
+    const unit::Current kDcCurrent = (conduction.a * kMean(kStartCurrents.a, output_.phase_currents.a)) +
+                                     (conduction.b * kMean(kStartCurrents.b, output_.phase_currents.b)) +
+                                     (conduction.c * kMean(kStartCurrents.c, output_.phase_currents.c));
+    dc_link_.Step(kDcCurrent, time_step);
+    output_.dc_link_voltage = dc_link_.Voltage();
+    output_.dc_link_current = kDcCurrent;
+    output_.battery_current = dc_link_.BatteryCurrent();
     hall_.Update(output_.electrical_angle, (kStartSpeed + output_.electrical_speed) * 0.5F, time_step);
     output_.hall = hall_.Signals();
     return Status::kOk;
@@ -373,6 +452,60 @@ class MotorSimulation {
     return mechanics_.Speed() * static_cast<float>(pole_pairs_);
   }
 
+  /// Largest dead time accepted: half a PWM period.
+  static constexpr unit::Ratio kMaxDeadTime = unit::operator""_ratio(0.5L);
+
+  /**
+   * @brief Whether the body diodes of the open bridge rectify the back-EMF.
+   *
+   * Only with a DC-link capacitor (the ideal source keeps the behavior of an
+   * open stator) and a permanent magnet: the line-to-line peak sqrt(3) |w psi|
+   * exceeds the DC link.
+   */
+  [[nodiscard]] constexpr bool BodyDiodesConduct(unit::Voltage dc_link,
+                                                 unit::AngularVelocity speed) const noexcept {
+    if (dc_link_.Ideal() || parameters_.motor_type != system::MotorType::kPmsm) {
+      return false;
+    }
+    return unit::Abs(speed * parameters_.pmsm.flux_pm) * std::numbers::sqrt3_v<float> > dc_link;
+  }
+
+  /**
+   * @brief Duties of the conducting diodes: each phase on the rail its back-EMF points to.
+   *
+   * An averaged six-step rectifier: a phase with positive back-EMF conducts
+   * through its high-side diode (duty 1), else through its low-side diode. A
+   * step in which this would take power from the DC link is repeated with the
+   * stator open, so the diodes only return energy; the DC link charges up to
+   * about pi/2 times the phase back-EMF peak (the line-to-line peak, sqrt(3)
+   * times it, in the hardware). Low fidelity: enough for the overvoltage trip.
+   */
+  [[nodiscard]] constexpr system::ThreePhase<unit::Ratio> DiodeDuties(
+      unit::AngularVelocity speed, const system::RotorAngle& angle) const noexcept {
+    const system::Rotor<unit::Voltage> kBackEmf{unit::Voltage{}, speed * parameters_.pmsm.flux_pm};
+    const system::ThreePhase<unit::Voltage> kPhases = kBackEmf.ToStator(angle).ToThreePhase();
+    const auto kRail = [](unit::Voltage emf) {
+      using unit::operator""_ratio;
+      return emf > unit::Voltage{} ? 1.0_ratio : 0.0_ratio;
+    };
+    return {kRail(kPhases.a), kRail(kPhases.b), kRail(kPhases.c)};
+  }
+
+  /**
+   * @brief Mean DC-link current of a step, from the model's present stator current.
+   * @param conduction Duties connecting the phases to the DC link.
+   * @param start Phase currents at the start of the step.
+   * @param angle Electrical angle of the step (its middle).
+   */
+  [[nodiscard]] constexpr unit::Current DcCurrent(const system::ThreePhase<unit::Ratio>& conduction,
+                                                  const system::ThreePhase<unit::Current>& start,
+                                                  const system::RotorAngle& angle) const noexcept {
+    const ElectricalOutput kElectrical = std::visit(OutputVisitor{}, model_);
+    const system::ThreePhase<unit::Current> kEnd = kElectrical.rotor_current.ToStator(angle).ToThreePhase();
+    return (conduction.a * (start.a + kEnd.a) * 0.5F) + (conduction.b * (start.b + kEnd.b) * 0.5F) +
+           (conduction.c * (start.c + kEnd.c) * 0.5F);
+  }
+
   /** @brief Recomputes the output sample from the states. */
   constexpr void UpdateOutput() noexcept {
     const ElectricalOutput kElectrical = std::visit(OutputVisitor{}, model_);
@@ -382,8 +515,8 @@ class MotorSimulation {
     output_.mechanical_speed = mechanics_.Speed();
     output_.rotor_current = kElectrical.rotor_current;
     output_.phase_currents = kElectrical.rotor_current.ToStator(output_.electrical_angle).ToThreePhase();
-    output_.phase_voltages = inverter_.PhaseVoltages(parameters_.dc_link_voltage);
-    output_.dc_link_voltage = parameters_.dc_link_voltage;
+    output_.phase_voltages = inverter_.PhaseVoltages(dc_link_.Voltage(), output_.phase_currents);
+    output_.dc_link_voltage = dc_link_.Voltage();
     output_.field_current = kElectrical.field_current;
     output_.electromagnetic_torque = kElectrical.torque;
   }
@@ -396,6 +529,8 @@ class MotorSimulation {
   std::uint8_t pole_pairs_{0U};
   /// Inverter bridge.
   InverterModel inverter_;
+  /// DC link: capacitor, battery and contactor.
+  DcLinkModel dc_link_;
   /// Shaft and load.
   MechanicalModel mechanics_;
   /// Hall sensors.

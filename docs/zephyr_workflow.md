@@ -29,7 +29,7 @@ uses the directory above the manifest repository):
     #   unpack it and run ./setup.sh -t arm-zephyr-eabi -h -c
     sudo apt-get install clang-tidy              # LLVM 18, as on the CI runner
 
-CMake >= 3.20 (Zephyr's minimum) and Ninja are required. The CI job
+CMake >= 3.28 (Zephyr's minimum since 4.5) and Ninja are required. The CI job
 (`.github/workflows/ci-zephyr.yml`) does the same with
 `zephyrproject-rtos/action-zephyr-setup`.
 
@@ -131,9 +131,18 @@ across a restart over the
 first slcan pseudo terminal. The DSDL is compiled into
 `<tmp>/unimoc_pycyphal` on the first run; without pycyphal the tests are
 skipped.
-The durations of the tests are virtual time, counted by the control cycles
-of the telemetry (`SimClient.virtual_time`): on a loaded machine the
-simulation falls behind the wall clock.
+The tests wait for the event they check instead of a guessed duration
+(`SimClient.expect()`: the first message from now on that satisfies a
+condition; `expect_register()`, `expect_record()`), so a loaded machine only
+makes them slower. Their durations and timeouts are virtual time, counted by
+the control cycles of the telemetry (`SimClient.virtual_time`): on a loaded
+machine the simulation falls behind the wall clock. The slcan ports buffer
+16 KB each for a reader that falls behind (`SlcanMedia::kTxBufferSize`), so a
+slow test client gets its responses late instead of not at all; the client
+reads the terminal in bulk (python-can reads it byte by byte, too slow on a
+loaded machine). The tests run with a 2 s `unimoc.control.command_timeout`
+(factory 0.5 s): the client publishes the readiness in wall time, and a
+starved client must not disengage the drive between two publications.
 
 ## Power stage release
 

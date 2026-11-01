@@ -53,6 +53,8 @@ void CyphalPlatformTraceSignals(cymon::Device& /*device*/) noexcept {}
 
 void CyphalPlatformSpin(cyphal::CyphalNode& /*node*/, uint64_t /*now_us*/) noexcept {}
 
+uint64_t CyphalPlatformDriveTimeUs(const uint64_t now_us) noexcept { return now_us; }
+
 void CyphalPlatformSettingsApplied(const settings::NvmSettings& /*settings*/) noexcept {}
 
 void CyphalPlatformReady(const cyphal::CyphalNode& /*node*/, const cyphal::NodeInfo& /*info*/) noexcept {}

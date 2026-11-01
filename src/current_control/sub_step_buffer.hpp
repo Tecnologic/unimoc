@@ -74,6 +74,18 @@ struct SubStepBuffer {
   /// Timestamp of the last sample (the control boundary), written by the
   /// control cycle; the clock of the Hall events (hardware::kTimestampFrequency).
   uint32_t timestamp{0U};
+
+  /// Control cycles since Init() at this cycle (the phase of the identification's sine).
+  uint32_t cycle{0U};
+
+  /// Calibrated DC-link voltage of the cycle, written by the control cycle.
+  unit::Voltage dc_link;
+
+  /// Amplitude of the identification's sine in the duty entries of the cycle; zero: none.
+  unit::Voltage injection_amplitude;
+
+  /// Axis of that sine: 0 d, 1 q.
+  uint8_t injection_axis{0U};
 };
 
 /**

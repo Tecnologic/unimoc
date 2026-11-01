@@ -80,6 +80,16 @@ void CyphalPlatformTraceSignals(cymon::Device& device) noexcept;
 /// Runs the platform part of the node (publications) after each spin.
 void CyphalPlatformSpin(cyphal::CyphalNode& node, uint64_t now_us) noexcept;
 
+/**
+ * @brief The drive's time at @p now_us (DriveNode::Spin()): its timeouts and ramps run on it.
+ *
+ * The BCC returns @p now_us. The simulation leaves out the real time spent
+ * paused and adds the virtual time a paused simulation advanced, so a
+ * readiness or setpoint timeout neither expires while paused nor survives an
+ * advance longer than it. Monotonic; called from the Cyphal thread only.
+ */
+[[nodiscard]] uint64_t CyphalPlatformDriveTimeUs(uint64_t now_us) noexcept;
+
 /// Called after the drive applied new settings to the controller.
 void CyphalPlatformSettingsApplied(const settings::NvmSettings& settings) noexcept;
 

@@ -160,6 +160,22 @@ ZTEST_F(sim_overcurrent, test_dc_link_overvoltage_trips_and_freezes_the_loop) {
   zassert_false(isr.Tripped());
 }
 
+ZTEST_F(sim_overcurrent, test_dc_link_sample_check_trips_before_the_control_cycle) {
+  CurrentControlIsr& isr = CurrentControlIsr::Instance();
+  zassert_true(kPowerStage.Enable());
+  sim::Plant().SetDcLinkVoltage(58.5_V);
+  RunCycles(1);
+  // The per-sample check of the hardware layer, before any control cycle saw the sample.
+  zassert_equal(kPowerStage.GetState(), PowerStageState::kFault);
+  zassert_false(isr.state.overvoltage_tripped);
+
+  RunCycles(1);  // the control cycle with these samples latches the trip
+  zassert_true(isr.state.overvoltage_tripped);
+  zassert_false(isr.state.overcurrent_tripped);
+  zexpect_str_equal(isr.TripName(), "DC-link overvoltage trip");
+  sim::Plant().SetDcLinkVoltage(48.0_V);
+}
+
 ZTEST_F(sim_overcurrent, test_startup_needs_external_enable) {
   sim::SetExternalEnable(false);
   unimoc::startup::HwStartup startup{CurrentControlIsr::Instance(), fixture->store.GetOperations()};
