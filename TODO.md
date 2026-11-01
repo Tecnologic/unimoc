@@ -2,7 +2,7 @@
 
 **Focus (2026-10-23): Cyphal/CAN-FD for the cart.** The overall direction
 (cart with four wheel drives, central vehicle dynamics controller, STM32G4
-logic board for the 4850 drive) is in [docs/system_plan.md](docs/system_plan.md);
+logic board for the 4850 drive, STM32H743VIT6 since 2026-11-01) is in [docs/system_plan.md](docs/system_plan.md);
 the hot path in [docs/hotpath_plan.md](docs/hotpath_plan.md), the Zephyr port
 in [docs/zephyr_port_plan.md](docs/zephyr_port_plan.md) and
 [docs/zephyr_workflow.md](docs/zephyr_workflow.md), the simulation in
@@ -127,6 +127,15 @@ chopper on the 4850 bench.
 10. Work focuses on Cyphal/CAN-FD. The plans and this list were consolidated
     around it; the next steps are under "Next".
 
+### 2026-11-01
+
+11. The 4850 logic board gets an STM32H743VIT6 (LQFP100) instead of the
+    STM32G473/G474: the 512 KB G4 parts are not available, the firmware does
+    not fit into 128 KB (BCC image 194 KB), and the H7 leaves headroom for a
+    faster current loop. Pin proposal and port in
+    `docs/drive4850_h7_plan.md`; a second hot-path platform
+    `hardware/zephyr_stm32h7`.
+
 ## Next: Cyphal/CAN-FD (focus)
 
 In this order; all without hardware unless marked.
@@ -162,8 +171,9 @@ Plan: [docs/motor_identification_plan.md](docs/motor_identification_plan.md) (al
 
 ## Cart system
 
- - [ ] Requirements and part choice for the STM32G4 redesign of the hardware_4850 logic board (STM32G473RET6 or G474RET6, pin and ADC check, system plan section 5.2), including the fourth half bridge (decision 9): its PWM channel synchronized with the phase timer, its current measurement (excitation current, resistor current), the comparator path for the chopper and the board it sits on.
- - [ ] Generalize `hardware/zephyr_bcc` to the G4 family so the 4850 logic board shares the hot path (board differences in the devicetree).
+ - [ ] Schematic of the STM32H743VIT6 redesign of the hardware_4850 logic board from the pin proposal in `docs/drive4850_h7_plan.md` (decision 11; check the marked points against DS12110 and RM0433, board size in the enclosure), including the fourth half bridge (decision 9): its PWM channel synchronized with the phase timer, its current measurement (excitation current, resistor current), the comparator path for the chopper and the board it sits on.
+ - [ ] H7 platform `hardware/zephyr_stm32h7` and board `boards/unimoc/drive4850/` (`docs/drive4850_h7_plan.md` section 6): H7 ADC and calibration, ITCM/DTCM hot path, non-cacheable DMA buffers, dual-bank flash layout; bring-up on a NUCLEO-H743ZI first.
+ - [ ] BCC flash: the boards at hand carry an STM32G473CBT6 (128 KB), the firmware needs 194 KB. Swap to a pin-compatible 256/512 KB part (G473CC/CE, G474CC/CE, G483CE, G484CE) or redesign the BCC later (system plan section 5.1).
  - [ ] Fourth half bridge in the firmware: a platform-independent auxiliary output next to `hardware/power_stage_interface.hpp` with two roles selected by the motor type, excitation (EESM: `ExcitationController` sets the duty) and brake chopper (PMSM: DC-link threshold with hysteresis, on together with the overvoltage trip; resistor energy and temperature limit in a thread). The chopper reacts in hardware (G4 comparator to timer) where the routing allows it, the firmware sets the thresholds. Simulated first (see "Motor types").
  - [ ] Regenerative braking, open parts (the drive side, the BMS limits and the reporting to the VDC are done): the estimated speed in the limit on a dyno (the observer's torque model expects the shaft to slow; settles within some 300 ms in the sim), the BCC voltage ratings from the schematic. Done 2026-10-31: the per-sample overvoltage check in the sample interrupt (raw DC-link counts, `SetOvervoltageCounts()`; not run on the board).
  - [ ] Split `app/` into `apps/drive/` and `apps/vdc/` (later `apps/pedal/` and `apps/bms/`) and add `lib/vehicle/`; update `AGENTS.md`, `README.md` and `docs/zephyr_workflow.md`. The VDC firmware lives in this repository (decided); the VDC MCU starts on a G4.
