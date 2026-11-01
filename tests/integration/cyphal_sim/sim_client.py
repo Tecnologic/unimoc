@@ -3,11 +3,20 @@
 # Synchronous wrapper around a pycyphal node for the integration tests: one
 # CAN interface (slcan, classic CAN), local node-ID 127, the drive at node-ID 10.
 #
-# Durations (wait, hold, publish_for, the settle time of latest) are virtual
-# time of the drive, counted by the control cycles of its telemetry: the
+# Checks wait for the event they check, not for a guessed duration: expect()
+# returns the first message from now on that satisfies a condition,
+# expect_register() polls a register, expect_record() waits for a diagnostic
+# record after a mark. The drive takes as long as it needs on a loaded
+# machine (twister builds the other scenarios in parallel), and a check never
+# reads a message that was sent before the action it checks. Plain durations
+# remain only where time is the subject (a timeout must not expire yet) or to
+# give the drive time to act on a stream of readiness and setpoints.
+#
+# Durations and timeouts (wait, hold, publish_for, expect) are virtual time
+# of the drive, counted by the control cycles of its telemetry: the
 # simulation runs only about 1.4 times faster than real time, so on a loaded
-# machine (twister builds the other scenarios in parallel) it falls behind the
-# wall clock, and a timeout of the drive would not have elapsed yet.
+# machine it falls behind the wall clock, and a timeout of the drive would
+# not have elapsed yet.
 #
 # The readiness and setpoint of hold() stay on the bus after it returns, also
 # while the client waits for a service response or a message: a slow response
@@ -144,7 +153,7 @@ class SimClient:
         self.port_list = self.node.make_subscriber(uavcan.node.port.List_1_0)
         self.diagnostic = self.node.make_subscriber(uavcan.diagnostic.Record_1_1)
         self.diagnostic.receive_in_background(self._on_record)
-        # A second subscriber of the telemetry for the clock; latest(self.telemetry) keeps its own queue.
+        # A second subscriber of the telemetry for the clock; expect(self.telemetry) keeps its own queue.
         self._clock = self.node.make_subscriber(unimoc.drive.Telemetry_0_1, PORT_TELEMETRY)
         self._clock.receive_in_background(self._on_clock)
         self.readiness = self.node.make_publisher(reg.udral.service.common.Readiness_0_1, PORT_READINESS)
@@ -198,7 +207,7 @@ class SimClient:
 
     # --- Services --------------------------------------------------------------
 
-    def call(self, service, request, timeout: float = 3.0, port: int | None = None):
+    def call(self, service, request, timeout: float = 10.0, port: int | None = None):
         async def go():
             # A port-ID for the types without a fixed one (cymon).
             client = self.node.make_client(service, DRIVE) if port is None else self.node.make_client(service, DRIVE, port)
@@ -312,10 +321,6 @@ class SimClient:
 
         return self._run(go())
 
-    def heartbeat_now(self) -> uavcan.node.Heartbeat_1_0:
-        """The newest heartbeat of the drive received so far (they come once per second)."""
-        return self.latest(self.heartbeat, settle=0.0)
-
     def wait_for_node(self, timeout: float = 30.0) -> uavcan.node.Heartbeat_1_0:
         """Waits for the first heartbeat of the drive (the slcan port opens with a delay)."""
         deadline = time.monotonic() + timeout
@@ -328,30 +333,82 @@ class SimClient:
                 return result[0]
         raise AssertionError("no heartbeat of the drive")
 
-    def latest(self, subscriber, settle: float = 0.3):
-        """The newest message after @p settle seconds (drops what was queued before)."""
+    def expect(self, subscriber, predicate: Callable[[Any], bool], timeout: float = 5.0):
+        """The first message received from now on that satisfies @p predicate.
+
+        Waits on the event, not for a guessed duration: the drive takes as long
+        as it needs on a loaded machine, and the check passes as soon as the
+        drive got there. What was queued before the call is dropped, so a
+        message from before the action under test cannot satisfy it. @p timeout
+        is virtual time of the drive (see _sleep); fails with the last message
+        received.
+        """
         async def go():
-            if settle > 0.0:
-                await self._sleep(settle)
+            while (await subscriber.receive_for(0.0)) is not None:
+                pass
             last = None
-            while (result := await subscriber.receive_for(0.0)) is not None:
-                last = result
-            if last is None:
-                last = await subscriber.receive_for(2.0)
-            assert last is not None, "no message"
-            return last[0]
+            done = asyncio.ensure_future(self._sleep(timeout))
+            try:
+                while not done.done():
+                    result = await subscriber.receive_for(0.05)
+                    if result is None:
+                        continue
+                    last = result[0]
+                    if predicate(last):
+                        return last
+            finally:
+                done.cancel()
+            raise AssertionError(f"no message as expected within {timeout} s of drive time; the last: {last}")
 
         return self._run(go())
 
-    def hold(self, seconds: float, readiness: int, setpoint: Callable[[], None] | None = None,
+    def next(self, subscriber, timeout: float = 5.0):
+        """The first message received from now on (expect() without a condition)."""
+        return self.expect(subscriber, lambda _message: True, timeout)
+
+    def record_mark(self) -> int:
+        """Marks the diagnostic records received so far; expect_record() looks only after the mark."""
+        return len(self.records)
+
+    def expect_record(self, text: str, mark: int, timeout: float = 5.0) -> None:
+        """Waits until a diagnostic record @p text arrives after @p mark (record_mark())."""
+        async def go():
+            done = asyncio.ensure_future(self._sleep(timeout))
+            try:
+                while not done.done():
+                    if text in self.records[mark:]:
+                        return
+                    await asyncio.wait([done], timeout=0.02)
+            finally:
+                done.cancel()
+            if text not in self.records[mark:]:
+                raise AssertionError(f"no record '{text}' within {timeout} s; received: {self.records[mark:]}")
+
+        self._run(go())
+
+    def expect_register(self, name: str, predicate: Callable[[Any], bool], timeout: float = 5.0) -> Any:
+        """Reads register @p name until its value satisfies @p predicate (@p timeout: drive time)."""
+        start = self.virtual_time
+        deadline = time.monotonic() + 10.0 * timeout + 1.0  # the drive time stands still (paused)
+        while True:
+            value = self.read(name)
+            if predicate(value):
+                return value
+            if self.virtual_time - start >= timeout or time.monotonic() > deadline:
+                raise AssertionError(f"{name} is {value} after {timeout} s of drive time")
+            self._run(self._sleep(0.05))
+
+    def hold(self, seconds: float, readiness: int | None, setpoint: Callable[[], None] | None = None,
              period: float = 0.05, wall: bool = False) -> None:
         """Publishes readiness (and a setpoint) every @p period of wall time for @p seconds.
 
         The publications go on in the background after the return (see the
         header) until the next hold(), wait(), publish_for() or close().
+        Without @p readiness (None) only the setpoint is published.
         """
         async def publish():
-            await self.readiness.publish(reg.udral.service.common.Readiness_0_1(readiness))
+            if readiness is not None:
+                await self.readiness.publish(reg.udral.service.common.Readiness_0_1(readiness))
             if setpoint is not None:
                 await setpoint()
 

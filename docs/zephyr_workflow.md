@@ -131,9 +131,14 @@ across a restart over the
 first slcan pseudo terminal. The DSDL is compiled into
 `<tmp>/unimoc_pycyphal` on the first run; without pycyphal the tests are
 skipped.
-The durations of the tests are virtual time, counted by the control cycles
-of the telemetry (`SimClient.virtual_time`): on a loaded machine the
-simulation falls behind the wall clock.
+The tests wait for the event they check instead of a guessed duration
+(`SimClient.expect()`: the first message from now on that satisfies a
+condition; `expect_register()`, `expect_record()`), so a loaded machine only
+makes them slower. Their durations and timeouts are virtual time, counted by
+the control cycles of the telemetry (`SimClient.virtual_time`): on a loaded
+machine the simulation falls behind the wall clock. The slcan ports buffer
+16 KB each for a reader that falls behind (`SlcanMedia::kTxBufferSize`), so a
+slow test client gets its responses late instead of not at all.
 
 ## Power stage release
 

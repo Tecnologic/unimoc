@@ -479,7 +479,8 @@ two kinds of CAN interfaces:
   interface.
 - **slcan pseudo terminals** (classic CAN), for hosts without `vcan` (WSL2
   kernels without CAN): `uart_1` to `uart_4`, one tool process each; the
-  terminals form one bus.
+  terminals form one bus. Each port buffers 16 KB for a tool that falls
+  behind; beyond that it loses whole frames.
 
 ```sh
 pip install -r unimoc/scripts/requirements-cyphal-tools.txt   # yakut, python-can
