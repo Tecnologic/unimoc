@@ -1,0 +1,154 @@
+/*
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ *
+ * UNIMOC on a NUCLEO-H743ZI (first revision, STM32H743ZI silicon rev. Y):
+ * bring-up of the STM32H7 platform (hardware/zephyr_stm32h7) before the
+ * 4850 logic board exists (docs/drive4850_h7_plan.md). Without a power
+ * stage; every pin below is on the ST morpho or Zio connectors.
+ * Not run on the board yet.
+ *
+ * Pins differ from the 4850 proposal where the Nucleo uses them: the
+ * Ethernet PHY (PA1, PA2, PA7, PB13, PC1, PC4, PC5), the LEDs (PB0, PB7,
+ * PB14) and the ST-LINK UART (PD8, PD9).
+ */
+
+/ {
+	/*
+	 * Power stage: TIM1, centre-aligned PWM on CH1..CH3 + CH1N..CH3N
+	 * (PE8..PE13, all on port E as on the 4850 proposal). TRGO2 (rising
+	 * OC4REF / OC6REF) starts the injected sequences of ADC1..ADC3 at the
+	 * same instant. The end of the ADC1 sequence is the sample interrupt
+	 * (zero latency), the TIM1 update vector the observer interrupt.
+	 */
+	foc0: foc-power-stage {
+		compatible = "unimoc,foc-stm32h7";
+		status = "okay";
+
+		timer = <&timers1>;
+
+		/* 4850 power board (BSC040N08, LM5109B): 1 us as in the legacy firmware. */
+		dead-time-ns = <1000>;
+
+		pinctrl-0 = <&tim1_ch1_pe9 &tim1_ch1n_pe8
+			     &tim1_ch2_pe11 &tim1_ch2n_pe10
+			     &tim1_ch3_pe13 &tim1_ch3n_pe12
+			     &tim1_bkin_pe15
+			     &analog_pa6 &analog_pf11 &analog_pf12
+			     &analog_pb1 &analog_pf13 &analog_pf14
+			     &analog_pc2_c &analog_pc3_c &analog_pf10>;
+		pinctrl-names = "default";
+
+		/* Three injected conversions per ADC, the phase current first. */
+		io-channels = <&adc1 3>, <&adc1 2>, <&adc1 6>,   /* PA6 ia, PF11 va, PF12 bridge temp */
+			      <&adc2 5>, <&adc2 2>, <&adc2 6>,   /* PB1 ib, PF13 vb, PF14 motor temp  */
+			      <&adc3 0>, <&adc3 1>, <&adc3 6>;   /* PC2_C ic, PC3_C vdc, PF10 vc      */
+		io-channel-names = "ia", "va", "bridge-temperature",
+				   "ib", "vb", "motor-temperature",
+				   "ic", "vdc", "vc";
+
+		/*
+		 * ADC clock cycles at 30 MHz (pll2_p 120 MHz / 4). Currents from
+		 * INA240 outputs (low impedance): short. Dividers and NTCs: longer.
+		 * Rank 1 is the same on all three ADCs, so vdc (rank 1 of ADC3) is
+		 * converted when the ADC1 sequence ends.
+		 */
+		sample-times = "2.5", "16.5", "32.5",
+			       "2.5", "16.5", "32.5",
+			       "2.5", "16.5", "32.5";
+	};
+
+	zephyr,user {
+		/* External enable on the net PWM_BREAK: PE15 is also TIM1_BKIN. Jumper to 3V3 to release. */
+		break-gpios = <&gpioe 15 GPIO_ACTIVE_HIGH>;
+		/* Hall sensors A, B, C (one port). */
+		hall-gpios = <&gpiod 12 GPIO_ACTIVE_HIGH>,
+			     <&gpiod 13 GPIO_ACTIVE_HIGH>,
+			     <&gpiod 14 GPIO_ACTIVE_HIGH>;
+	};
+};
+
+/* Open input: break. */
+&tim1_bkin_pe15 {
+	bias-pull-down;
+};
+
+/* Used by the foc0 driver: enables the timer and its IRQ vectors. */
+&timers1 {
+	status = "okay";
+};
+
+/*
+ * The foc0 driver programs ADC1..3 itself; the Zephyr ADC driver would claim
+ * them. The nodes stay in the tree for the registers, clocks and IRQs.
+ */
+&adc1 {
+	status = "disabled";
+};
+
+&adc2 {
+	status = "disabled";
+};
+
+&adc3 {
+	status = "disabled";
+};
+
+/* The Ethernet PHY sits on analog pins of the 4850 proposal; not used. */
+&mac {
+	status = "disabled";
+};
+
+/*
+ * Silicon rev. Y: at most 400 MHz. 8 MHz (ST-LINK MCO) / 2 * 200 / 2 =
+ * 400 MHz core, HCLK 200 MHz, APB 100 MHz, TIM1 200 MHz. PLL2 stays as on
+ * the board: P 120 MHz for the ADCs, Q 80 MHz for FDCAN1.
+ */
+&pll {
+	mul-n = <200>;
+};
+
+&rcc {
+	clock-frequency = <DT_FREQ_M(400)>;
+};
+
+/*
+ * CAN on PD0/PD1 (board default) to an external transceiver module. 1 Mbit/s
+ * in both phases: classic CAN transceivers do not switch the data phase.
+ */
+&fdcan1 {
+	bitrate = <1000000>;
+	sample-point = <875>;
+	bitrate-data = <1000000>;
+	sample-point-data = <875>;
+};
+
+/*
+ * Flash, 2 x 1 MB banks with 128 KB sectors: the image in bank 1, the DFU
+ * slot and the settings in bank 2, so that a settings erase does not stall
+ * the code.
+ */
+&flash0 {
+	/delete-node/ partitions;
+
+	partitions {
+		compatible = "fixed-partitions";
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		slot0_partition: partition@0 {
+			label = "image-0";
+			reg = <0x00000000 DT_SIZE_K(1024)>;
+		};
+
+		slot1_partition: partition@100000 {
+			label = "image-1";
+			reg = <0x00100000 DT_SIZE_K(768)>;
+		};
+
+		/* Settings: ZMS on two sectors. */
+		storage_partition: partition@1c0000 {
+			label = "storage";
+			reg = <0x001c0000 DT_SIZE_K(256)>;
+		};
+	};
+};

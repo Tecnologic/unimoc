@@ -37,6 +37,7 @@ CMake >= 3.20 (Zephyr's minimum) and Ninja are required. The CI job
 
     west build -b native_sim/native/64 unimoc/app -d unimoc/app/build/sim   # host simulation (Cyphal: README.md)
     west build -b bcc unimoc/app -d unimoc/app/build/bcc                      # battery case controller
+    west build -b nucleo_h743zi unimoc/app -d unimoc/app/build/h743           # STM32H7 platform on a NUCLEO-H743ZI
 
 CI builds both (workflow `build-firmware.yml`, one matrix row per target) and uploads them as the artifacts
 `unimoc-bcc` (`.elf`, `.hex`, `.bin`, `.map`) and `unimoc-native_sim` (the

@@ -6,12 +6,14 @@ tests:
     platform_allow:
       - native_sim/native/64
       - bcc
+      - nucleo_h743zi
     tags: unimoc app
   # The M0 timing probes in the interrupts (CONFIG_UNIMOC_HOT_PATH_TIMING).
   unimoc.app.build.timing:
     build_only: true
     platform_allow:
       - bcc
+      - nucleo_h743zi
     extra_configs:
       - CONFIG_UNIMOC_HOT_PATH_TIMING=y
     tags: unimoc app

@@ -1035,11 +1035,20 @@ west build -b native_sim/native/64 unimoc/app -d unimoc/app/build/sim
 # Battery Case Controller (STM32G473)
 west build -b bcc unimoc/app -d unimoc/app/build/bcc
 
+# STM32H7 platform on a NUCLEO-H743ZI (bring-up for the 4850 logic board)
+west build -b nucleo_h743zi unimoc/app -d unimoc/app/build/h743
+
 ```
 
 The BCC has not run on hardware yet. The image (194 KB flash, 79 KB RAM in
 v0.4.0) needs the 512 KB STM32G473CET6 of the board definition; it does not
 fit an STM32G473CBT6 (128 KB).
+
+The NUCLEO-H743ZI build (`hardware/zephyr_stm32h7`, pins in
+`app/boards/nucleo_h743zi.overlay`) has not run on the board yet either. It
+runs the core at 400 MHz, the limit of silicon rev. Y of the first Nucleo
+revision; PE15 (TIM1_BKIN) is the external enable and has to be tied to 3V3
+to release the outputs. The log is on the ST-LINK virtual COM port.
 
 ### Running the Tests
 
