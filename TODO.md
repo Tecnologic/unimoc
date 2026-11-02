@@ -83,12 +83,12 @@ Items 1 to 5 are done (2026-10-31, one pull request); 6 is next.
 
 ### Tier 4: blocked on the board
 
-Decision 12: the boards are the BCC reworked with an STM32G484CET6, the
-NUCLEO-H743ZI (adapter to the 4850 power board) and the Flipsky FSESC 4.20
-and FS75100 (STM32F405) (`docs/vesc_f4_plan.md`). Without hardware
-in the container: the low-side shunt mode of the sim inverter, the sample
-plan for low-side shunts and the `hardware/zephyr_stm32f4` platform
-(build-checked only).
+Decision 12: the board is the NUCLEO-H743ZI with the adapter to the 4850
+power board, then the new H743ZIT6 logic board; the BCC and the VESC
+boards are parked (`docs/vesc_f4_plan.md`). Without hardware
+in the container: the H7 build on Zephyr 4.5 and in `twister_sca.sh`, the
+`PWM_EN` enable GPIO in the Nucleo overlay, the fourth half bridge in the
+sim (Tier 1, item 6).
 
 M0 timing (with the cost of the trace `Tick()`, then the CCM SRAM decision),
 M8 first step and remainder, ZMS and the dual-bank option, the duty DMA from
@@ -151,9 +151,12 @@ chopper on the 4850 bench.
     BCC's 128 KB G473CB (every BCC pin function exists on it; Zephyr 4.5
     `stm32g484Xe.dtsi`), the STM32F722RET6 only as a fallback (no CAN FD).
     The whole 4850 logic board is redesigned; the power board stays.
-    Bring-up order: BCC with the G484, the NUCLEO-H743ZI (adapter to the
-    4850 power board), the Flipsky VESC boards (FSESC 4.20, FS75100,
-    STM32F405, low-side shunts, classic CAN); `docs/vesc_f4_plan.md`.
+    Goal: one reliable working drive on the proven 4850 power stage.
+    Order: the NUCLEO-H743ZI without power, the adapter PCB to the 4850
+    power board, the 4850 on the Nucleo, then the new H743ZIT6 logic board
+    with the fourth half bridge. Parked: the BCC (untested, known design
+    flaws; G484 rework possible) and the Flipsky VESC boards (STM32F405,
+    low-side shunts, classic CAN); `docs/vesc_f4_plan.md`.
 
 ## Next: Cyphal/CAN-FD (focus)
 

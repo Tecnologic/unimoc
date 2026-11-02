@@ -22,23 +22,27 @@ board (`docs/drive4850_h7_plan.md` section 1.1). The hardware at hand:
 | Flipsky FSESC 4.20 | STM32F405RG, 168 MHz | DRV8302, 60 V class (check) | two low-side shunts (check) | bxCAN, classic only |
 | Flipsky FS75100 (75100V201) | STM32F405RGT6, 168 MHz | 3 x EG3112, 6 x MDP10N027 (100 V) | three low-side shunts, 0.5 mΩ, gain 20 | bxCAN, classic only |
 
-Order:
+Order (2026-11-02): the goal is one reliable working drive. The 4850 power
+stage is proven in the quad and simple (no e-bike logic), the fourth half
+bridge for the EESM is easy to add, and the H743 is the MCU of the new logic
+board. The BCC (untested, known design flaws) and the VESC boards are
+parked.
 
-0. **BCC with the G484**: swap the MCU, move the board definition to
-   `SOC_STM32G484XX` (`board.yml`, `Kconfig.bcc`, the `.dtsi` and pin
-   control includes in `bcc.dts`, the J-Link device). The G4 hot path runs
-   as it is: the first current loop on real hardware with the finished
-   platform.
 1. **Nucleo without power** (`docs/drive4850_h7_plan.md` section 7, steps 1
-   to 4): boot and log, PWM and break on the scope, ADC, Cyphal.
-2. **Adapter PCB to the 4850 power board** (section 2). Order it at once:
-   the board-house lead time runs in parallel with steps 1 and 3.
-3. **F4 platform on the FSESC 4.20** (sections 3 to 6) while the adapter is
-   being made. The DRV8302 has its own VDS overcurrent protection, and the
-   stage is small: the safer of the two VESC boards.
-4. **4850 on the Nucleo through the adapter**: the target hardware of the
-   cart, H7 hot path against the real INA240 stage.
-5. **FS75100**: second F4 board, three low-side shunts.
+   to 4): boot and log, settings, PWM and break on the scope, ADC with
+   potentiometers, Cyphal over a CAN FD transceiver module.
+2. **Adapter PCB to the 4850 power board** (section 2), ordered at once so
+   the board-house lead time runs in parallel with step 1. Its analog
+   front end (current scaling and filters, Vdc, NTC, phase-voltage
+   dividers) is drawn as the prototype of the new logic board's front end.
+3. **4850 on the Nucleo through the adapter**: first power on a
+   current-limited supply at low voltage, then the current loop
+   (section 2.1).
+4. **New 4850 logic board with the H743ZIT6**, from what steps 1 to 3
+   showed, with the fourth half bridge (`docs/drive4850_h7_plan.md`).
+5. Parked: the BCC with the G484CET6 (drop-in, board definition change
+   only), the F4 platform on the FSESC 4.20 and the FS75100 (sections 3
+   to 7).
 
 ## 2. Adapter: NUCLEO-H743ZI to the 4850 power board
 
@@ -78,6 +82,19 @@ Points to settle before the layout:
   break net for the first tests.
 - **Current limit for the first power-on:** laboratory supply with current
   limit, no battery.
+
+### 2.1 First power on the 4850
+
+1. Logic only, power stage without DC link: PWM, dead time and break at the
+   gate driver inputs; `PWM_EN` off while the MCU is in reset.
+2. DC link 12 V from a supply limited to about 0.5 A, no motor: the phase
+   outputs on the scope at 50 % duty, ADC offsets of the three currents,
+   Vdc and the NTC against a multimeter.
+3. Motor connected, rotor blocked or free, low current limit in the
+   registers: forced angle, then the identification (I0 to I2), then the
+   current loop with the Hall sensors; raise the supply step by step.
+4. 48 V and the rated current only after the overcurrent and overvoltage
+   trips are seen to work on the bench.
 
 ## 3. Differences of the VESC boards to the hot path
 
