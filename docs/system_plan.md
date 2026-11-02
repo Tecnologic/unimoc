@@ -8,6 +8,10 @@
 >   STM32H743VIT6 (LQFP100, 2 MB dual-bank flash): the 512 KB G4 parts are not
 >   available, and the H7 leaves headroom for a faster current loop. Pin
 >   proposal and port in `docs/drive4850_h7_plan.md`.
+> - (2026-11-02) The G4 is no longer a hardware path (no G4 with enough
+>   flash at hand). Bring-up on the NUCLEO-H743ZI with an adapter to the 4850
+>   power board, and on Flipsky VESC boards (STM32F405, low-side shunts,
+>   classic CAN only): `docs/vesc_f4_plan.md`.
 > - The VDC firmware lives in this repository.
 > - A mechanical emergency brake, otherwise pure regenerative braking.
 > - A BMS controller with brake chopper is another bus node and another
@@ -82,7 +86,8 @@ record.
 | Steering angle sensor | Standard sensor on the VDC (for example the AS5048 of the legacy firmware) | Steering angle for the vehicle dynamics; no bus node |
 | IMU, GNSS, display | Standard modules on the VDC | No bus node |
 | Steering assist | Later: UNIMOC | Out of scope until a steering concept exists |
-| G4 BCC (`boards/unimoc/bcc`) | Existing STM32G473 board | Development and bring-up platform; the reference for the G4 hot path; not part of the cart. The boards at hand carry a G473CB (128 KB), too small for the current firmware (section 5.1) |
+| G4 BCC (`boards/unimoc/bcc`) | Existing STM32G473 board | Build and SCA target and the reference for the G4 hot path; not part of the cart. The boards at hand carry a G473CB (128 KB), too small for the current firmware (section 5.1), so the bring-up moved to the NUCLEO-H743ZI and the Flipsky VESC boards (2026-11-02, `docs/vesc_f4_plan.md`) |
+| Flipsky FSESC 4.20, FS75100 | STM32F405 VESC boards at hand | Bench drives: first current loop on real hardware, classic CAN only (`docs/vesc_f4_plan.md`); not part of the CAN FD cart |
 
 ## 4. Decisions
 

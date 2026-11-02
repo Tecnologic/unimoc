@@ -83,6 +83,13 @@ Items 1 to 5 are done (2026-10-31, one pull request); 6 is next.
 
 ### Tier 4: blocked on the board
 
+Decision 12: the boards are now the NUCLEO-H743ZI (adapter to the 4850
+power board) and the Flipsky FSESC 4.20 and FS75100 (STM32F405); the BCC
+items below move to those boards (`docs/vesc_f4_plan.md`). Without hardware
+in the container: the low-side shunt mode of the sim inverter, the sample
+plan for low-side shunts and the `hardware/zephyr_stm32f4` platform
+(build-checked only).
+
 M0 timing (with the cost of the trace `Tick()`, then the CCM SRAM decision),
 M8 first step and remainder, ZMS and the dual-bank option, the duty DMA from
 the devicetree (after M8), Cyphal on the BCC and the CAN FD bus test C2 (then
@@ -135,6 +142,16 @@ chopper on the 4850 bench.
     faster current loop. Pin proposal and port in
     `docs/drive4850_h7_plan.md`; a second hot-path platform
     `hardware/zephyr_stm32h7`.
+
+### 2026-11-02
+
+12. The G4 is no longer a hardware path: the BCC boards at hand carry a
+    128 KB G473CB, and suitable 512 KB G4 parts cannot be bought. The BCC
+    stays a build and SCA target and the reference of the G4 hot path. The
+    hardware bring-up runs on the NUCLEO-H743ZI (with an adapter PCB to the
+    4850 power board) and on two Flipsky VESC boards (FSESC 4.20, FS75100,
+    STM32F405, low-side shunts, classic CAN); order and work in
+    `docs/vesc_f4_plan.md`.
 
 ## Next: Cyphal/CAN-FD (focus)
 
