@@ -8,6 +8,9 @@
 15 hardware/zephyr_sim/cyphal_platform.cpp
 2 hardware/zephyr_sim/ebike_io.cpp
 16 hardware/zephyr_sim/hardware_interface.cpp
+3 hardware/zephyr_stm32h7/analog_scaling.hpp
+1 hardware/zephyr_stm32h7/foc_stm32h7.cpp
+2 hardware/zephyr_stm32h7/hardware_interface.cpp
 1 lib/ebike/src/assist_controller.hpp
 3 lib/ebike/src/kunteng_protocol.hpp
 2 lib/ebike/src/pedal_observer.hpp

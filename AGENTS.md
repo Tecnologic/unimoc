@@ -65,6 +65,10 @@ Read `README.md` for the supported motor types and public features, and
 - `boards/unimoc/bcc/` is the BCC board definition. `bcc.dts` (node `foc0`)
   holds the pinout, timers, ADC trigger, dead time, and sample times.
 - `hardware/zephyr_bcc/` is the BCC platform (STM32G4 hot-path bindings).
+  `hardware/zephyr_stm32h7/` is the STM32H7 platform (node `foc0`, compatible
+  `unimoc,foc-stm32h7`), brought up on a NUCLEO-H743ZI
+  (`app/boards/nucleo_h743zi.overlay`) for the 4850 logic board
+  (`docs/drive4850_h7_plan.md`).
   `hardware/zephyr_sim/` is the `native_sim` platform. `hardware/zephyr_common/`
   is the shared Zephyr glue (system interface, settings storage and lock, the
   Cyphal thread, the CAN interface on the chosen `zephyr,canbus`, the log
@@ -129,7 +133,7 @@ Run from the west workspace root, which contains `unimoc/` and `zephyr/`
 
 ```sh
 unimoc/scripts/check_format.sh     # clang-format check (--fix to apply) and the unit-escape ratchet
-unimoc/scripts/twister_sca.sh      # all scenarios, native_sim + bcc, with clang-tidy
+unimoc/scripts/twister_sca.sh      # all scenarios, native_sim + bcc + nucleo_h743zi, with clang-tidy
 ```
 
 These two are the standard validation and exactly what CI
@@ -139,6 +143,7 @@ These two are the standard validation and exactly what CI
 west twister -T unimoc/tests/lib/motor_control -p native_sim/native/64
 west build -b native_sim/native/64 unimoc/app -d unimoc/app/build/sim   # host simulation
 west build -b bcc unimoc/app -d unimoc/app/build/bcc                      # battery case controller
+west build -b nucleo_h743zi unimoc/app -d unimoc/app/build/h743           # STM32H7 bring-up
 ```
 
 ### Getting it right in a new session
