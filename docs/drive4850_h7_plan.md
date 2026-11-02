@@ -1,6 +1,7 @@
 # 4850 Logic Board on the STM32H743VIT6
 
-Status: 2026-11-01, proposal. Nothing here is drawn, built or verified on
+Status: 2026-11-01, proposal; 2026-11-02 the H743ZIT6 (LQFP144) is the
+preferred part (section 1.1). Nothing here is drawn, built or verified on
 hardware. The pin functions are taken from the STM32 HAL pin data that Zephyr
 4.4 uses (`modules/hal/stm32/dts/st/h7/stm32h743vitx-pinctrl.dtsi`) and from
 the Zephyr devicetree of the STM32H743; every entry marked "check" has to be
@@ -27,6 +28,22 @@ board. That choice no longer holds:
 Alternatives that were looked at: STM32H523 (two ADCs, cheap, LQFP48/64),
 STM32C593 (three ADCs, but no FDCAN node in Zephyr 4.4), STM32G491 (three
 ADCs, G4 price), STM32H723 (no package below LQFP100, single flash bank).
+
+## 1.1 Package and availability (2026-11-02)
+
+Parts that can be bought (Mouser, 2026-11-02, as reported by the user):
+
+| Part | Package | Fit for the 4850 logic board |
+|---|---|---|
+| STM32H743ZIT6 | LQFP144, 20 x 20 mm | **Preferred.** The part of the NUCLEO-H743ZI: the bring-up board runs the same chip. FDCAN, 2 MB dual-bank flash. Every pin of the LQFP100 proposal (ports A to E) exists in the LQFP144 too, so section 4 stays valid; ports F and G add ADC3 inputs (PF3..PF10, for example phase voltages as on the Nucleo, `app/boards/nucleo_h743zi.overlay`) and free GPIOs |
+| STM32H743VIT6 | LQFP100, 14 x 14 mm | As proposed in section 4, if it can be bought; smaller footprint |
+| STM32G484CET6 | LQFP48 | FDCAN, 512 KB, the BCC hot path as is; too few pins for the 4850 (about 38 to 40 I/O against about 45 needed) unless the AC current paths and the SPI angle sensor are dropped. Fits the BCC footprint instead (`TODO.md`, decision 12) |
+| STM32F722RET6 | LQFP64 | bxCAN only (classic CAN): the CAN FD cart bus needs an external controller (MCP2518FD on SPI) or a classic bus. 512 KB single bank. Fallback only |
+
+The redesign replaces the whole logic board (the old one has known quirks);
+the power board stays. Check the board outline with the LQFP144 in the
+RND 455-00370 enclosure (section 8) and the silicon revision of the bought
+parts (rev. V for 480 MHz).
 
 ## 2. What the H743VIT6 offers
 
@@ -191,7 +208,8 @@ module; (5) the 4850 power board through an adapter.
 
 ## 8. Open points
 
-1. Logic board size in the RND 455-00370 enclosure with an LQFP100.
+1. Logic board size in the RND 455-00370 enclosure with an LQFP144
+   (H743ZIT6, 20 x 20 mm) or an LQFP100 (H743VIT6, 14 x 14 mm).
 2. Silicon revision of the bought parts (rev. V for 480 MHz).
 3. Placement of the fourth half bridge (logic or power board) and its
    connector.

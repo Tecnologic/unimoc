@@ -9,27 +9,33 @@ confirmed in the schematic before power is applied.
 
 ## 1. Situation and order
 
-The G4 is no longer a hardware path (decision 12 in `TODO.md`): the BCC
-boards at hand carry a 128 KB STM32G473CB, too small for the firmware
-(194 KB), and suitable 512 KB G4 parts cannot be bought. The BCC stays a
-build and SCA target and the reference of the G4 hot path, but nothing runs
-on it. The hardware that is at hand:
+Parts that can be bought (Mouser, 2026-11-02, decision 12 in `TODO.md`):
+the STM32G484CET6 replaces the 128 KB G473CB of the BCC (same LQFP48 pin
+functions plus HRTIM, 512 KB, Zephyr 4.5 `stm32g484Xe.dtsi`), and the
+STM32H743ZIT6 (the Nucleo's part) is the MCU of the redesigned 4850 logic
+board (`docs/drive4850_h7_plan.md` section 1.1). The hardware at hand:
 
 | Hardware | MCU | Power stage | Current sense | CAN |
 |---|---|---|---|---|
+| BCC, reworked | STM32G484CET6, 170 MHz | on board | INA240 inline | FDCAN3 |
 | NUCLEO-H743ZI (rev. Y) | STM32H743ZI, 400 MHz | none; 4850 power board through an adapter (section 2) | INA240A1 inline, three phases | FDCAN, external transceiver module |
 | Flipsky FSESC 4.20 | STM32F405RG, 168 MHz | DRV8302, 60 V class (check) | two low-side shunts (check) | bxCAN, classic only |
 | Flipsky FS75100 (75100V201) | STM32F405RGT6, 168 MHz | 3 x EG3112, 6 x MDP10N027 (100 V) | three low-side shunts, 0.5 mΩ, gain 20 | bxCAN, classic only |
 
 Order:
 
+0. **BCC with the G484**: swap the MCU, move the board definition to
+   `SOC_STM32G484XX` (`board.yml`, `Kconfig.bcc`, the `.dtsi` and pin
+   control includes in `bcc.dts`, the J-Link device). The G4 hot path runs
+   as it is: the first current loop on real hardware with the finished
+   platform.
 1. **Nucleo without power** (`docs/drive4850_h7_plan.md` section 7, steps 1
    to 4): boot and log, PWM and break on the scope, ADC, Cyphal.
 2. **Adapter PCB to the 4850 power board** (section 2). Order it at once:
    the board-house lead time runs in parallel with steps 1 and 3.
 3. **F4 platform on the FSESC 4.20** (sections 3 to 6) while the adapter is
    being made. The DRV8302 has its own VDS overcurrent protection, and the
-   stage is small: the safer board for the first current loop.
+   stage is small: the safer of the two VESC boards.
 4. **4850 on the Nucleo through the adapter**: the target hardware of the
    cart, H7 hot path against the real INA240 stage.
 5. **FS75100**: second F4 board, three low-side shunts.

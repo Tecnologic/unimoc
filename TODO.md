@@ -83,9 +83,9 @@ Items 1 to 5 are done (2026-10-31, one pull request); 6 is next.
 
 ### Tier 4: blocked on the board
 
-Decision 12: the boards are now the NUCLEO-H743ZI (adapter to the 4850
-power board) and the Flipsky FSESC 4.20 and FS75100 (STM32F405); the BCC
-items below move to those boards (`docs/vesc_f4_plan.md`). Without hardware
+Decision 12: the boards are the BCC reworked with an STM32G484CET6, the
+NUCLEO-H743ZI (adapter to the 4850 power board) and the Flipsky FSESC 4.20
+and FS75100 (STM32F405) (`docs/vesc_f4_plan.md`). Without hardware
 in the container: the low-side shunt mode of the sim inverter, the sample
 plan for low-side shunts and the `hardware/zephyr_stm32f4` platform
 (build-checked only).
@@ -145,13 +145,15 @@ chopper on the 4850 bench.
 
 ### 2026-11-02
 
-12. The G4 is no longer a hardware path: the BCC boards at hand carry a
-    128 KB G473CB, and suitable 512 KB G4 parts cannot be bought. The BCC
-    stays a build and SCA target and the reference of the G4 hot path. The
-    hardware bring-up runs on the NUCLEO-H743ZI (with an adapter PCB to the
-    4850 power board) and on two Flipsky VESC boards (FSESC 4.20, FS75100,
-    STM32F405, low-side shunts, classic CAN); order and work in
-    `docs/vesc_f4_plan.md`.
+12. Parts that can be bought (Mouser, 2026-11-02): the STM32H743ZIT6
+    (LQFP144, the NUCLEO-H743ZI's part) for the redesigned 4850 logic board,
+    the STM32G484CET6 (G474 plus AES, 512 KB, LQFP48) as a drop-in for the
+    BCC's 128 KB G473CB (every BCC pin function exists on it; Zephyr 4.5
+    `stm32g484Xe.dtsi`), the STM32F722RET6 only as a fallback (no CAN FD).
+    The whole 4850 logic board is redesigned; the power board stays.
+    Bring-up order: BCC with the G484, the NUCLEO-H743ZI (adapter to the
+    4850 power board), the Flipsky VESC boards (FSESC 4.20, FS75100,
+    STM32F405, low-side shunts, classic CAN); `docs/vesc_f4_plan.md`.
 
 ## Next: Cyphal/CAN-FD (focus)
 
