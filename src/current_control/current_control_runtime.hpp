@@ -52,7 +52,10 @@ namespace unimoc::current_control {
   slow_update.Init(settings, current_control, motor);
   OuterLoop::Instance().Init(settings, current_control);
   current_control.SetOvercurrentLimit(overcurrent_limit);
-  return motor.Initialize(current_control.state.timing.pwm_frequency,
+  const settings::ControlTiming& timing = current_control.state.timing;
+  return motor.Initialize(timing.pwm_frequency,
+                          timing.EveryHalfPeriod() ? hardware::ControlSampling::kEveryHalfPeriod
+                                                   : hardware::ControlSampling::kValleys,
                           current_control.state.adc_trigger_offset);
 }
 

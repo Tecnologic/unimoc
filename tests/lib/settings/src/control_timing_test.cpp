@@ -79,21 +79,36 @@ ZTEST(control_timing, test_suggestion_is_the_lowest_frequency_within_the_ripple_
 
 ZTEST(control_timing, test_automatic_divider_is_the_smallest_the_board_runs) {
   NvmSettings settings = Motor(100e-6_H);
-  settings.pwm_frequency = Khz(64.0F);
+  settings.pwm_frequency = Khz(32.0F);
   settings.control_divider = 0U;
 
+  // 32 kHz PWM on a 64 kHz processor: a step every half period, the valley sampling not needed.
   ControlTiming timing = ResolveControlTiming(settings, Board(Khz(64.0F), Khz(64.0F)));
   zexpect_equal(timing.divider, 1U);
+  zexpect_true(timing.EveryHalfPeriod());
+  zexpect_equal(timing.CallsPerStep(), 1U);
   zexpect_equal(timing.steps_per_cycle, 4U);  // 16 kHz observer
+  UNIMOC_EXPECT_FLOAT_EQ(timing.StepFrequency(), Khz(64.0F));
+  UNIMOC_EXPECT_FLOAT_EQ(timing.StepPeriod(), 15.625e-6_s);
+  UNIMOC_EXPECT_FLOAT_EQ(timing.OutputDelaySteps(), 1.5F);
+
+  // 64 kHz PWM: a half period step would be 128 kHz, so a step every period at the valley.
+  settings.pwm_frequency = Khz(64.0F);
+  timing = ResolveControlTiming(settings, Board(Khz(64.0F), Khz(64.0F)));
+  zexpect_equal(timing.divider, 2U);
+  zexpect_false(timing.EveryHalfPeriod());
+  zexpect_equal(timing.CallsPerStep(), 1U);
+  zexpect_equal(timing.steps_per_cycle, 4U);
   UNIMOC_EXPECT_FLOAT_EQ(timing.StepFrequency(), Khz(64.0F));
   UNIMOC_EXPECT_FLOAT_EQ(timing.OutputDelaySteps(), 1.0F);
 
   // A processor that sustains 20 kHz control steps: every fourth period.
   timing = ResolveControlTiming(settings, Board(Khz(64.0F), Khz(20.0F)));
-  zexpect_equal(timing.divider, 4U);
+  zexpect_equal(timing.divider, 8U);
+  zexpect_equal(timing.CallsPerStep(), 4U);
   zexpect_equal(timing.steps_per_cycle, 1U);
   UNIMOC_EXPECT_FLOAT_EQ(timing.StepFrequency(), Khz(16.0F));
-  UNIMOC_EXPECT_FLOAT_EQ(timing.OutputDelaySteps(), 0.625F);  // 0.5 T + 2 T = 2.5 T = 0.625 steps
+  UNIMOC_EXPECT_FLOAT_EQ(timing.OutputDelaySteps(), 0.625F);  // T_h + 4 T_h = 5 T_h = 0.625 steps
 
   // Not even every fourth period: not runnable.
   zexpect_false(ResolveControlTiming(settings, Board(Khz(64.0F), Khz(10.0F))).Valid());
@@ -102,9 +117,10 @@ ZTEST(control_timing, test_automatic_divider_is_the_smallest_the_board_runs) {
 ZTEST(control_timing, test_explicit_divider_and_observer_rate) {
   NvmSettings settings = Motor(100e-6_H);
   settings.pwm_frequency = Khz(40.0F);
-  settings.control_divider = 2U;
+  settings.control_divider = 4U;  // every second period
   const ControlTiming kTiming = ResolveControlTiming(settings, Board(Khz(64.0F), Khz(64.0F)));
-  zexpect_equal(kTiming.divider, 2U);
+  zexpect_equal(kTiming.divider, 4U);
+  zexpect_equal(kTiming.CallsPerStep(), 2U);
   zexpect_equal(kTiming.steps_per_cycle, 2U);  // 20 kHz steps, 10 kHz observer
   UNIMOC_EXPECT_FLOAT_EQ(kTiming.StepPeriod(), 50e-6_s);
   UNIMOC_EXPECT_FLOAT_EQ(kTiming.CyclePeriod(), 100e-6_s);

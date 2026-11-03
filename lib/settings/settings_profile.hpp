@@ -48,8 +48,8 @@ struct HardwareCapabilities {
   /// Highest PWM frequency of the power stage (switching losses, dead time).
   unit::Frequency max_pwm_frequency{64.0_kHz};
 
-  /// Highest control-step rate the processor sustains: the control step must
-  /// finish within half a PWM period (docs/hotpath_plan.md, section 4).
+  /// Highest control-step rate the processor sustains; each step must finish
+  /// within half a PWM period (docs/hotpath_plan.md, section 4).
   unit::Frequency max_control_frequency{64.0_kHz};
 };
 

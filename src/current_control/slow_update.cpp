@@ -168,7 +168,8 @@ void SlowUpdate::AccumulateWindow(const CycleRecord& cycle) noexcept {
   for (uint8_t k = 0U; k < timing.steps_per_cycle; ++k) {
     const system::Rotor<unit::Current> kCurrent = cycle.i_ab_samples[k].ToRotor(cycle.sc[k]);
     window_sums_.current_phasor.Add(kAxisD ? kCurrent.d : kCurrent.q,
-                                    InjectionSinCos(InjectionSamplePhase(cycle.first_sample + k)));
+                                    InjectionSinCos(
+                                        InjectionSamplePhase(cycle.first_sample + k, timing.divider)));
     const system::SinCos<unit::Ratio> kEntry =
         InjectionSinCos(InjectionEntryPhase(cycle.first_sample + k, timing.divider));
     window_sums_.voltage_phasor.Add(cycle.injection_amplitude * kEntry.sin, kEntry);

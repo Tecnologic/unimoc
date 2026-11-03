@@ -21,10 +21,11 @@ Read `README.md` for the supported motor types and public features, and
   `native_sim` for host simulation.
 - **Only the FOC hot path runs in zero-latency IRQs.** The hot path is the
   sample ISR (ADC end of injected sequence, once per half PWM period: raw
-  overcurrent and overvoltage check) and the control step it runs after the
-  valley sample of every `control_divider`-th PWM period (32 kHz at the
-  factory 32 kHz PWM: Park, PI, inverse Park, SVM, the duties into the CCR
-  preload, taken over at the next peak). A power of two of steps forms a
+  overcurrent and overvoltage check) and the control step it runs every
+  `control_divider` half periods (at the factory 32 kHz PWM after every
+  sample, 64 kHz; at 64 kHz PWM after every valley: Park, PI, inverse Park,
+  SVM, the duties into the CCR preload, taken over at the next boundary or
+  the next peak). A power of two of steps forms a
   control cycle (at most 16 kHz); the observer (`SlowUpdate`) runs after each
   control cycle in a software-pended normal-priority interrupt, not at zero
   latency (`docs/hotpath_plan.md`, `lib/settings/control_timing.hpp`). The trace sampling (`trace::OnControlCycle()`,

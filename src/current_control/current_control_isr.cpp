@@ -120,7 +120,7 @@ bool CurrentControlIsr::Init(const settings::NvmSettings& settings,
 }
 
 // =============================================================================
-// on_sample — once per PWM period, a control step every timing.divider periods, zero latency
+// on_sample — after every handed-over sample, a control step every CallsPerStep() calls, zero latency
 // =============================================================================
 //
 // Must finish before the next peak: the duties go directly into the CCR
@@ -148,9 +148,9 @@ bool CurrentControlIsr::OnSample() noexcept {
   if (hardware_ == nullptr) {
     return false;
   }
-  // The periods between two control steps: the duties of the last step hold,
+  // The samples between two control steps: the duties of the last step hold,
   // the platform keeps the trip flags of their samples for the next step.
-  if (state.periods++ % state.timing.divider != 0U) {
+  if (state.periods++ % state.timing.CallsPerStep() != 0U) {
     return false;
   }
   const uint32_t kSampleIndex = ++state.samples;

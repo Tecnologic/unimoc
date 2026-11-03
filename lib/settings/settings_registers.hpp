@@ -175,7 +175,7 @@ void ForEachRegister(const Visitor& visit, Settings&... settings) {
   visit(Setting(reg::kFwKi, "Integral gain of the field weakening", kAny, "A/(V s)"), settings.fw_ki...);
   visit(Setting(reg::kFwIDMin, "Most negative d-axis current of the field weakening"), settings.fw_i_d_min...);
   visit(Setting(reg::kPwmFrequency, "PWM frequency: 16, 20, 24, 28, 32, 40, 48 or 64 kHz; 0 from the inductance", Between(0.0F, 64000.0F), "Hz"), settings.pwm_frequency...);
-  visit(Setting(reg::kControlDivider, "PWM periods per control step: 1, 2 or 4; 0 the fastest the board runs", Between(0.0F, 4.0F)), settings.control_divider...);
+  visit(Setting(reg::kControlDivider, "PWM half periods per control step: 1, 2, 4 or 8; 0 the fastest the board runs", Between(0.0F, 8.0F)), settings.control_divider...);
   visit(Tunable(reg::kCurrentKpD, "Proportional gain of the d-axis current controller", kAny, "V/A"), settings.current_kp_d...);
   visit(Tunable(reg::kCurrentKiD, "Integral gain of the d-axis current controller", kAny, "V/(A s)"), settings.current_ki_d...);
   visit(Tunable(reg::kCurrentKpQ, "Proportional gain of the q-axis current controller", kAny, "V/A"), settings.current_kp_q...);

@@ -78,8 +78,9 @@ void SetPaused(bool paused) noexcept;
  * @brief Runs one control cycle synchronously.
  *
  * Same order as the timer: kHalfPeriodsPerCycle half periods of the plant,
- * each followed by its sample and checks; after a valley SampleHandler() and,
- * at the end of a control cycle, ObserverHandler(). Use with SetFreeRunning(false).
+ * each followed by its sample and checks; after a valley (or every sample)
+ * SampleHandler() and, at the end of a control cycle, ObserverHandler(). Use
+ * with SetFreeRunning(false).
  */
 void StepCycle() noexcept;
 

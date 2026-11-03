@@ -15,7 +15,8 @@
  *    channel preselection) and the M7 cycle counter. The ADCs sample at every
  *    peak and valley (the overcurrent and overvoltage checks); the current
  *    control runs after the valley sample and writes the CCR preload, which
- *    the timer takes over at the peak only (RCR = 1, no duty DMA).
+ *    the timer takes over at the peak only (RCR = 1), or after every sample
+ *    with an update at every boundary (RCR = 0). No duty DMA.
  *
  *    Not run on hardware yet.
  *
@@ -62,14 +63,16 @@ constexpr uint32_t kCalibrationTimeoutLoops = 1'000'000U;
 // OC6 the trigger before the valley, see InitTimer().
 constexpr uint32_t kMasterMode2Oc4Oc6Rising = TIM_CR2_MMS2_3 | TIM_CR2_MMS2_2;
 
-// Center aligned with RCR = 1: an update event (the preloaded duties take
-// effect) once per PWM period, at the peak: the duties written after a valley
-// sample change between two pulses, every pulse stays symmetric about its
-// valley. The repetition counter counts every overflow and underflow and
-// raises the update when it is 0; InitTimer() starts it at 0, so the first
-// update is the first peak (measured on the NUCLEO-H743ZI, 2026-11-03: with
-// the counter started at 1 every update fell on the valley).
-constexpr uint32_t kRepetitionCounter = 1U;
+// ControlSampling::kValleys: center aligned with RCR = 1, an update event (the
+// preloaded duties take effect) once per PWM period, at the peak: the duties
+// written after a valley sample change between two pulses, every pulse stays
+// symmetric about its valley. The repetition counter counts every overflow
+// and underflow and raises the update when it is 0; InitTimer() starts it at
+// 0, so the first update is the first peak (measured on the NUCLEO-H743ZI,
+// 2026-11-03: with the counter started at 1 every update fell on the valley).
+// ControlSampling::kEveryHalfPeriod: RCR = 0, an update at every peak and valley.
+constexpr uint32_t kRepetitionPeakOnly = 1U;
+constexpr uint32_t kRepetitionEveryBoundary = 0U;
 
 // ADC clock: asynchronous from the kernel clock (pll2_p_ck) with PRESC = /4.
 // Rev. Y allows 36 MHz; rev. V halves the clock internally once more.
@@ -128,9 +131,15 @@ std::atomic<uint32_t> g_overcurrent_window{PackWindow(0U, 0xFFFU)};
 std::atomic<uint32_t> g_overvoltage_counts{kOvervoltageCheckOff};
 static_assert(std::atomic<uint32_t>::is_always_lock_free);
 
-// Compare values of the last control step: active from the peak after their
-// write, so also at the next valley sample.
+// The control takes every sample (kEveryHalfPeriod) or the valleys only.
+bool g_every_half_period = false;
+
+// Compare values active while the sample was taken. At the valleys: the last
+// ones written (active from the peak after their write). At every half
+// period: the ones written two samples before; g_next was written by the last
+// sample and takes effect at the next boundary.
 PhaseTicks g_applied{};
+PhaseTicks g_next{};
 bool g_started = false;  // Initialize() has programmed the hardware, Stop() has not run since
 uint32_t g_duty_overruns = 0U;
 
@@ -285,7 +294,7 @@ ISR_DIRECT_DECLARE(SampleIsr) {
   }
   g_pending_overcurrent = g_pending_overcurrent || kOvercurrent;
   g_pending_overvoltage = g_pending_overvoltage || kOvervoltage;
-  if (g_sample_at_peak) {
+  if (g_sample_at_peak && !g_every_half_period) {
     return 0;  // the control samples the valley, the middle of the high-side pulses
   }
   g_sample.ia = static_cast<uint16_t>(kIa);
@@ -337,6 +346,7 @@ void ApplyTriggerLead(const uint32_t ticks) noexcept {
 void InitDutyState() noexcept {
   const uint32_t kNeutral = g_auto_reload / 2U;
   g_applied = PhaseTicks{kNeutral, kNeutral, kNeutral};
+  g_next = g_applied;
   g_pending_overcurrent = false;
   g_pending_overvoltage = false;
 }
@@ -389,10 +399,11 @@ bool InitTimer(const uint32_t pwm_hz, const uint32_t trigger_offset) noexcept {
   kTim->BDTR = kBreakConfig | *kDtg;
 
   // Load ARR, the preloaded compare values and a repetition counter of 0, then
-  // RCR = 1 into its preload: the counter starts below the peak counting up,
-  // updates at the first peak and from then on at every peak.
+  // RCR into its preload: the counter starts below the peak counting up and
+  // updates at the first peak, from then on at every peak (RCR = 1) or at
+  // every boundary (RCR = 0).
   kTim->EGR = TIM_EGR_UG;
-  kTim->RCR = kRepetitionCounter;
+  kTim->RCR = g_every_half_period ? kRepetitionEveryBoundary : kRepetitionPeakOnly;
   kTim->SR = 0U;
   // Start between the trigger compares: neither OC4REF nor OC6REF is active
   // there, so starting the counter cannot produce a spurious ADC trigger.
@@ -410,7 +421,9 @@ void StartCycleCounter() noexcept {
 
 }  // namespace
 
-bool Initialize(const unit::Frequency pwm_frequency, const uint32_t adc_trigger_offset) noexcept {
+bool Initialize(const unit::Frequency pwm_frequency,
+                const bool every_half_period,
+                const uint32_t adc_trigger_offset) noexcept {
   const auto kPwmHz = static_cast<uint32_t>(pwm_frequency.Value());
   if (kPwmHz == 0U) {
     return false;
@@ -423,6 +436,7 @@ bool Initialize(const unit::Frequency pwm_frequency, const uint32_t adc_trigger_
     return false;
   }
   g_started = true;
+  g_every_half_period = every_half_period;
   if (!InitTimer(kPwmHz, adc_trigger_offset)) {
     return false;
   }
@@ -529,14 +543,20 @@ void SetDutyTicks(const PhaseTicks& ticks) noexcept {
   kTim->CCR1 = ticks[0];
   kTim->CCR2 = ticks[1];
   kTim->CCR3 = ticks[2];
-  // Late: the counter has passed the peak the preload was meant for and
-  // counts down to the next valley; the duties take effect one period later.
+  // Late: the counter has passed the boundary after the sample (the one the
+  // preload was meant for) and moves away from it; the duties take effect at
+  // the following update. After a valley sample that is the peak.
   const bool kUpperHalf = kTim->CNT > g_auto_reload / 2U;
   const bool kCountingDown = (kTim->CR1 & TIM_CR1_DIR) != 0U;
-  if (kUpperHalf && kCountingDown) {
+  if (kUpperHalf != g_sample_at_peak && kCountingDown != g_sample_at_peak) {
     ++g_duty_overruns;
   }
-  g_applied = ticks;
+  if (g_every_half_period) {
+    g_applied = g_next;
+    g_next = ticks;
+  } else {
+    g_applied = ticks;
+  }
 }
 
 uint32_t DutyOverruns() noexcept { return g_duty_overruns; }

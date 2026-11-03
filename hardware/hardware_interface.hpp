@@ -31,8 +31,8 @@ namespace unimoc::hardware {
  *
  * The hardware samples the phase currents once per half period, at every peak
  * and valley of the center-aligned counter (the boundaries), and checks each
- * sample. The sample handler works on the sample of the valley that just
- * passed, the middle of the high-side pulses.
+ * sample. The sample handler works on the sample of the boundary that just
+ * passed (ControlSampling).
  */
 struct CurrentSample {
   /// Phase currents in A/B/C order. The expected invariant is ia + ib + ic = 0.
@@ -49,6 +49,16 @@ struct CurrentSample {
   /// Time of the sample (its boundary) in ticks of the timestamp clock
   /// (kTimestampFrequency), the clock of the Hall events.
   uint32_t timestamp{0U};
+};
+
+/// Which samples the platform hands to SampleHandler(), and where the duties take effect.
+enum class ControlSampling : uint8_t {
+  /// Every valley (the middle of the high-side pulses); the duties take
+  /// effect at the next peak only, every pulse stays symmetric (RCR = 1).
+  kValleys = 0,
+  /// Every peak and every valley; the duties take effect at the next
+  /// boundary (RCR = 0).
+  kEveryHalfPeriod = 1,
 };
 
 /**
@@ -98,15 +108,16 @@ class HardwareSystemInterface {
  *  - The hardware samples the currents and the DC link once per PWM half
  *    period and checks each sample against the overcurrent and the
  *    overvoltage limit itself.
- *  - After every valley sample it calls SampleHandler() in the zero-latency
- *    context, which writes the duties on its control steps; they take
- *    effect at the next peak (settings::ControlTiming).
+ *  - After every valley sample, or every sample (ControlSampling), it calls
+ *    SampleHandler() in the zero-latency context, which writes the duties on
+ *    its control steps; they take effect at the next peak, or the next
+ *    boundary (settings::ControlTiming).
  *  - When SampleHandler() ends a control cycle, it runs ObserverHandler() in a
  *    lower-priority interrupt that may be preempted by the sampling interrupt.
  */
 class HardwareInterface {
  public:
-  using InitializeCallback = bool (*)(unit::Frequency, uint32_t) noexcept;
+  using InitializeCallback = bool (*)(unit::Frequency, ControlSampling, uint32_t) noexcept;
   using StopCallback = void (*)() noexcept;
   using GetPhaseCurrentsCallback = system::ThreePhase<unit::Current> (*)() noexcept;
   using GetPhaseVoltagesCallback = system::ThreePhase<unit::Voltage> (*)() noexcept;
@@ -155,15 +166,19 @@ class HardwareInterface {
   /**
    * @brief Initializes the hardware and starts its interrupts.
    *
-   * From then on the platform calls SampleHandler() once per current sample
-   * and ObserverHandler() after each control cycle (hot_path_interface.hpp).
+   * From then on the platform calls SampleHandler() after every sample of
+   * @p sampling and ObserverHandler() after each control cycle
+   * (hot_path_interface.hpp).
    *
    * @param pwm_frequency Requested PWM switching frequency.
+   * @param sampling The samples of the control and where its duties take effect.
    * @param adc_trigger_offset ADC trigger compare offset in timer ticks.
    * @return True when initialization succeeds.
    */
-  [[nodiscard]] bool Initialize(unit::Frequency pwm_frequency, uint32_t adc_trigger_offset) const noexcept {
-    return initialize_(pwm_frequency, adc_trigger_offset);
+  [[nodiscard]] bool Initialize(unit::Frequency pwm_frequency,
+                                ControlSampling sampling,
+                                uint32_t adc_trigger_offset) const noexcept {
+    return initialize_(pwm_frequency, sampling, adc_trigger_offset);
   }
 
   /**

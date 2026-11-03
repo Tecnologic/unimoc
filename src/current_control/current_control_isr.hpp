@@ -43,8 +43,8 @@ namespace unimoc::current_control {
 
 using namespace unit;
 
-/// Timing the state assumes until Init() sets it: 32 kHz PWM, a control step every period.
-inline constexpr settings::ControlTiming kInitialTiming{32.0_kHz, 1U, 2U};
+/// Timing the state assumes until Init() sets it: 32 kHz PWM, a control step every half period.
+inline constexpr settings::ControlTiming kInitialTiming{32.0_kHz, 1U, 4U};
 
 /// The PWM frequency for the inductance of the running settings (settings::SuggestedPwmFrequency()).
 struct PwmSuggestion {
@@ -120,7 +120,7 @@ struct CurrentControlState {
   /// Control steps (current samples the control used) since Init(); the first is 1.
   uint32_t samples{0U};
 
-  /// PWM periods (calls of OnSample()) since Init().
+  /// Calls of OnSample() (samples handed over by the platform) since Init().
   uint32_t periods{0U};
 
   /// Control cycles (timing.steps_per_cycle steps) run since Init().
@@ -136,7 +136,7 @@ struct CurrentControlState {
   /// The PWM frequency for the inductance of the settings — set by Init().
   PwmSuggestion pwm_suggestion{};
 
-  /// Duration of one control step (timing.divider PWM periods) — set by Init().
+  /// Duration of one control step (timing.divider PWM half periods) — set by Init().
   unit::Time dt_fast{kInitialTiming.StepPeriod()};
 
   /// Duration of one control cycle (the observer period) — set by Init().
@@ -144,7 +144,7 @@ struct CurrentControlState {
 
   /// Delay from a sample to the middle of the interval its duties apply to,
   /// in control steps (D4, settings::ControlTiming::OutputDelaySteps()): the
-  /// duties take effect at the next peak and hold for timing.divider periods.
+  /// duties take effect at the next update and hold for timing.divider half periods.
   float output_delay_steps{kInitialTiming.OutputDelaySteps()};
 
   /// Timer auto-reload value used for timing calculations — set by Init().
@@ -153,7 +153,7 @@ struct CurrentControlState {
   /// ADC trigger compare offset in timer ticks — set by Init().
   uint32_t adc_trigger_offset{170U};
 
-  /// Most recently requested normalized phase duties (from the next peak on).
+  /// Most recently requested normalized phase duties (from the next update on).
   system::ThreePhase<unit::Ratio> phase_duties{0.5_ratio, 0.5_ratio, 0.5_ratio};
 
   /// Newest raw ADC sample, without the calibration; updated by every
@@ -205,9 +205,10 @@ struct CurrentControlState {
  * Execution model
  * ---------------
  * The PWM timer runs in centre-aligned mode. The hardware samples the phase
- * currents at every valley (the middle of the high-side pulses) and calls
- * `OnSample()` in the zero-latency context once per PWM period. Every
- * `timing.divider`-th call is a control step:
+ * currents at every peak and valley and calls `OnSample()` in the
+ * zero-latency context after every sample (`timing.divider` 1) or after every
+ * valley (the middle of the high-side pulses, divider 2, 4, 8). Every
+ * `timing.CallsPerStep()`-th call is a control step:
  *
  *  1. calibrates the sample and repeats the overcurrent and overvoltage checks,
  *  2. advances the angle by one step (or takes the observer's new reference)
@@ -216,18 +217,19 @@ struct CurrentControlState {
  *  4. inverse-parks the voltage with the angle at the middle of the interval
  *     the duties apply to, adds the dead-time compensation and modulates (SVM),
  *  5. writes the duties to the CCR preload, which the timer takes over at
- *     the next peak (every pulse stays symmetric).
+ *     the next boundary (divider 1) or the next peak (every pulse stays
+ *     symmetric).
  *
  * Every `timing.steps_per_cycle` steps (a control cycle, at most 16 kHz) the
  * last step hands the samples, the mean current and the mean voltage of the
  * cycle to the observer. The delay from a sample to the middle of its duties
- * is 0.5 + divider / 2 PWM periods (one period at divider 1), which sets the
- * reachable current bandwidth (docs/hotpath_plan.md, section 3).
+ * is 1 + divider / 2 half periods (1.5 at divider 1, 2 at divider 2), which
+ * sets the reachable current bandwidth (docs/hotpath_plan.md, section 3).
  *
  * Duty range
  * ----------
- * The duties take effect through the PWM preload at the peak, so they are not
- * limited by the ISR timing; only `svm.duty_min` / `svm.duty_max` apply
+ * The duties take effect through the PWM preload at a boundary, so they are
+ * not limited by the ISR timing; only `svm.duty_min` / `svm.duty_max` apply
  * (sampling window and minimum pulse of the power stage).
  *
  * Usage
@@ -292,12 +294,12 @@ class CurrentControlIsr {
   /**
    * @brief Control step: the fast current control of one sample.
    *
-   * Called from hardware::SampleHandler() (zero latency) once per PWM period,
-   * after the sample of the valley. Every timing.divider-th call reads the
-   * sample, runs the current controller and writes the duties of the next
-   * peak through hardware::hot_path; the other calls return at once (the
-   * platform keeps the trip flags of their samples for the next step). Does
-   * nothing before Init().
+   * Called from hardware::SampleHandler() (zero latency) after every sample
+   * the platform hands over (hardware::ControlSampling). Every
+   * timing.CallsPerStep()-th call reads the sample, runs the current
+   * controller and writes the duties through hardware::hot_path; the other
+   * calls return at once (the platform keeps the trip flags of their samples
+   * for the next step). Does nothing before Init().
    *
    * @return true when the step ended a control cycle whose record the
    *         observer is to process.
@@ -471,7 +473,7 @@ class CurrentControlIsr {
  private:
   CurrentControlIsr() = default;
 
-  /// Writes the duties of the next peak.
+  /// Writes the duties of the next update.
   void SetDuties(const system::ThreePhase<unit::Ratio>& duties) noexcept;
 
   /// Angle of the sample @p sample: the observer's new reference, else one step on.

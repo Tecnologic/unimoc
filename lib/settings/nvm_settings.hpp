@@ -328,15 +328,16 @@ struct NvmSettings {
   /// PWM switching frequency for the current-control timer; 0 selects it from
   /// the inductance (control_timing.hpp, SuggestedPwmFrequency()).
   ///
-  /// The current is sampled once per PWM period; the control step runs on
-  /// every control_divider-th period, the observer after a power of two of
+  /// The current is sampled at every peak and valley; the control step runs
+  /// every control_divider half periods, the observer after a power of two of
   /// control steps, at most 16 kHz (control_timing.hpp).
   ///
   /// Register: `unimoc.control.pwm_frequency`
   unit::Frequency pwm_frequency{20.0_kHz};
 
-  /// PWM periods per control step: 1, 2 or 4; 0 takes the smallest the board
-  /// runs (HardwareCapabilities::max_control_frequency).
+  /// PWM half periods per control step: 1 (every peak and valley), 2 (every
+  /// valley), 4 or 8; 0 takes the smallest the board runs
+  /// (HardwareCapabilities::max_control_frequency).
   ///
   /// Register: `unimoc.control.divider`
   uint8_t control_divider{0U};

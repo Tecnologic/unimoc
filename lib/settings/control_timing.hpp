@@ -8,12 +8,18 @@
  *    @file control_timing.hpp
  *    @brief PWM frequency, control divider and observer rate resolved from the settings.
  *
- *    The current control samples once per PWM period at the valley (the
- *    middle of the high-side pulses) and writes the duties into the CCR
- *    preload, which the timer takes over at the next peak only: every pulse
- *    stays symmetric, the sample is free of ripple. The control step runs on
- *    every `divider`-th PWM period; the observer after every
- *    `steps_per_cycle` control steps (docs/hotpath_plan.md, section 2).
+ *    The control step runs every `divider` PWM half periods and always writes
+ *    its duties into the CCR preload (docs/hotpath_plan.md, section 2):
+ *
+ *     - divider 1: a step after every peak and every valley sample; the timer
+ *       takes the preload over at every boundary (RCR = 0). The fastest loop;
+ *       the duties change in the middle of a pulse.
+ *     - divider 2, 4 or 8: a step after every first, second or fourth valley
+ *       sample (the middle of the high-side pulses); the timer takes the
+ *       preload over at the peak only (RCR = 1). Every pulse stays symmetric,
+ *       the sample is the mean of the ripple.
+ *
+ *    The observer runs after every `steps_per_cycle` control steps.
  *
  *    `pwm_frequency` 0 selects the frequency from the inductance (the
  *    smallest one that keeps the current ripple within kPwmRippleTarget of
@@ -48,8 +54,9 @@ inline constexpr std::array<unit::Frequency, 8> kPwmFrequencies{
     64.0_kHz,
 };
 
-/// Control dividers: the control step runs on every first, second or fourth PWM period.
-inline constexpr std::array<uint8_t, 3> kControlDividers{1U, 2U, 4U};
+/// Control dividers in PWM half periods per control step: every half period, every period, every second or
+/// fourth.
+inline constexpr std::array<uint8_t, 4> kControlDividers{1U, 2U, 4U, 8U};
 
 /// Control steps per observer cycle: the observer runs after 1, 2, 4 or 8 steps.
 inline constexpr std::array<uint8_t, 4> kStepsPerCycle{1U, 2U, 4U, 8U};
@@ -117,7 +124,7 @@ inline constexpr unit::Ratio kPwmRippleTarget{0.3_ratio};
 struct ControlTiming {
   /// PWM frequency of the timer.
   unit::Frequency pwm_frequency;
-  /// PWM periods per control step (1, 2 or 4); 0: not runnable.
+  /// PWM half periods per control step (1, 2, 4 or 8); 0: not runnable.
   uint8_t divider{0U};
   /// Control steps per observer cycle (1, 2, 4 or 8).
   uint8_t steps_per_cycle{1U};
@@ -125,14 +132,22 @@ struct ControlTiming {
   /// True when the board runs this timing.
   [[nodiscard]] constexpr bool Valid() const noexcept { return divider != 0U; }
 
-  /// Period of one control step: divider PWM periods.
+  /// True for a control step after every peak and valley sample (divider 1).
+  [[nodiscard]] constexpr bool EveryHalfPeriod() const noexcept { return divider == 1U; }
+
+  /// Calls of the sample handler per control step: every sample at divider 1, else divider / 2 valleys.
+  [[nodiscard]] constexpr uint8_t CallsPerStep() const noexcept {
+    return EveryHalfPeriod() ? 1U : static_cast<uint8_t>(divider / 2U);
+  }
+
+  /// Period of one control step: divider PWM half periods.
   [[nodiscard]] constexpr unit::Time StepPeriod() const noexcept {
-    return static_cast<float>(divider) / pwm_frequency;
+    return static_cast<float>(divider) / (2.0F * pwm_frequency);
   }
 
   /// Rate of the control steps.
   [[nodiscard]] constexpr unit::Frequency StepFrequency() const noexcept {
-    return pwm_frequency / static_cast<float>(divider);
+    return 2.0F * pwm_frequency / static_cast<float>(divider);
   }
 
   /// Period of one observer cycle: steps_per_cycle control steps.
@@ -143,11 +158,13 @@ struct ControlTiming {
   /**
    * @brief Delay from a sample to the middle of the interval its duties apply to, in control steps.
    *
-   * The duties take effect at the peak half a PWM period after the sample
-   * and hold for `divider` periods: 0.5 T + divider T / 2.
+   * The duties take effect at the next update, one half period T_h after the
+   * sample (the next boundary at divider 1, the peak after the valley else),
+   * and hold for divider half periods: T_h + divider T_h / 2, 1.5 steps at
+   * divider 1, one step at divider 2.
    */
   [[nodiscard]] constexpr float OutputDelaySteps() const noexcept {
-    return 0.5F + (0.5F / static_cast<float>(divider));
+    return 0.5F + (1.0F / static_cast<float>(divider));
   }
 };
 
@@ -177,7 +194,8 @@ struct ControlTiming {
   }
   for (const uint8_t kDivider : kControlDividers) {
     const bool kSelected = (settings.control_divider == 0U) || (settings.control_divider == kDivider);
-    if (kSelected && !(timing.pwm_frequency / static_cast<float>(kDivider) > limits.max_control_frequency)) {
+    if (kSelected &&
+        !(2.0F * timing.pwm_frequency / static_cast<float>(kDivider) > limits.max_control_frequency)) {
       timing.divider = kDivider;
       break;
     }

@@ -25,6 +25,8 @@
 namespace {
 
 using unimoc::hardware::kMotors;
+constexpr auto kValleys = unimoc::hardware::ControlSampling::kValleys;
+constexpr auto kEveryHalfPeriod = unimoc::hardware::ControlSampling::kEveryHalfPeriod;
 using namespace unimoc::unit;
 namespace sim = unimoc::hardware::sim;
 
@@ -76,11 +78,13 @@ void Reset() {
 
 }  // namespace
 
-ZTEST(sim_irq_cadence, test_rejects_zero_frequency) { zassert_false(kMotors[0].Initialize(0.0_Hz, 0U)); }
+ZTEST(sim_irq_cadence, test_rejects_zero_frequency) {
+  zassert_false(kMotors[0].Initialize(0.0_Hz, kValleys, 0U));
+}
 
 ZTEST(sim_irq_cadence, test_one_sample_per_pwm_period_and_an_observer_per_cycle) {
   Reset();
-  zassert_true(kMotors[0].Initialize(unimoc::unit::Frequency{32'000.0F}, 0U));
+  zassert_true(kMotors[0].Initialize(unimoc::unit::Frequency{32'000.0F}, kValleys, 0U));
   k_sleep(K_MSEC(100));
 
   const unsigned int kIrqKey = irq_lock();
@@ -100,7 +104,7 @@ ZTEST(sim_irq_cadence, test_one_sample_per_pwm_period_and_an_observer_per_cycle)
 
 ZTEST(sim_irq_cadence, test_duties_of_a_step_take_effect_at_the_next_peak) {
   Reset();
-  zassert_true(kMotors[0].Initialize(unimoc::unit::Frequency{32'000.0F}, 0U));
+  zassert_true(kMotors[0].Initialize(unimoc::unit::Frequency{32'000.0F}, kValleys, 0U));
   sim::SetFreeRunning(false);
 
   // A sim cycle starts at a valley: half periods 0 and 2 count up to a peak,
@@ -124,12 +128,37 @@ ZTEST(sim_irq_cadence, test_duties_of_a_step_take_effect_at_the_next_peak) {
   zassert_equal(g_sample_count, 4U);
 }
 
+ZTEST(sim_irq_cadence, test_every_half_period_takes_every_sample_and_updates_at_every_boundary) {
+  Reset();
+  zassert_true(kMotors[0].Initialize(32.0_kHz, kEveryHalfPeriod, 0U));
+  sim::SetFreeRunning(false);
+
+  // Sample n is taken at boundary n, the end of half period n. Its control
+  // step runs after that boundary, so its duties take effect at boundary
+  // n + 1: half period n + 2 runs them. The first two run neutral duties.
+  sim::StepCycle();
+  auto applied = sim::AppliedDuties();
+  zassert_within(applied[0].a, 0.5_ratio, 1e-6_ratio);
+  zassert_within(applied[1].a, 0.5_ratio, 1e-6_ratio);
+  for (uint8_t k = 2U; k < 4U; ++k) {
+    zassert_within(applied[k].a, StepDuty(k - 2U), 1e-6_ratio);
+  }
+
+  sim::StepCycle();
+  applied = sim::AppliedDuties();
+  for (uint8_t k = 0U; k < 4U; ++k) {
+    zassert_within(applied[k].a, StepDuty(k + 2U), 1e-6_ratio);
+  }
+  zassert_equal(sim::CycleCount(), 2U);
+  zassert_equal(g_sample_count, 8U);
+}
+
 ZTEST(sim_irq_cadence, test_trips_of_unread_samples_are_reported_once_with_the_next_read) {
   using unimoc::hardware::kPowerStage;
   Reset();
   sim::SetExternalEnable(true);
   kPowerStage.ClearFault();
-  zassert_true(kMotors[0].Initialize(32.0_kHz, 0U));
+  zassert_true(kMotors[0].Initialize(32.0_kHz, kValleys, 0U));
   sim::SetFreeRunning(false);
   kMotors[0].SetOvercurrentLimit(10.0_A);
 
@@ -151,7 +180,7 @@ ZTEST(sim_irq_cadence, test_trips_of_unread_samples_are_reported_once_with_the_n
 ZTEST(sim_irq_cadence, test_stop_halts_the_cycle_source_until_the_next_initialize) {
   Reset();
   kMotors[0].Stop();  // nothing running yet: no effect
-  zassert_true(kMotors[0].Initialize(unimoc::unit::Frequency{32'000.0F}, 0U));
+  zassert_true(kMotors[0].Initialize(unimoc::unit::Frequency{32'000.0F}, kValleys, 0U));
   k_sleep(K_MSEC(10));
   kMotors[0].Stop();
   const uint32_t kStopped = g_control_count;
@@ -161,7 +190,7 @@ ZTEST(sim_irq_cadence, test_stop_halts_the_cycle_source_until_the_next_initializ
   zassert_equal(g_observer_count, kStopped, "no observer after Stop()");
 
   // A restart with another PWM frequency runs from cycle 0 again.
-  zassert_true(kMotors[0].Initialize(unimoc::unit::Frequency{16'000.0F}, 0U));
+  zassert_true(kMotors[0].Initialize(unimoc::unit::Frequency{16'000.0F}, kValleys, 0U));
   sim::SetFreeRunning(false);
   sim::StepCycle();
   zassert_equal(sim::CycleCount(), 1U);

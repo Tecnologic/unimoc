@@ -41,8 +41,8 @@ namespace {
 
 const settings::SettingsProfile kSettingsProfile = [] {
   settings::SettingsProfile profile{};
-  // 32 kHz PWM, a control step every period (divider automatic, 32 kHz), the
-  // observer at 16 kHz. With the 1 us dead time of the 4850 power board higher
+  // 32 kHz PWM, a control step every half period (divider automatic, 64 kHz),
+  // the observer at 16 kHz. With the 1 us dead time of the 4850 power board higher
   // frequencies cost too much voltage (docs/hotpath_plan.md, section 3).
   profile.factory_settings.pwm_frequency = 32.0_kHz;
   // Duty range: the minimum off/on time per PWM period is 4 % of 31.25 us =
@@ -64,8 +64,9 @@ const settings::SettingsProfile kSettingsProfile = [] {
   profile.factory_settings.dc_link_regen_derate_start = 55.0_V;
   profile.factory_settings.dc_link_trip = 58.0_V;
   profile.capabilities.max_dc_link_voltage = 60.0_V;
-  // A control step every period up to 64 kHz: 1908 cycles worst of 3125 per
-  // half period at 400 MHz from ITCM (docs/hotpath_plan.md, section 4).
+  // Control steps up to 64 kHz: a step every half period at 32 kHz PWM, every
+  // period at 64 kHz; about 2070 cycles worst at 400 MHz from ITCM
+  // (docs/hotpath_plan.md, section 4).
   profile.capabilities.max_pwm_frequency = 64.0_kHz;
   profile.capabilities.max_control_frequency = 64.0_kHz;
   return profile;
@@ -144,8 +145,10 @@ bool InitHall() noexcept {
 // The observer interrupt is the only consumer.
 bool PopHallEvent(observer::HallEvent& event) noexcept { return g_hall_events.Pop(event); }
 
-bool Initialize(Frequency pwm_frequency, uint32_t adc_trigger_offset) noexcept {
-  if (!foc_stm32h7::Initialize(pwm_frequency, adc_trigger_offset)) {
+bool Initialize(Frequency pwm_frequency, ControlSampling sampling, uint32_t adc_trigger_offset) noexcept {
+  if (!foc_stm32h7::Initialize(pwm_frequency,
+                               sampling == ControlSampling::kEveryHalfPeriod,
+                               adc_trigger_offset)) {
     return false;
   }
   if (!InitHall()) {

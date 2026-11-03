@@ -135,7 +135,8 @@ Current MotorIdentification::Level(const uint32_t point) const noexcept {
 }
 
 uint32_t MotorIdentification::WindowCycles() const noexcept {
-  return kWindowPeriods * current_control::InjectionPeriodCycles(isr_->state.timing.steps_per_cycle);
+  return kWindowPeriods * current_control::InjectionPeriodCycles(isr_->state.timing.divider,
+                                                                 isr_->state.timing.steps_per_cycle);
 }
 
 uint32_t MotorIdentification::SettleCycles() const noexcept {
@@ -242,7 +243,7 @@ void MotorIdentification::StartInductanceAxis(const Step step) noexcept {
   // The bias first, with the current PI; then it is held and the sine added.
   const Current kTarget = current_max_ * kInjectionCurrent;
   const Resistance kReactance =
-      (InjectionAngularFrequency(isr_->state.timing.StepFrequency()) / 1.0_rad) * inductance_prior_;
+      (InjectionAngularFrequency(isr_->state.timing.pwm_frequency) / 1.0_rad) * inductance_prior_;
   amplitude_ = kTarget * (resistance_prior_ + kReactance);
   Drive(current_max_ * kInductanceBias, Angle{}, false, Voltage{}, 0U);
   phase_ = Phase::kBias;
@@ -264,7 +265,7 @@ void MotorIdentification::OnInductanceWindow(const IdentificationWindowResult& w
   }
   const auto kImpedance = EstimateImpedance(window.voltage_phasor,
                                             window.current_phasor,
-                                            InjectionAngularFrequency(isr_->state.timing.StepFrequency()));
+                                            InjectionAngularFrequency(isr_->state.timing.pwm_frequency));
   if (!kImpedance.has_value() || !(kImpedance->inductance > Inductance{})) {
     failed_ |= Bit(step_);
   } else if (step_ == Step::kInductanceD) {

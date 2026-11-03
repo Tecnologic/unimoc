@@ -16,11 +16,13 @@
  *     1. advances the plant with the duties in effect,
  *     2. ends with a current sample and the overcurrent and DC-link
  *        overvoltage checks, and
- *     3. at a peak: the duties written by the last control step take effect
- *        (the CCR preload of the STM32H7, RCR = 1); at a valley: calls
- *        SampleHandler() (STM32H7: the sample interrupt), which writes the
- *        duties on its control steps, and ObserverHandler() (STM32H7: pended
- *        interrupt) when the handler ended a control cycle.
+ *     3. at an update (the peaks; every boundary in
+ *        ControlSampling::kEveryHalfPeriod) the duties written by the last
+ *        control step take effect (the CCR preload of the STM32H7); after a
+ *        valley (every sample in kEveryHalfPeriod) it calls SampleHandler()
+ *        (STM32H7: the sample interrupt), which writes the duties on its
+ *        control steps, and ObserverHandler() (STM32H7: pended interrupt)
+ *        when the handler ended a control cycle.
  *
  *    Timestamps are nanoseconds of virtual time. A change of the simulated
  *    Hall code is queued with the time of the edge, as the EXTI capture of
@@ -58,7 +60,8 @@ const settings::SettingsProfile kSettingsProfile = [] {
   // A fixed Cyphal node-ID, so tools reach a fresh simulation without a
   // plug-and-play allocator (--node-id overrides it per process).
   profile.factory_settings.node_id = 10U;
-  profile.factory_settings.pwm_frequency = 32.0_kHz;  // a control step every period, the observer at 16 kHz
+  profile.factory_settings.pwm_frequency =
+      32.0_kHz;  // a control step every half period, the observer at 16 kHz
   // Duty range of the sampling window and the minimum pulse.
   profile.factory_settings.svm_duty_min = 0.03_ratio;
   profile.factory_settings.svm_duty_max = 0.97_ratio;
@@ -139,6 +142,7 @@ constexpr bool kTiming = IS_ENABLED(CONFIG_UNIMOC_HOT_PATH_TIMING);
 sim::PlantTrace g_plant_trace;
 
 bool g_initialized = false;
+bool g_every_half_period = false;  // ControlSampling::kEveryHalfPeriod
 Time g_half_period{};
 
 CurrentSample g_sample{};    // the sample of the last valley
@@ -258,8 +262,11 @@ void RunCycle() noexcept {
       PowerStageTrip();
       g_pending_overvoltage = true;
     }
-    if (k % 2U == 0U) {
-      g_active = g_next;  // the peak: the preload of the last control step takes effect
+    const bool kPeak = k % 2U == 0U;
+    if (kPeak || g_every_half_period) {
+      g_active = g_next;  // the update: the preload of the last control step takes effect
+    }
+    if (kPeak && !g_every_half_period) {
       continue;
     }
     sample.overcurrent = g_pending_overcurrent;
@@ -312,7 +319,7 @@ void ResetCycleState() noexcept {
   g_cycle_count = 0U;
 }
 
-bool Initialize(Frequency pwm_frequency, uint32_t /*unused*/) noexcept {
+bool Initialize(Frequency pwm_frequency, ControlSampling sampling, uint32_t /*unused*/) noexcept {
   const auto kPwmHz = static_cast<uint64_t>(pwm_frequency.Value());
   if (kPwmHz == 0U) {
     return false;
@@ -330,6 +337,7 @@ bool Initialize(Frequency pwm_frequency, uint32_t /*unused*/) noexcept {
   }
 
   g_initialized = true;
+  g_every_half_period = sampling == ControlSampling::kEveryHalfPeriod;
   g_half_period = Time{1.0F / (2.0F * pwm_frequency.Value())};
   g_cycle_ns = (kHalfPeriodsPerCycle * 1'000'000'000ULL) / (2U * kPwmHz);
   g_half_period_ns = 1'000'000'000ULL / (2U * kPwmHz);

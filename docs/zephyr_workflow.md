@@ -79,8 +79,8 @@ UNIMOC code fails the build of that scenario.
 |---|---|---|
 | ADC trigger | TIM1 TRGO2 = rising OC4REF (CC4 = ARR - lead, before the peak) or rising OC6REF (CC6 = lead, before the valley); ADC1..3 JEXTSEL 8 (TIM8: 10) | - |
 | sample (2 × f_pwm) | ADC1 end of injected sequence (JEOS), zero latency: raw ia/ib/ic and DC link, raw overcurrent window and overvoltage level, break on violation; trips kept for the next read | plant step per half period, sample and checks after each step |
-| control step (f_pwm / divider) | inside the valley sample ISR: `SampleHandler()` → `OnSample()` on every call, a control step on every `control_divider`-th, duties into the CCR preload | after every valley; a kernel timer in simulated time runs four half periods (two PWM periods) per expiry |
-| duties | TIM1 RCR = 1, the repetition counter started at 0: updates at the peak only; CCR1..3 preload, written by the control step (no DMA) | the duties of a step take effect at the peak after its sample |
+| control step (2 f_pwm / divider) | inside the sample ISR after every sample (divider 1) or every valley: `SampleHandler()` → `OnSample()`, a control step every `CallsPerStep()` calls, duties into the CCR preload | after every sample or valley; a kernel timer in simulated time runs four half periods (two PWM periods) per expiry |
+| duties | divider 1: TIM1 RCR = 0, an update at every boundary; else RCR = 1 with the repetition counter started at 0, updates at the peak only; CCR1..3 preload, written by the control step (no DMA) | the duties of a step take effect at the next update after its sample |
 | observer (at most 16 kHz) | TIM1 update vector, pended by software after every `steps_per_cycle`-th step (DIER stays 0), highest normal priority | directly after the step that ends a control cycle |
 
 `adc_trigger_offset` of the control core is the lead in timer ticks before

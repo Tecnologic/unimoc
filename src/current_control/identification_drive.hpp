@@ -53,36 +53,40 @@ struct IdentificationDrive {
 /**
  * @brief Phase of the injected sine, 2^32 counts per period.
  *
- * The sine has a fixed period of kInjectionSteps control steps (the step
- * rate / 64, 500 Hz at 32 kHz), counted in samples from Init(): exact and
- * drift-free in integer counts, the same in the control step that generates
- * it and in the observer that demodulates it. kInjectionSteps is a multiple
- * of every settings::kStepsPerCycle, so a period is a whole number of cycles.
+ * The sine has a fixed period of kInjectionHalfPeriods PWM half periods
+ * (f_pwm / 64, 500 Hz at 32 kHz) whatever the control divider, counted in
+ * control steps from Init(): exact and drift-free in integer counts, the same
+ * in the control step that generates it and in the observer that demodulates
+ * it. A period is a whole number of control cycles for every divider and
+ * every settings::kStepsPerCycle.
  */
-inline constexpr uint32_t kInjectionSteps = 64U;
-static_assert(kInjectionSteps % kMaxSubSteps == 0U, "an injection period is a whole number of cycles");
-/// Phase advance of one control step.
-inline constexpr uint32_t kInjectionPhaseStep = 0x1'0000'0000ULL / kInjectionSteps;
+inline constexpr uint32_t kInjectionHalfPeriods = 128U;
+static_assert(kInjectionHalfPeriods % (settings::kControlDividers.back() * kMaxSubSteps) == 0U,
+              "an injection period is a whole number of cycles");
+/// Phase advance of one PWM half period.
+inline constexpr uint32_t kInjectionPhaseHalfPeriod = 0x1'0000'0000ULL / kInjectionHalfPeriods;
 
-/// Control cycles of one injection period at @p steps_per_cycle steps per cycle.
-[[nodiscard]] constexpr uint32_t InjectionPeriodCycles(const uint8_t steps_per_cycle) noexcept {
-  return kInjectionSteps / steps_per_cycle;
+/// Control cycles of one injection period at @p divider half periods per step and @p steps_per_cycle steps.
+[[nodiscard]] constexpr uint32_t InjectionPeriodCycles(const uint8_t divider,
+                                                       const uint8_t steps_per_cycle) noexcept {
+  return kInjectionHalfPeriods / (static_cast<uint32_t>(divider) * steps_per_cycle);
+}
+
+/// Phase at current sample @p sample (CurrentControlState::samples) at @p divider half periods per step.
+[[nodiscard]] constexpr uint32_t InjectionSamplePhase(const uint32_t sample, const uint8_t divider) noexcept {
+  return sample * divider * kInjectionPhaseHalfPeriod;
 }
 
 /**
  * @brief Phase at the middle of the interval the duties of sample @p sample apply to.
  *
  * The control step of sample n writes duties that take effect half a PWM
- * period later and hold for @p divider periods: their middle lies
- * (divider + 1) / (2 divider) steps after the sample (hardware::hot_path::SetDuties()).
+ * period later and hold for @p divider half periods: their middle lies
+ * (divider + 2) / 2 half periods after the sample
+ * (settings::ControlTiming::OutputDelaySteps(), hardware::hot_path::SetDuties()).
  */
 [[nodiscard]] constexpr uint32_t InjectionEntryPhase(const uint32_t sample, const uint8_t divider) noexcept {
-  return (sample * kInjectionPhaseStep) + ((kInjectionPhaseStep / (2U * divider)) * (divider + 1U));
-}
-
-/// Phase at current sample @p sample (CurrentControlState::samples).
-[[nodiscard]] constexpr uint32_t InjectionSamplePhase(const uint32_t sample) noexcept {
-  return sample * kInjectionPhaseStep;
+  return InjectionSamplePhase(sample, divider) + ((kInjectionPhaseHalfPeriod / 2U) * (divider + 2U));
 }
 
 /// Sine and cosine of an injection phase (no libm: the table of the hot path).
@@ -90,11 +94,11 @@ inline constexpr uint32_t kInjectionPhaseStep = 0x1'0000'0000ULL / kInjectionSte
   return system::PortableSinCosProvider::Calculate(static_cast<int32_t>(phase));
 }
 
-/// Angular frequency of the injection at a control-step rate.
-[[nodiscard]] constexpr unit::AngularVelocity InjectionAngularFrequency(
-    const unit::Frequency step_rate) noexcept {
+/// Angular frequency of the injection at a PWM frequency.
+[[nodiscard]] constexpr unit::AngularVelocity InjectionAngularFrequency(const unit::Frequency pwm) noexcept {
   using unit::operator""_rad;
-  return step_rate / static_cast<float>(kInjectionSteps) * (2.0F * std::numbers::pi_v<float> * 1.0_rad);
+  return pwm * 2.0F / static_cast<float>(kInjectionHalfPeriods) *
+         (2.0F * std::numbers::pi_v<float> * 1.0_rad);
 }
 
 /// Sums of one measurement window of the observer.

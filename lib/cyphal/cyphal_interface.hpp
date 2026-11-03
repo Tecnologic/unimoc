@@ -394,7 +394,7 @@ inline constexpr const char* kBatteryTripVoltage = "unimoc.battery.limits.trip_v
 /// Type: real32[1] (read/write, persistent)
 inline constexpr const char* kPwmFrequency = "unimoc.control.pwm_frequency";
 
-/// PWM periods per control step: 1, 2 or 4, 0 the fastest the board runs.
+/// PWM half periods per control step: 1, 2, 4 or 8, 0 the fastest the board runs.
 /// Type: natural8[1] (read/write, persistent)
 inline constexpr const char* kControlDivider = "unimoc.control.divider";
 
@@ -496,7 +496,7 @@ inline constexpr const char* kTimingOverruns = "unimoc.timing.overruns";
 inline constexpr const char* kTimingClockHz = "unimoc.timing.clock_hz";
 
 /// Timing the current control runs: PWM frequency, control-step rate,
-/// observer rate [Hz] and the control divider (settings::ResolveControlTiming()).
+/// observer rate [Hz] and the control divider in half periods (settings::ResolveControlTiming()).
 /// Type: real32[4] (read-only)
 inline constexpr const char* kTimingPwm = "unimoc.timing.pwm";
 

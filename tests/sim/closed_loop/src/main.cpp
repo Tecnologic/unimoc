@@ -155,13 +155,41 @@ ZTEST_F(sim_closed_loop, test_q_current_step_settles) {
   zassert_false(isr.state.overcurrent_tripped);
 }
 
+ZTEST_F(sim_closed_loop, test_q_current_step_at_the_bandwidth_of_the_half_period_step) {
+  // The factory 32 kHz PWM resolves to a step every half period (64 kHz):
+  // 1.5 half periods (23.4 us) from a sample to the middle of its duties.
+  // 60 degrees phase margin: w_c = (pi / 6) / 23.4 us, 22.3 krad/s (3.6 kHz).
+  auto& isr = CurrentControlIsr::Instance();
+  zassert_equal(isr.state.timing.divider, 1U);
+  zassert_within(isr.state.output_delay_steps, 1.5F, 1e-6F);
+  TuneToDelay();
+  isr.SetCurrentRef({0.0_A, 10.0_A});
+
+  // Two sim cycles, eight control steps (125 us): within 5 % of the step.
+  sim::StepCycle();
+  sim::StepCycle();
+  const auto kEarly = PlantCurrentInControllerFrame();
+  zassert_within(kEarly.q, 10.0_A, 0.5_A, "i_q after 125 us");
+
+  Current peak{};
+  for (unsigned i = 0; i < kCyclesPerMs; ++i) {
+    sim::StepCycle();
+    peak = Max(peak, PlantCurrentInControllerFrame().q);
+  }
+  zassert_true(peak < 10.8_A, "overshoot");
+  const auto kSettled = PlantCurrentInControllerFrame();
+  zassert_within(kSettled.q, 10.0_A, 0.1_A);
+  zassert_within(kSettled.d, 0.0_A, 0.1_A);
+  zassert_false(isr.state.overcurrent_tripped);
+}
+
 ZTEST_F(sim_closed_loop, test_q_current_step_at_the_bandwidth_of_64_khz_pwm) {
   // A control step every PWM period at 64 kHz: one period (15.6 us) from a
   // sample to the middle of its duties. 60 degrees phase margin: w_c =
   // (pi / 6) / 15.6 us, 33.5 krad/s (5.3 kHz).
-  Restart(fixture->settings, 64.0_kHz, 1U);
+  Restart(fixture->settings, 64.0_kHz, 2U);
   auto& isr = CurrentControlIsr::Instance();
-  zassert_equal(isr.state.timing.divider, 1U);
+  zassert_equal(isr.state.timing.divider, 2U);
   zassert_within(isr.state.output_delay_steps, 1.0F, 1e-6F);
   TuneToDelay();
   isr.SetCurrentRef({0.0_A, 10.0_A});
@@ -186,11 +214,12 @@ ZTEST_F(sim_closed_loop, test_q_current_step_at_the_bandwidth_of_64_khz_pwm) {
 }
 
 ZTEST_F(sim_closed_loop, test_control_divider_runs_a_step_every_second_period) {
-  // 64 kHz PWM, divider 2: 32 kHz control steps, the observer after every
-  // second one (16 kHz). The duties hold for two periods: 1.5 periods delay.
-  Restart(fixture->settings, 64.0_kHz, 2U);
+  // 64 kHz PWM, divider 4 half periods: 32 kHz control steps, the observer
+  // after every second one (16 kHz). The duties hold for two periods: 1.5
+  // periods delay.
+  Restart(fixture->settings, 64.0_kHz, 4U);
   auto& isr = CurrentControlIsr::Instance();
-  zassert_equal(isr.state.timing.divider, 2U);
+  zassert_equal(isr.state.timing.divider, 4U);
   zassert_equal(isr.state.timing.steps_per_cycle, 2U);
   zassert_within(isr.state.output_delay_steps, 0.75F, 1e-6F);
   TuneToDelay();
@@ -247,7 +276,7 @@ ZTEST_F(sim_closed_loop, test_slow_update_runs_once_per_control_cycle) {
     zassert_equal(sim::CycleCount(), i);
     zassert_false(isr.state.observer_pending.load());
     zassert_equal(isr.state.angles.active.load(), i % 2U, "cycle %u", i);
-    zassert_equal(isr.state.samples, 2U * i, "one control step per PWM period");
+    zassert_equal(isr.state.samples, 4U * i, "one control step per half period");
   }
   zassert_equal(isr.state.observer_overruns, 0U);
   // 16 kHz control cycle: exactly 62.5 us each, no rounding drift.

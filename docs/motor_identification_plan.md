@@ -402,8 +402,9 @@ on the board. As implemented:
   on request (its last output held), the dead-time compensation off, and the
   sine of M2 on one axis, added per duty entry at the phase of the entry's
   middle from the integer phase of the hot path's sine table (no libm). The
-  sine has a fixed period of 64 control steps, the step rate / 64 (500 Hz at
-  32 kHz PWM and divider 1), counted from the first control cycle, so the
+  sine has a fixed period of 128 PWM half periods, f_pwm / 64 (500 Hz at
+  32 kHz) whatever the control divider, counted from the first control
+  cycle, so the
   observer knows the phase of every current sample exactly; this replaces the Goertzel recursion
   by its single-bin sum (`identification::PhasorAccumulator`).
 - **Online accumulation:** `SlowUpdate::RequestWindow()` / `TakeWindow()`

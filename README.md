@@ -56,7 +56,7 @@ simulation.
 | **Observers** | Back-EMF / PLL (PMSM) fused with Hall sensors, ASM rotor-flux Luenberger, EESM excitation LPF |
 | **Control** | MTPA, field-weakening, ASM flux PI, EESM excitation PI (current or flux mode) |
 | **Position** | Absolute multi-turn tracker (±4096+ rev), cascaded P+PI position controller, homing state machine |
-| **Modulation** | Space Vector PWM (SVPWM), dead-time compensation; current PI on every PWM period or every second or fourth (control divider), sampled at the valley, new duties at the peak; PWM frequency selectable from the motor inductance |
+| **Modulation** | Space Vector PWM (SVPWM), dead-time compensation; current PI every half PWM period, every period (valley sample, symmetric pulses) or every second or fourth period (control divider, the fastest the processor runs by default); PWM frequency selectable from the motor inductance |
 | **Network** | Cyphal (UAVCAN v1) over CAN FD — every setting a register, arming, setpoints, telemetry, traces (cymon) and the log on the bus, also for the simulation (see [Cyphal](#cyphal-uavcan-v1-interface)) |
 | **Persistence** | Live RAM settings for tuning; one flash entry per changed register (Zephyr settings on ZMS); saving only while the power stage is disabled |
 | **Platform** | HAL-free algorithms; tested on Linux x86-64 with GTest; Zephyr firmware for the Jacobi drive (STM32H743), the NUCLEO-H743ZI and `native_sim` |
@@ -137,7 +137,7 @@ contexts are (details in [`docs/hotpath_plan.md`](docs/hotpath_plan.md)):
 
 | Context | Runs | Latency |
 |---|---|---|
-| Sample ISR (ADC end of injected sequence, every half PWM period) | Overcurrent and overvoltage check on raw counts; after the valley sample of every `control_divider`-th period the control step: Park, PI, inverse Park, SVM, duties into the CCR preload (taken over at the next peak) | Zero-latency IRQ |
+| Sample ISR (ADC end of injected sequence, every half PWM period) | Overcurrent and overvoltage check on raw counts; every `control_divider` half periods (after every sample, or after the valley) the control step: Park, PI, inverse Park, SVM, duties into the CCR preload (taken over at the next boundary or peak) | Zero-latency IRQ |
 | Observer (after 1, 2, 4 or 8 control steps, at most 16 kHz) | Flux observer, Kalman, Hall fusion, angle reference of the next cycle (`SlowUpdate`) | Software-pended normal-priority IRQ |
 | Zephyr threads | Speed and position control (about 2 kHz, planned), logging (RTT), the Cyphal node, settings, startup sequencing | Normal scheduling |
 
@@ -441,7 +441,7 @@ STM32H7; `hardware/hot_path_timing.hpp`).  Read-only registers:
 | `unimoc.timing.sample_isr`, `.control_cycle`, `.observer` | natural32[4] | min, mean, max [cycles], number of records |
 | `unimoc.timing.overruns` | natural32[2] | duties written after the peak they were meant for, control cycles that ended while the observer still ran |
 | `unimoc.timing.clock_hz` | natural32[1] | the timestamp clock |
-| `unimoc.timing.pwm` | real32[4] | running PWM frequency, control-step rate, observer rate [Hz], control divider (also without the timing build) |
+| `unimoc.timing.pwm` | real32[4] | running PWM frequency, control-step rate, observer rate [Hz], control divider in half periods (also without the timing build) |
 | `unimoc.timing.pwm_suggestion` | real32[3] | PWM frequency for the inductance of the running settings [Hz], the ripple there and at the running frequency [A peak to peak] |
 
 ```sh

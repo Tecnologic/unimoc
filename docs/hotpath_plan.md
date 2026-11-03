@@ -5,16 +5,18 @@
 > history; the STM32H7 platform (`hardware/zephyr_stm32h7`, Jacobi and the
 > NUCLEO-H743ZI) carries the same design.
 
-> **2026-11-03 (control divider):** the current is sampled for the control
-> once per PWM period at the valley, the middle of the high-side pulses, and
-> the duties go into the CCR preload, which the timer takes over at the peak
-> only (RCR = 1). Every pulse stays symmetric and the sample is free of
-> ripple. The control step runs on every `control_divider`-th period (1, 2
-> or 4), the observer after a power of two of steps (at most 16 kHz).
-> `pwm_frequency` 0 selects the frequency from the inductance. Before that,
-> the PI ran on every half period (64 kHz at 32 kHz PWM, duties at every
-> boundary), and before that once per four samples with a duty DMA; both are
-> in the git history. HFI is gone: Hall sensors cover low speed.
+> **2026-11-03 (control divider):** the control step runs every
+> `control_divider` PWM half periods and always writes the CCR preload.
+> Divider 1: after every peak and valley sample, an update at every boundary
+> (RCR = 0), the fastest loop. Divider 2, 4, 8: after every first, second or
+> fourth valley sample (the middle of the high-side pulses), an update at the
+> peak only (RCR = 1): every pulse stays symmetric and the sample is free of
+> ripple. Divider 0 takes the smallest the processor runs, so 32 kHz PWM gets
+> a step every half period (64 kHz) and 64 kHz PWM a step every period. The
+> observer runs after a power of two of steps (at most 16 kHz).
+> `pwm_frequency` 0 selects the frequency from the inductance. Before that
+> the PI ran once per four samples with a duty DMA (git history). HFI is
+> gone: Hall sensors cover low speed.
 
 Status: 2026-11-03. The times in section 4 are measured on the NUCLEO-H743ZI
 (400 MHz, power stage off, no motor), the rest are estimates.
@@ -26,18 +28,21 @@ the timing (`lib/settings/control_timing.hpp`, `settings::ResolveControlTiming()
 | Setting / board limit | Meaning |
 |---|---|
 | `unimoc.control.pwm_frequency` | 16, 20, 24, 28, 32, 40, 48 or 64 kHz; 0: the lowest of them from 20 kHz on whose ripple stays within 30 % of `motor_i_max` |
-| `unimoc.control.divider` | PWM periods per control step: 1, 2 or 4; 0: the smallest the board runs |
+| `unimoc.control.divider` | PWM half periods per control step: 1, 2, 4 or 8; 0: the smallest the board runs |
 | `max_pwm_frequency` (board) | Highest PWM frequency of the power stage; Jacobi and the sim: 64 kHz |
 | `max_control_frequency` (board) | Highest control-step rate of the processor; STM32H743 from ITCM: 64 kHz |
 | steps per observer cycle | The smallest of 1, 2, 4, 8 that keeps the observer at or below 16 kHz |
 
-| PWM | Divider | Control step | Observer | Delay T_d |
+| PWM | Divider (automatic on the H743) | Control step | Observer | Delay T_d |
 |---|---|---|---|---|
-| 64 kHz | 1 | 64 kHz | 16 kHz (4 steps) | 15.6 µs |
-| 64 kHz | 2 | 32 kHz | 16 kHz (2 steps) | 23.4 µs |
-| 40 kHz | 1 | 40 kHz | 10 kHz (4 steps) | 25 µs |
-| 32 kHz (factory) | 1 | 32 kHz | 16 kHz (2 steps) | 31.25 µs |
-| 20 kHz | 1 | 20 kHz | 10 kHz (2 steps) | 50 µs |
+| 64 kHz | 2 (auto), every period | 64 kHz | 16 kHz (4 steps) | 15.6 µs |
+| 64 kHz | 4, every second period | 32 kHz | 16 kHz (2 steps) | 23.4 µs |
+| 40 kHz | 2 (auto) | 40 kHz | 10 kHz (4 steps) | 25 µs |
+| 32 kHz (factory) | 1 (auto), every half period | 64 kHz | 16 kHz (4 steps) | 23.4 µs |
+| 32 kHz | 2, every period | 32 kHz | 16 kHz (2 steps) | 31.25 µs |
+| 20 kHz | 1 (auto) | 40 kHz | 10 kHz (4 steps) | 37.5 µs |
+
+The delay is T_d = T_h + divider · T_h / 2 (`ControlTiming::OutputDelaySteps()`).
 
 The register `unimoc.timing.pwm` reports the running timing,
 `unimoc.timing.pwm_suggestion` the frequency for the inductance of the
@@ -71,7 +76,7 @@ Acceleration is not modeled.
 ## 2. Timing of One Control Step
 
 Peaks P and valleys V of the center-aligned counter; the high-side pulses
-(PWM mode 1) are centered on the valleys. Divider 1:
+(PWM mode 1) are centered on the valleys. Divider 2 (a step every period):
 
 ```
         V(n)            P               V(n+1)          P
@@ -83,33 +88,50 @@ duty    |  w(n-1)                       |  w(n)  ...
                                         ^ the pulse of w(n) is centered here
 ```
 
+Divider 1 (a step every half period, B = every peak and valley):
+
+```
+        B(n-1)          B(n)            B(n+1)          B(n+2)
+--------|---------------|---------------|---------------|------
+duty    |    w(n-2)     |    w(n-1)     |     w(n)      |
+                     ^ sample n (trigger lead before B(n))
+                        ^ JEOS, control step n writes w(n) into the preload
+                                        ^ w(n) takes effect (update at every boundary)
+```
+
 - **Sampling.** The ADC injected sequence is triggered `adc_trigger_offset`
   ticks before every boundary (TRGO2 = OC4REF before the peak, OC6REF before the
   valley). The JEOS interrupt reads ia, ib, ic and the DC link and compares
   them with the raw window (`SetOvercurrentWindow`, from `max_phase_current`)
   and the raw overvoltage level; a violation sets the break (`EGR = BG`) at once.
-  A peak sample ends there; its trip is kept for the next control step
-  (`Sample()`/`GetSample()` report the trips of the unread samples once).
-- **Control step.** After a valley sample the interrupt calls
-  `SampleHandler()` (`CurrentControlIsr::OnSample()`). Every `divider`-th call
-  writes the duties into CCR1..3 (preload); the other calls return at once.
+  At divider 2 and above a peak sample ends there; its trip is kept for the
+  next control step (`Sample()`/`GetSample()` report the trips of the unread
+  samples once).
+- **Control step.** After every sample (divider 1) or every valley sample the
+  interrupt calls `SampleHandler()` (`CurrentControlIsr::OnSample()`). Every
+  `CallsPerStep()`-th call (1 at divider 1 and 2, then divider / 2) writes
+  the duties into CCR1..3 (preload); the other calls return at once.
   Every `steps_per_cycle` steps end a control cycle and pend the observer.
-- **Update at the peak.** RCR = 1 gives one update event per PWM period. The
+- **Update.** Divider 1: RCR = 0, an update at every peak and valley.
+  Divider 2 and above: RCR = 1 gives one update event per PWM period. The
   repetition counter raises it when it is 0 and counts every overflow and
   underflow; `InitTimer()` loads it with 0 (UG with RCR = 0, then RCR = 1),
   so the first and every following update is a peak. Measured on the
   NUCLEO-H743ZI (2026-11-03, UIF read in the sample interrupt): with the
   counter loaded with 1 every update fell on the valley, with 0 every update
   falls on the peak.
-- **Deadline.** The duties must be in the preload before the next peak: half
-  a period after the valley, minus the end of the ADC sequence (JEOS about
-  1.7 µs after the valley on the Nucleo). A write before the valley (long
-  trigger lead) also waits for the peak. `SetDutyTicks()` counts a write after
-  the peak as an overrun (`DutyOverruns()`); it takes effect one period late.
+- **Deadline.** The duties must be in the preload before the next update:
+  half a period after the sample, minus the end of the ADC sequence (JEOS
+  about 1.7 µs after the boundary on the Nucleo). With the valley sampling a
+  write before the valley (long trigger lead) also waits for the peak; at
+  divider 1 the end of the sequence must come after the boundary of its
+  trigger (lead shorter than the sequence), or the duties take effect half a
+  period early. `SetDutyTicks()` counts a write after its update as an
+  overrun (`DutyOverruns()`); it takes effect at the following one.
 - **Delay.** w(n) takes effect half a period after sample n and holds for
-  `divider` periods: its middle is T_d = 0.5 T + divider · T / 2 after the
-  sample (`output_delay_steps`, `ControlTiming::OutputDelaySteps()`), one
-  period at divider 1.
+  `divider` half periods: its middle is T_d = T_h + divider · T_h / 2 after
+  the sample (`output_delay_steps`, `ControlTiming::OutputDelaySteps()`), 1.5
+  half periods at divider 1, one period at divider 2.
 - **Angles (D4).** The observer hands over one angle reference per cycle
   (`AngleReference`): the angle at the first sample of the next cycle, the
   rotation of one control step (ω·dt) and the rotation of the output delay
@@ -125,14 +147,19 @@ duty    |  w(n-1)                       |  w(n)  ...
 
 ## 3. Duty Range and Current Bandwidth
 
-The duties take effect through the preload at the peak, so the ISR timing
+The duties take effect through the preload at a boundary, so the ISR timing
 does not limit them. What remains:
 
 - **Sampling window.** At a valley the phase with the lowest duty switches
-  closest to the sample. When that edge lies within `trigger lead + 1 µs` of
-  the valley, the STM32H7 layer drops the phase and reconstructs it from the
-  other two (three inline sensors, ia + ib + ic = 0). The compare values
-  active during the sample are the last ones written (`AppliedTicks()`).
+  closest to the sample, at a peak the one with the highest. When that edge
+  lies within `trigger lead + 1 µs` of the boundary, the STM32H7 layer drops
+  the phase and reconstructs it from the other two (three inline sensors,
+  ia + ib + ic = 0). The compare values active during the sample
+  (`AppliedTicks()`) are the last ones written with the valley sampling, the
+  ones written two samples before at divider 1.
+- **Pulse symmetry.** At divider 1 the duties change at every boundary, so a
+  pulse may be asymmetric about its valley and a sample is not exactly the
+  mean of the ripple; with the valley sampling every pulse is symmetric.
 - **Minimum pulse.** 3 % of a PWM period (31.25 µs) is 0.94 µs. Factory
   `svm_duty_min/max` = 0.03 / 0.97 in the sim profile, 0.04 / 0.96 on the
   STM32H7. To be checked on the scope with the bootstrap supply.
@@ -146,24 +173,24 @@ does not limit them. What remains:
 the open loop is an integrator with the delay T_d from a sample to the middle
 of its duties; the phase margin is 90° − ω_c·T_d.
 
-| Design | T_d | ω_c for 60° margin |
+| Timing | T_d | ω_c for 60° margin |
 |---|---|---|
-| Control step every period, 64 kHz PWM | 15.6 µs | 33.5 krad/s (5.3 kHz) |
-| Control step every period, 40 kHz PWM | 25 µs | 20.9 krad/s (3.3 kHz) |
-| Control step every period, 32 kHz PWM (factory) | 31.25 µs | 16.8 krad/s (2.7 kHz) |
-| Divider 2 at 64 kHz PWM | 23.4 µs | 22.3 krad/s (3.6 kHz) |
-| PI every half period, 32 kHz PWM (before) | 23.4 µs | 22.3 krad/s (3.6 kHz) |
+| 64 kHz PWM, divider 2 (a step every period, auto) | 15.6 µs | 33.5 krad/s (5.3 kHz) |
+| 32 kHz PWM, divider 1 (a step every half period, factory auto) | 23.4 µs | 22.3 krad/s (3.6 kHz) |
+| 64 kHz PWM, divider 4 | 23.4 µs | 22.3 krad/s (3.6 kHz) |
+| 40 kHz PWM, divider 2 (auto) | 25 µs | 20.9 krad/s (3.3 kHz) |
+| 32 kHz PWM, divider 2 | 31.25 µs | 16.8 krad/s (2.7 kHz) |
 
-At the same PWM frequency the step every period has a longer delay than the
-earlier step every half period (one period against 1.5 half periods): at
-32 kHz the reachable bandwidth drops by a quarter. In exchange the pulses stay
-symmetric, the sample is the mean of the ripple, and the processor runs half
-the control steps; 64 kHz PWM with the step every period is then faster than
-the old design at 32 kHz. `sim_closed_loop` runs a 10 A step on a locked
-rotor (100 µH, 50 mΩ) at 64 kHz with the 60° tuning, within 0.5 A after
-125 µs, and the same step at divider 2. The factory gains are still the
-conservative 2000 rad/s of the hoverboard default; raise them per motor
-(`unimoc.control.current.*`) with ω_c = (π / 6) / T_d.
+At the same PWM frequency the step every half period has the shorter delay
+(1.5 half periods against one period) and needs twice the control steps; the
+step every period keeps the pulses symmetric and the sample at the mean of
+the ripple. The automatic divider takes the half period step whenever the
+processor sustains it. `sim_closed_loop` runs a 10 A step on a locked rotor
+(100 µH, 50 mΩ) with the 60° tuning at the factory 32 kHz (divider 1) and at
+64 kHz (divider 2), each within 0.5 A after 125 µs, and the same step at
+divider 4. The factory gains are still the conservative 2000 rad/s of the
+hoverboard default; raise them per motor (`unimoc.control.current.*`) with
+ω_c = (π / 6) / T_d.
 
 ## 4. Data Flow
 
@@ -240,16 +267,18 @@ ITCM saves only about 3 % of the mean (the M7 caches hid the flash), but
 The rest is the code itself (`-O2` saves another 17 %) and the peripheral
 reads. 12.6 KB of the 64 KB ITCM are used.
 
-With the control step after every valley (divider 1, ITCM, `-Os`, the same
-bench, a temporary probe of the update flag in the sample interrupt):
+With the control divider (ITCM, `-Os`, the same bench, a temporary probe of
+the update flag in the sample interrupt):
 
-| PWM | Valley interrupt (incl. step) min / mean / max | Control step | Observer | Steps/s | Overruns |
+| PWM, divider | Sample interrupt with step min / mean / max | Control step | Observer | Steps/s | Overruns |
 |---|---|---|---|---|---|
-| 32 kHz | 1788 / 1896 / 2059 | 1473 / 1577 / 1723 | 1764 / 1901 / 3014 (16 kHz) | 32 200 | 0 / 0 |
-| 64 kHz | 1754 / 1828 / 2069 | 1438 / 1511 / 1723 | 1769 / 2112 / 4850 (16 kHz) | 64 400 | 0 / 0 |
+| 32 kHz, 2 (every period) | 1788 / 1896 / 2059 | 1473 / 1577 / 1723 | 1764 / 1901 / 3014 (16 kHz) | 32 200 | 0 / 0 |
+| 32 kHz, 1 (every half period) | 1768 / 1837 / 2043 | 1453 / 1522 / 1716 | 1768 / 1873 / 4898 (16 kHz) | 64 300 | 0 / 0 |
+| 64 kHz, 2 (every period) | 1754 / 1828 / 2069 | 1438 / 1511 / 1723 | 1769 / 2112 / 4850 (16 kHz) | 64 400 | 0 / 0 |
 
-The update flag was set before every peak interrupt and never before a valley
-one: every update falls on the peak. The valley interrupt starts about
+With the valley sampling the update flag was set before every peak
+interrupt and never before a valley one: every update falls on the peak. At
+divider 1 it was set before every interrupt. The valley interrupt starts about
 1.7 µs after the valley (the end of the ADC sequence); at 64 kHz its worst
 case ends about 0.9 µs before the peak. That margin is thin at `-Os`: build
 the hot path with `-O2` (17 % less) before running 64 kHz on the board, and
@@ -341,14 +370,16 @@ elapsed time because 62.5 µs is not a whole number of 1 µs ticks). Each half p
 
 1. the plant with the duties in effect,
 2. the sample at its end and the overcurrent and overvoltage checks (kept for the next read),
-3. at a peak the duties of the last control step take effect (the preload); at a valley the sample
-   handler, and the observer when the step ended a control cycle.
+3. at an update (the peaks; every boundary at divider 1) the duties of the last control step take
+   effect (the preload); after a valley (every sample at divider 1) the sample handler, and the
+   observer when the step ended a control cycle.
 
 The sim checks the control logic and this timing contract, not the time budget, ADC noise,
 quantization or dead time (the inverter model has none). Tests: `sim_irq_cadence` (cadence, the
 half periods the duties of a step apply to, the trips of unread samples), `sim_overcurrent`
 (per-sample trip), `sim_closed_loop` (current steps on a locked rotor through the real control
-core, at 64 kHz with the 60° tuning and with divider 2), `unimoc.lib.settings` (`control_timing`:
+core, with the 60° tuning at 32 kHz divider 1 and 64 kHz divider 2, and at divider 4),
+`unimoc.lib.settings` (`control_timing`:
 suggestion, divider, observer rate, validation).
 
 ## 8. Milestones
@@ -358,7 +389,7 @@ Each milestone builds for the STM32H7 boards and native_sim and keeps the twiste
 | M | Content | Evidence |
 |---|---|---|
 | M0 | Instrumentation (`CONFIG_UNIMOC_HOT_PATH_TIMING`, `hardware/hot_path_timing.hpp`): DWT cycles around every sample interrupt, the control step and the observer, min/mean/max, `DutyOverruns()`, `observer_overruns`; read over the `unimoc.timing.*` registers. First numbers from the NUCLEO-H743ZI (2026-11-03, section 4, outputs off). Open: with the flux observer and Hall fusion running. | Numbers from the board |
-| M1 | Done: CCR preload, pended observer, sim at the 16 kHz cycle. Since 2026-11-03 the control step runs after every valley sample (divider 1, 2 or 4), the preload is taken over at the peak only (RCR = 1), the duty DMA is gone. | Twister: `sim_irq_cadence`, `sim_closed_loop`, `control_timing`; Nucleo: 32.2 k and 64.4 k steps/s, updates at the peak, no overrun |
+| M1 | Done: CCR preload, pended observer, sim at the 16 kHz cycle. Since 2026-11-03 the control step runs every 1, 2, 4 or 8 half periods: after every sample with an update at every boundary (RCR = 0), or after the valley samples with the update at the peak only (RCR = 1); the duty DMA is gone. | Twister: `sim_irq_cadence`, `sim_closed_loop`, `control_timing`; Nucleo: 64.3 k steps/s at 32 kHz (divider 1), 32.2 k and 64.4 k at 32 and 64 kHz (divider 2), updates where expected, no overrun |
 | M2 | Done in code: circle limiter without libm (`vsqrt.f32` through `-fno-math-errno`). The control step makes one division by V_dc for its SVM. | `svm_test`, call-graph check below |
 | M3 | Done in code: hot-path hardware access through `hardware/hot_path_interface.hpp` (link-time bound, no function pointers); the platform calls `SampleHandler()`/`ObserverHandler()` of the application directly; `-fno-math-errno` for the Zephyr build. Hot path in ITCM since 2026-11-03 (`hot_path_itcm.ld`). Inlining across the translation units (LTO or header-only access) is open; `-O2` saves about 15 % (section 4). | Call-graph check below, cycles against the M0 baseline |
 | M4 | Done in code: `MechanicalObserver` with `PredictCovariance()`, `UpdateAngle()`/`UpdateSpeed()` each with its own R, error wrap in `angle_wrap.hpp`; the flux observer as an angle measurement with R_flux = R0 + k/ω². | `mechanical_observer_test` (synthetic profiles) |

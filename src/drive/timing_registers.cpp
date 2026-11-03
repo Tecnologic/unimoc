@@ -57,7 +57,11 @@ constexpr std::array<cyphal::RegisterDescription, kNames.size()> kDescriptions{{
     {"cycles", -kInf, kInf, RegisterEffect::kImmediate, "Observer run time: min, mean, max, count"},
     {{}, -kInf, kInf, RegisterEffect::kImmediate, "Overruns: duty updates too late, observer late"},
     {"Hz", -kInf, kInf, RegisterEffect::kImmediate, "Clock of the run time counters"},
-    {"Hz", -kInf, kInf, RegisterEffect::kImmediate, "PWM, control step and observer rate, control divider"},
+    {"Hz",
+     -kInf,
+     kInf,
+     RegisterEffect::kImmediate,
+     "PWM, control step and observer rate, divider [half periods]"},
     {{}, -kInf, kInf, RegisterEffect::kImmediate, "PWM for the inductance [Hz], ripple there and now [A pp]"},
 }};
 

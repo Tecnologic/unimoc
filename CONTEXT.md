@@ -31,9 +31,9 @@ external API requires different wording.
 |---|---|
 | **hot path** | The FOC work that runs in zero-latency IRQs: the sample ISR and its control step. Only this runs at zero latency. |
 | **zero-latency IRQ** | An interrupt that bypasses the Zephyr scheduler and kernel locking (`IRQ_ZERO_LATENCY`). It may not call kernel APIs, log, or lock. |
-| **sample ISR** | The end of the injected ADC sequence (JEOS), once per half PWM period. It checks the raw currents and the DC link against the trip limits; after a valley sample it calls the control step. |
-| **control step** | The fast current control of one valley sample, every `control_divider`-th PWM period: Park, PI, inverse Park, SVM, duties into the CCR preload, taken over at the next peak. `CurrentControlIsr::OnSample()` in code. |
-| **control divider** | PWM periods per control step (1, 2 or 4; `unimoc.control.divider`, 0 automatic from the board's `max_control_frequency`). `settings::ResolveControlTiming()` resolves it with the PWM frequency. |
+| **sample ISR** | The end of the injected ADC sequence (JEOS), once per half PWM period. It checks the raw currents and the DC link against the trip limits; after a valley sample (at divider 1 after every sample) it calls the control step. |
+| **control step** | The fast current control of one sample, every `control_divider` PWM half periods: Park, PI, inverse Park, SVM, duties into the CCR preload, taken over at the next boundary (divider 1) or the next peak (divider 2, 4, 8). `CurrentControlIsr::OnSample()` in code. |
+| **control divider** | PWM half periods per control step (1: every peak and valley, 2: every valley, 4, 8; `unimoc.control.divider`, 0 the smallest the board's `max_control_frequency` allows). `settings::ResolveControlTiming()` resolves it with the PWM frequency. |
 | **control cycle** | A power of two of control steps (at most 16 kHz), the period of the observer. The last step of a cycle hands its record (samples, mean current and voltage) to the observer. |
 | **PWM suggestion** | The lowest PWM frequency from 20 kHz on whose ripple (0.15 V_dc / (L f)) stays within 30 % of `motor_i_max`; `pwm_frequency` 0 runs it, `unimoc.timing.pwm_suggestion` reports it. |
 | **hot-path interface** | `hardware/hot_path_interface.hpp`: the hardware access of the control step (`hot_path::GetSample`, `SetDuties`, `TripPowerStage`) and the two handlers the platform calls (`SampleHandler`, `ObserverHandler`). Bound at link time per platform, no function pointers. |
