@@ -177,8 +177,22 @@ mean load of hot path and observer is about 36 % of the CPU. Before the
 change the same board measured 2311 cycles (mean) for the four-entry control
 cycle, with the loop held in its trip path (the full path did not run then).
 
+Hot path in ITCM (since 2026-11-03, `hardware/zephyr_stm32h7/hot_path_itcm.ld`,
+data still in AXI SRAM through the D-cache), same bench:
+
+| Section | ITCM `-Os` (default) min / mean / max | ITCM `-O2` min / mean / max |
+|---|---|---|
+| Sample interrupt (incl. control step) | 1618 / 1727 / 1908 | 1318 / 1426 / 1679 |
+| Control step alone | 1385 / 1491 / 1671 | 1142 / 1247 / 1497 |
+| Observer (16 kHz) | 1764 / 1867 / 3001 (one 4837) | 1398 / 1490 / 2438 |
+
+ITCM saves only about 3 % of the mean (the M7 caches hid the flash), but
+16 to 18 % of the worst sample interrupt: the jitter of a cache miss is gone.
+The rest is the code itself (`-O2` saves another 17 %) and the peripheral
+reads. 12.6 KB of the 64 KB ITCM are used.
+
 Open: the observer with the flux observer and Hall fusion running, and the
-hot path in ITCM (code and data in flash and AXI SRAM today).
+hot-path data in DTCM.
 
 ### Why the observer is a normal interrupt
 
@@ -250,8 +264,9 @@ hardware layer does not expose the Hall signals yet (M5).
 - **Integer arithmetic: no.** On Cortex-M4F float add and multiply cost one cycle; the time goes into
   function pointers, `sqrtf` (libm, errno) and divisions.
 - **STM32H7.** Advanced timer, TRGO, preload written by the control step (no DMA since 2026-11-03).
-  Budget per half period 6250 cycles at 400 MHz (rev. Y); ITCM/DTCM and
-  `-fsingle-precision-constant` are open options if the measurements need them.
+  Budget per half period 6250 cycles at 400 MHz (rev. Y). The hot path runs from ITCM
+  (2026-11-03); DTCM and `-fsingle-precision-constant` are open options if the measurements
+  need them.
 
 ## 7. Simulation (native_sim)
 
@@ -278,7 +293,7 @@ Each milestone builds for the STM32H7 boards and native_sim and keeps the twiste
 | M0 | Instrumentation (`CONFIG_UNIMOC_HOT_PATH_TIMING`, `hardware/hot_path_timing.hpp`): DWT cycles around every sample interrupt, the control step and the observer, min/mean/max, `DutyOverruns()`, `observer_overruns`; read over the `unimoc.timing.*` registers. First numbers from the NUCLEO-H743ZI (2026-11-03, section 4, outputs off). Open: with the flux observer and Hall fusion running. | Numbers from the board |
 | M1 | Done: RCR = 0, CCR preload, pended observer, sim at the 16 kHz cycle. Since 2026-11-03 the control step runs in every sample interrupt and writes the preload; the duty DMA is gone. | Twister: `sim_irq_cadence`, `sim_closed_loop`; Nucleo: 64.3 k steps/s, no overrun |
 | M2 | Done in code: circle limiter without libm (`vsqrt.f32` through `-fno-math-errno`). The control step makes one division by V_dc for its SVM. | `svm_test`, call-graph check below |
-| M3 | Done in code: hot-path hardware access through `hardware/hot_path_interface.hpp` (link-time bound, no function pointers); the platform calls `SampleHandler()`/`ObserverHandler()` of the application directly; `-fno-math-errno` for the Zephyr build. Inlining across the translation units (LTO or header-only access) and ITCM placement are open; `-O2` saves about 15 % (section 4). | Call-graph check below, cycles against the M0 baseline |
+| M3 | Done in code: hot-path hardware access through `hardware/hot_path_interface.hpp` (link-time bound, no function pointers); the platform calls `SampleHandler()`/`ObserverHandler()` of the application directly; `-fno-math-errno` for the Zephyr build. Hot path in ITCM since 2026-11-03 (`hot_path_itcm.ld`). Inlining across the translation units (LTO or header-only access) is open; `-O2` saves about 15 % (section 4). | Call-graph check below, cycles against the M0 baseline |
 | M4 | Done in code: `MechanicalObserver` with `PredictCovariance()`, `UpdateAngle()`/`UpdateSpeed()` each with its own R, error wrap in `angle_wrap.hpp`; the flux observer as an angle measurement with R_flux = R0 + k/ω². | `mechanical_observer_test` (synthetic profiles) |
 | M5 | Done in code: `HallDecoder` and `HallEventQueue` (`hall_capture.hpp`), BCC EXTI capture with timestamps (not run on the board), sim Hall events with the edge time from the plant. | `hall_decoder_test`, `hall_sensor_test` (generated edges) |
 | M6 | Done in code: `HallFusion` with edge and sector measurement, speed bound from the sector time, standstill hold, sector center at the start. | `hall_fusion_test`, `sim_hall_fusion` (standstill without drift, ramps, Hall failure) |
@@ -296,6 +311,16 @@ trace sampling (`trace::OnControlCycle`, `cymon::Device::Tick`), the timing
 probe, `memset` and `memmove`. No libm function, no indirect call (`blx rN`),
 no kernel function and no `__cxa_guard_*`. Repeat the check after changes to
 the hot path.
+
+Since the ITCM placement the check also lists where each function lies:
+calls from ITCM (address 0) into flash go through linker veneers
+(`__<symbol>_veneer`, an indirect jump), so a function missing from
+`hot_path_itcm.ld` shows up as a veneer and a function above 0x08000000.
+2026-11-03 at `-Os`: 37 functions, all in ITCM except `memset` (cymon `Tick`,
+one zeroed frame while a capture runs). `memset` has to stay in flash: the
+startup code clears the BSS with it before it copies ITCM. The observer
+interrupt reaches the kernel (`k_sem_give` of the control thread) in flash, as
+intended.
 
 ## 9. Risks and Open Points
 
@@ -316,10 +341,12 @@ the hot path.
   If it does not finish within one cycle, the control steps start to refill the record it reads;
   counted (`observer_overruns`), none measured on the Nucleo.
 - **FPU in zero-latency ISRs.** Lazy stacking costs cycles when a thread uses the FPU. Measure in M0.
-- **Code and data in flash.** The hot path runs from flash through the M7 caches (the
-  sample interrupt varies between 1631 and 2276 cycles). ITCM (64 KB, zero wait states, Zephyr
-  `CODE_DATA_RELOCATION`) would cut the time and the jitter and keep the hot path free of the
-  flash stall of a settings write; the settings gate holds the stage disabled during a save.
+- **Hot-path data in AXI SRAM.** The code runs from ITCM since 2026-11-03 (section 4; the
+  sample interrupt varies between 1618 and 1908 cycles, before between 1631 and 2276 from
+  flash). It no longer stalls on a flash write either. The state of the control step and the
+  sample are still in AXI SRAM through the D-cache; DTCM would remove the remaining cache
+  misses. `hot_path_itcm.ld` names the functions by their mangled names: a renamed hot-path
+  function falls back to flash silently, so repeat the call-graph check (section 8).
 - **Hall alignment.** Without a calibrated table, angle errors of up to about ±10° are possible.
 - **Start-up.** At standstill the fusion only knows the sector (±30°): about 87 % torque (cos 30°).
   HFI was removed (2026-11-03): the Hall sensors are the low-speed angle source.

@@ -26,6 +26,7 @@
 		zephyr,sram = &sram0;
 		zephyr,flash = &flash0;
 		zephyr,dtcm = &dtcm;
+		zephyr,itcm = &itcm; /* hot path, hardware/zephyr_stm32h7/hot_path_itcm.ld */
 		zephyr,code-partition = &slot0_partition;
 		zephyr,canbus = &fdcan1;
 	};

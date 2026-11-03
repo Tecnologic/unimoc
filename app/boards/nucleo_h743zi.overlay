@@ -13,6 +13,11 @@
  */
 
 / {
+	chosen {
+		/* The hot path runs from ITCM (hardware/zephyr_stm32h7/hot_path_itcm.ld). */
+		zephyr,itcm = &itcm;
+	};
+
 	/* Status LEDs of hardware/status_leds.hpp on LD1 (green), LD2 (yellow) and LD3 (red). */
 	aliases {
 		unimoc-led-run = &green_led;

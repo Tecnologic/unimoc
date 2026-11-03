@@ -71,7 +71,10 @@ Read `README.md` for the supported motor types and public features, and
   holds the pinout, timers, ADC trigger, dead time, and sample times.
 - `hardware/zephyr_stm32h7/` is the STM32H7 platform (node `foc0`, compatible
   `unimoc,foc-stm32h7`) of Jacobi, brought up first on a NUCLEO-H743ZI
-  (`app/boards/nucleo_h743zi.overlay`).
+  (`app/boards/nucleo_h743zi.overlay`). Its hot path runs from ITCM:
+  `hot_path_itcm.ld` names the functions by mangled name, so check it when
+  renaming or adding a hot-path function (call-graph check,
+  `docs/hotpath_plan.md` section 8).
   `hardware/zephyr_sim/` is the `native_sim` platform. `hardware/zephyr_common/`
   is the shared Zephyr glue (system interface, settings storage and lock, the
   Cyphal thread, the CAN interface on the chosen `zephyr,canbus`, the log

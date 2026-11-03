@@ -153,7 +153,7 @@ module. The notes below stay for that module if it uses an H743.
 - New: the H7 ADC (clock and boost, linear and offset calibration, 16 bit
   data or the 12 bit mode for shorter conversions), ADC3 in the D3 domain,
   the cache and MPU setup (non-cacheable D2 region for the DMA buffers),
-  the hot path linked into ITCM/DTCM.
+  the hot path linked into ITCM (done, `hot_path_itcm.ld`); data in DTCM open.
 - Flash layout: image in bank 1; DFU slot and the settings partition (two
   128 KB sectors, ZMS with 32 byte write blocks: check) in bank 2.
 - Board definition `boards/unimoc/jacobi/` (board `unimoc_jacobi`, done
@@ -177,8 +177,8 @@ UNIMOC parts. Built, not run on the board yet.
   three injected conversions per ADC, the unlocked M7 cycle counter. Since
   2026-11-03 the control step runs in every sample interrupt and writes the
   CCR preload (no duty DMA); measured on the Nucleo in `docs/hotpath_plan.md`,
-  section 4. The hot path still runs from flash with the caches on; ITCM/DTCM
-  placement is open.
+  section 4. The hot path runs from ITCM (`hot_path_itcm.ld`, both H7 boards
+  choose `zephyr,itcm`); DTCM for its data is open.
 - Image: 191 KB flash, 77 KB RAM (bank 1); settings (ZMS, 2 x 128 KB) and
   the DFU slot in bank 2.
 
