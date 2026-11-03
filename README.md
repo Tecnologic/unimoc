@@ -56,7 +56,7 @@ simulation.
 | **Observers** | Back-EMF / PLL (PMSM) fused with Hall sensors, ASM rotor-flux Luenberger, EESM excitation LPF |
 | **Control** | MTPA, field-weakening, ASM flux PI, EESM excitation PI (current or flux mode) |
 | **Position** | Absolute multi-turn tracker (±4096+ rev), cascaded P+PI position controller, homing state machine |
-| **Modulation** | Space Vector PWM (SVPWM), dead-time compensation; current PI every half PWM period, every period (valley sample, symmetric pulses) or every second or fourth period (control divider, the fastest the processor runs by default); PWM frequency selectable from the motor inductance |
+| **Modulation** | Space Vector PWM (SVPWM), dead-time compensation; current PI every half PWM period, every period (valley sample, symmetric pulses) or every second or fourth period (control divider, the fastest the processor runs by default); PWM frequency selectable from the motor inductance; inline current sensors or low-side shunts (foc0 `current-sense`: valley sample in PWM mode 2, no step every half period, duty capped for the sample) |
 | **Network** | Cyphal (UAVCAN v1) over CAN FD — every setting a register, arming, setpoints, telemetry, traces (cymon) and the log on the bus, also for the simulation (see [Cyphal](#cyphal-uavcan-v1-interface)) |
 | **Persistence** | Live RAM settings for tuning; one flash entry per changed register (Zephyr settings on ZMS); saving only while the power stage is disabled |
 | **Platform** | HAL-free algorithms; tested on Linux x86-64 with GTest; Zephyr firmware for the Jacobi drive (STM32H743), the NUCLEO-H743ZI and `native_sim` |
@@ -441,7 +441,7 @@ STM32H7; `hardware/hot_path_timing.hpp`).  Read-only registers:
 | `unimoc.timing.sample_isr`, `.control_cycle`, `.observer` | natural32[4] | min, mean, max [cycles], number of records |
 | `unimoc.timing.overruns` | natural32[2] | duties written after the peak they were meant for, control cycles that ended while the observer still ran |
 | `unimoc.timing.clock_hz` | natural32[1] | the timestamp clock |
-| `unimoc.timing.pwm` | real32[4] | running PWM frequency, control-step rate, observer rate [Hz], control divider in half periods (also without the timing build) |
+| `unimoc.timing.pwm` | real32[5] | running PWM frequency, control-step rate, observer rate [Hz], control divider in half periods, highest duty the current sensing allows (1 inline, below 1 on low-side shunts; also without the timing build) |
 | `unimoc.timing.pwm_suggestion` | real32[3] | PWM frequency for the inductance of the running settings [Hz], the ripple there and at the running frequency [A peak to peak] |
 
 ```sh

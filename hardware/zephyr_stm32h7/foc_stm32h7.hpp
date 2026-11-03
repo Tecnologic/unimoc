@@ -34,7 +34,9 @@ namespace unimoc::hardware::foc_stm32h7 {
  *    (CNT = ARR) and at the valley (CNT = 0). With the valley sampling
  *    (RCR = 1) only the peak is an update event, with a step every half
  *    period (RCR = 0) both are. The high-side pulses (PWM mode 1) are
- *    centered on the valley.
+ *    centered on the valley; with low-side shunts (current-sense =
+ *    "low-side", PWM mode 2) the low-side pulses are, and the compare value
+ *    is ARR minus the duty ticks.
  *  - CCR1..3 are preloaded: a written duty takes effect at the next update.
  *  - The ADC1..3 injected sequences are triggered twice per period by TRGO2,
  *    a lead of adc_trigger_offset ticks before each boundary: CC4 before the
@@ -56,7 +58,11 @@ namespace unimoc::hardware::foc_stm32h7 {
  * the phases with a mid-range duty do not switch and the ripple of a
  * symmetric pulse passes its mean. A phase with an extreme duty switches
  * close to the sample; the hardware layer then reconstructs it from the other
- * two (see SampleAtPeak()/AppliedTicks()).
+ * two (see SampleAtPeak()/AppliedTicks()). Low-side shunts measure a phase
+ * only while its low side conducts: the valley sample is the middle of the
+ * low-side pulses (PWM mode 2), the phase with the highest duty switches
+ * closest to it, and the peak sample measures nothing, so the control never
+ * runs every half period there (Initialize() refuses it).
  *
  * The control step must write its duties before the next update, half a
  * period after the sample. With the valley sampling the trigger lead does not
@@ -75,7 +81,8 @@ namespace unimoc::hardware::foc_stm32h7 {
  *                             update at every boundary (RCR = 0); false:
  *                             after the valleys, the update at the peaks.
  * @param adc_trigger_offset   Trigger lead before each boundary [timer ticks].
- * @return false on invalid arguments or if an ADC fails to calibrate or enable.
+ * @return false on invalid arguments (also @p every_half_period with low-side
+ *         shunts) or if an ADC fails to calibrate or enable.
  */
 [[nodiscard]] bool Initialize(unit::Frequency pwm_frequency,
                               bool every_half_period,
@@ -159,7 +166,7 @@ struct SampleRaw {
  */
 [[nodiscard]] uint32_t Timestamp() noexcept;
 
-/// Compare values that were active while the sample was taken.
+/// Duty ticks (high-side on time, not the compare values of PWM mode 2) active while the sample was taken.
 [[nodiscard]] const PhaseTicks& AppliedTicks() noexcept;
 
 /// true when the sample belongs to a peak, false when to a valley.

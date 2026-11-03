@@ -66,6 +66,17 @@ config UNIMOC_EBIKE
 	  the pytest integration tests engage the simulated drive over the
 	  bus.
 
+config UNIMOC_SIM_LOW_SIDE_CURRENT_SENSE
+	bool "Simulate low-side shunts"
+	depends on UNIMOC_PLATFORM_SIM
+	help
+	  The simulated drive measures the phase currents as low-side shunts
+	  do (settings::CurrentSense::kLowSide): at the valley only, and a
+	  phase only while its low side conducts long enough around the
+	  sample. The control then runs after the valleys only and caps the
+	  duty (min_low_side_time). Off by default: the simulated drive has
+	  inline sensors, as Jacobi.
+
 config UNIMOC_HOT_PATH_TIMING
 	bool "Measure the execution times of the interrupts (M0)"
 	depends on UNIMOC_PLATFORM_SIM || UNIMOC_PLATFORM_STM32H7

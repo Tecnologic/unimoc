@@ -496,8 +496,9 @@ inline constexpr const char* kTimingOverruns = "unimoc.timing.overruns";
 inline constexpr const char* kTimingClockHz = "unimoc.timing.clock_hz";
 
 /// Timing the current control runs: PWM frequency, control-step rate,
-/// observer rate [Hz] and the control divider in half periods (settings::ResolveControlTiming()).
-/// Type: real32[4] (read-only)
+/// observer rate [Hz], the control divider in half periods and the highest duty the current sensing
+/// allows (settings::ResolveControlTiming()).
+/// Type: real32[5] (read-only)
 inline constexpr const char* kTimingPwm = "unimoc.timing.pwm";
 
 /// PWM frequency for the inductance of the running settings [Hz], the

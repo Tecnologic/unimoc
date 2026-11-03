@@ -145,6 +145,40 @@ duty    |    w(n-2)     |    w(n-1)     |     w(n)      |
   half; the sample interrupt reads `CNT` to know the boundary type
   (`SampleAtPeak()`), as long as lead and sequence stay below a quarter period.
 
+### Low-side shunts
+
+A board with a shunt in the source of each low-side switch (foc0
+`current-sense = "low-side"`, `settings::CurrentSense::kLowSide` in its
+profile) measures a phase only while its low side conducts. The timing above
+stays the same with three changes:
+
+- **PWM mode 2.** CH1..3 run in PWM mode 2 (high side active while CNT >
+  CCR), so the low-side pulses are centered on the valley and the valley
+  sample is their middle. `SetDutyTicks()` writes ARR minus the duty ticks;
+  `AppliedTicks()` keeps the duty ticks. The update stays at the peak: the
+  period from peak to peak is symmetric about its valley, as with mode 1.
+- **No step every half period.** At the peak every high side is on and the
+  shunts carry no current, so divider 1 is not runnable
+  (`ResolveControlTiming()` skips it, `Initialize()` refuses it). The
+  automatic divider is 2 at 32 kHz as well: 2.7 kHz bandwidth in place of
+  3.6 kHz. The peak sample still runs the DC-link check; its current check
+  sees nothing.
+- **Duty cap.** Each low side must stay on for `min_low_side_time` per PWM
+  period (profile: twice dead time, settling and trigger lead), so
+  `ControlTiming::duty_max` = 1 − f_pwm · `min_low_side_time` caps
+  `svm_duty_max` (also for forced duties). The STM32H7 estimate with 1 µs
+  dead time is 6 µs: 0.81 at 32 kHz, 0.62 at 64 kHz. A cap at or below 50 %
+  is not runnable. `unimoc.timing.pwm` reports the cap as its fifth value.
+  The phase with the highest duty switches closest to the valley; within the
+  guard it is reconstructed from the other two, as with inline sensors.
+
+Open: no board has low-side shunts yet (build check `unimoc.app.build.low_side`
+on Jacobi with an overlay, the sim scenario `unimoc.sim.closed_loop.low_side`).
+The cap costs voltage; it could apply to the middle phase only, with the
+highest phase reconstructed (as the ST motor control SDK does), which needs
+the limit in the SVM. Measure `min_low_side_time` and the amplifier sign on the
+first such board.
+
 ## 3. Duty Range and Current Bandwidth
 
 The duties take effect through the preload at a boundary, so the ISR timing
@@ -379,8 +413,11 @@ quantization or dead time (the inverter model has none). Tests: `sim_irq_cadence
 half periods the duties of a step apply to, the trips of unread samples), `sim_overcurrent`
 (per-sample trip), `sim_closed_loop` (current steps on a locked rotor through the real control
 core, with the 60° tuning at 32 kHz divider 1 and 64 kHz divider 2, and at divider 4),
+`unimoc.sim.closed_loop.low_side` (`CONFIG_UNIMOC_SIM_LOW_SIDE_CURRENT_SENSE`: the samples read
+nothing at the peak and a phase at the valley only with at least 2 µs of low-side time, the profile
+asks for 4 µs; divider 2 at 32 kHz, the duty cap, divider 1 refused, the 60° step),
 `unimoc.lib.settings` (`control_timing`:
-suggestion, divider, observer rate, validation).
+suggestion, divider, observer rate, validation, low-side shunts).
 
 ## 8. Milestones
 

@@ -159,7 +159,9 @@ template <unit::UnitLike U>
          unit::IsFinite(limits.max_pwm_frequency) &&
          limits.max_pwm_frequency > ZeroOf(limits.max_pwm_frequency) &&
          unit::IsFinite(limits.max_control_frequency) &&
-         limits.max_control_frequency > ZeroOf(limits.max_control_frequency);
+         limits.max_control_frequency > ZeroOf(limits.max_control_frequency) &&
+         unit::IsFinite(limits.min_low_side_time) &&
+         !(limits.min_low_side_time < ZeroOf(limits.min_low_side_time));
 }
 
 /// Largest Cyphal subject-ID.

@@ -38,6 +38,11 @@ namespace sim = unimoc::hardware::sim;
 
 constexpr unsigned kCyclesPerMs = 16U;  // 32 kHz PWM: sim cycles of two PWM periods
 
+// Scenario unimoc.sim.closed_loop.low_side: low-side shunts, the control after the valleys only.
+constexpr bool kLowSide = IS_ENABLED(CONFIG_UNIMOC_SIM_LOW_SIDE_CURRENT_SENSE);
+// Control steps of a sim cycle (two PWM periods) at the factory 32 kHz PWM.
+constexpr uint32_t kStepsPerSimCycle = kLowSide ? 2U : 4U;
+
 // Small outrunner: 50 mOhm, 100 uH, 7 pole pairs. PI tuned for a 500 Hz
 // current loop (kp = L * wc, ki = R * wc).
 unimoc::settings::NvmSettings MotorSettings(const unimoc::settings::NvmSettings& factory) {
@@ -159,6 +164,9 @@ ZTEST_F(sim_closed_loop, test_q_current_step_at_the_bandwidth_of_the_half_period
   // The factory 32 kHz PWM resolves to a step every half period (64 kHz):
   // 1.5 half periods (23.4 us) from a sample to the middle of its duties.
   // 60 degrees phase margin: w_c = (pi / 6) / 23.4 us, 22.3 krad/s (3.6 kHz).
+  if (kLowSide) {
+    ztest_test_skip();  // low-side shunts measure nothing at the peak
+  }
   auto& isr = CurrentControlIsr::Instance();
   zassert_equal(isr.state.timing.divider, 1U);
   zassert_within(isr.state.output_delay_steps, 1.5F, 1e-6F);
@@ -238,6 +246,64 @@ ZTEST_F(sim_closed_loop, test_control_divider_runs_a_step_every_second_period) {
   zassert_equal(isr.state.observer_overruns, 0U);
 }
 
+ZTEST_F(sim_closed_loop, test_low_side_shunts_step_after_the_valleys_and_cap_the_duty) {
+  if (!kLowSide) {
+    ztest_test_skip();
+  }
+  // The factory 32 kHz PWM resolves to a step every period, and every low
+  // side stays on for 4 us per period: duty_max = 1 - 32 kHz * 4 us = 0.872.
+  auto& isr = CurrentControlIsr::Instance();
+  zassert_equal(isr.state.timing.divider, 2U);
+  zassert_within(isr.state.timing.duty_max, 0.872_ratio, 1e-5_ratio);
+  zassert_within(isr.svm.duty_max, 0.872_ratio, 1e-5_ratio);
+
+  // Equal duties drive no current; the cap holds for forced duties too.
+  isr.ForceDuty(0.99_ratio, 0.99_ratio, 0.99_ratio);
+  sim::StepCycle();
+  sim::StepCycle();
+  for (const auto& d : sim::AppliedDuties()) {
+    zassert_within(d.a, 0.872_ratio, 1e-5_ratio);
+  }
+  isr.ReleaseForceDuty();
+
+  // A step every half period has no valid sample at the peak: refused.
+  kPowerStage.Disable();
+  unimoc::settings::NvmSettings settings = fixture->settings;
+  settings.control_divider = 1U;
+  zassert_false(unimoc::current_control::StartRuntime(settings, unimoc::hardware::kMotors[0], 60.0_A));
+}
+
+ZTEST_F(sim_closed_loop, test_low_side_q_current_step_at_the_bandwidth_of_the_valley_step) {
+  if (!kLowSide) {
+    ztest_test_skip();
+  }
+  // 32 kHz PWM, a step after every valley: one period (31.25 us) from a
+  // sample to the middle of its duties. 60 degrees phase margin: w_c =
+  // (pi / 6) / 31.25 us, 16.8 krad/s (2.7 kHz).
+  auto& isr = CurrentControlIsr::Instance();
+  zassert_within(isr.state.output_delay_steps, 1.0F, 1e-6F);
+  TuneToDelay();
+  isr.SetCurrentRef({0.0_A, 10.0_A});
+
+  // Four sim cycles, eight control steps (250 us): within 5 % of the step.
+  for (unsigned i = 0; i < 4U; ++i) {
+    sim::StepCycle();
+  }
+  const auto kEarly = PlantCurrentInControllerFrame();
+  zassert_within(kEarly.q, 10.0_A, 0.5_A, "i_q after 250 us");
+
+  Current peak{};
+  for (unsigned i = 0; i < 2U * kCyclesPerMs; ++i) {
+    sim::StepCycle();
+    peak = Max(peak, PlantCurrentInControllerFrame().q);
+  }
+  zassert_true(peak < 10.8_A, "overshoot");
+  const auto kSettled = PlantCurrentInControllerFrame();
+  zassert_within(kSettled.q, 10.0_A, 0.1_A);
+  zassert_within(kSettled.d, 0.0_A, 0.1_A);
+  zassert_false(isr.state.overcurrent_tripped);
+}
+
 ZTEST_F(sim_closed_loop, test_d_current_step_settles) {
   auto& isr = CurrentControlIsr::Instance();
   isr.SetCurrentRef({-8.0_A, 0.0_A});
@@ -276,7 +342,7 @@ ZTEST_F(sim_closed_loop, test_slow_update_runs_once_per_control_cycle) {
     zassert_equal(sim::CycleCount(), i);
     zassert_false(isr.state.observer_pending.load());
     zassert_equal(isr.state.angles.active.load(), i % 2U, "cycle %u", i);
-    zassert_equal(isr.state.samples, 4U * i, "one control step per half period");
+    zassert_equal(isr.state.samples, kStepsPerSimCycle * i, "one control step per half period (period)");
   }
   zassert_equal(isr.state.observer_overruns, 0U);
   // 16 kHz control cycle: exactly 62.5 us each, no rounding drift.

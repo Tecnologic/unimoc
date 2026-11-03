@@ -39,6 +39,10 @@ static_assert(foc_stm32h7::kCoreClockHz == kTimestampFrequency, "the timestamp c
 
 namespace {
 
+// Low-side shunts: settling after the low side turned on plus the trigger
+// lead (1 us, CurrentControlIsr::Init()) before the valley [s]. Estimate.
+constexpr Time kLowSideSampleWindow = 2.0e-6_s;
+
 const settings::SettingsProfile kSettingsProfile = [] {
   settings::SettingsProfile profile{};
   // 32 kHz PWM, a control step every half period (divider automatic, 64 kHz),
@@ -69,6 +73,16 @@ const settings::SettingsProfile kSettingsProfile = [] {
   // (docs/hotpath_plan.md, section 4).
   profile.capabilities.max_pwm_frequency = 64.0_kHz;
   profile.capabilities.max_control_frequency = 64.0_kHz;
+  // foc0 current-sense. Low-side shunts: the control after the valleys only,
+  // and each low side on for the dead time, the settling and the trigger lead
+  // on both sides of the valley sample (UpdateGuard(); about 6 us with the
+  // 1 us dead time, a duty cap of 0.81 at 32 kHz). Estimate, to be measured
+  // on the first low-side board.
+  if constexpr (foc_stm32h7::kLowSideCurrentSense) {
+    profile.capabilities.current_sense = settings::CurrentSense::kLowSide;
+    profile.capabilities.min_low_side_time =
+        2.0F * (1.0e-9_s * static_cast<float>(foc_stm32h7::kDeadTimeNs) + kLowSideSampleWindow);
+  }
   return profile;
 }();
 
@@ -170,13 +184,18 @@ system::ThreePhase<Current> PhaseCurrents(const foc_stm32h7::RawSamples& raw) no
   return {kCorrectedA, kCorrectedB, -kCorrectedA - kCorrectedB};
 }
 
+// The last conversion, of a peak or a valley; with low-side shunts only a
+// valley conversion measures the phases.
 system::ThreePhase<Current> GetPhaseCurrents() noexcept { return PhaseCurrents(foc_stm32h7::ReadRaw()); }
 
 // Phase currents of the sample (the control samples the valleys). At a peak
 // the phase with the highest duty switches closest to the sample, at a valley
-// the one with the lowest. When that edge falls into the guard window around the sample, the
-// phase is reconstructed from the other two (ia + ib + ic = 0); otherwise
-// the zero-sequence error of all three sensors is removed.
+// the one with the lowest; with low-side shunts (PWM mode 2) the low-side
+// pulses are centered on the valley and the highest duty switches closest.
+// When that edge falls into the guard window around the sample, the phase is
+// reconstructed from the other two (ia + ib + ic = 0); otherwise the
+// zero-sequence error of all three sensors is removed. The duty cap of the
+// low-side shunts (min_low_side_time) keeps every low side on for a sample.
 system::ThreePhase<Current> SampleCurrents(const foc_stm32h7::SampleRaw& raw) noexcept {
   const std::array<Current, 3> kPhaseCurrent = {
       analog::CountsToCurrent(raw.ia),
@@ -188,7 +207,7 @@ system::ThreePhase<Current> SampleCurrents(const foc_stm32h7::SampleRaw& raw) no
 
   uint8_t edge = 0U;
   bool disturbed = false;
-  if (foc_stm32h7::SampleAtPeak()) {
+  if (foc_stm32h7::SampleAtPeak() != foc_stm32h7::kLowSideCurrentSense) {
     for (uint8_t phase = 1U; phase < 3U; ++phase) {
       edge = ticks[phase] > ticks[edge] ? phase : edge;
     }

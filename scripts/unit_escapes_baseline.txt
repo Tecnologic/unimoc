@@ -27,7 +27,7 @@
 9 src/drive/commissioning.cpp
 31 src/drive/drive_node.cpp
 1 src/drive/settings_register_provider.cpp
-6 src/drive/timing_registers.cpp
+7 src/drive/timing_registers.cpp
 8 src/ebike/ebike_control.cpp
 1 src/identification/motor_identification.cpp
 8 src/startup/hw_startup.cpp

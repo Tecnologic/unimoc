@@ -162,7 +162,7 @@ Requirements for the redesign of [`logic/`](https://github.com/Tecnologic/hardwa
   one phase current per ADC (ADC1 to ADC3) for simultaneous injected
   sampling, phase voltage taps, FDCAN1, USB, SWD, Hall inputs, temperatures.
 - **Current sensing:** the INA240A1 inline phase amplifiers stay
-  (`kCurrentSenseIsLowSide = false`); they measure the phase current
+  (foc0 `current-sense = "inline"`, the default); they measure the phase current
   independent of the switching state; check the gain, the offset and the
   filter of the GS8632 stages against the H743 ADC range.
 - **CAN FD:** keep the TCAN334 (CAN FD capable), with a split termination

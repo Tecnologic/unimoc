@@ -113,6 +113,8 @@ static_assert(DT_PROP_LEN(UNIMOC_FOC, sample_times) == UNIMOC_SIG_COUNT, "one sa
 static_assert(DT_PROP_LEN(UNIMOC_FOC, io_channel_names) == UNIMOC_SIG_COUNT, "signal order of the binding");
 
 inline constexpr uint32_t kDeadTimeNs = DT_PROP(UNIMOC_FOC, dead_time_ns);
+/// Phase currents from low-side shunts (current-sense = "low-side"), else inline.
+inline constexpr bool kLowSideCurrentSense = DT_ENUM_IDX(UNIMOC_FOC, current_sense) == 1;
 inline constexpr uintptr_t kTimerBase = DT_REG_ADDR(UNIMOC_FOC_TIMER);
 static_assert(kTimerBase == TIM1_BASE || kTimerBase == TIM8_BASE, "the power stage timer is TIM1 or TIM8");
 

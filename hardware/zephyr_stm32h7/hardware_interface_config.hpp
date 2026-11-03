@@ -31,10 +31,10 @@ inline constexpr uint8_t kMotorCount = 1;  ///< Number of motors supported by th
 
 // The public interface always exposes ia, ib, and ic. A two-sensor backend
 // reconstructs ic as -(ia + ib); a three-sensor backend reads all phases.
+// Inline or low-side sensing: settings::HardwareCapabilities::current_sense
+// of the settings profile.
 inline constexpr uint8_t kCurrentSensorCount = 3U;
-inline constexpr bool kCurrentSenseIsLowSide = false;
 inline constexpr bool kCurrentSenseHasPhaseMeasurements = true;
-inline constexpr bool kCurrentSamplesArePwmWindowed = false;
 
 // Optional temperature channels provided by this board.
 inline constexpr bool kCpuTemperatureAvailable = false;

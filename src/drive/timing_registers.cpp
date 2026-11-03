@@ -57,11 +57,13 @@ constexpr std::array<cyphal::RegisterDescription, kNames.size()> kDescriptions{{
     {"cycles", -kInf, kInf, RegisterEffect::kImmediate, "Observer run time: min, mean, max, count"},
     {{}, -kInf, kInf, RegisterEffect::kImmediate, "Overruns: duty updates too late, observer late"},
     {"Hz", -kInf, kInf, RegisterEffect::kImmediate, "Clock of the run time counters"},
-    {"Hz",
-     -kInf,
-     kInf,
-     RegisterEffect::kImmediate,
-     "PWM, control step and observer rate, divider [half periods]"},
+    {
+        "Hz",
+        -kInf,
+        kInf,
+        RegisterEffect::kImmediate,
+        "PWM, control step and observer rate, divider [half periods], duty limit of the current sensing",
+    },
     {{}, -kInf, kInf, RegisterEffect::kImmediate, "PWM for the inductance [Hz], ripple there and now [A pp]"},
 }};
 
@@ -124,11 +126,13 @@ cyphal::RegisterFlags TimingRegisters::Read(const std::size_t index,
       break;
     case TimingRegister::kPwm: {
       const settings::ControlTiming& timing = current_control::CurrentControlIsr::Instance().state.timing;
-      const std::array<float, 4>
-          kNumbers{timing.pwm_frequency.Value(),
-                   timing.StepFrequency().Value(),
-                   (timing.StepFrequency() / static_cast<float>(timing.steps_per_cycle)).Value(),
-                   static_cast<float>(timing.divider)};
+      const std::array<float, 5> kNumbers{
+          timing.pwm_frequency.Value(),
+          timing.StepFrequency().Value(),
+          (timing.StepFrequency() / static_cast<float>(timing.steps_per_cycle)).Value(),
+          static_cast<float>(timing.divider),
+          timing.duty_max.Value(),
+      };
       SetReal32Array(value, kNumbers);
       break;
     }

@@ -17,6 +17,16 @@ tests:
     extra_configs:
       - CONFIG_UNIMOC_HOT_PATH_TIMING=y
     tags: [unimoc, app]
+  # Low-side shunts on the STM32H7 platform (foc0 current-sense = "low-side"): PWM mode 2, the control after the
+  # valleys only. Build check only, no board has them yet. On Jacobi only: the overlay replaces the board overlay of
+  # app/boards (the NUCLEO-H743ZI defines foc0 there).
+  unimoc.app.build.low_side:
+    build_only: true
+    platform_allow:
+      - unimoc_jacobi
+    extra_dtc_overlay_files:
+      - boards/variants/low_side_current_sense.overlay
+    tags: [unimoc, app]
   # The e-bike control and the simulated rider of native_sim compiled in (CONFIG_UNIMOC_EBIKE). The pytest scenario below runs without it:
   # with the e-bike the bus readiness no longer engages the drive.
   unimoc.app.build.ebike:

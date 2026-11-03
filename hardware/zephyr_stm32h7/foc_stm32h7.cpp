@@ -16,7 +16,10 @@
  *    peak and valley (the overcurrent and overvoltage checks); the current
  *    control runs after the valley sample and writes the CCR preload, which
  *    the timer takes over at the peak only (RCR = 1), or after every sample
- *    with an update at every boundary (RCR = 0). No duty DMA.
+ *    with an update at every boundary (RCR = 0). No duty DMA. With low-side
+ *    shunts (current-sense = "low-side") the phases run in PWM mode 2: the
+ *    low-side pulses are centered on the valley, the valley sample measures
+ *    them, and the control runs after the valleys only.
  *
  *    Not run on hardware yet.
  *
@@ -71,6 +74,7 @@ constexpr uint32_t kMasterMode2Oc4Oc6Rising = TIM_CR2_MMS2_3 | TIM_CR2_MMS2_2;
 // 0, so the first update is the first peak (measured on the NUCLEO-H743ZI,
 // 2026-11-03: with the counter started at 1 every update fell on the valley).
 // ControlSampling::kEveryHalfPeriod: RCR = 0, an update at every peak and valley.
+// Inline sensing only: low-side shunts measure nothing at the peak.
 constexpr uint32_t kRepetitionPeakOnly = 1U;
 constexpr uint32_t kRepetitionEveryBoundary = 0U;
 
@@ -134,7 +138,18 @@ static_assert(std::atomic<uint32_t>::is_always_lock_free);
 // The control takes every sample (kEveryHalfPeriod) or the valleys only.
 bool g_every_half_period = false;
 
-// Compare values active while the sample was taken. At the valleys: the last
+// PWM mode of CH1..CH3: mode 1 (high side active while CNT < CCR, centered
+// on the valley) for inline sensing; mode 2 (high side active while CNT >
+// CCR, the low-side pulses centered on the valley) for low-side shunts.
+constexpr uint32_t kPhasePwmMode = kLowSideCurrentSense ? 7U : 6U;
+
+// Duty compare values of the phases (high-side on time in ticks) are kept
+// as such; mode 2 compares against their complement.
+uint32_t CompareValue(const uint32_t ticks) noexcept {
+  return kLowSideCurrentSense ? g_auto_reload - std::min(ticks, g_auto_reload) : ticks;
+}
+
+// Duty ticks (high-side on time) active while the sample was taken. At the valleys: the last
 // ones written (active from the peak after their write). At every half
 // period: the ones written two samples before; g_next was written by the last
 // sample and takes effect at the next boundary.
@@ -372,19 +387,21 @@ bool InitTimer(const uint32_t pwm_hz, const uint32_t trigger_offset) noexcept {
   kTim->RCR = 0U;  // loaded into the repetition counter by UG below
   kTim->CR2 = kMasterMode2Oc4Oc6Rising;
 
-  // CH1..CH3: PWM mode 1 with CCR preload: a compare value takes effect at
-  // the next update event (the peak), never inside a PWM period.
+  // CH1..CH3: PWM mode 1 (inline) or 2 (low-side shunts, kPhasePwmMode) with
+  // CCR preload: a compare value takes effect at the next update event (the
+  // peak), never inside a PWM period.
   // CH4 (PWM mode 2) and CH6 (PWM mode 1) have no pin; they only generate the
   // ADC triggers (no preload, the lead changes rarely):
   //   OC4REF rises while counting up at CCR4 = ARR - lead  (lead before the peak)
   //   OC6REF rises while counting down at CCR6 = lead      (lead before the valley)
-  kTim->CCMR1 = (6U << TIM_CCMR1_OC1M_Pos) | TIM_CCMR1_OC1PE | (6U << TIM_CCMR1_OC2M_Pos) | TIM_CCMR1_OC2PE;
-  kTim->CCMR2 = (6U << TIM_CCMR2_OC3M_Pos) | TIM_CCMR2_OC3PE | (7U << TIM_CCMR2_OC4M_Pos);
+  kTim->CCMR1 = (kPhasePwmMode << TIM_CCMR1_OC1M_Pos) | TIM_CCMR1_OC1PE |
+                (kPhasePwmMode << TIM_CCMR1_OC2M_Pos) | TIM_CCMR1_OC2PE;
+  kTim->CCMR2 = (kPhasePwmMode << TIM_CCMR2_OC3M_Pos) | TIM_CCMR2_OC3PE | (7U << TIM_CCMR2_OC4M_Pos);
   kTim->CCMR3 = (6U << TIM_CCMR3_OC6M_Pos);
   // Neutral (50 %) start: enabling must not brake the phases.
-  kTim->CCR1 = g_auto_reload / 2U;
-  kTim->CCR2 = g_auto_reload / 2U;
-  kTim->CCR3 = g_auto_reload / 2U;
+  kTim->CCR1 = CompareValue(g_auto_reload / 2U);
+  kTim->CCR2 = CompareValue(g_auto_reload / 2U);
+  kTim->CCR3 = CompareValue(g_auto_reload / 2U);
   ApplyTriggerLead(trigger_offset);
   kTim->CCER =
       TIM_CCER_CC1E | TIM_CCER_CC1NE | TIM_CCER_CC2E | TIM_CCER_CC2NE | TIM_CCER_CC3E | TIM_CCER_CC3NE;
@@ -425,8 +442,8 @@ bool Initialize(const unit::Frequency pwm_frequency,
                 const bool every_half_period,
                 const uint32_t adc_trigger_offset) noexcept {
   const auto kPwmHz = static_cast<uint32_t>(pwm_frequency.Value());
-  if (kPwmHz == 0U) {
-    return false;
+  if (kPwmHz == 0U || (kLowSideCurrentSense && every_half_period)) {
+    return false;  // low-side shunts: no valid sample at the peak
   }
 
   // A restart (new settings): stop what the last Initialize() started, also
@@ -540,9 +557,9 @@ void SetTriggerLead(const uint32_t ticks) noexcept { ApplyTriggerLead(ticks); }
 uint32_t TriggerLead() noexcept { return g_trigger_lead; }
 
 void SetDutyTicks(const PhaseTicks& ticks) noexcept {
-  kTim->CCR1 = ticks[0];
-  kTim->CCR2 = ticks[1];
-  kTim->CCR3 = ticks[2];
+  kTim->CCR1 = CompareValue(ticks[0]);
+  kTim->CCR2 = CompareValue(ticks[1]);
+  kTim->CCR3 = CompareValue(ticks[2]);
   // Late: the counter has passed the boundary after the sample (the one the
   // preload was meant for) and moves away from it; the duties take effect at
   // the following update. After a valley sample that is the peak.

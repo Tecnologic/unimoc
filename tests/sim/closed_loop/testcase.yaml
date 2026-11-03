@@ -7,3 +7,6 @@ common:
     - native_sim/native/64
 tests:
   unimoc.sim.closed_loop: {}
+  unimoc.sim.closed_loop.low_side:
+    extra_configs:
+      - CONFIG_UNIMOC_SIM_LOW_SIDE_CURRENT_SENSE=y

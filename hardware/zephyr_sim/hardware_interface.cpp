@@ -24,6 +24,11 @@
  *        control steps, and ObserverHandler() (STM32H7: pended interrupt)
  *        when the handler ended a control cycle.
  *
+ *    With CONFIG_UNIMOC_SIM_LOW_SIDE_CURRENT_SENSE the samples measure as
+ *    low-side shunts in PWM mode 2 do (the low-side pulses centered on the
+ *    valley): nothing at the peak, and at the valley a phase only while its
+ *    low side is on for at least kLowSideValidTime.
+ *
  *    Timestamps are nanoseconds of virtual time. A change of the simulated
  *    Hall code is queued with the time of the edge, as the EXTI capture of
  *    the STM32H7 does (HardwareInterface::PopHallEvent()).
@@ -55,6 +60,13 @@ namespace {
 
 static_assert(kHalfPeriodsPerCycle == 4U, "sim::AppliedDuties() returns four entries");
 
+constexpr bool kLowSide = IS_ENABLED(CONFIG_UNIMOC_SIM_LOW_SIDE_CURRENT_SENSE);
+
+// Low-side shunts: the low-side on time per PWM period the profile asks for
+// a valid sample, and the shortest one the simulated shunt still measures.
+constexpr Time kLowSideRequiredTime = 4.0e-6_s;
+constexpr Time kLowSideValidTime = 2.0e-6_s;
+
 const settings::SettingsProfile kSettingsProfile = [] {
   settings::SettingsProfile profile{};
   // A fixed Cyphal node-ID, so tools reach a fresh simulation without a
@@ -80,6 +92,10 @@ const settings::SettingsProfile kSettingsProfile = [] {
   profile.capabilities.max_dc_link_voltage = 60.0_V;
   profile.capabilities.max_pwm_frequency = 64.0_kHz;  // as the STM32H7
   profile.capabilities.max_control_frequency = 64.0_kHz;
+  if constexpr (kLowSide) {
+    profile.capabilities.current_sense = settings::CurrentSense::kLowSide;
+    profile.capabilities.min_low_side_time = kLowSideRequiredTime;
+  }
   return profile;
 }();
 
@@ -198,6 +214,21 @@ void RestartHallCapture() noexcept {
   CaptureHall(static_cast<uint64_t>(g_cycle_count) * g_cycle_ns);
 }
 
+/// What low-side shunts read of @p currents with @p duties: at a valley the
+/// phases whose low side is on long enough, nothing at a peak.
+system::ThreePhase<Current> LowSideShunts(const system::ThreePhase<Current>& currents,
+                                          const Duties& duties,
+                                          const bool peak) noexcept {
+  if (peak) {
+    return {};
+  }
+  const Time kPeriod = 2.0F * g_half_period;
+  const auto kRead = [kPeriod](const Current current, const Ratio duty) noexcept {
+    return ((1.0_ratio - duty) * kPeriod < kLowSideValidTime) ? Current{} : current;
+  };
+  return {kRead(currents.a, duties.a), kRead(currents.b, duties.b), kRead(currents.c, duties.c)};
+}
+
 bool Exceeds(const system::ThreePhase<Current>& currents) noexcept {
   const Current kLimit = g_overcurrent_limit;
   return Abs(currents.a) > kLimit || Abs(currents.b) > kLimit || Abs(currents.c) > kLimit;
@@ -252,8 +283,12 @@ void RunCycle() noexcept {
     UpdatePlantTrace();
 
     // Sample at the end of the half period, then the checks of every sample.
+    const bool kPeak = k % 2U == 0U;
     CurrentSample sample{};
     sample.phase_currents = MeasuredCurrents();
+    if constexpr (kLowSide) {
+      sample.phase_currents = LowSideShunts(sample.phase_currents, g_applied[k], kPeak);
+    }
     if (Exceeds(sample.phase_currents)) {
       PowerStageTrip();
       g_pending_overcurrent = true;
@@ -262,7 +297,6 @@ void RunCycle() noexcept {
       PowerStageTrip();
       g_pending_overvoltage = true;
     }
-    const bool kPeak = k % 2U == 0U;
     if (kPeak || g_every_half_period) {
       g_active = g_next;  // the update: the preload of the last control step takes effect
     }
@@ -321,8 +355,8 @@ void ResetCycleState() noexcept {
 
 bool Initialize(Frequency pwm_frequency, ControlSampling sampling, uint32_t /*unused*/) noexcept {
   const auto kPwmHz = static_cast<uint64_t>(pwm_frequency.Value());
-  if (kPwmHz == 0U) {
-    return false;
+  if (kPwmHz == 0U || (kLowSide && sampling == ControlSampling::kEveryHalfPeriod)) {
+    return false;  // low-side shunts: no valid sample at the peak
   }
 
   static bool timer_initialized = false;

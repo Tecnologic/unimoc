@@ -73,6 +73,9 @@ bool CurrentControlIsr::Init(const settings::NvmSettings& settings,
                                    : state.dc_link_trip);
   dtc.Init(settings);
   svm.Init(settings);
+  // Low-side shunts: every phase keeps the low-side on time of a valid sample.
+  svm.duty_max = Min(svm.duty_max, kTiming.duty_max);
+  svm.duty_min = Min(svm.duty_min, svm.duty_max);
 
   // --- Current controller parameters ---
   cc.kp_d = settings.current_kp_d;

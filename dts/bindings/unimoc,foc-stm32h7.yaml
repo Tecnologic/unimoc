@@ -37,6 +37,23 @@ properties:
       next step the timer can generate (5 ns at 200 MHz up to 635 ns,
       coarser above, at most 5 us).
 
+  current-sense:
+    type: string
+    default: "inline"
+    enum:
+      - "inline"
+      - "low-side"
+    description: |
+      Where the phase currents "ia", "ib", "ic" are measured. "inline": a
+      shunt or sensor in each phase, valid in every switching state.
+      "low-side": a shunt in the source of each low-side switch, valid only
+      while that low side conducts. The hardware layer then runs the phases
+      in PWM mode 2, so the low-side pulses are centered on the valley
+      sample; the control runs after the valleys only (no step every half
+      period) and the duty is capped so each low side stays on long enough
+      for a sample. The amplifier must give a positive count for a current
+      into the motor, as the inline amplifiers do.
+
   io-channels:
     type: phandle-array
     required: true

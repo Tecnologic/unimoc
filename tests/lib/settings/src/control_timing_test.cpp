@@ -148,6 +148,43 @@ ZTEST(control_timing, test_frequency_above_the_board_or_off_the_list_is_refused)
   zexpect_false(ResolveControlTiming(settings, Board(Khz(64.0F), Khz(64.0F))).Valid());
 }
 
+ZTEST(control_timing, test_low_side_shunts_sample_the_valley_and_cap_the_duty) {
+  HardwareCapabilities board = Board(Khz(64.0F), Khz(64.0F));
+  board.current_sense = CurrentSense::kLowSide;
+  board.min_low_side_time = 6e-6_s;
+  NvmSettings settings = Motor(100e-6_H);
+  settings.pwm_frequency = Khz(32.0F);
+
+  // Inline sensing: no cap.
+  UNIMOC_EXPECT_FLOAT_EQ(ResolveControlTiming(settings, Board(Khz(64.0F), Khz(64.0F))).duty_max, 1.0_ratio);
+
+  // 32 kHz: no step every half period, a step after every valley; 6 us of
+  // the 31.25 us period stay low: duty_max = 0.808.
+  ControlTiming timing = ResolveControlTiming(settings, board);
+  zexpect_equal(timing.divider, 2U);
+  zexpect_equal(timing.steps_per_cycle, 2U);  // 32 kHz steps, 16 kHz observer
+  UNIMOC_EXPECT_NEAR(timing.duty_max, 0.808_ratio, 1e-5_ratio);
+
+  // 64 kHz: the same step rate, a smaller cap.
+  settings.pwm_frequency = Khz(64.0F);
+  timing = ResolveControlTiming(settings, board);
+  zexpect_equal(timing.divider, 2U);
+  UNIMOC_EXPECT_NEAR(timing.duty_max, 0.616_ratio, 1e-5_ratio);
+
+  // An explicit step every half period is refused, every second period runs.
+  settings.control_divider = 1U;
+  zexpect_false(ResolveControlTiming(settings, board).Valid());
+  settings.control_divider = 4U;
+  zexpect_equal(ResolveControlTiming(settings, board).divider, 4U);
+
+  // A low-side time that leaves no duty above 50 %: not runnable.
+  settings.control_divider = 0U;
+  board.min_low_side_time = 8e-6_s;  // 64 kHz: duty_max 0.488
+  zexpect_false(ResolveControlTiming(settings, board).Valid());
+  settings.pwm_frequency = Khz(32.0F);  // 0.744
+  zexpect_true(ResolveControlTiming(settings, board).Valid());
+}
+
 ZTEST(control_timing, test_validation_refuses_what_the_board_cannot_run) {
   const HardwareCapabilities kBoard = Board(Khz(40.0F), Khz(40.0F));
   NvmSettings settings{};

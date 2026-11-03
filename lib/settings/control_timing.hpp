@@ -21,6 +21,13 @@
  *
  *    The observer runs after every `steps_per_cycle` control steps.
  *
+ *    Low-side shunts (HardwareCapabilities::current_sense) measure a phase
+ *    only while its low side conducts. The STM32H7 then inverts the PWM (mode
+ *    2: the low-side pulses centered on the valley), so the valley sample is
+ *    the middle of the low-side pulses; the peak sample measures nothing.
+ *    Divider 1 is not runnable, and the duty is capped so every phase keeps
+ *    min_low_side_time of low-side on time per period (`duty_max`).
+ *
  *    `pwm_frequency` 0 selects the frequency from the inductance (the
  *    smallest one that keeps the current ripple within kPwmRippleTarget of
  *    the motor current limit), `control_divider` 0 the smallest divider the
@@ -128,6 +135,8 @@ struct ControlTiming {
   uint8_t divider{0U};
   /// Control steps per observer cycle (1, 2, 4 or 8).
   uint8_t steps_per_cycle{1U};
+  /// Highest duty the current sensing allows: below 1 for low-side shunts.
+  unit::Ratio duty_max{1.0_ratio};
 
   /// True when the board runs this timing.
   [[nodiscard]] constexpr bool Valid() const noexcept { return divider != 0U; }
@@ -180,8 +189,9 @@ struct ControlTiming {
  *
  * Returns an invalid timing (divider 0) for a PWM frequency outside
  * kPwmFrequencies or above the board's maximum, a divider that is not one of
- * kControlDividers, or a control step faster than the board's
- * max_control_frequency.
+ * kControlDividers, a control step faster than the board's
+ * max_control_frequency, divider 1 on low-side shunts, or a low-side on time
+ * that leaves no duty above 50 %.
  */
 [[nodiscard]] constexpr ControlTiming ResolveControlTiming(const NvmSettings& settings,
                                                            const HardwareCapabilities& limits) noexcept {
@@ -192,9 +202,17 @@ struct ControlTiming {
   if (!IsPwmFrequency(timing.pwm_frequency) || timing.pwm_frequency > limits.max_pwm_frequency) {
     return ControlTiming{};
   }
+  const bool kLowSide = limits.current_sense == CurrentSense::kLowSide;
+  if (kLowSide) {
+    timing.duty_max = 1.0_ratio - (timing.pwm_frequency * limits.min_low_side_time);
+    if (!(timing.duty_max > 0.5_ratio)) {
+      return ControlTiming{};
+    }
+  }
   for (const uint8_t kDivider : kControlDividers) {
     const bool kSelected = (settings.control_divider == 0U) || (settings.control_divider == kDivider);
-    if (kSelected &&
+    const bool kSampled = !kLowSide || kDivider != 1U;  // low-side shunts: the valley only
+    if (kSelected && kSampled &&
         !(2.0F * timing.pwm_frequency / static_cast<float>(kDivider) > limits.max_control_frequency)) {
       timing.divider = kDivider;
       break;
