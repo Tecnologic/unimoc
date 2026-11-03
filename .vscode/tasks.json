@@ -24,6 +24,13 @@
             "group": "build"
         },
         {
+            "label": "Zephyr: build h743",
+            "type": "shell",
+            "command": "west build -b nucleo_h743zi unimoc/app -d unimoc/app/build/h743",
+            "problemMatcher": "$gcc",
+            "group": "build"
+        },
+        {
             "label": "Zephyr: build all",
             "dependsOn": [
                 "Zephyr: build sim",
@@ -59,6 +66,13 @@
             "type": "shell",
             "command": "west flash -d unimoc/app/build/bcc --runner openocd",
             "dependsOn": "Zephyr: build bcc",
+            "problemMatcher": []
+        },
+        {
+            "label": "Zephyr: flash h743",
+            "type": "shell",
+            "command": "west flash -d unimoc/app/build/h743",
+            "dependsOn": "Zephyr: build h743",
             "problemMatcher": []
         },
         {
