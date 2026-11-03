@@ -95,7 +95,7 @@ text. The firmware owns that knowledge, so the firmware owns the file:
   entry and the other way round.
 - **Delivery, step 1:** the CI attaches `registers.json` to the firmware
   artifacts and the release as `unimoc-registers-<version>.json`, next to
-  `unimoc-bcc-*.elf` and `unimoc-native_sim-*.tar.gz`. The GUI picks it by the software version and
+  `unimoc-jacobi-*.elf` and `unimoc-native_sim-*.tar.gz`. The GUI picks it by the software version and
   VCS revision of `GetInfo`, from a local folder or the release.
 - **Delivery, step 2:** the node serves it compressed through
   `uavcan.file.Read` (path `unimoc/registers.json.gz`, a few KB in flash) once

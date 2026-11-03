@@ -8,7 +8,7 @@
  *    @file zephyr_can_media.hpp
  *    @brief Cyphal CAN interface on a Zephyr CAN controller.
  *
- *    Shared by the BCC (STM32G4 FDCAN) and native_sim (SocketCAN through
+ *    Shared by the STM32H7 (FDCAN) and native_sim (SocketCAN through
  *    the native Linux CAN driver).
  *
  *    SPDX-License-Identifier: GPL-3.0-or-later

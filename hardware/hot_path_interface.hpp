@@ -10,7 +10,7 @@
  *
  *    The zero-latency contexts (sample ISR and control cycle) must not reach
  *    the hardware through function pointers (docs/hotpath_plan.md, M3). The
- *    platform selected by the build (hardware/zephyr_bcc, hardware/zephyr_sim)
+ *    platform selected by the build (hardware/zephyr_stm32h7, hardware/zephyr_sim)
  *    defines the functions of `hot_path`; the application defines the two
  *    handlers, which the platform calls directly. Everything outside the hot
  *    path keeps using HardwareInterface.
@@ -55,7 +55,7 @@ void TripPowerStage() noexcept;
  * @brief Control-cycle handler, defined by the application.
  *
  * The platform calls it once per control cycle in the zero-latency context
- * (BCC: inside every kHalfPeriodsPerCycle-th sample interrupt).
+ * (STM32H7: inside every kHalfPeriodsPerCycle-th sample interrupt).
  */
 void ControlCycleHandler() noexcept;
 
@@ -63,7 +63,7 @@ void ControlCycleHandler() noexcept;
  * @brief Observer handler, defined by the application.
  *
  * The platform calls it after each control cycle at a priority below the
- * sample interrupt (BCC: software-pended normal-priority interrupt).
+ * sample interrupt (STM32H7: software-pended normal-priority interrupt).
  */
 void ObserverHandler() noexcept;
 

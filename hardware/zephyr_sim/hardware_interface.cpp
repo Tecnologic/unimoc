@@ -8,23 +8,23 @@
  *    @file hardware_interface.cpp
  *    @brief Simulation (native_sim) hardware interface.
  *
- *    Counterpart of hardware/zephyr_bcc, closed around the motor plant of
+ *    Counterpart of hardware/zephyr_stm32h7, closed around the motor plant of
  *    lib/sim. A kernel timer in simulated time stands in for the control
  *    cycle (kHalfPeriodsPerCycle PWM half periods, 16 kHz at 32 kHz PWM).
  *    Every expiry
  *
- *     1. calls ControlCycleHandler() (BCC: inside the last sample interrupt
- *        of the cycle) and then ObserverHandler() (BCC: pended interrupt) on
+ *     1. calls ControlCycleHandler() (STM32H7: inside the last sample interrupt
+ *        of the cycle) and then ObserverHandler() (STM32H7: pended interrupt) on
  *        the samples of the cycle that just ended, and
  *     2. advances the plant over the next kHalfPeriodsPerCycle half periods
- *        with the timing of the BCC: the first half period still uses the
+ *        with the timing of the STM32H7: the first half period still uses the
  *        last entry of the previous plan, the next three use entries 0..2 of
  *        the new plan, entry 3 carries over. Each half period ends with a
  *        current sample and the per-sample overcurrent and DC-link overvoltage checks.
  *
  *    Timestamps are nanoseconds of virtual time. A change of the simulated
  *    Hall code is queued with the time of the edge, as the EXTI capture of
- *    the BCC does (HardwareInterface::PopHallEvent()).
+ *    the STM32H7 does (HardwareInterface::PopHallEvent()).
  *
  *    SPDX-License-Identifier: GPL-3.0-or-later
  *
@@ -59,7 +59,7 @@ const settings::SettingsProfile kSettingsProfile = [] {
   // plug-and-play allocator (--node-id overrides it per process).
   profile.factory_settings.node_id = 10U;
   profile.factory_settings.pwm_frequency = 32.0_kHz;  // 16 kHz control cycle
-  // Same duty range as the BCC (sampling window and minimum pulse, see there).
+  // Duty range of the sampling window and the minimum pulse.
   profile.factory_settings.svm_duty_min = 0.03_ratio;
   profile.factory_settings.svm_duty_max = 0.97_ratio;
   // The simulated Hall sensors are ideal and aligned (offset 0): fuse them,
@@ -72,7 +72,7 @@ const settings::SettingsProfile kSettingsProfile = [] {
   profile.capabilities.max_motor_current = 50.0_A;
   profile.capabilities.max_battery_drive_current = 50.0_A;
   profile.capabilities.max_battery_charge_current = 20.0_A;
-  profile.factory_settings.dc_link_regen_derate_start = 55.0_V;  // as the BCC
+  profile.factory_settings.dc_link_regen_derate_start = 55.0_V;  // as the STM32H7
   profile.factory_settings.dc_link_trip = 58.0_V;
   profile.capabilities.max_dc_link_voltage = 60.0_V;
   return profile;
@@ -82,7 +82,7 @@ const settings::SettingsStorage kSettingsStorage = ZephyrSettingsStorage::Adapte
 
 // ----- Power stage ----------------------------------------------------------
 
-// Mirrors the BCC: the external enable only allows the release, a break
+// Mirrors the STM32H7: the external enable only allows the release, a break
 // switches off and latches until it is acknowledged.
 struct SimPowerStage {
   volatile bool external_enable = true;
@@ -98,7 +98,7 @@ bool PowerStageEnable() noexcept {
     return false;
   }
   g_power_stage.enabled = true;
-  // As on the BCC: a trip of the cycle interrupt between the check and the
+  // As on the STM32H7: a trip of the cycle interrupt between the check and the
   // release must not be undone.
   if (g_power_stage.fault) {
     g_power_stage.enabled = false;
@@ -208,7 +208,7 @@ void UpdatePlantTrace() noexcept {
   g_plant_trace.torque = output.electromagnetic_torque.Value();
 }
 
-// Runs in the (simulated) timer interrupt, like the BCC interrupts: no kernel
+// Runs in the (simulated) timer interrupt, like the STM32H7 interrupts: no kernel
 // calls and no logging in the handlers.
 void RunCycle() noexcept {
   if (!g_initialized) {

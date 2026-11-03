@@ -1,0 +1,255 @@
+/*
+ * UNIMOC Jacobi: 48 V / 50 A drive, STM32H743VIT6 (LQFP100, 2 MB flash).
+ *
+ * The H7 redesign of the hardware_4850 logic board on the unchanged 4850
+ * power board (docs/drive4850_h7_plan.md), without the fourth half bridge.
+ * The board is not drawn yet: every pin below follows the pin proposal of the
+ * plan and has to be checked against the schematic once it exists. Not built
+ * or run on hardware.
+ *
+ * Pin and peripheral assignment of the power stage lives in the foc0 node
+ * below; the platform (hardware/zephyr_stm32h7) derives timer, ADCs, pins and
+ * interrupts from it.
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
+/dts-v1/;
+#include <st/h7/stm32h743Xi.dtsi>
+#include <st/h7/stm32h743vitx-pinctrl.dtsi>
+
+/ {
+	model = "UNIMOC Jacobi";
+	compatible = "unimoc,jacobi";
+
+	chosen {
+		zephyr,sram = &sram0;
+		zephyr,flash = &flash0;
+		zephyr,dtcm = &dtcm;
+		zephyr,code-partition = &slot0_partition;
+		zephyr,canbus = &fdcan1;
+	};
+
+	/* The status LEDs of hardware/status_leds.hpp. */
+	aliases {
+		unimoc-led-run = &led_run;
+		unimoc-led-pwm = &led_pwm;
+		unimoc-led-error = &led_error;
+	};
+
+	/* Status LEDs as on the 4850 logic board. Polarity to check in the schematic. */
+	leds {
+		compatible = "gpio-leds";
+		led_run: led-run {
+			gpios = <&gpiod 8 GPIO_ACTIVE_HIGH>;
+			label = "RUN";
+		};
+		led_pwm: led-pwm {
+			gpios = <&gpiod 9 GPIO_ACTIVE_HIGH>;
+			label = "PWM";
+		};
+		led_mode: led-mode {
+			gpios = <&gpiod 10 GPIO_ACTIVE_HIGH>;
+			label = "MODE";
+		};
+		led_error: led-error {
+			gpios = <&gpiod 11 GPIO_ACTIVE_HIGH>;
+			label = "ERROR";
+		};
+	};
+
+	/*
+	 * Three-phase power stage on the 4850 power board.
+	 *
+	 * TIM1 generates centre-aligned PWM on CH1..CH3 + CH1N..CH3N (PE8..PE13).
+	 * TRGO2 (rising OC4REF / OC6REF) starts the injected sequences of
+	 * ADC1..ADC3 at the same instant. The end of the ADC1 sequence is the
+	 * sample interrupt (zero latency), the TIM1 update vector the observer
+	 * interrupt.
+	 *
+	 * The phase voltages need taps on the power board connector (dividers to
+	 * be added in the redesign); they take the pins of the former AC current
+	 * paths PA7, PB1 and PC3_C.
+	 */
+	foc0: foc-power-stage {
+		compatible = "unimoc,foc-stm32h7";
+		status = "okay";
+
+		timer = <&timers1>;
+
+		/* 4850 power board (BSC040N08, LM5109B): 1 us as in the legacy firmware. */
+		dead-time-ns = <1000>;
+
+		pinctrl-0 = <&tim1_ch1_pe9 &tim1_ch1n_pe8
+			     &tim1_ch2_pe11 &tim1_ch2n_pe10
+			     &tim1_ch3_pe13 &tim1_ch3n_pe12
+			     &tim1_bkin_pe15
+			     &analog_pa6 &analog_pa7 &analog_pa0
+			     &analog_pb0 &analog_pb1 &analog_pc5
+			     &analog_pc2_c &analog_pc0 &analog_pc3_c>;
+		pinctrl-names = "default";
+
+		/* Three injected conversions per ADC, the phase current first. */
+		io-channels = <&adc1 3>, <&adc1 7>, <&adc1 16>,  /* PA6 ia, PA7 va, PA0 bridge temp  */
+			      <&adc2 9>, <&adc2 5>, <&adc2 8>,   /* PB0 ib, PB1 vb, PC5 motor temp   */
+			      <&adc3 0>, <&adc3 10>, <&adc3 1>;  /* PC2_C ic, PC0 vdc, PC3_C vc      */
+		io-channel-names = "ia", "va", "bridge-temperature",
+				   "ib", "vb", "motor-temperature",
+				   "ic", "vdc", "vc";
+
+		/*
+		 * ADC clock cycles at 30 MHz (pll2_p 120 MHz / 4). Currents from
+		 * the INA240 outputs through the GS8632 filters (low impedance):
+		 * short. Dividers and NTCs: longer.
+		 */
+		sample-times = "2.5", "16.5", "32.5",
+			       "2.5", "16.5", "32.5",
+			       "2.5", "16.5", "32.5";
+	};
+
+	/*
+	 * Further board signals. Names are the net names of the 4850 logic board.
+	 */
+	zephyr,user {
+		/* External enable on the net PWM_BREAK: PE15 is also TIM1_BKIN. */
+		break-gpios = <&gpioe 15 GPIO_ACTIVE_HIGH>;
+		/* Hall sensors A, B, C (one port; TIM4 CH1..CH3 for a later capture). */
+		hall-gpios = <&gpiod 12 GPIO_ACTIVE_HIGH>,
+			     <&gpiod 13 GPIO_ACTIVE_HIGH>,
+			     <&gpiod 14 GPIO_ACTIVE_HIGH>;
+		/* TCAN334 STB: high = standby. Driven low by the Cyphal platform. */
+		can-standby-gpios = <&gpiod 2 GPIO_ACTIVE_HIGH>;
+		/*
+		 * Gate driver enable PWM_EN of the power board. Not driven by the
+		 * platform yet: it has to be before the power board is connected.
+		 */
+		pwm-enable-gpios = <&gpioe 7 GPIO_ACTIVE_HIGH>;
+	};
+};
+
+/* Break input: open means break, so pull it down. */
+&tim1_bkin_pe15 {
+	bias-pull-down;
+};
+
+/* Used by the foc0 driver: enables the timer and its IRQ vectors. */
+&timers1 {
+	status = "okay";
+};
+
+/*
+ * The foc0 driver programs ADC1..3 itself; the Zephyr ADC driver would claim
+ * them. The nodes stay in the tree for the registers, clocks and IRQs.
+ */
+&adc1 {
+	status = "disabled";
+};
+
+&adc2 {
+	status = "disabled";
+};
+
+&adc3 {
+	status = "disabled";
+};
+
+/* The H743 has no SMPS: the core supply comes from the LDO (VCAP pins). */
+&pwr {
+	power-supply = "ldo";
+};
+
+&clk_hsi48 {
+	status = "okay";
+};
+
+/* HSE crystal: 8 MHz assumed, to confirm in the schematic (no bypass). */
+&clk_hse {
+	clock-frequency = <DT_FREQ_M(8)>;
+	status = "okay";
+};
+
+/*
+ * 8 MHz / 2 * 200 / 2 = 400 MHz core (silicon rev. Y limit; rev. V would
+ * allow 480 MHz), HCLK 200 MHz, APB 100 MHz, TIM1 200 MHz.
+ */
+&pll {
+	div-m = <2>;
+	mul-n = <200>;
+	div-p = <2>;
+	div-q = <2>;
+	div-r = <2>;
+	clocks = <&clk_hse>;
+	status = "okay";
+};
+
+/* 8 MHz / 4 * 120 = 240 MHz: P 120 MHz for the ADCs, Q 80 MHz for FDCAN1. */
+&pll2 {
+	div-m = <4>;
+	mul-n = <120>;
+	div-p = <2>;
+	div-q = <3>;
+	div-r = <2>;
+	clocks = <&clk_hse>;
+	status = "okay";
+};
+
+&rcc {
+	clocks = <&pll>;
+	clock-frequency = <DT_FREQ_M(400)>;
+	d1cpre = <1>;
+	hpre = <2>;
+	d1ppre = <2>;
+	d2ppre1 = <2>;
+	d2ppre2 = <2>;
+	d3ppre = <2>;
+};
+
+&rng {
+	status = "okay";
+};
+
+/*
+ * CAN: TCAN334 on FDCAN1 (PB8 RX, PB9 TX). The transceiver handles CAN FD
+ * data rates, but the bus runs 1 Mbit/s in both phases like the other nodes
+ * (app/boards/unimoc_jacobi.conf turns the bit rate switch off).
+ */
+&fdcan1 {
+	pinctrl-0 = <&fdcan1_rx_pb8 &fdcan1_tx_pb9>;
+	pinctrl-names = "default";
+	clocks = <&rcc STM32_CLOCK(APB1_2, 8)>,
+		 <&rcc STM32_SRC_PLL2_Q FDCAN_SEL(2)>;
+	bitrate = <1000000>;
+	sample-point = <875>;
+	bitrate-data = <1000000>;
+	sample-point-data = <875>;
+	status = "okay";
+};
+
+/*
+ * Flash, 2 x 1 MB banks with 128 KB sectors: the image in bank 1, the DFU
+ * slot and the settings in bank 2, so that a settings erase does not stall
+ * the code.
+ */
+&flash0 {
+	partitions {
+		compatible = "fixed-partitions";
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		slot0_partition: partition@0 {
+			label = "image-0";
+			reg = <0x00000000 DT_SIZE_K(1024)>;
+		};
+
+		slot1_partition: partition@100000 {
+			label = "image-1";
+			reg = <0x00100000 DT_SIZE_K(768)>;
+		};
+
+		/* Settings: ZMS on two sectors. */
+		storage_partition: partition@1c0000 {
+			label = "storage";
+			reg = <0x001c0000 DT_SIZE_K(256)>;
+		};
+	};
+};

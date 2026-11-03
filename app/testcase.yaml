@@ -5,26 +5,24 @@ tests:
     build_only: true
     platform_allow:
       - native_sim/native/64
-      - bcc
+      - unimoc_jacobi
       - nucleo_h743zi
     tags: [unimoc, app]
   # The M0 timing probes in the interrupts (CONFIG_UNIMOC_HOT_PATH_TIMING).
   unimoc.app.build.timing:
     build_only: true
     platform_allow:
-      - bcc
+      - unimoc_jacobi
       - nucleo_h743zi
     extra_configs:
       - CONFIG_UNIMOC_HOT_PATH_TIMING=y
     tags: [unimoc, app]
-  # The e-bike control and its hardware (BCC: cadence capture, display line, UART; native_sim: the
-  # simulated rider) compiled in (CONFIG_UNIMOC_EBIKE). The pytest scenario below runs without it:
+  # The e-bike control and the simulated rider of native_sim compiled in (CONFIG_UNIMOC_EBIKE). The pytest scenario below runs without it:
   # with the e-bike the bus readiness no longer engages the drive.
   unimoc.app.build.ebike:
     build_only: true
     platform_allow:
       - native_sim/native/64
-      - bcc
     extra_configs:
       - CONFIG_UNIMOC_EBIKE=y
     tags: [unimoc, app]

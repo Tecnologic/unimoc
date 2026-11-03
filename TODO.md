@@ -1,8 +1,9 @@
 # TODO list for open topics
 
 **Focus (2026-10-23): Cyphal/CAN-FD for the cart.** The overall direction
-(cart with four wheel drives, central vehicle dynamics controller, STM32G4
-logic board for the 4850 drive, STM32H743VIT6 since 2026-11-01) is in [docs/system_plan.md](docs/system_plan.md);
+(cart with four wheel drives, central vehicle dynamics controller, the
+4850 drive with an STM32H743VIT6 logic board since 2026-11-01, named Jacobi
+since 2026-11-03) is in [docs/system_plan.md](docs/system_plan.md);
 the hot path in [docs/hotpath_plan.md](docs/hotpath_plan.md), the Zephyr port
 in [docs/zephyr_port_plan.md](docs/zephyr_port_plan.md) and
 [docs/zephyr_workflow.md](docs/zephyr_workflow.md), the simulation in
@@ -11,14 +12,14 @@ in [docs/zephyr_port_plan.md](docs/zephyr_port_plan.md) and
 [docs/cymon_integration_plan.md](docs/cymon_integration_plan.md).
 
 There is no board access at the moment. Each section lists first what can be
-verified with twister on `native_sim` and the BCC build, then what waits for
+verified with twister on `native_sim` and the Jacobi build, then what waits for
 hardware. Finished items are collected under "Done" at the end.
 
 ## Priorities (2026-10-31)
 
 The open points of this list and the plans, ranked. Tier 1 can be done and
 verified in a cloud development container (west workspace, Zephyr SDK,
-twister on `native_sim`, the BCC build, pycyphal over the slcan pseudo
+twister on `native_sim`, the Jacobi build, pycyphal over the slcan pseudo
 terminals); that container has no board, no `vcan` (the kernel has no CAN
 modules) and no access to cypilot's branches beyond its own repository.
 
@@ -59,19 +60,20 @@ Items 1 to 5 are done (2026-10-31, one pull request); 6 is next.
    and `BEGIN_SOFTWARE_UPDATE` into a simulated bank 2; serving the register
    description file over it (F3). The bank swap and the bootloader wait for
    the board.
-10. **Structure for the cart**: generalize `hardware/zephyr_bcc` to the G4
-    family (build-checked only), split `app/` into `apps/drive/` and
-    `apps/vdc/` with `lib/vehicle/`.
+10. **Structure for the cart**: split `app/` into `apps/drive/` and
+    `apps/vdc/` with `lib/vehicle/` (the G4 platform for the VDC, pedal unit
+    and BMS boards is new work since the BCC platform was removed).
 11. **SIL coordinator** (one process, N motor nodes, shared virtual clock,
     load models, the host executable; SIL P2) and the simulator chapter of
     `README.md`. Multi-node over `vcan` cannot run in the container.
 
 ### Tier 2: decisions, no hardware needed (yours)
 
- - CAN FD transceiver for the BCC ("Next"); it fixes the BCC bit timing.
+ - The data bit rate of the bus (Jacobi's TCAN334 handles CAN FD rates; all
+   boards run 1/1 Mbit/s today).
  - License of `dsdl/unimoc/` (`docs/gui_plan.md` section 2).
  - VDC MCU and G4 part of the 4850 logic board (`docs/system_plan.md`
-   section 12); the fourth half bridge's placement, routing and ratings.
+   section 12); the EESM excitation module (section 5.2.1).
  - Limp-home reverse (direction selector) and the VDC reaction to a lost
    drive.
 
@@ -85,17 +87,16 @@ Items 1 to 5 are done (2026-10-31, one pull request); 6 is next.
 
 M0 timing (with the cost of the trace `Tick()`, then the CCM SRAM decision),
 M8 first step and remainder, ZMS and the dual-bank option, the duty DMA from
-the devicetree (after M8), Cyphal on the BCC and the CAN FD bus test C2 (then
-the bit rate and the 4850 bit timing), the e-bike tuning and the KT-LCD8
-display, identification I7, regenerative braking on a dyno, excitation and
-chopper on the 4850 bench.
+the devicetree (after M8), Cyphal on the NUCLEO-H743ZI and Jacobi and the CAN
+FD bus test C2 (then the bit rate and the Jacobi bit timing), identification
+I7, regenerative braking on a dyno.
 
 ## Decisions
 
 ### 2026-10-22, PR #26
 
 1. DC-link voltages: regenerative braking derates from 55 V, the drive trips
-   at 58 V, the hardware capability is 60 V (BCC and sim). Accepted; check
+   at 58 V, the hardware capability is 60 V (Jacobi and sim). Accepted; check
    the switch and capacitor ratings against the schematic during bring-up.
 2. The overvoltage trip switches all transistors off; above the
    line-to-line back-EMF peak the motor still charges the DC link through
@@ -136,6 +137,17 @@ chopper on the 4850 bench.
     `docs/drive4850_h7_plan.md`; a second hot-path platform
     `hardware/zephyr_stm32h7`.
 
+### 2026-11-03
+
+12. Hardware is named after pioneers of electric drives and computing
+    (`docs/system_plan.md` section 5.0). The H7 logic board is **Jacobi**
+    (`boards/unimoc/jacobi/`, board `unimoc_jacobi`): three phases only, phase
+    voltage taps in place of the AC current paths; the EESM excitation becomes
+    a second bus module, the brake chopper stays in the BMS.
+13. The battery case controller (BCC, STM32G473) is removed: board, platform
+    `hardware/zephyr_bcc`, the G4 and e-bike bindings. The e-bike control
+    remains for the simulation only.
+
 ## Next: Cyphal/CAN-FD (focus)
 
 In this order; all without hardware unless marked.
@@ -147,12 +159,11 @@ In this order; all without hardware unless marked.
  - [x] Limp-home mode in the drive (2026-10-23): on a VDC timeout (`unimoc.cart.timeout`) the torque comes from the pedal state (brake first, against the motion, fading below `unimoc.cart.standstill_speed`; drive pedal forward only; `unimoc.cart.limp_home_torque`, ramped at `unimoc.cart.torque_ramp`); the readiness timeout waits; back to the VDC only at standstill; without the pedals the torque ramps to zero and the drive disengages. Open: reverse in limp-home (direction selector), the VDC reaction to a lost drive.
  - [x] E-bike pedal assist (2026-10-23, `docs/ebike_plan.md`): `lib/ebike/` (pedal observer, assist law, Kunteng codec, software UART receiver), `src/ebike/` (control), `unimoc.ebike.*` registers, the drive hook, the BCC drivers (cadence pulse PA5, display line on PB15 through TIM15 capture, USART3 transmit on PB10) behind `CONFIG_UNIMOC_EBIKE`, the simulated rider and display. Open: tune the assist (bench, then ride), check the display protocol on a real KT-LCD8 (temperature offset, checksum constant, wheel size mapping, error codes), check the TIM15 both-edge capture and the 5 V levels of the display lines on the board, an assist level on the bus (a pedal-unit node), pytest integration of the simulated rider (registers `unimoc.sim.pedal_*`), persist the learned torque offset, brake and light inputs (not on the BCC connectors).
  - [ ] Multi-node simulation: check `vcan` (CAN FD MTU) on WSL2; one `native_sim` process per node on `vcan`, pycyphal on the same interface; multi-node pycyphal tests in CI. A single node already works over the slcan pseudo terminals (classic CAN). Fallback: Cyphal/UDP over the `native_sim` TAP driver (NSOS passes no multicast socket options in 4.4).
- - [ ] CAN FD bit timing per board in the devicetree: 1 Mbit/s arbitration and 4 Mbit/s data with transmitter delay compensation for the 4850 (TCAN334), 2 Mbit/s data as the fallback; the BCC stays at 1/1 Mbit/s until its transceiver changes (`boards/unimoc/bcc/bcc.dts`).
+ - [ ] CAN FD bit timing per board in the devicetree: 1 Mbit/s arbitration and 4 Mbit/s data with transmitter delay compensation for the 4850 (TCAN334), 2 Mbit/s data as the fallback; Jacobi and the NUCLEO-H743ZI run 1/1 Mbit/s until then (`boards/unimoc/jacobi/unimoc_jacobi.dts`).
  - [ ] Firmware update over Cyphal: `ExecuteCommand BEGIN_SOFTWARE_UPDATE`, `uavcan.file.Read` into flash bank 2, bootloader swap; USB DFU as recovery.
  - [ ] Extend the pycyphal integration tests with every new bus feature (done: the commissioning commands and status message of the startup aid, START_HOMING and the homing state, RESET_TIMING, speed, position and servo setpoints, timing registers, simulation pause and advance).
- - [ ] Decide the CAN-FD transceiver change for the BCC (the board has an SN65HVD230, classic CAN). A board decision, no board access needed.
- - [ ] Hardware: Cyphal on the BCC: FDCAN3 bit timing at 1 Mbit/s with CAN FD frames through the SN65HVD230, the Rs pin, heartbeat, registers and the RTT log with a USB CAN FD adapter and yakut; plug-and-play with `yakut monitor --plug-and-play`.
- - [ ] Hardware: CAN FD bus test (phase C2): BCC and G4 evaluation boards on a cart-length harness, 1/4 and 1/2 Mbit/s, bus load and latency at 250 and 500 Hz; choose the bit rate and the cycle rate.
+ - [ ] Hardware: Cyphal on the NUCLEO-H743ZI, then Jacobi: FDCAN1 bit timing at 1 Mbit/s with CAN FD frames, the TCAN334 standby pin, heartbeat, registers and the log with a USB CAN FD adapter and yakut; plug-and-play with `yakut monitor --plug-and-play`.
+ - [ ] Hardware: CAN FD bus test (phase C2): NUCLEO-H743ZI and evaluation boards on a cart-length harness, 1/4 and 1/2 Mbit/s, bus load and latency at 250 and 500 Hz; choose the bit rate and the cycle rate.
 
 ## Motor identification
 
@@ -163,7 +174,7 @@ Plan: [docs/motor_identification_plan.md](docs/motor_identification_plan.md) (al
  - [x] I1 (2026-10-31): M1 stator resistance and dead time (regression over five levels of each sign at three angles, without the dead-time compensation); dead time in the sim inverter. Sim: R and t_dead within 0.1 % of the plant.
  - [x] I2 (2026-10-31): M2 L_d and L_q (a sine at f_pwm / 64 per axis on the held PI voltage, single-bin phasors with the exact phase of every sample, Z = U / I). Sim: within 0.2 %. Open: the saturation option (L_d at three biases).
  - [ ] Identification on the board (I7 covers the bench comparison): the rotor alignment at each M1 angle with a free shaft, the settle time, the M2 amplitude adaptation on a real winding.
- - [ ] I3: phase voltages in `ControlCycleSamples` (BCC, the sim plant with open outputs), their calibration in the startup aid's DUTY_FORCE steps; M3 flux linkage by coast-down.
+ - [ ] I3: phase voltages in `ControlCycleSamples` (STM32H7: `va`, `vb`, `vc`, on Jacobi from the new taps; the sim plant with open outputs), their calibration in the startup aid's DUTY_FORCE steps; M3 flux linkage by coast-down.
  - [ ] I4: M4 pole pairs (measured, or entered and checked); M5 Hall offset and order.
  - [ ] I5: M6 inertia and friction (the coast of M3, torque steps).
  - [ ] I6: M7 derived gains; review, comparison and approval in cypilot, apply and store, motor profiles.
@@ -175,11 +186,10 @@ Plan: [docs/motor_identification_plan.md](docs/motor_identification_plan.md) (al
  - [x] H7 platform `hardware/zephyr_stm32h7` on a NUCLEO-H743ZI rev. Y (2026-11-01, `docs/drive4850_h7_plan.md` section 7): H7 ADC and calibration, non-cacheable duty DMA buffer, dual-bank flash layout, 400 MHz; builds and passes clang-tidy, not run on the board.
  - [ ] NUCLEO-H743ZI on the bench (plan section 7, steps 1 to 5): boot, settings, PWM and break, ADC, timing, Cyphal, then the 4850 power board through an adapter.
  - [ ] H7 hot path in ITCM/DTCM and the control cycle on every sample (the reserve the H743 was chosen for); board `boards/unimoc/drive4850/` once the logic board exists.
- - [ ] BCC flash: the boards at hand carry an STM32G473CBT6 (128 KB), the firmware needs 194 KB. Swap to a pin-compatible 256/512 KB part (G473CC/CE, G474CC/CE, G483CE, G484CE) or redesign the BCC later (system plan section 5.1).
  - [ ] Fourth half bridge in the firmware: a platform-independent auxiliary output next to `hardware/power_stage_interface.hpp` with two roles selected by the motor type, excitation (EESM: `ExcitationController` sets the duty) and brake chopper (PMSM: DC-link threshold with hysteresis, on together with the overvoltage trip; resistor energy and temperature limit in a thread). The chopper reacts in hardware (G4 comparator to timer) where the routing allows it, the firmware sets the thresholds. Simulated first (see "Motor types").
- - [ ] Regenerative braking, open parts (the drive side, the BMS limits and the reporting to the VDC are done): the estimated speed in the limit on a dyno (the observer's torque model expects the shaft to slow; settles within some 300 ms in the sim), the BCC voltage ratings from the schematic. Done 2026-10-31: the per-sample overvoltage check in the sample interrupt (raw DC-link counts, `SetOvervoltageCounts()`; not run on the board).
+ - [ ] Regenerative braking, open parts (the drive side, the BMS limits and the reporting to the VDC are done): the estimated speed in the limit on a dyno (the observer's torque model expects the shaft to slow; settles within some 300 ms in the sim), the Jacobi voltage ratings from the schematic. Done 2026-10-31: the per-sample overvoltage check in the sample interrupt (raw DC-link counts, `SetOvervoltageCounts()`; not run on the board).
  - [ ] Split `app/` into `apps/drive/` and `apps/vdc/` (later `apps/pedal/` and `apps/bms/`) and add `lib/vehicle/`; update `AGENTS.md`, `README.md` and `docs/zephyr_workflow.md`. The VDC firmware lives in this repository (decided); the VDC MCU starts on a G4.
- - [ ] BMS controller as `apps/bms/` with `lib/battery/` (system plan section 5.5): board (BCC or new G4 board), cell monitoring front end, contactor and precharge, battery status message. Whether it still needs its own brake chopper next to the choppers in the drives is open (system plan section 12).
+ - [ ] BMS controller as `apps/bms/` with `lib/battery/` (system plan section 5.5): board (a new G4 board, Volta), cell monitoring front end, contactor and precharge, battery status message. It needs its own brake chopper: the drives have none (system plan section 5.2.1).
 
 ## GUI
 
@@ -216,7 +226,7 @@ no motor-type selection and runs the PMSM path only, and `lib/sim` has only
 ### Without hardware
 
  - [x] Update to the Zephyr 4.5 release (done 2026-10-31, `docs/zephyr_port_plan.md`, "Zephyr 4.5 migration"; NSOS of 4.5 maps the multicast options, source check only): bump the revision in `west.yml` and check the module allowlist, work through the 4.5 migration guide and release notes (devicetree bindings, Kconfig renames, the STM32 FDCAN and ADC drivers, `native_sim` and NSOS, ZMS and settings, ztest and twister, the C++ library settings), the Zephyr SDK version required by 4.5 in `docs/zephyr_workflow.md`, the CI workflows (`ci-zephyr.yml`, `build-firmware.yml`) and `README.md` ("Requirements"); `check_format.sh` and `twister_sca.sh` green on `native_sim` and `bcc`, the map file of the BCC build compared before and after (hot-path placement, flash and RAM use). Recheck whether NSOS in 4.5 passes the multicast socket options (the Cyphal/UDP fallback of the multi-node simulation). No 4.5 feature is required (`docs/zephyr_port_plan.md`, "Risks and Open Points").
- - [ ] Measure the cost of the trace `Tick()` in the control cycle on the BCC (M0, target < 1 us); move it to the observer interrupt if it is too slow.
+ - [ ] Measure the cost of the trace `Tick()` in the control cycle on the STM32H7 (M0, target < 1 us); move it to the observer interrupt if it is too slow.
  - [ ] Check whether the hot path (sample ISR, control cycle, buffers) belongs in CCM SRAM on the G4 (`docs/hotpath_plan.md`, "Risks and Open Points"); decide with the M0 timing numbers.
  - [x] Simulation-control commands over Cyphal for deterministic runs (SIL P2): pause, fixed-cycle advance, reset (`unimoc.sim.paused`, `.advance`, `.reset`, `.cycle_count`, `.cycle_period_ns`), run-until (`unimoc.sim.run_until`, stops at a trip) and the drive's timeouts in virtual time while paused (2026-10-31, `CyphalPlatformDriveTimeUs()`, pycyphal test).
 
@@ -224,7 +234,7 @@ no motor-type selection and runs the PMSM path only, and `lib/sim` has only
 
  - [ ] M0 on the board: timing numbers for the sample ISR, control cycle and observer.
  - [ ] M8 first step with the outputs off: DMA burst, preload, start at ARR/2, parity detection and ADC alignment on the scope. Include a settings restart (a register write while disengaged, then engage): `foc_stm32g4::Stop()` and the re-init are not run on the board yet.
- - [ ] Verify ZMS, the flash stall, the dual-bank option bit (DBANK, bank 2 free for Cyphal firmware updates) and the size of the settings partition on the BCC board (settings plan, "Not verified on hardware").
+ - [ ] Verify ZMS, the flash stall, the dual-bank option bit (DBANK, bank 2 free for Cyphal firmware updates) and the size of the settings partition on the NUCLEO-H743ZI and Jacobi (settings plan, "Not verified on hardware").
  - [ ] Configure the duty DMA from the devicetree (`dmas` of `foc0`, Zephyr DMA API at init) instead of the fixed DMA1 channel 1 / DMAMUX request 53, and enable its clock through `clock_control` instead of writing `RCC->AHB1ENR`. The zero-latency path keeps reading the channel counter directly. Do this after the M8 first step, so the fixed configuration is a verified reference.
  - [ ] M8 remainder: Hall table, closed current loop with the 50 A limit.
  - [x] First Zephyr release: `develop` merged into `main` and published as v0.1.0 (2026-10-24) by the release workflow (`docs/release_plan.md`).
@@ -255,6 +265,10 @@ down. The boundaries are documented in `CONTEXT.md` ("Unit Boundaries").
  - [ ] Document simulator setup, launch commands, supported model fidelity and GUI workflows in `README.md`.
 
 ## Done
+
+### Hardware
+
+ - [x] Jacobi board definition and BCC removal (2026-11-03): `boards/unimoc/jacobi/` (`unimoc_jacobi`, STM32H743VIT6, pins of the `docs/drive4850_h7_plan.md` proposal, phase voltages on PA7/PB1/PC3_C, motor temperature on PC5, TCAN334 on FDCAN1, RTT log, 8 MHz HSE assumed); the app builds (197 KB flash, 84 KB RAM). The BCC board, `hardware/zephyr_bcc`, the `unimoc,foc-stm32g4` and `unimoc,ebike` bindings and `app/boards/bcc.conf` removed; CI, twister and the firmware artifacts build `unimoc_jacobi` in place of `bcc`. Open: the schematic, `PWM_EN` (PE7) driven by the platform, the phase voltage dividers, the HSE, the GitHub ruleset check `firmware / firmware (jacobi)`.
 
 ### Cyphal/CAN-FD
 

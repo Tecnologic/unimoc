@@ -16,7 +16,6 @@ if UNIMOC
 
 choice UNIMOC_PLATFORM
 	prompt "UNIMOC hardware platform"
-	default UNIMOC_PLATFORM_BCC if BOARD_BCC
 	default UNIMOC_PLATFORM_SIM if BOARD_NATIVE_SIM
 	default UNIMOC_PLATFORM_STM32H7 if SOC_SERIES_STM32H7X
 	help
@@ -24,16 +23,12 @@ choice UNIMOC_PLATFORM
 	  compiles. The choice follows the board; it is never a preprocessor
 	  switch.
 
-config UNIMOC_PLATFORM_BCC
-	bool "Battery case controller (STM32G473)"
-	depends on BOARD_BCC
-
 config UNIMOC_PLATFORM_SIM
 	bool "Simulation on native_sim"
 	depends on BOARD_NATIVE_SIM
 
 config UNIMOC_PLATFORM_STM32H7
-	bool "STM32H7 (NUCLEO-H743ZI, later the 4850 logic board)"
+	bool "STM32H7 (Jacobi, NUCLEO-H743ZI)"
 	depends on SOC_SERIES_STM32H7X
 	select NOCACHE_MEMORY
 	help
@@ -46,7 +41,7 @@ endchoice
 config UNIMOC_SETTINGS_ZMS
 	bool "Persist settings with the Zephyr settings subsystem on ZMS"
 	default y
-	depends on UNIMOC_PLATFORM_BCC || UNIMOC_PLATFORM_SIM || UNIMOC_PLATFORM_STM32H7
+	depends on UNIMOC_PLATFORM_SIM || UNIMOC_PLATFORM_STM32H7
 	select FLASH
 	select FLASH_MAP
 	select ZMS
@@ -59,24 +54,25 @@ config UNIMOC_SETTINGS_ZMS
 
 config UNIMOC_EBIKE
 	bool "E-bike pedal assist and display (docs/ebike_plan.md)"
-	depends on UNIMOC_PLATFORM_BCC || UNIMOC_PLATFORM_SIM
+	depends on UNIMOC_PLATFORM_SIM
 	help
 	  Turns the drive into an e-bike: the crank torque and cadence sensor
 	  and the display (Kunteng protocol) feed the assist law, and the
 	  control engages the power stage on demand while the rider pedals
 	  (src/ebike). The readiness ENGAGED of the Cyphal bus then no longer
 	  engages the drive. The assist parameters are untuned defaults:
-	  enable it on the bench first. Off by default, also in native_sim:
+	  enable it on the bench first. Only the simulation has the e-bike
+	  inputs (simulated rider). Off by default, also in native_sim:
 	  the pytest integration tests engage the simulated drive over the
 	  bus.
 
 config UNIMOC_HOT_PATH_TIMING
 	bool "Measure the execution times of the interrupts (M0)"
-	depends on UNIMOC_PLATFORM_BCC || UNIMOC_PLATFORM_SIM || UNIMOC_PLATFORM_STM32H7
+	depends on UNIMOC_PLATFORM_SIM || UNIMOC_PLATFORM_STM32H7
 	help
 	  The platform measures the sample interrupt, the control cycle and
-	  the observer in cycles of its timestamp clock (BCC: DWT cycle
-	  counter, 170 MHz; STM32H7: 400 MHz) and keeps min, mean and max
+	  the observer in cycles of its timestamp clock (STM32H7: DWT
+	  cycle counter, 400 MHz) and keeps min, mean and max
 	  (hardware/hot_path_timing.hpp). The drive reports them in the
 	  unimoc.timing.* registers. Adds a few loads and stores to every
 	  measured interrupt; off by default. native_sim counts the cycles,
@@ -123,7 +119,7 @@ config UNIMOC_CONTROL_THREAD_STACK_SIZE
 
 config UNIMOC_CYPHAL
 	bool "Cyphal/CAN node of the drive"
-	depends on UNIMOC_PLATFORM_BCC || UNIMOC_PLATFORM_SIM || UNIMOC_PLATFORM_STM32H7
+	depends on UNIMOC_PLATFORM_SIM || UNIMOC_PLATFORM_STM32H7
 	select CAN
 	select HWINFO
 	select REBOOT

@@ -10,7 +10,7 @@
  *
  *    Direct register access (CMSIS, RM0433). All pin, timer and channel
  *    assignments come from the foc0 devicetree node, see foc_stm32h7_dt.hpp.
- *    The timing is the one of the STM32G4 driver (hardware/zephyr_bcc); the
+ *    The timing is the one of the former STM32G4 driver of the BCC; the
  *    differences are the H7 ADC (clock, boost, linearity calibration,
  *    channel preselection), the DMA stream and the M7 cycle counter.
  *

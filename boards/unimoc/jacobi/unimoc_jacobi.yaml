@@ -1,13 +1,14 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-identifier: bcc
-name: UNIMOC Battery Case Controller
+identifier: unimoc_jacobi
+name: UNIMOC Jacobi (48 V / 50 A drive)
 type: mcu
 arch: arm
 toolchain:
   - zephyr
   - gnuarmemb
-ram: 128
-flash: 512
+ram: 512
+flash: 2048
 supported:
   - gpio
+  - can

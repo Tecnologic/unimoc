@@ -63,7 +63,7 @@ namespace unimoc::current_control {
  * Execution model
  * ---------------
  * The platform runs `RunOnce()` after each control cycle at a priority
- * below the sampling interrupt (BCC: a software-pended normal-priority
+ * below the sampling interrupt (STM32H7: a software-pended normal-priority
  * interrupt; native_sim: directly after the control callback). It must finish
  * before the next control cycle, one cycle (62.5 µs at 16 kHz) later;
  * `state.observer_overruns` counts the cycles where it did not.

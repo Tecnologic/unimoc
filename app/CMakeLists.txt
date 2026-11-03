@@ -8,10 +8,7 @@ project(unimoc)
 set(UNIMOC_ROOT ${ZEPHYR_UNIMOC_MODULE_DIR})
 
 # --- Platform selection (Kconfig symbol chosen by the board) ----------------
-if(CONFIG_UNIMOC_PLATFORM_BCC)
-  set(UNIMOC_PLATFORM_DIR ${UNIMOC_ROOT}/hardware/zephyr_bcc)
-  set(UNIMOC_PLATFORM_EXTRA_SOURCES foc_stm32g4.cpp cyphal_platform.cpp ebike_io.cpp)
-elseif(CONFIG_UNIMOC_PLATFORM_SIM)
+if(CONFIG_UNIMOC_PLATFORM_SIM)
   set(UNIMOC_PLATFORM_DIR ${UNIMOC_ROOT}/hardware/zephyr_sim)
   set(UNIMOC_PLATFORM_EXTRA_SOURCES cyphal_platform.cpp register_file.cpp slcan_media.cpp sim_cmdline.c ebike_io.cpp)
   set(UNIMOC_PLATFORM_LIBRARIES unimoc_sim)

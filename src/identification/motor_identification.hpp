@@ -90,7 +90,7 @@ struct Status {
  * Runs in the Cyphal thread like the startup aid, one RunOnce() per spin.
  * Its clock is the control cycle: every wait is a measurement window of
  * SlowUpdate counted in control cycles, so a run takes the same virtual time
- * on the BCC, in the free-running and in the paused simulation.
+ * on the STM32H7, in the free-running and in the paused simulation.
  *
  * - M1 holds a d current at a forced angle (0, 120 and 240 degrees
  *   electrical, so each phase carries the full current once) at five levels

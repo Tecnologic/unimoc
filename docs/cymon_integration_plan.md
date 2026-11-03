@@ -1,5 +1,10 @@
 # cymon integration plan
 
+> **2026-11-03:** the battery case controller (BCC, STM32G473) and its
+> platform `hardware/zephyr_bcc` are removed. BCC references below are
+> history; the STM32H7 platform (`hardware/zephyr_stm32h7`, Jacobi and the
+> NUCLEO-H743ZI) carries the same design.
+
 Status: **implemented** (steps 1 to 10 below), not yet run on the board
 (M0 cost of `Tick()`). `lib/cymon` points at cymon-lib 0.2 on `main`.
 That version is ready for this integration: C++20, interrupt-safe `Tick()`,

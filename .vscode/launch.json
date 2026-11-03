@@ -22,12 +22,12 @@
             ]
         },
         {
-            "name": "Debug BCC (Zephyr)",
+            "name": "Debug Jacobi (Zephyr)",
             "type": "cortex-debug",
             "request": "launch",
-            "cwd": "${workspaceFolder}/app/build/bcc",
-            "executable": "${workspaceFolder}/app/build/bcc/zephyr/zephyr.elf",
-            "device": "STM32G473CB",
+            "cwd": "${workspaceFolder}/app/build/jacobi",
+            "executable": "${workspaceFolder}/app/build/jacobi/zephyr/zephyr.elf",
+            "device": "STM32H743VI",
             "interface": "swd",
             "armToolchainPath": "/home/alex/zephyr-sdk-1.0.1/gnu/arm-zephyr-eabi/bin",
             "runToEntryPoint": "main",

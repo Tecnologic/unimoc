@@ -6,11 +6,11 @@
  *    \____/_/ |_/___/_/  /_/\____/\____/
  *
  *    @file hardware_interface.cpp
- *    @brief STM32H7 hardware interface (NUCLEO-H743ZI, later the 4850 logic board).
+ *    @brief STM32H7 hardware interface (Jacobi, NUCLEO-H743ZI).
  *
  *    Glue between the portable HardwareInterface and the TIM1/TIM8 / ADC1..3 /
  *    DMA driver (foc_stm32h7). Pins, timer and ADC channels come from the foc0
- *    node of the board devicetree. Counterpart of hardware/zephyr_bcc.
+ *    node of the board devicetree. Counterpart of hardware/zephyr_sim.
  *
  *    SPDX-License-Identifier: GPL-3.0-or-later
  *
@@ -60,8 +60,8 @@ const settings::SettingsProfile kSettingsProfile = [] {
   profile.capabilities.max_battery_charge_current = 20.0_A;
   // DC link: 48 V battery (13s, 54.6 V full). Regenerative braking derates
   // from 55 V and the drive trips at 58 V. The 4850 power board uses the
-  // BSC040N08 (80 V) like the BCC; the capacitor rating is not checked yet.
-  // Currents as on the BCC: the 4850 is a 50 A drive.
+  // BSC040N08 (80 V); the capacitor rating is not checked yet. Currents:
+  // the 4850 is a 50 A drive.
   profile.factory_settings.dc_link_regen_derate_start = 55.0_V;
   profile.factory_settings.dc_link_trip = 58.0_V;
   profile.capabilities.max_dc_link_voltage = 60.0_V;

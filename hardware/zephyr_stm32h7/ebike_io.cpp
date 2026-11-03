@@ -8,9 +8,9 @@
  *    @file ebike_io.cpp
  *    @brief E-bike hardware of the STM32H7 platform: none.
  *
- *    The NUCLEO-H743ZI and the 4850 drive have no crank sensor and no
+ *    The NUCLEO-H743ZI and the Jacobi drive have no crank sensor and no
  *    display. The e-bike control is off (CONFIG_UNIMOC_EBIKE depends on the
- *    BCC and the simulation); these functions only satisfy the interface.
+ *    simulation); these functions only satisfy the interface.
  *
  *    SPDX-License-Identifier: GPL-3.0-or-later
  *

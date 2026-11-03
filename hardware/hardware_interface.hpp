@@ -54,7 +54,7 @@ struct ControlCycleSamples {
  * @brief Phase duties for the kHalfPeriodsPerCycle PWM half periods after a control boundary.
  *
  * Entry k applies to the half period that starts k + 1 boundaries after the
- * control boundary. On the BCC entry 0 is written directly into the PWM
+ * control boundary. On the STM32H7 entry 0 is written directly into the PWM
  * preload registers and entries 1 to 3 are delivered by DMA at the following
  * update events (hot_path::SetDutyPlan()).
  */
@@ -186,7 +186,7 @@ class HardwareInterface {
    * @brief Stops the cycle source before a new Initialize().
    *
    * Afterwards neither ControlCycleHandler() nor ObserverHandler() runs and
-   * the hardware is in a state Initialize() may reprogram (BCC: interrupts
+   * the hardware is in a state Initialize() may reprogram (STM32H7: interrupts
    * off, timer, duty DMA and ADC sequences stopped, ADCs disabled). The power
    * stage must be disabled. Does nothing before the first Initialize().
    */
@@ -251,7 +251,7 @@ class HardwareInterface {
    * @brief Takes the oldest captured change of the Hall code.
    *
    * The platform captures every change of the Hall code with its timestamp
-   * (BCC: EXTI interrupt and the DWT cycle counter; native_sim: the edges of
+   * (STM32H7: EXTI interrupt and the DWT cycle counter; native_sim: the edges of
    * the simulated sensors in virtual time) and the code at Initialize().
    * The observer takes them after each control cycle; it is the only reader.
    *

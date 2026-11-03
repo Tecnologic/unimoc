@@ -7,7 +7,7 @@
 # workspace; extra arguments are passed to twister, for example
 #   scripts/twister_sca.sh -p native_sim/native/64
 # Defaults: all scenarios of the repository, platforms native_sim/native/64,
-# bcc and nucleo_h743zi; a -T or -p argument replaces the respective default.
+# unimoc_jacobi and nucleo_h743zi; a -T or -p argument replaces the respective default.
 set -euo pipefail
 repo="$(cd "$(dirname "$0")/.." && pwd)"
 # Without the analyzers CodeChecker finds nothing and the run passes silently.
@@ -16,7 +16,7 @@ for tool in clang-tidy CodeChecker; do
 done
 topdir="$(cd "$repo" && west topdir)"
 
-platforms=(-p native_sim/native/64 -p bcc -p nucleo_h743zi)
+platforms=(-p native_sim/native/64 -p unimoc_jacobi -p nucleo_h743zi)
 roots=(-T "$repo")
 for arg in "$@"; do
   [[ "$arg" == "-p" || "$arg" == --platform* ]] && platforms=()

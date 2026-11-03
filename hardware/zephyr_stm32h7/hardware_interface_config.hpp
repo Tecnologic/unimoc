@@ -6,7 +6,7 @@
  *    \____/_/ |_/___/_/  /_/\____/\____/
  *
  *    @file hardware_interface_config.hpp
- *    @brief Static configuration of the STM32H7 platform (NUCLEO-H743ZI, 4850 logic).
+ *    @brief Static configuration of the STM32H7 platform (Jacobi, NUCLEO-H743ZI).
  *
  *    SPDX-License-Identifier: GPL-3.0-or-later
  *

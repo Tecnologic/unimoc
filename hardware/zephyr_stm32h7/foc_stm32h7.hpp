@@ -25,8 +25,8 @@ namespace unimoc::hardware::foc_stm32h7 {
 /**
  * @brief Brings up the pins, the timer, ADC1..3, the duty DMA and the interrupts.
  *
- * Same timing and interrupt layout as the STM32G4 driver of the BCC
- * (hardware/zephyr_bcc/foc_stm32g4.hpp); the timer is TIM1 or TIM8 of the
+ * Timing and interrupt layout of docs/hotpath_plan.md (taken over from the
+ * former STM32G4 driver of the BCC); the timer is TIM1 or TIM8 of the
  * foc0 node and the ADCs run three injected conversions each.
  *
  * Timing, all derived from the PWM frequency (T = one PWM period):

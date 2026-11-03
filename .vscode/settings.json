@@ -3,7 +3,7 @@
 	"cmake.copyCompileCommands": "${workspaceFolder}/compile_commands.json",
 	"cmake.autoSelectActiveFolder": false,
 	"clangd.arguments": [
-		"--compile-commands-dir=${workspaceFolder}/app/build/bcc",
+		"--compile-commands-dir=${workspaceFolder}/app/build/jacobi",
 		"--background-index",
 		"--completion-style=detailed",
 		"--header-insertion=never",
@@ -38,7 +38,7 @@
 		{
 			"label": "$(tools) Build all",
 			"task": "Zephyr: build all",
-			"tooltip": "Build native_sim and BCC"
+			"tooltip": "Build native_sim and Jacobi"
 		},
 		{
 			"label": "$(play) Run sim",
@@ -47,16 +47,16 @@
 		},
 		{
 			"label": "$(beaker) Test",
-			"task": "Zephyr: twister (native_sim + bcc)",
-			"tooltip": "Run twister for native_sim and BCC"
+			"task": "Zephyr: twister (native_sim + jacobi)",
+			"tooltip": "Run twister for native_sim and Jacobi"
 		},
 		{
 			"label": "$(folder) Unimoc",
 			"tooltip": "More Zephyr tasks",
 			"tasks": [
 				{ "label": "Build sim", "task": "Zephyr: build sim" },
-				{ "label": "Build BCC", "task": "Zephyr: build bcc" },
-				{ "label": "Flash BCC", "task": "Zephyr: flash bcc" },
+				{ "label": "Build Jacobi", "task": "Zephyr: build jacobi" },
+				{ "label": "Flash Jacobi", "task": "Zephyr: flash jacobi" },
 				{ "label": "Build H743", "task": "Zephyr: build h743" },
 				{ "label": "Flash H743", "task": "Zephyr: flash h743" },
 				{ "label": "Pristine build all", "task": "Zephyr: pristine build all" }
@@ -82,6 +82,6 @@
 	},
 	"nrf-connect.debugging.bindings": {
 		"${workspaceFolder}/app/build/sim": "Debug native_sim (Zephyr)",
-		"${workspaceFolder}/app/build/bcc": "Debug BCC (Zephyr)"
+		"${workspaceFolder}/app/build/jacobi": "Debug Jacobi (Zephyr)"
 	}
 }

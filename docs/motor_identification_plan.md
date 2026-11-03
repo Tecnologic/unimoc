@@ -1,5 +1,10 @@
 # Motor Identification Plan
 
+> **2026-11-03:** the battery case controller (BCC, STM32G473) and its
+> platform `hardware/zephyr_bcc` are removed. BCC references below are
+> history; the STM32H7 platform (`hardware/zephyr_stm32h7`, Jacobi and the
+> NUCLEO-H743ZI) carries the same design.
+
 Status: plan (2026-10-29), nothing implemented. Decisions 1 to 5 of
 section 9 were taken on 2026-10-29; decision 6 (the startup aid on the same
 bus contract) is open.

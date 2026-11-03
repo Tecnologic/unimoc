@@ -1,7 +1,9 @@
-# 4850 Logic Board on the STM32H743VIT6
+# Jacobi: 4850 Logic Board on the STM32H743VIT6
 
-Status: 2026-11-01, proposal. Nothing here is drawn, built or verified on
-hardware. The pin functions are taken from the STM32 HAL pin data that Zephyr
+Status: 2026-11-01, proposal; 2026-11-03 named **Jacobi** (board
+`unimoc_jacobi`, `boards/unimoc/jacobi/`), without the fourth half bridge
+and with phase voltage taps. The board definition builds; nothing here is
+drawn or verified on hardware. The pin functions are taken from the STM32 HAL pin data that Zephyr
 4.4 uses (`modules/hal/stm32/dts/st/h7/stm32h743vitx-pinctrl.dtsi`) and from
 the Zephyr devicetree of the STM32H743; every entry marked "check" has to be
 confirmed in the data sheet (DS12110) and the reference manual (RM0433)
@@ -14,7 +16,7 @@ board. That choice no longer holds:
 
 - The 512 KB G4 parts (G473CE/RE, G474CE/RE, G483, G484) are not available or
   far too expensive.
-- The application does not fit into 128 KB: the BCC image is 194 KB flash and
+- The application does not fit into 128 KB: the former BCC image was 194 KB flash and
   79 KB RAM (v0.4.0, `west build -b bcc`; with WRN log level, no asserts and
   LTO still 178 KB). About 45 KB of it is Zephyr, the rest is the
   application (drive node, settings registers, Cyphal). A port back to modm
@@ -35,8 +37,8 @@ ADCs, G4 price), STM32H723 (no package below LQFP100, single flash bank).
 | Core | Cortex-M7, 480 MHz (silicon rev. V; rev. Y 400 MHz), double-precision FPU, I/D cache, ITCM 64 KB, DTCM 128 KB | Hot path from ITCM/DTCM, plan with 400 MHz (check: VOS0 junction temperature limit for 480 MHz) |
 | Flash | 2 MB, two banks of 1 MB, 128 KB sectors, 256 bit write | Image in bank 1; DFU slot and settings in bank 2 (an erase in bank 2 does not stall the code in bank 1) |
 | RAM | AXI SRAM 512 KB, SRAM1..3 288 KB (D2), SRAM4 64 KB (D3) | Duty DMA buffers in D2 SRAM, non-cacheable MPU region |
-| ADC | ADC1, ADC2 (D2), ADC3 (D3), 16 bit, injected group, JEXTSEL 10 = TIM8_TRGO2 as on the G4 | Three phase currents sampled at once, one per ADC |
-| Timers | TIM1, TIM8 (CH1..CH3 + CHxN, BDTR, BKIN/BKIN2), TIM2..TIM5 | TIM1 phases, TIM8 the fourth half bridge |
+| ADC | ADC1, ADC2 (D2), ADC3 (D3), 16 bit, injected group, JEXTSEL 8 = TIM1_TRGO2 | Three phase currents sampled at once, one per ADC |
+| Timers | TIM1, TIM8 (CH1..CH3 + CHxN, BDTR, BKIN/BKIN2), TIM2..TIM5 | TIM1 phases; TIM8 free (was the fourth half bridge) |
 | DMA | DMA1/DMA2 with DMAMUX1 (as on the G4), MDMA, BDMA | Duty DMA as on the G4. DMA1/2 cannot reach DTCM. |
 | CAN | FDCAN1, FDCAN2 | FDCAN1 with the TCAN334 |
 | Analog extras | COMP1, COMP2, DAC1 (2 channels) | Chopper comparator (section 5) |
@@ -59,34 +61,43 @@ and the sheet labels of `logic/` and `power/` in hardware_4850:
   and an AC path (`Ix_DC`, `Ix_AC`); motor temperature, `AIN_ACC`,
   `AIN_DCC`, Hall A/B/C, four LEDs, CAN (TCAN334), I2C (24LC04, dropped),
   USB with VBUS sense, SWD with SWO, HSE.
-- New: the fourth half bridge (PWM pair, its current, a temperature of the
-  resistor or field winding), a connector for an angle sensor (SPI).
+- New: phase voltage taps from the power board (three dividers, 2026-11-03),
+  a connector for an angle sensor (SPI). The fourth half bridge planned on
+  2026-10-23 is dropped: the EESM excitation becomes its own bus module
+  (`docs/system_plan.md`, section 5.2.1).
 
 ## 4. Pin proposal
 
 ### 4.1 Analog
 
 Each phase current is rank 1 of the injected sequence of its own ADC, so
-`Ia_DC`, `Ib_DC` and `Ic_DC` are sampled at the same instant, as on the BCC.
+`Ia_DC`, `Ib_DC` and `Ic_DC` are sampled at the same instant.
 ADC3 only reaches PC0..PC3 in LQFP100, so phase C and the DC link sit there.
+The H7 platform samples three injected channels per ADC in a fixed order
+(binding `unimoc,foc-stm32h7`): current, voltage, temperature on ADC1 and
+ADC2, current, DC link, voltage on ADC3. This is the map of
+`boards/unimoc/jacobi/unimoc_jacobi.dts` (2026-11-03): the phase voltages
+take the pins of the AC current paths, which the firmware never sampled, and
+the motor temperature moves to PC5 (ADC2), freed by the fourth half bridge.
 
-| Signal | Pin | ADC input | Group |
+| Signal | Pin | ADC input | foc0 channel |
 |---|---|---|---|
-| Ia_DC | PA6 | ADC1_INP3 | injected rank 1 |
-| Ia_AC | PA7 | ADC1_INP7 | injected rank 2 |
-| I_aux (fourth half bridge) | PC4 | ADC1_INP4 | injected rank 3 |
-| Ib_DC | PB0 | ADC2_INP9 | injected rank 1 |
-| Ib_AC | PB1 | ADC2_INP5 | injected rank 2 |
-| Ic_DC | PC2_C | ADC3_INP0 | injected rank 1 |
-| Ic_AC | PC3_C | ADC3_INP1 | injected rank 2 |
-| Vdc | PC0 | ADC3_INP10 | injected rank 3 |
-| Bridge temperature | PA0 | ADC1_INP16 | regular |
-| Motor temperature | PA1 | ADC1_INP17 | regular |
-| AIN_ACC | PA2 | ADC2_INP14 | regular |
-| AIN_DCC | PA3 | ADC2_INP15 | regular |
-| Aux temperature (resistor or field) | PC5 | ADC2_INP8 | regular |
-| Spare | PC1 | ADC1/2/3_INP11 | for example a later phase voltage |
-| Spare / DAC | PA4, PA5 | DAC1_OUT1/OUT2, ADC1/2_INP18/19 | DAC test output or comparator threshold |
+| Ia_DC | PA6 | ADC1_INP3 | `ia`, ADC1 rank 1 |
+| Va (phase voltage tap) | PA7 | ADC1_INP7 | `va`, ADC1 rank 2 |
+| Bridge temperature | PA0 | ADC1_INP16 | `bridge-temperature`, ADC1 rank 3 |
+| Ib_DC | PB0 | ADC2_INP9 | `ib`, ADC2 rank 1 |
+| Vb (phase voltage tap) | PB1 | ADC2_INP5 | `vb`, ADC2 rank 2 |
+| Motor temperature | PC5 | ADC2_INP8 | `motor-temperature`, ADC2 rank 3 |
+| Ic_DC | PC2_C | ADC3_INP0 | `ic`, ADC3 rank 1 |
+| Vdc | PC0 | ADC3_INP10 | `vdc`, ADC3 rank 2 |
+| Vc (phase voltage tap) | PC3_C | ADC3_INP1 | `vc`, ADC3 rank 3 |
+| AIN_ACC | PA2 | ADC2_INP14 | not sampled yet |
+| AIN_DCC | PA3 | ADC2_INP15 | not sampled yet |
+| Spare | PA1, PC1, PC4 | ADC1_INP17; ADC1/2/3_INP11; ADC1/2_INP4 | for example the AC current paths |
+| Spare / DAC | PA4, PA5 | DAC1_OUT1/OUT2, ADC1/2_INP18/19 | DAC test output |
+
+The phase voltages are scaled like the DC link (`analog::CountsToVoltage()`),
+so the taps need the divider of the Vdc channel.
 
 Check: PC2_C/PC3_C are the direct ADC pads in LQFP100 (analog switch
 `PC2SO`/`PC3SO` in SYSCFG_PMCR); the ADC3 trigger list contains the TIM1
@@ -98,24 +109,26 @@ trigger used by ADC1/2; the GS8632 output range against the ADC range.
 |---|---|---|
 | Phase PWM high CH1..CH3 | PE9, PE11, PE13 (TIM1_CH1..CH3) | All gate signals on port E, frees PA8..PA10 and PB13..PB15 |
 | Phase PWM low CH1N..CH3N | PE8, PE10, PE12 (TIM1_CH1N..CH3N) | |
-| Break (E-stop, `PWM_BREAK`) | PE15 (TIM1_BKIN) and PA8 (TIM8_BKIN2), same net | Stops the phases and the fourth half bridge |
-| Fourth half bridge | PC7 (TIM8_CH2), PB14 (TIM8_CH2N) | TIM8 slave of TIM1 (reset and trigger by TRGO), same period and dead time |
-| Gate driver enable `PWM_EN` | PE7 | GPIO output |
-| Chopper comparator input | PB2 (COMP1_INP) | Second tap of the Vdc divider; threshold from DAC1 internally |
+| Break (E-stop, `PWM_BREAK`) | PE15 (TIM1_BKIN) | Stops the phases |
+| Gate driver enable `PWM_EN` | PE7 | GPIO output; in the devicetree, not driven by the platform yet |
 | CAN | PB8 (FDCAN1_RX), PB9 (FDCAN1_TX) | As on the F730 board; TCAN334 |
-| CAN transceiver standby | PD2 | Only if the transceiver variant has the pin |
+| CAN transceiver standby | PD2 | TCAN334 STB, driven low by the Cyphal platform |
 | USB DFU | PA11, PA12 (OTG_FS DM/DP), PA9 (OTG_FS_VBUS) | |
 | SWD | PA13, PA14, SWO on PB3 | |
 | Hall A/B/C | PD12, PD13, PD14 (TIM4_CH1..CH3) | GPIO today; TIM4 allows capture later |
 | LEDs RUN, PWM, MODE, ERROR | PD8, PD9, PD10, PD11 | GPIO outputs |
 | Angle sensor (later) | PC10 (SPI3_SCK), PC11 (MISO), PC12 (MOSI), PA15 (NSS) | Connector only |
 | I2C (optional) | PB6 (I2C1_SCL), PB7 (I2C1_SDA) | The EEPROM is dropped; keep the pins free |
-| HSE | PH0, PH1 | Crystal; CAN FD clock from the HSE |
+| HSE | PH0, PH1 | Crystal, 8 MHz assumed in the devicetree (to confirm); FDCAN1 from PLL2 Q |
+| Log | SWD (SEGGER RTT) | No UART on the board |
 
 The power board connector stays unchanged (section 2.1 of the system plan).
 Only the MCU side of the traces moves.
 
-## 5. Fourth half bridge on the H743
+## 5. Fourth half bridge on the H743 (dropped 2026-11-03)
+
+Jacobi has no fourth half bridge; the EESM excitation becomes its own bus
+module. The notes below stay for that module if it uses an H743.
 
 - **PWM:** the H743 timers have no CH4N, so TIM1 cannot drive a fourth
   complementary pair. TIM8 CH2/CH2N takes it, started and reset by the TIM1
@@ -131,8 +144,8 @@ Only the MCU side of the traces moves.
 
 ## 6. Firmware work
 
-- New platform `hardware/zephyr_stm32h7/` (`CONFIG_UNIMOC_PLATFORM_*`), next
-  to `hardware/zephyr_bcc/`. Above `hardware/hot_path_interface.hpp` and
+- New platform `hardware/zephyr_stm32h7/` (`CONFIG_UNIMOC_PLATFORM_*`); the
+  G4 platform of the BCC is removed (2026-11-03). Above `hardware/hot_path_interface.hpp` and
   `hardware/power_stage_interface.hpp` nothing changes.
 - Reused nearly as is: the TIM programming, `dead_time.hpp` (same BDTR
   coding, other timer clock), the break logic, the DMAMUX duty DMA.
@@ -142,8 +155,9 @@ Only the MCU side of the traces moves.
   the hot path linked into ITCM/DTCM.
 - Flash layout: image in bank 1; DFU slot and the settings partition (two
   128 KB sectors, ZMS with 32 byte write blocks: check) in bank 2.
-- Board definition `boards/unimoc/drive4850/`, bring-up first on a
-  NUCLEO-H743ZI(2) (in Zephyr), without power stage.
+- Board definition `boards/unimoc/jacobi/` (board `unimoc_jacobi`, done
+  2026-11-03), bring-up first on a NUCLEO-H743ZI(2) (in Zephyr), without
+  power stage.
 - With the control cycle on every sample, `docs/hotpath_plan.md` gets the
   new cadence as a configuration of the platform, not as a second hot path.
 
@@ -193,9 +207,12 @@ module; (5) the 4850 power board through an adapter.
 
 1. Logic board size in the RND 455-00370 enclosure with an LQFP100.
 2. Silicon revision of the bought parts (rev. V for 480 MHz).
-3. Placement of the fourth half bridge (logic or power board) and its
-   connector.
-4. Whether the AC current paths stay (they need the second injected rank).
+3. ~~Placement of the fourth half bridge~~: dropped (2026-11-03).
+4. ~~Whether the AC current paths stay~~: their pins take the phase voltage
+   taps (2026-11-03); the AC paths could move to the spare inputs, the
+   firmware does not sample them.
+6. Phase voltage dividers and their pins on the power board connector.
+7. HSE frequency (8 MHz assumed), LED polarity, and who drives `PWM_EN`.
 5. Hardware overcurrent: today the firmware checks every sample; a
    comparator path to BKIN needs one comparator per phase (only COMP1/2 on
    chip, COMP2 shares port E with TIM1 in this proposal).

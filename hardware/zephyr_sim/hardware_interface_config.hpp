@@ -41,7 +41,7 @@ inline constexpr bool kCpuTemperatureAvailable = false;
 inline constexpr bool kBridgeTemperatureAvailable = false;
 inline constexpr bool kMotorTemperatureAvailable = false;
 
-// The simulation emulates the same cadence as the BCC: one current sample per
+// The simulation emulates the same cadence as the STM32H7: one current sample per
 // PWM half period, one control cycle (control and observer handler) every
 // kHalfPeriodsPerCycle samples.
 inline constexpr uint8_t kHalfPeriodsPerCycle = 4U;
