@@ -71,7 +71,7 @@
         {
             "label": "Zephyr: flash h743",
             "type": "shell",
-            "command": "west flash -d unimoc/app/build/h743",
+            "command": "west flash -d unimoc/app/build/h743 --runner openocd --config unimoc/app/boards/nucleo_h743zi_openocd.cfg",
             "dependsOn": "Zephyr: build h743",
             "problemMatcher": []
         },

@@ -56,12 +56,15 @@
             "executable": "${workspaceFolder}/app/build/h743/zephyr/zephyr.elf",
             "preLaunchTask": "Zephyr: build h743",
             "servertype": "openocd",
+            "showDevDebugOutput": "raw",
             "configFiles": [
-                "/home/alex/zephyr-ws/zephyr/boards/st/nucleo_h743zi/support/openocd.cfg"
+                "${workspaceFolder}/app/boards/nucleo_h743zi_openocd.cfg"
             ],
             "device": "STM32H743ZI",
             "interface": "swd",
             "armToolchainPath": "/home/alex/zephyr-sdk-1.0.1/gnu/arm-zephyr-eabi/bin",
+            "gdbPath": "/home/alex/zephyr-sdk-1.0.1/gnu/arm-zephyr-eabi/bin/arm-zephyr-eabi-gdb",
+            "objdumpPath": "/usr/bin/arm-none-eabi-objdump",
             "runToEntryPoint": "main",
             "liveWatch": {
                 "enabled": true,

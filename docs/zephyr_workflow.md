@@ -39,6 +39,16 @@ CMake >= 3.28 (Zephyr's minimum since 4.5) and Ninja are required. The CI job
     west build -b bcc unimoc/app -d unimoc/app/build/bcc                      # battery case controller
     west build -b nucleo_h743zi unimoc/app -d unimoc/app/build/h743           # STM32H7 platform on a NUCLEO-H743ZI
 
+The Nucleo's on-board ST-LINK (ST firmware) is flashed and debugged through
+OpenOCD's DAP interface (`app/boards/nucleo_h743zi_openocd.cfg`; the VS Code
+task `Zephyr: flash h743` and the launch configuration use it):
+
+    west flash -d unimoc/app/build/h743 --runner openocd --config unimoc/app/boards/nucleo_h743zi_openocd.cfg
+
+The board's default OpenOCD configuration uses the hla interface, which cannot
+drive the reset line or read the H7 debug registers with this probe. A plain
+`west flash` uses STM32CubeProgrammer and needs `STM32_Programmer_CLI` installed.
+
 CI builds both (workflow `build-firmware.yml`, one matrix row per target) and uploads them as the artifacts
 `unimoc-bcc` (`.elf`, `.hex`, `.bin`, `.map`) and `unimoc-native_sim` (the
 executable in a `.tar.gz`, which keeps its executable bit) of the workflow run.
