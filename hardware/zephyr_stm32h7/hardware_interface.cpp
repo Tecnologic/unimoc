@@ -24,7 +24,6 @@
 #include <array>
 #include <cmath>
 #include "analog_scaling.hpp"
-#include "current_control_isr.hpp"
 #include "foc_stm32h7.hpp"
 #include "foc_stm32h7_dt.hpp"
 #include "hot_path_interface.hpp"
@@ -35,9 +34,6 @@ namespace unimoc::hardware {
 
 using namespace unit;
 
-// One control cycle consumes the samples of one hardware cycle.
-static_assert(kHalfPeriodsPerCycle == current_control::kNumSubSteps,
-              "control cycle and hardware cycle cover the same half periods");
 // The DWT cycle counter runs at the core clock.
 static_assert(foc_stm32h7::kCoreClockHz == kTimestampFrequency, "the timestamp clock is the core clock");
 
@@ -166,22 +162,23 @@ system::ThreePhase<Current> PhaseCurrents(const foc_stm32h7::RawSamples& raw) no
 
 system::ThreePhase<Current> GetPhaseCurrents() noexcept { return PhaseCurrents(foc_stm32h7::ReadRaw()); }
 
-// Phase currents of a sample of the cycle. At a peak the phase with the
+// Phase currents of the sample. At a peak the phase with the
 // highest duty switches closest to the sample, at a valley the one with the
 // lowest. When that edge falls into the guard window around the sample, the
 // phase is reconstructed from the other two (ia + ib + ic = 0); otherwise
 // the zero-sequence error of all three sensors is removed.
-system::ThreePhase<Current> CycleSampleCurrents(const uint8_t sample,
-                                                const foc_stm32h7::RawCurrents& raw) noexcept {
-  const std::array<Current, 3> kPhaseCurrent = {analog::CountsToCurrent(raw.a),
-                                                analog::CountsToCurrent(raw.b),
-                                                analog::CountsToCurrent(raw.c)};
-  const foc_stm32h7::PhaseTicks& ticks = foc_stm32h7::AppliedTicks(sample);
+system::ThreePhase<Current> SampleCurrents(const foc_stm32h7::SampleRaw& raw) noexcept {
+  const std::array<Current, 3> kPhaseCurrent = {
+      analog::CountsToCurrent(raw.ia),
+      analog::CountsToCurrent(raw.ib),
+      analog::CountsToCurrent(raw.ic),
+  };
+  const foc_stm32h7::PhaseTicks& ticks = foc_stm32h7::AppliedTicks();
   const uint32_t kReload = foc_stm32h7::TimerAutoReload();
 
   uint8_t edge = 0U;
   bool disturbed = false;
-  if (foc_stm32h7::SampleAtPeak(sample)) {
+  if (foc_stm32h7::SampleAtPeak()) {
     for (uint8_t phase = 1U; phase < 3U; ++phase) {
       edge = ticks[phase] > ticks[edge] ? phase : edge;
     }
@@ -271,28 +268,21 @@ uint32_t timing::DutyOverruns() noexcept { return foc_stm32h7::DutyOverruns(); }
 
 namespace hot_path {
 
-ControlCycleSamples GetControlCycleSamples() noexcept {
-  const foc_stm32h7::CycleRaw& raw = foc_stm32h7::CycleSamples();
-  ControlCycleSamples samples{};
-  for (uint8_t k = 0U; k < kHalfPeriodsPerCycle; ++k) {
-    samples.phase_currents[k] = CycleSampleCurrents(k, raw.currents[k]);
-  }
-  samples.dc_link = analog::CountsToVoltage(raw.vdc);
-  samples.overcurrent = raw.overcurrent;
-  samples.overvoltage = raw.overvoltage;
-  samples.timestamp = raw.timestamp;
-  return samples;
+CurrentSample GetSample() noexcept {
+  const foc_stm32h7::SampleRaw& raw = foc_stm32h7::Sample();
+  CurrentSample sample{};
+  sample.phase_currents = SampleCurrents(raw);
+  sample.dc_link = analog::CountsToVoltage(raw.vdc);
+  sample.overcurrent = raw.overcurrent;
+  sample.overvoltage = raw.overvoltage;
+  sample.timestamp = raw.timestamp;
+  return sample;
 }
 
-void SetDutyPlan(const DutyPlan& plan) noexcept {
+void SetDuties(const system::ThreePhase<Ratio>& duties) noexcept {
   const auto kReload = static_cast<float>(foc_stm32h7::TimerAutoReload());
-  foc_stm32h7::TickPlan ticks{};
-  for (uint8_t k = 0U; k < kHalfPeriodsPerCycle; ++k) {
-    ticks[k] = {DutyToTicks(plan.duties[k].a, kReload),
-                DutyToTicks(plan.duties[k].b, kReload),
-                DutyToTicks(plan.duties[k].c, kReload)};
-  }
-  foc_stm32h7::SetDutyTicks(ticks);
+  foc_stm32h7::SetDutyTicks(
+      {DutyToTicks(duties.a, kReload), DutyToTicks(duties.b, kReload), DutyToTicks(duties.c, kReload)});
 }
 
 void TripPowerStage() noexcept { foc_stm32h7::PowerStageTrip(); }

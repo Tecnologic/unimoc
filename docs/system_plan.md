@@ -528,7 +528,7 @@ the simulation, not on hardware):
 | "High power mode" in [`management.cpp`](https://github.com/Tecnologic/unimoc_old_software/blob/electric_quad/src/management.cpp) (80 A, unlocked by a switch sequence at power-up) | A settings register or profile selected by the VDC, within the hardware capabilities |
 | Throttle mapping and dead zones (`SetThrottleSetpoint`) | Pedal unit and VDC (pedal map); limp-home mode in the drive |
 | PAS ([`pas.cpp`](https://github.com/Tecnologic/unimoc_old_software/blob/electric_quad/src/pas.cpp)) | Not needed in the cart |
-| Hall, flux and HFI observers, mechanical observer ([`observer.cpp`](https://github.com/Tecnologic/unimoc_old_software/blob/electric_quad/src/observer.cpp)) | Already in `lib/motor_control`; Hall fusion is milestones M5/M6, HFI later for standstill |
+| Hall, flux and HFI observers, mechanical observer ([`observer.cpp`](https://github.com/Tecnologic/unimoc_old_software/blob/electric_quad/src/observer.cpp)) | Already in `lib/motor_control`; Hall fusion is milestones M5/M6; HFI is not ported (removed 2026-11-03), the Hall sensors cover standstill |
 | AS5048 encoder ([`as5048b.cpp`](https://github.com/Tecnologic/unimoc_old_software/blob/electric_quad/src/as5048b.cpp)) | Steering angle sensor driver on the VDC |
 | FreeMASTER over USB | Cyphal registers and cymon traces |
 | EEPROM settings (24LC04) | Zephyr settings on ZMS (`docs/settings_plan.md`) |

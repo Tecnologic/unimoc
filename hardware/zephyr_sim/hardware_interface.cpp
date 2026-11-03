@@ -9,18 +9,16 @@
  *    @brief Simulation (native_sim) hardware interface.
  *
  *    Counterpart of hardware/zephyr_stm32h7, closed around the motor plant of
- *    lib/sim. A kernel timer in simulated time stands in for the control
- *    cycle (kHalfPeriodsPerCycle PWM half periods, 16 kHz at 32 kHz PWM).
- *    Every expiry
+ *    lib/sim. A kernel timer in simulated time runs kHalfPeriodsPerCycle PWM
+ *    half periods per expiry (16 kHz at 32 kHz PWM). Each half period
  *
- *     1. calls ControlCycleHandler() (STM32H7: inside the last sample interrupt
- *        of the cycle) and then ObserverHandler() (STM32H7: pended interrupt) on
- *        the samples of the cycle that just ended, and
- *     2. advances the plant over the next kHalfPeriodsPerCycle half periods
- *        with the timing of the STM32H7: the first half period still uses the
- *        last entry of the previous plan, the next three use entries 0..2 of
- *        the new plan, entry 3 carries over. Each half period ends with a
- *        current sample and the per-sample overcurrent and DC-link overvoltage checks.
+ *     1. advances the plant with the duties in effect,
+ *     2. ends with a current sample and the per-sample overcurrent and DC-link
+ *        overvoltage checks; at its boundary the duties written by the last
+ *        control step take effect (the CCR preload of the STM32H7), and
+ *     3. calls SampleHandler() (STM32H7: the sample interrupt), which writes
+ *        the duties of the next half period, and ObserverHandler() (STM32H7:
+ *        pended interrupt) when the handler ended a control cycle.
  *
  *    Timestamps are nanoseconds of virtual time. A change of the simulated
  *    Hall code is queued with the time of the edge, as the EXTI capture of
@@ -139,9 +137,9 @@ sim::PlantTrace g_plant_trace;
 bool g_initialized = false;
 Time g_half_period{};
 
-ControlCycleSamples g_samples{};  // samples of the cycle that just ended
-DutyPlan g_plan{};                // written by the control cycle
-Duties g_carry = kNeutral;        // entry 3 of the last plan: first half period of the next cycle
+CurrentSample g_sample{};    // the sample of the boundary that just passed
+Duties g_active = kNeutral;  // duties in effect (the active compare values)
+Duties g_next = kNeutral;    // written by the last control step: in effect from the next boundary
 std::array<Duties, kHalfPeriodsPerCycle> g_applied{kNeutral, kNeutral, kNeutral, kNeutral};
 Current g_overcurrent_limit{std::numeric_limits<float>::infinity()};
 Voltage g_overvoltage_limit{std::numeric_limits<float>::infinity()};
@@ -194,7 +192,7 @@ bool Exceeds(const system::ThreePhase<Current>& currents) noexcept {
   return Abs(currents.a) > kLimit || Abs(currents.b) > kLimit || Abs(currents.c) > kLimit;
 }
 
-/// Copies the plant truth for the traces; the next control cycle samples it with its own state.
+/// Copies the plant truth for the traces; the control step of the sample samples it with its own state.
 void UpdatePlantTrace() noexcept {
   const auto& output = g_plant.Output();
   g_plant_trace.i_a = output.phase_currents.a.Value();
@@ -208,53 +206,57 @@ void UpdatePlantTrace() noexcept {
   g_plant_trace.torque = output.electromagnetic_torque.Value();
 }
 
+/// The control step of the sample, then the observer when the step ended a control cycle.
+void RunHandlers() noexcept {
+  if constexpr (kTiming) {
+    // Simulated time stands still inside a cycle: the times are 0, the counts are real.
+    const uint32_t kStart = k_cycle_get_32();
+    const bool kObserver = SampleHandler();
+    const uint32_t kControlEnd = k_cycle_get_32();
+    timing::ProbeOf(timing::Section::kControlCycle).Record(kControlEnd - kStart);
+    timing::ProbeOf(timing::Section::kSampleIsr).Record(kControlEnd - kStart);
+    if (kObserver) {
+      ObserverHandler();
+      timing::ProbeOf(timing::Section::kObserver).Record(k_cycle_get_32() - kControlEnd);
+    }
+  } else if (SampleHandler()) {
+    ObserverHandler();
+  }
+}
+
 // Runs in the (simulated) timer interrupt, like the STM32H7 interrupts: no kernel
 // calls and no logging in the handlers.
 void RunCycle() noexcept {
   if (!g_initialized) {
     return;
   }
-  if constexpr (kTiming) {
-    // Simulated time stands still inside a cycle: the times are 0, the counts are real.
-    const uint32_t kStart = k_cycle_get_32();
-    ControlCycleHandler();
-    const uint32_t kControlEnd = k_cycle_get_32();
-    ObserverHandler();
-    const uint32_t kObserverEnd = k_cycle_get_32();
-    timing::ProbeOf(timing::Section::kControlCycle).Record(kControlEnd - kStart);
-    timing::ProbeOf(timing::Section::kSampleIsr).Record(kControlEnd - kStart);
-    timing::ProbeOf(timing::Section::kObserver).Record(kObserverEnd - kControlEnd);
-  } else {
-    ControlCycleHandler();
-    ObserverHandler();
-  }
-
   const uint64_t kStartNs = static_cast<uint64_t>(g_cycle_count) * g_cycle_ns;
-  ControlCycleSamples next{};
   for (uint8_t k = 0U; k < kHalfPeriodsPerCycle; ++k) {
-    const Duties& duty = (k == 0U) ? g_carry : g_plan.duties[k - 1U];
-    g_applied[k] = duty;
+    g_applied[k] = g_active;
     g_plant.SetBridgeEnabled(g_power_stage.enabled);
-    g_plant.SetPhaseDuties(duty);
+    g_plant.SetPhaseDuties(g_active);
     (void)g_plant.Step(g_half_period);
-    CaptureHall(kStartNs + (k + 1U) * g_half_period_ns);
+    const uint64_t kBoundaryNs = kStartNs + ((k + 1U) * g_half_period_ns);
+    CaptureHall(kBoundaryNs);
+    UpdatePlantTrace();
 
     // Sample at the end of the half period, then the per-sample checks.
-    next.phase_currents[k] = MeasuredCurrents();
-    if (Exceeds(next.phase_currents[k])) {
+    CurrentSample sample{};
+    sample.phase_currents = MeasuredCurrents();
+    if (Exceeds(sample.phase_currents)) {
       PowerStageTrip();
-      next.overcurrent = true;
+      sample.overcurrent = true;
     }
     if (!(g_plant.Output().dc_link_voltage < g_overvoltage_limit)) {
       PowerStageTrip();
-      next.overvoltage = true;
+      sample.overvoltage = true;
     }
+    sample.dc_link = g_plant.Output().dc_link_voltage;
+    sample.timestamp = static_cast<uint32_t>(kBoundaryNs);
+    g_sample = sample;
+    g_active = g_next;  // the boundary: the preload of the last control step takes effect
+    RunHandlers();
   }
-  next.dc_link = g_plant.Output().dc_link_voltage;
-  next.timestamp = static_cast<uint32_t>(kStartNs + kHalfPeriodsPerCycle * g_half_period_ns);
-  g_carry = g_plan.duties[kHalfPeriodsPerCycle - 1U];
-  g_samples = next;
-  UpdatePlantTrace();
   ++g_cycle_count;
 }
 
@@ -286,12 +288,12 @@ void StopTimer() noexcept {
   k_timer_stop(&g_cycle_timer);
 }
 
-// Back to the first cycle: no plan, neutral duties, samples of the plant at rest.
+// Back to the first cycle: neutral duties, the sample of the plant at rest.
 void ResetCycleState() noexcept {
-  g_samples = ControlCycleSamples{};
-  g_samples.dc_link = g_plant.Output().dc_link_voltage;
-  g_plan = DutyPlan{};
-  g_carry = kNeutral;
+  g_sample = CurrentSample{};
+  g_sample.dc_link = g_plant.Output().dc_link_voltage;
+  g_active = kNeutral;
+  g_next = kNeutral;
   g_applied = {kNeutral, kNeutral, kNeutral, kNeutral};
   g_cycle_count = 0U;
 }
@@ -326,7 +328,7 @@ bool Initialize(Frequency pwm_frequency, uint32_t /*unused*/) noexcept {
   return true;
 }
 
-// The cycle timer runs the control cycle and the observer: stopped, neither runs.
+// The cycle timer runs the control steps and the observer: stopped, neither runs.
 void Stop() noexcept {
   if (g_initialized) {
     StopTimer();
@@ -352,14 +354,14 @@ bool PopHallEvent(observer::HallEvent& event) noexcept { return g_hall_events.Po
 
 }  // namespace
 
-// The simulation applies every plan in time.
+// The simulation applies every duty in time.
 uint32_t timing::DutyOverruns() noexcept { return 0U; }
 
 namespace hot_path {
 
-ControlCycleSamples GetControlCycleSamples() noexcept { return g_samples; }
+CurrentSample GetSample() noexcept { return g_sample; }
 
-void SetDutyPlan(const DutyPlan& plan) noexcept { g_plan = plan; }
+void SetDuties(const Duties& duties) noexcept { g_next = duties; }
 
 void TripPowerStage() noexcept { PowerStageTrip(); }
 

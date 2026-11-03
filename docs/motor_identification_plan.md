@@ -35,7 +35,7 @@ cypilot.
 |---|---|---|---|
 | Stator resistance R_s | `unimoc.motor.stator.R` | current PI (ki), decoupling, flux observer | M1 |
 | Dead-time voltage | `unimoc.control.dtc.dead_time` (as a time) | dead-time compensation | M1 (intercept) |
-| L_d, L_q (and the mean `stator.L`) | `unimoc.motor.pmsm.L_d`, `L_q`, `unimoc.motor.stator.L` | current PI (kp), decoupling, MTPA, HFI, flux observer | M2 |
+| L_d, L_q (and the mean `stator.L`) | `unimoc.motor.pmsm.L_d`, `L_q`, `unimoc.motor.stator.L` | current PI (kp), decoupling, MTPA, flux observer | M2 |
 | Flux linkage psi_PM | `unimoc.motor.pmsm.flux_pm` | torque constant, flux observer, field weakening, mechanical observer | M3 |
 | Pole pairs p | `unimoc.motor.pole_pairs` | everything mechanical | entered, checked by M4 |
 | Hall offset, Hall order | `unimoc.observer.hall.offset` | Hall fusion | M5 |
@@ -246,12 +246,12 @@ outputs (`lib/sim`: back-EMF plus the star point, the inverter without
 conduction while the back-EMF stays below the DC link). The 4850 board's
 voltage sense is open (TODO.md, cart system).
 
-M2's injection is the one change of the control cycle: the HFI injection
-already adds a voltage per duty entry (`hfi.GetInjectionVoltage()` in
-`OnControlCycle()`); M2 adds a sine of the FSM's amplitude, axis and
-frequency on the same path, from a table of `RotorAngle` (no libm), and stays
-within the zero-latency rules. With four duty entries per cycle a sine of up
-to f_pwm / 8 is possible; 500 Hz leaves 32 cycles per period for Goertzel.
+M2's injection is the one change of the control step: it adds a sine of
+the FSM's amplitude, axis and frequency to the voltage of every step
+(`OnSample()`), from a table of `RotorAngle` (no libm), and stays within the
+zero-latency rules. With new duties every half period a sine of up to
+f_pwm / 2 is possible; 500 Hz leaves 32 cycles per period for Goertzel.
+(HFI, which used the same path, was removed on 2026-11-03.)
 
 ### 5.3 The identification FSM
 

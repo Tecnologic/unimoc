@@ -116,9 +116,10 @@ integration with ztest and pytest, as below.
   subscription may share one subject (decided 2026-10-22): every node of a
   bus then triggers the captures of the others; a node does not receive its
   own transfers. All other ports must have distinct IDs.
-- `Tick()` runs in `ControlCycleHandler()` (`src/main.cpp`) right after
-  `CurrentControlIsr::OnControlCycle()`, through `trace::OnControlCycle()`,
-  on every cycle (also while tripped or in force-duty mode). The mirror
+- `Tick()` runs in `SampleHandler()` (`src/main.cpp`) right after the
+  `CurrentControlIsr::OnSample()` that ends a control cycle (every fourth
+  sample), through `trace::OnControlCycle()`, on every cycle (also while
+  tripped or in force-duty mode). The mirror
   `trace::TraceSignals` is filled from the controller state;
   `CurrentControlState::i_dq_last` holds the measured d/q current for it.
 - The device is constructed in `.bss` (a `std::optional`) by the Cyphal

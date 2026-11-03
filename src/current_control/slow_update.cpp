@@ -67,7 +67,7 @@ bool SlowUpdate::RunOnce() noexcept {
   auto& mech_obs = isr_->mech_obs;
 
   // -------------------------------------------------------------------------
-  // Nothing to do until the control cycle has filled a buffer.
+  // Nothing to do until the control steps have filled a record.
   // -------------------------------------------------------------------------
   if (!state.observer_pending.load(std::memory_order_acquire)) {
     return false;
@@ -77,10 +77,9 @@ bool SlowUpdate::RunOnce() noexcept {
   const unit::Time kDtSlow = state.dt_slow;
 
   // -------------------------------------------------------------------------
-  // 1. The buffer of the cycle that just finished.
+  // 1. The record of the cycle that just finished.
   // -------------------------------------------------------------------------
-  const uint8_t kFinishedBuffer = state.observer_buffer;
-  const SubStepBuffer& cycle = state.double_buf.buf[kFinishedBuffer];
+  const CycleRecord& cycle = state.records[state.observer_buffer];
   const system::Rotor<unit::Current> kCurrentDqMean = cycle.i_dq_mean;
   AccumulateWindow(cycle);
 
@@ -111,24 +110,14 @@ bool SlowUpdate::RunOnce() noexcept {
   mech_obs.Predict(kCurrentDqMean, kDtSlow);
 
   // -------------------------------------------------------------------------
-  // 4. HFI: sample k + 1 answers injection step k of the plan before it, so
-  //    sample 0 completes the injection period (step 3) and samples 1..3 start
-  //    the next one (steps 0..2). update() advances its step itself.
+  // 4. Angle reference of the next cycle into the inactive buffer: the angle
+  //    at its first sample, the rotation of one half period, and the rotation
+  //    from a sample to the middle of the half period its duties apply to
+  //    (output delay, D4). The control steps advance the angle themselves.
   // -------------------------------------------------------------------------
-  if (isr_->hfi_active) {
-    for (uint8_t k = 0U; k < kNumSubSteps; ++k) {
-      isr_->hfi.Update(cycle.i_ab_samples[k], cycle.sc[k].sin, cycle.sc[k].cos, kDtSlow, mech_obs);
-    }
-  }
-
-  // -------------------------------------------------------------------------
-  // 5. Angles of the next cycle into the inactive buffer:
-  //      sample k:     phi = theta + k × omega × dt_fast
-  //      duty entry k: phi = theta + (kNumSubSteps − 1 + delay + k) × omega × dt_fast
-  //    The next control boundary is the last sample of the next cycle; entry
-  //    k takes effect `delay` + k half periods after it (D4).
-  // -------------------------------------------------------------------------
-  SubStepBuffer& next = state.double_buf.buf[1U - kFinishedBuffer];
+  AngleBuffer& angles = state.angles;
+  const auto kInactive = static_cast<uint8_t>(1U - angles.active.load(std::memory_order_relaxed));
+  AngleReference& next = angles.buf[kInactive];
 
   // The identification's forced angle replaces the estimate (plan section 5.1).
   const uint8_t kForced = forced_state_.load(std::memory_order_acquire);
@@ -139,20 +128,18 @@ bool SlowUpdate::RunOnce() noexcept {
     forced_now_.angle = forced_now_.angle + (forced_now_.speed * kDtSlow);
   }
   const bool kUseForced = kForced != kForcedOff;
-  const unit::Angle kThetaNow = kUseForced ? forced_now_.angle : mech_obs.theta;
-  const unit::Angle kStep = (kUseForced ? forced_now_.speed : mech_obs.omega) * kDtFast;
-  const float kOutOffset = static_cast<float>(kNumSubSteps - 1U) + state.output_delay_half_periods;
+  const unit::AngularVelocity kOmega = kUseForced ? forced_now_.speed : mech_obs.omega;
+  const unit::Angle kStep = kOmega * kDtFast;
 
-  for (uint8_t k = 0U; k < kNumSubSteps; ++k) {
-    const auto kIndex = static_cast<float>(k);
-    next.sc[k] = system::SinCos<unit::Ratio>(kThetaNow + kStep * kIndex);
-    next.sc_out[k] = system::SinCos<unit::Ratio>(kThetaNow + kStep * (kOutOffset + kIndex));
-  }
+  next.sample = cycle.first_sample + kNumSubSteps;
+  next.sc = system::SinCos<unit::Ratio>(kUseForced ? forced_now_.angle : mech_obs.theta);
+  next.step = system::SinCos<unit::Ratio>(kStep);
+  next.out = system::SinCos<unit::Ratio>(kStep * state.output_delay_half_periods);
 
   // -------------------------------------------------------------------------
-  // 6. Publish: the next control cycle uses the new buffer.
+  // 5. Publish: the control steps take the new reference.
   // -------------------------------------------------------------------------
-  state.double_buf.active.store(static_cast<uint8_t>(1U - kFinishedBuffer), std::memory_order_release);
+  angles.active.store(kInactive, std::memory_order_release);
   state.observer_pending.store(false, std::memory_order_release);
   return true;
 }
@@ -161,7 +148,7 @@ bool SlowUpdate::RunOnce() noexcept {
 // accumulate_window — the measurement windows of the motor identification
 // =============================================================================
 
-void SlowUpdate::AccumulateWindow(const SubStepBuffer& cycle) noexcept {
+void SlowUpdate::AccumulateWindow(const CycleRecord& cycle) noexcept {
   const uint32_t kGeneration = window_generation_.load(std::memory_order_acquire);
   if (kGeneration != window_running_) {
     window_running_ = kGeneration;
@@ -175,13 +162,13 @@ void SlowUpdate::AccumulateWindow(const SubStepBuffer& cycle) noexcept {
   window_sums_.voltage_mean = window_sums_.voltage_mean + cycle.u_dq;
   window_sums_.dc_link_mean = window_sums_.dc_link_mean + cycle.dc_link;
   // The phasors of the sine: the currents at the phases of their samples, the
-  // voltage of each duty entry at the phase of its middle.
+  // voltage of each step's duties at the phase of the middle of their half period.
   const bool kAxisD = cycle.injection_axis == static_cast<uint8_t>(InjectionAxis::kD);
   for (uint8_t k = 0U; k < kNumSubSteps; ++k) {
     const system::Rotor<unit::Current> kCurrent = cycle.i_ab_samples[k].ToRotor(cycle.sc[k]);
     window_sums_.current_phasor.Add(kAxisD ? kCurrent.d : kCurrent.q,
-                                    InjectionSinCos(InjectionSamplePhase(cycle.cycle, k)));
-    const system::SinCos<unit::Ratio> kEntry = InjectionSinCos(InjectionEntryPhase(cycle.cycle, k));
+                                    InjectionSinCos(InjectionSamplePhase(cycle.first_sample + k)));
+    const system::SinCos<unit::Ratio> kEntry = InjectionSinCos(InjectionEntryPhase(cycle.first_sample + k));
     window_sums_.voltage_phasor.Add(cycle.injection_amplitude * kEntry.sin, kEntry);
   }
   ++window_sums_.cycles;
@@ -215,7 +202,7 @@ unit::AngleVariance SlowUpdate::FluxNoise(const unit::AngularVelocity omega) con
 // fuse_hall — edges and sector of the Hall sensors
 // =============================================================================
 
-void SlowUpdate::FuseHall(const SubStepBuffer& cycle) noexcept {
+void SlowUpdate::FuseHall(const CycleRecord& cycle) noexcept {
   if (hardware_ == nullptr) {
     return;
   }

@@ -73,7 +73,7 @@ The C++ simulator remains the source of truth for controller execution and physi
 Each motor runtime should expose operations equivalent to:
 
 - `Reset()` - restore settings, controller state, plant state, and virtual time.
-- `RunControlCycle()` - execute exactly one control cycle (`OnControlCycle()`, then the observer, then the plant over four half periods). On native_sim this is `hardware::sim::StepCycle()`.
+- `RunControlCycle()` - execute exactly one control cycle (four half periods of the plant, each with its sample and control step `OnSample()`, then the observer). On native_sim this is `hardware::sim::StepCycle()`.
 - `AdvanceCycles(count)` - execute a fixed number of coordinated cycles.
 - `Snapshot()` - return controller, plant, timing, and telemetry state.
 

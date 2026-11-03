@@ -53,10 +53,10 @@ simulation.
 | Category | Capability |
 |---|---|
 | **Motor types** | PMSM, ASM (induction), EESM (wound-rotor synchronous) |
-| **Observers** | Back-EMF / PLL (PMSM), HFI sensorless (IPMSM), ASM rotor-flux Luenberger, EESM excitation LPF |
+| **Observers** | Back-EMF / PLL (PMSM) fused with Hall sensors, ASM rotor-flux Luenberger, EESM excitation LPF |
 | **Control** | MTPA, field-weakening, ASM flux PI, EESM excitation PI (current or flux mode) |
 | **Position** | Absolute multi-turn tracker (±4096+ rev), cascaded P+PI position controller, homing state machine |
-| **Modulation** | Space Vector PWM (SVPWM), dead-time compensation |
+| **Modulation** | Space Vector PWM (SVPWM), dead-time compensation; current PI and new duties every half PWM period (64 kHz at 32 kHz PWM) |
 | **Network** | Cyphal (UAVCAN v1) over CAN FD — every setting a register, arming, setpoints, telemetry, traces (cymon) and the log on the bus, also for the simulation (see [Cyphal](#cyphal-uavcan-v1-interface)) |
 | **Persistence** | Live RAM settings for tuning; one flash entry per changed register (Zephyr settings on ZMS); saving only while the power stage is disabled |
 | **Platform** | HAL-free algorithms; tested on Linux x86-64 with GTest; Zephyr firmware for the Jacobi drive (STM32H743), the NUCLEO-H743ZI and `native_sim` |
@@ -69,7 +69,7 @@ simulation.
 ### PMSM — Permanent-Magnet Synchronous Motor
 Surface-mount and interior-PM motors.
 Control path: MechanicalObserver (back-EMF PLL) → MTPA → FieldWeakening → SVM.
-Low-speed sensorless: HFI observer (requires inductance saliency, IPMSM only).
+Low speed and standstill: Hall sensors (edges and sector) fused with the back-EMF observer.
 
 ### ASM — Asynchronous (Induction) Motor
 Squirrel-cage induction motors.
@@ -99,7 +99,6 @@ lib/
 │   │   ├── svm.hpp                   # Space Vector PWM modulator
 │   │   ├── asm_flux_observer.hpp    # ASM full-order Luenberger rotor-flux observer
 │   │   ├── excitation_observer.hpp  # EESM excitation current LPF -> flux estimate
-│   │   ├── hfi.hpp                   # 4-step High-Frequency Injection (IPMSM standstill)
 │   │   ├── mechanical_observer.hpp  # Back-EMF observer + PLL (PMSM / shared with ASM)
 │   │   ├── position_tracker.hpp     # Absolute multi-turn position + homing
 │   │   └── *_system.hpp              # Rotor, stator, and three-phase coordinate systems
@@ -138,9 +137,8 @@ contexts are (details in [`docs/hotpath_plan.md`](docs/hotpath_plan.md)):
 
 | Context | Runs | Latency |
 |---|---|---|
-| Sample ISR (ADC end of injected sequence, every half PWM period, 64 kHz) | Raw current copy, overcurrent check on raw counts | Zero-latency IRQ |
-| Control cycle (every fourth sample, 16 kHz) | FOC hot path: mean current, Park, PI once, four duty entries (inverse Park, HFI step, SVM), entry 0 into the CCR preload, entries 1 to 3 by DMA | Zero-latency IRQ |
-| Observer (after each control cycle, 16 kHz) | Flux observer, Kalman, HFI, angles of the next cycle (`SlowUpdate`) | Software-pended normal-priority IRQ |
+| Sample ISR (ADC end of injected sequence, every half PWM period, 64 kHz) | Raw current copy, overcurrent check on raw counts, then the control step: Park, PI, inverse Park, SVM, duties of the next half period into the CCR preload | Zero-latency IRQ |
+| Observer (after every fourth control step, 16 kHz) | Flux observer, Kalman, Hall fusion, angle reference of the next cycle (`SlowUpdate`) | Software-pended normal-priority IRQ |
 | Zephyr threads | Speed and position control (about 2 kHz, planned), logging (RTT), the Cyphal node, settings, startup sequencing | Normal scheduling |
 
 Zero-latency handlers may not call kernel APIs, log, or lock.  The
@@ -433,15 +431,15 @@ The sample period is a whole multiple of the control cycle; a capture of
 
 ### Interrupt timing (M0)
 
-With `CONFIG_UNIMOC_HOT_PATH_TIMING=y` the platform measures the sample
-interrupt of each control boundary (including the control cycle), the control
-cycle alone and the observer in cycles of the DWT counter (400 MHz on the
+With `CONFIG_UNIMOC_HOT_PATH_TIMING=y` the platform measures every sample
+interrupt (including its control step), the control step alone
+(`.control_cycle`) and the observer in cycles of the DWT counter (400 MHz on the
 STM32H7; `hardware/hot_path_timing.hpp`).  Read-only registers:
 
 | Register | Type | Content |
 |---|---|---|
 | `unimoc.timing.sample_isr`, `.control_cycle`, `.observer` | natural32[4] | min, mean, max [cycles], number of records |
-| `unimoc.timing.overruns` | natural32[2] | duty plans applied late, control cycles that started while the observer still ran |
+| `unimoc.timing.overruns` | natural32[2] | duties written after their half period started, control cycles that ended while the observer still ran |
 | `unimoc.timing.clock_hz` | natural32[1] | the timestamp clock |
 
 ```sh

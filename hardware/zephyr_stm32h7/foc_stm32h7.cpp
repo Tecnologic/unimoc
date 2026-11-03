@@ -6,13 +6,14 @@
  *    \____/_/ |_/___/_/  /_/\____/\____/
  *
  *    @file foc_stm32h7.cpp
- *    @brief TIM1/TIM8 / ADC1..3 / DMA power stage driver on the STM32H7.
+ *    @brief TIM1/TIM8 / ADC1..3 power stage driver on the STM32H7.
  *
  *    Direct register access (CMSIS, RM0433). All pin, timer and channel
  *    assignments come from the foc0 devicetree node, see foc_stm32h7_dt.hpp.
  *    The timing is the one of the former STM32G4 driver of the BCC; the
  *    differences are the H7 ADC (clock, boost, linearity calibration,
- *    channel preselection), the DMA stream and the M7 cycle counter.
+ *    channel preselection) and the M7 cycle counter. The current control
+ *    runs on every sample and writes the CCR preload directly (no duty DMA).
  *
  *    Not run on hardware yet.
  *
@@ -28,11 +29,9 @@
 #include <zephyr/drivers/pinctrl.h>
 #include <zephyr/irq.h>
 #include <zephyr/kernel.h>
-#include <zephyr/linker/section_tags.h>
 #include <algorithm>
 #include <array>
 #include <atomic>
-#include <cstddef>
 #include "foc_stm32h7_dt.hpp"
 #include "hardware_interface_config.hpp"
 #include "hot_path_interface.hpp"
@@ -53,8 +52,6 @@ constexpr bool kTimerIsTim1 = kTimerBase == TIM1_BASE;
 // Injected trigger TRGO2 of the power stage timer (RM0433, ADC external
 // triggers; LL_ADC_INJ_TRIG_EXT_TIM1_TRGO2 / _TIM8_TRGO2).
 constexpr uint32_t kInjectedTrigger = kTimerIsTim1 ? 8U : 10U;
-// DMAMUX1 request of the timer update (LL_DMAMUX1_REQ_TIM1_UP / _TIM8_UP).
-constexpr uint32_t kDmaRequestTimerUp = kTimerIsTim1 ? 15U : 51U;
 
 constexpr uint32_t kCalibrationTimeoutLoops = 1'000'000U;
 
@@ -63,8 +60,8 @@ constexpr uint32_t kCalibrationTimeoutLoops = 1'000'000U;
 // OC6 the trigger before the valley, see InitTimer().
 constexpr uint32_t kMasterMode2Oc4Oc6Rising = TIM_CR2_MMS2_3 | TIM_CR2_MMS2_2;
 
-// Center aligned with RCR = 0: an update event (and a duty DMA burst) at every
-// peak and every valley.
+// Center aligned with RCR = 0: an update event (the preloaded duties take
+// effect) at every peak and every valley.
 constexpr uint32_t kRepetitionCounter = 0U;
 
 // ADC clock: asynchronous from the kernel clock (pll2_p_ck) with PRESC = /4.
@@ -84,19 +81,8 @@ ADC_TypeDef* const kAdcFast = reinterpret_cast<ADC_TypeDef*>(kAdcPhaseA.base);
 ADC_TypeDef* const kAdcB = reinterpret_cast<ADC_TypeDef*>(kAdcPhaseB.base);
 ADC_TypeDef* const kAdcC = reinterpret_cast<ADC_TypeDef*>(kAdcPhaseC.base);
 
-// Duty DMA: DMA1 stream 0, fed by DMAMUX1 channel 0 with the timer update
-// request. Each request is a burst of three word transfers into TIMx_DMAR,
-// which TIMx_DCR maps onto CCR1..CCR3.
-DMA_Stream_TypeDef* const kDma = DMA1_Stream0;
-DMAMUX_Channel_TypeDef* const kDmaMux = DMAMUX1_Channel0;
-constexpr uint32_t kDmaStream0Flags =
-    DMA_LIFCR_CFEIF0 | DMA_LIFCR_CDMEIF0 | DMA_LIFCR_CTEIF0 | DMA_LIFCR_CHTIF0 | DMA_LIFCR_CTCIF0;
-constexpr uint32_t kBurstLength = 3U;  // CCR1, CCR2, CCR3
-constexpr uint32_t kDmaTransfers = kBurstLength * kHalfPeriodsPerCycle;
-constexpr uint32_t kCcr1WordOffset = offsetof(TIM_TypeDef, CCR1) / sizeof(uint32_t);
-
 // Observer interrupt: the timer update vector, pended by software after each
-// control cycle. The timer never pends it itself: UIE stays 0 (only UDE is set).
+// control cycle. The timer never pends it itself: DIER stays 0.
 constexpr unsigned kObserverIrq = kTimerUpdateIrq;
 constexpr unsigned kObserverIrqPriority = 0U;  // highest normal (non zero-latency) priority
 
@@ -116,16 +102,9 @@ const struct device* const kRcc = DEVICE_DT_GET(STM32_CLOCK_CONTROL_NODE);
 uint32_t g_auto_reload = 0U;
 uint32_t g_trigger_lead = 0U;
 
-// Slot s holds CCR1..3 for the burst of the s-th update event of a cycle;
-// slot 0 is the burst at the control boundary. DMA1 reads it from the AXI
-// SRAM; __nocache keeps it out of the data cache (CONFIG_NOCACHE_MEMORY), so
-// the DMA sees what the control cycle wrote.
-__nocache std::array<PhaseTicks, kHalfPeriodsPerCycle> g_dma_slots{};
-static_assert(sizeof(g_dma_slots) == kDmaTransfers * sizeof(uint32_t), "slots are packed words");
-
 // Sample interrupt state. Only the zero-latency context writes it.
-CycleRaw g_cycle{};
-uint8_t g_sample_index = 0U;
+SampleRaw g_sample{};
+bool g_sample_at_peak = true;  // the boundary of g_sample
 
 // Overcurrent window, low limit in bits 0..15 and high limit in bits 16..31.
 // Written by the thread context (SetOvercurrentWindow()), read by the sample
@@ -138,10 +117,10 @@ std::atomic<uint32_t> g_overcurrent_window{PackWindow(0U, 0xFFFU)};
 std::atomic<uint32_t> g_overvoltage_counts{kOvervoltageCheckOff};
 static_assert(std::atomic<uint32_t>::is_always_lock_free);
 
-// What was active while the samples of the current cycle were taken.
-TickPlan g_applied{};
-PhaseTicks g_last_entry{};  // entry 3 of the last plan
-bool g_control_at_peak = true;
+// Compare values active while the sample was taken (written two samples
+// before) and the ones of the next half period (written by the last sample).
+PhaseTicks g_applied{};
+PhaseTicks g_next{};
 bool g_started = false;  // Initialize() has programmed the hardware, Stop() has not run since
 uint32_t g_duty_overruns = 0U;
 
@@ -277,42 +256,40 @@ bool OutsideWindow(const uint32_t raw, const uint32_t window) noexcept {
 ISR_DIRECT_DECLARE(SampleIsr) {
   // M0: from the first instruction, without the exception entry.
   const uint32_t kEntry = kTiming ? DWT->CYCCNT : 0U;
+  // The sequence of a peak ends in the upper half of the counter, before or
+  // after the peak, the one of a valley in the lower half (lead and sequence
+  // shorter than a quarter period).
+  g_sample_at_peak = kTim->CNT > g_auto_reload / 2U;
   kAdcFast->ISR = ADC_ISR_JEOS;  // the sequence is complete, JDR1..JDR3 are valid
   const uint32_t kIa = kAdcFast->JDR1;
   const uint32_t kIb = kAdcB->JDR1;
   const uint32_t kIc = kAdcC->JDR1;
-  const uint8_t kIndex = g_sample_index;
-  g_cycle.currents[kIndex] =
-      RawCurrents{static_cast<uint16_t>(kIa), static_cast<uint16_t>(kIb), static_cast<uint16_t>(kIc)};
+  g_sample.ia = static_cast<uint16_t>(kIa);
+  g_sample.ib = static_cast<uint16_t>(kIb);
+  g_sample.ic = static_cast<uint16_t>(kIc);
   const uint32_t kWindow = g_overcurrent_window.load(std::memory_order_relaxed);
-  if (OutsideWindow(kIa, kWindow) || OutsideWindow(kIb, kWindow) || OutsideWindow(kIc, kWindow)) {
-    kTim->EGR = TIM_EGR_BG;  // break: outputs off at once, BIF latched
-    g_cycle.overcurrent = true;
-  }
+  g_sample.overcurrent =
+      OutsideWindow(kIa, kWindow) || OutsideWindow(kIb, kWindow) || OutsideWindow(kIc, kWindow);
   // The DC link of every sample: rank 2 of the phase C ADC, converted with the same trigger and sample times.
   const uint32_t kVdc = kAdcC->JDR2;
-  if (kVdc >= g_overvoltage_counts.load(std::memory_order_relaxed)) {
-    kTim->EGR = TIM_EGR_BG;
-    g_cycle.overvoltage = true;
+  g_sample.vdc = kVdc;
+  g_sample.overvoltage = kVdc >= g_overvoltage_counts.load(std::memory_order_relaxed);
+  if (g_sample.overcurrent || g_sample.overvoltage) {
+    kTim->EGR = TIM_EGR_BG;  // break: outputs off at once, BIF latched
   }
+  g_sample.timestamp = DWT->CYCCNT;  // in the clock of the Hall events
 
-  if (kIndex + 1U < kHalfPeriodsPerCycle) {
-    g_sample_index = kIndex + 1U;
-    return 0;
-  }
-  g_sample_index = 0U;
-  g_cycle.vdc = kVdc;
-  g_cycle.timestamp = DWT->CYCCNT;  // the control boundary, in the clock of the Hall events
+  bool observer = false;
   if constexpr (kTiming) {
     const uint32_t kStart = DWT->CYCCNT;
-    ControlCycleHandler();
+    observer = SampleHandler();
     timing::ProbeOf(timing::Section::kControlCycle).Record(DWT->CYCCNT - kStart);
   } else {
-    ControlCycleHandler();
+    observer = SampleHandler();
   }
-  g_cycle.overcurrent = false;
-  g_cycle.overvoltage = false;
-  NVIC_SetPendingIRQ(static_cast<IRQn_Type>(kObserverIrq));
+  if (observer) {
+    NVIC_SetPendingIRQ(static_cast<IRQn_Type>(kObserverIrq));
+  }
   if constexpr (kTiming) {
     timing::ProbeOf(timing::Section::kSampleIsr).Record(DWT->CYCCNT - kEntry);
   }
@@ -340,32 +317,10 @@ void ApplyTriggerLead(const uint32_t ticks) noexcept {
   kTim->CCR6 = kLead;
 }
 
-void InitDma() noexcept {
-  RCC->AHB1ENR |= RCC_AHB1ENR_DMA1EN;  // DMAMUX1 has no own clock enable on the H7
-  (void)RCC->AHB1ENR;                  // the clock is on before the first access
-
+void InitDutyState() noexcept {
   const uint32_t kNeutral = g_auto_reload / 2U;
-  for (auto& slot : g_dma_slots) {
-    slot = PhaseTicks{kNeutral, kNeutral, kNeutral};
-  }
-  g_last_entry = PhaseTicks{kNeutral, kNeutral, kNeutral};
-  for (auto& entry : g_applied) {
-    entry = g_last_entry;
-  }
-
-  kDma->CR = 0U;
-  (void)WaitWhile(kDma->CR, DMA_SxCR_EN, false);  // a stream stops at the end of its burst
-  DMA1->LIFCR = kDmaStream0Flags;
-  kDmaMux->CCR = kDmaRequestTimerUp;
-  kDma->PAR = reinterpret_cast<uintptr_t>(&kTim->DMAR);
-  kDma->M0AR = reinterpret_cast<uintptr_t>(g_dma_slots[0].data());
-  kDma->NDTR = kDmaTransfers;
-  kDma->FCR = 0U;  // direct mode (no FIFO): one word per request beat
-  // Memory to peripheral, words, memory increment, circular, very high priority.
-  kDma->CR = DMA_SxCR_DIR_0 | DMA_SxCR_CIRC | DMA_SxCR_MINC | DMA_SxCR_PSIZE_1 | DMA_SxCR_MSIZE_1 |
-             DMA_SxCR_PL_1 | DMA_SxCR_PL_0 | DMA_SxCR_EN;
-
-  kTim->DCR = ((kBurstLength - 1U) << TIM_DCR_DBL_Pos) | (kCcr1WordOffset << TIM_DCR_DBA_Pos);
+  g_next = PhaseTicks{kNeutral, kNeutral, kNeutral};
+  g_applied = g_next;
 }
 
 bool ExternalEnablePresent() noexcept { return gpio_pin_get_raw(kEnableInput.port, kEnableInput.pin) > 0; }
@@ -418,8 +373,7 @@ bool InitTimer(const uint32_t pwm_hz, const uint32_t trigger_offset) noexcept {
   kTim->EGR = TIM_EGR_UG;  // load ARR, RCR and the preloaded compare values
   kTim->SR = 0U;
   // Start between the trigger compares: neither OC4REF nor OC6REF is active
-  // there, so starting the counter cannot produce a spurious ADC trigger. The
-  // first boundary is then both the first sample and the first DMA burst.
+  // there, so starting the counter cannot produce a spurious ADC trigger.
   kTim->CNT = g_auto_reload / 2U;
   return true;
 }
@@ -464,13 +418,10 @@ bool Initialize(const unit::Frequency pwm_frequency, const uint32_t adc_trigger_
     return false;
   }
 
-  InitDma();
-  // Timestamp clock (Hall edges, control boundary): the DWT cycle counter.
+  InitDutyState();
+  // Timestamp clock (Hall edges, samples): the DWT cycle counter.
   StartCycleCounter();
-  // The first sample belongs to the first boundary, which is also the first
-  // DMA burst (slot 0): it is the last sample of a cycle.
-  g_sample_index = kHalfPeriodsPerCycle - 1U;
-  g_cycle = CycleRaw{};
+  g_sample = SampleRaw{};
 
   // Zero latency: priority argument is ignored, the IRQ is never masked by irq_lock().
   IRQ_DIRECT_CONNECT(kFastIrq, 0, SampleIsr, IRQ_ZERO_LATENCY);
@@ -478,7 +429,7 @@ bool Initialize(const unit::Frequency pwm_frequency, const uint32_t adc_trigger_
   irq_enable(kObserverIrq);
   irq_enable(kFastIrq);
 
-  kTim->DIER = TIM_DIER_UDE;  // after UG: the initial update must not start a burst
+  kTim->DIER = 0U;  // no timer interrupt or DMA request: the observer vector is pended by software
   kTim->CR1 |= TIM_CR1_CEN;
   return true;
 }
@@ -493,9 +444,7 @@ void Stop() noexcept {
   irq_disable(kObserverIrq);
 
   kTim->BDTR &= ~TIM_BDTR_MOE;  // outputs off (the power stage is disabled already)
-  kTim->DIER = 0U;              // no more DMA requests
   kTim->CR1 &= ~TIM_CR1_CEN;    // no more ADC triggers
-  kDma->CR &= ~DMA_SxCR_EN;
 
   // An ADC that does not stop is left as it is; the calibration in the
   // following Initialize() then fails and reports it.
@@ -554,58 +503,31 @@ void SetTriggerLead(const uint32_t ticks) noexcept { ApplyTriggerLead(ticks); }
 
 uint32_t TriggerLead() noexcept { return g_trigger_lead; }
 
-void SetDutyTicks(const TickPlan& ticks) noexcept {
-  const uint32_t kRemaining = kDma->NDTR;
+void SetDutyTicks(const PhaseTicks& ticks) noexcept {
+  kTim->CCR1 = ticks[0];
+  kTim->CCR2 = ticks[1];
+  kTim->CCR3 = ticks[2];
+  // Late: the counter has passed the next boundary (the one the preload was
+  // meant for) and moves away from it. Early (before the boundary of the
+  // sample, long trigger lead) the duties take effect half a period sooner.
+  const bool kUpperHalf = kTim->CNT > g_auto_reload / 2U;
   const bool kCountingDown = (kTim->CR1 & TIM_CR1_DIR) != 0U;
-
-  for (uint8_t k = 1U; k < kHalfPeriodsPerCycle; ++k) {
-    g_dma_slots[k] = ticks[k];
-  }
-
-  if (kRemaining == kDmaTransfers - kBurstLength) {
-    // Normal case: the burst of the control boundary (slot 0) is done and the
-    // next one has not started. Entry 0 goes into the preload now; slot 0 holds
-    // the last entry as a fallback for a late next cycle.
-    kTim->CCR1 = ticks[0][0];
-    kTim->CCR2 = ticks[0][1];
-    kTim->CCR3 = ticks[0][2];
-    g_dma_slots[0] = ticks[kHalfPeriodsPerCycle - 1U];
-    if (kDma->NDTR != kRemaining) {
-      ++g_duty_overruns;  // the next update came during the write
-    }
-    g_control_at_peak = kCountingDown;  // just after a peak the counter counts down
-  } else if (kRemaining == kDmaTransfers) {
-    // Early: the control boundary is still ahead (long trigger lead). Its
-    // burst delivers entry 0.
-    g_dma_slots[0] = ticks[0];
-    g_control_at_peak = !kCountingDown;  // counting up towards a peak
-  } else {
+  if (kUpperHalf != g_sample_at_peak && kCountingDown != g_sample_at_peak) {
     ++g_duty_overruns;
   }
-
-  // Sample k of the next cycle is taken in the half period ending at the
-  // (k + 1)-th boundary after the control boundary.
-  g_applied[0] = g_last_entry;
-  for (uint8_t k = 1U; k < kHalfPeriodsPerCycle; ++k) {
-    g_applied[k] = ticks[k - 1U];
-  }
-  g_last_entry = ticks[kHalfPeriodsPerCycle - 1U];
+  g_applied = g_next;
+  g_next = ticks;
 }
 
 uint32_t DutyOverruns() noexcept { return g_duty_overruns; }
 
-const CycleRaw& CycleSamples() noexcept { return g_cycle; }
+const SampleRaw& Sample() noexcept { return g_sample; }
 
 uint32_t Timestamp() noexcept { return DWT->CYCCNT; }
 
-const PhaseTicks& AppliedTicks(const uint8_t sample) noexcept { return g_applied[sample]; }
+const PhaseTicks& AppliedTicks() noexcept { return g_applied; }
 
-bool SampleAtPeak(const uint8_t sample) noexcept {
-  // The last sample shares the boundary type with the control boundary; the
-  // type alternates from boundary to boundary.
-  const bool kSameAsControl = ((kHalfPeriodsPerCycle - 1U - sample) % 2U) == 0U;
-  return kSameAsControl == g_control_at_peak;
-}
+bool SampleAtPeak() noexcept { return g_sample_at_peak; }
 
 void SetOvercurrentWindow(const uint32_t low, const uint32_t high) noexcept {
   g_overcurrent_window.store(PackWindow(low, high), std::memory_order_relaxed);

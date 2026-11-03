@@ -390,18 +390,6 @@ struct NvmSettings {
   unit::Current dtc_i_threshold{0.1_A};
 
   // =========================================================================
-  // HFI (high-frequency injection) observer
-  // =========================================================================
-
-  /// HFI injection voltage [V].
-  /// Register: `unimoc.observer.hfi.v_inject`
-  unit::Voltage hfi_v_inject{0.0_V};
-
-  /// Current error to PLL angle scaling gain [rad/A].
-  /// Register: `unimoc.observer.hfi.error_gain`
-  unit::AnglePerCurrent hfi_error_gain{1.0_rad_per_A};
-
-  // =========================================================================
   // EESM excitation controller
   // =========================================================================
 

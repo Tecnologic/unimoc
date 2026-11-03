@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# Checks the cycle contract of the native_sim hardware layer: one control and
-# one observer callback per kHalfPeriodsPerCycle half periods, control first,
-# and the half periods each duty-plan entry is applied in.
+# Checks the cycle contract of the native_sim hardware layer: one sample
+# handler call per half period, the observer after the step that ends a
+# control cycle, and the half period the duties of each step are applied in.
 cmake_minimum_required(VERSION 3.20.0)
 
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})

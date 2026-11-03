@@ -103,8 +103,8 @@ class Probe {
 
 /// Measured sections.
 enum class Section : uint8_t {
-  kSampleIsr,     ///< Whole sample interrupt of a control boundary (includes the control cycle).
-  kControlCycle,  ///< ControlCycleHandler() alone.
+  kSampleIsr,     ///< Whole sample interrupt, every sample (includes the control step).
+  kControlCycle,  ///< SampleHandler() alone: the control step of one sample.
   kObserver,      ///< ObserverHandler() alone.
 };
 

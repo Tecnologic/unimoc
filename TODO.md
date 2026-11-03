@@ -85,9 +85,9 @@ Items 1 to 5 are done (2026-10-31, one pull request); 6 is next.
 
 ### Tier 4: blocked on the board
 
-M0 timing (with the cost of the trace `Tick()`, then the CCM SRAM decision),
-M8 first step and remainder, ZMS and the dual-bank option, the duty DMA from
-the devicetree (after M8), Cyphal on the NUCLEO-H743ZI and Jacobi and the CAN
+M0 timing with the flux observer and Hall fusion running (then the ITCM
+decision), M8 first step and remainder, ZMS and the dual-bank option, Cyphal
+on the NUCLEO-H743ZI and Jacobi and the CAN
 FD bus test C2 (then the bit rate and the Jacobi bit timing), identification
 I7, regenerative braking on a dyno.
 
@@ -226,16 +226,17 @@ no motor-type selection and runs the PMSM path only, and `lib/sim` has only
 ### Without hardware
 
  - [x] Update to the Zephyr 4.5 release (done 2026-10-31, `docs/zephyr_port_plan.md`, "Zephyr 4.5 migration"; NSOS of 4.5 maps the multicast options, source check only): bump the revision in `west.yml` and check the module allowlist, work through the 4.5 migration guide and release notes (devicetree bindings, Kconfig renames, the STM32 FDCAN and ADC drivers, `native_sim` and NSOS, ZMS and settings, ztest and twister, the C++ library settings), the Zephyr SDK version required by 4.5 in `docs/zephyr_workflow.md`, the CI workflows (`ci-zephyr.yml`, `build-firmware.yml`) and `README.md` ("Requirements"); `check_format.sh` and `twister_sca.sh` green on `native_sim` and `bcc`, the map file of the BCC build compared before and after (hot-path placement, flash and RAM use). Recheck whether NSOS in 4.5 passes the multicast socket options (the Cyphal/UDP fallback of the multi-node simulation). No 4.5 feature is required (`docs/zephyr_port_plan.md`, "Risks and Open Points").
- - [ ] Measure the cost of the trace `Tick()` in the control cycle on the STM32H7 (M0, target < 1 us); move it to the observer interrupt if it is too slow.
- - [ ] Check whether the hot path (sample ISR, control cycle, buffers) belongs in CCM SRAM on the G4 (`docs/hotpath_plan.md`, "Risks and Open Points"); decide with the M0 timing numbers.
+ - [ ] Measure the cost of the trace `Tick()` with an armed capture on the STM32H7 (M0, target < 1 us; idle it is inside the measured 5.7 us worst sample interrupt); move it to the observer interrupt if it is too slow.
+ - [ ] Decide whether the hot path (sample ISR, control step, buffers) goes into ITCM/DTCM on the STM32H7 (`docs/hotpath_plan.md`, "Risks and Open Points"); M0 on the Nucleo: 1774 cycles mean, 2276 worst of 6250 per half period from flash at `-Os`.
+ - [ ] Raise the factory current PI gains per motor to the bandwidth of the per-sample loop (kp = L * pi / (9 T_h), 3.6 kHz at 32 kHz PWM, `docs/hotpath_plan.md` section 3); the hoverboard default is still 2000 rad/s.
  - [x] Simulation-control commands over Cyphal for deterministic runs (SIL P2): pause, fixed-cycle advance, reset (`unimoc.sim.paused`, `.advance`, `.reset`, `.cycle_count`, `.cycle_period_ns`), run-until (`unimoc.sim.run_until`, stops at a trip) and the drive's timeouts in virtual time while paused (2026-10-31, `CyphalPlatformDriveTimeUs()`, pycyphal test).
 
 ### Blocked on hardware access
 
- - [ ] M0 on the board: timing numbers for the sample ISR, control cycle and observer.
- - [ ] M8 first step with the outputs off: DMA burst, preload, start at ARR/2, parity detection and ADC alignment on the scope. Include a settings restart (a register write while disengaged, then engage): `foc_stm32g4::Stop()` and the re-init are not run on the board yet.
+ - [x] M0 on the board (2026-11-03, NUCLEO-H743ZI, outputs off): per-sample control step 1537 cycles mean, sample interrupt 2276 worst of 6250, no overrun (`docs/hotpath_plan.md`, section 4).
+ - [ ] M0 with the flux observer and Hall fusion running (outputs released on a power stage).
+ - [ ] M8 first step with the outputs off: preload timing, start at ARR/2, peak/valley detection from `CNT` and ADC alignment on the scope. Include a settings restart (a register write while disengaged, then engage): `foc_stm32g4::Stop()` and the re-init are not run on the board yet.
  - [ ] Verify ZMS, the flash stall, the dual-bank option bit (DBANK, bank 2 free for Cyphal firmware updates) and the size of the settings partition on the NUCLEO-H743ZI and Jacobi (settings plan, "Not verified on hardware").
- - [ ] Configure the duty DMA from the devicetree (`dmas` of `foc0`, Zephyr DMA API at init) instead of the fixed DMA1 channel 1 / DMAMUX request 53, and enable its clock through `clock_control` instead of writing `RCC->AHB1ENR`. The zero-latency path keeps reading the channel counter directly. Do this after the M8 first step, so the fixed configuration is a verified reference.
  - [ ] M8 remainder: Hall table, closed current loop with the 50 A limit.
  - [x] First Zephyr release: `develop` merged into `main` and published as v0.1.0 (2026-10-24) by the release workflow (`docs/release_plan.md`).
  - [x] Release setup on GitHub: `RELEASE_TOKEN`, merge methods per branch, required checks (check run names) and "Automatically delete head branches" off, which had deleted `develop` after the first release merge.
@@ -301,6 +302,7 @@ down. The boundaries are documented in `CONTEXT.md` ("Unit Boundaries").
 ### Hot path and Zephyr port
 
  - [x] Decide the hot-path layout: 32 kHz PWM, 16 kHz control cycle in the sample ISR, duties by CCR preload plus DMA (variant B), observer in a software-pended normal-priority interrupt (`docs/hotpath_plan.md`).
+ - [x] Current PI on every sample (2026-11-03): the control step runs in every sample ISR (64 kHz) and writes the CCR preload directly; the duty DMA is gone; the observer hands one angle reference per cycle that the steps rotate forward; HFI removed (Hall sensors at low speed). Delay 1.5 instead of 4.5 half periods: about 3x the current bandwidth (`docs/hotpath_plan.md`, sections 2 and 3).
  - [x] Hot-path milestones M1 to M7 in code (observer API, Hall driver and sim Hall signals, Hall fusion, control thread with speed and position control), tested with ztest and the sim plant; not run on the board.
  - [x] Align the root `CMakeLists.txt` with the C++20 baseline.
  - [x] Bring `src/`, `hardware/zephyr_*`, the tests and the `lib/unimoc` headers under clang-tidy (Zephyr SCA through CodeChecker, `scripts/twister_sca.sh`); `lib/cymon` is checked too since it is built.

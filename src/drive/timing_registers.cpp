@@ -43,9 +43,9 @@ using cyphal::RegisterEffect;
 constexpr float kInf = std::numeric_limits<float>::infinity();
 constexpr std::array<cyphal::RegisterDescription, kNames.size()> kDescriptions{{
     {"cycles", -kInf, kInf, RegisterEffect::kImmediate, "Sample ISR run time: min, mean, max, count"},
-    {"cycles", -kInf, kInf, RegisterEffect::kImmediate, "Control cycle run time: min, mean, max, count"},
+    {"cycles", -kInf, kInf, RegisterEffect::kImmediate, "Control step run time: min, mean, max, count"},
     {"cycles", -kInf, kInf, RegisterEffect::kImmediate, "Observer run time: min, mean, max, count"},
-    {{}, -kInf, kInf, RegisterEffect::kImmediate, "Overruns: duty updates too late, observer runs skipped"},
+    {{}, -kInf, kInf, RegisterEffect::kImmediate, "Overruns: duty updates too late, observer late"},
     {"Hz", -kInf, kInf, RegisterEffect::kImmediate, "Clock of the run time counters"},
 }};
 

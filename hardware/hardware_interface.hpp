@@ -27,46 +27,27 @@
 namespace unimoc::hardware {
 
 /**
- * @brief ADC values of one control cycle (kHalfPeriodsPerCycle PWM half periods).
+ * @brief ADC values of one current sample (one PWM half period).
  *
- * The hardware samples the phase currents once per PWM half period, at every
- * peak and valley of the center-aligned counter. Sample k was taken at the
- * (k + 1)-th boundary after the previous control boundary, so the last sample
- * belongs to the boundary of this control cycle.
+ * The hardware samples the phase currents once per half period, at every peak
+ * and valley of the center-aligned counter (the boundaries). The sample
+ * handler works on the sample of the boundary that just passed.
  */
-struct ControlCycleSamples {
-  /// Phase currents in A/B/C order, oldest first. The expected invariant is ia + ib + ic = 0.
-  std::array<system::ThreePhase<unit::Current>, kHalfPeriodsPerCycle> phase_currents{};
-  /// DC-link voltage of the last sample.
+struct CurrentSample {
+  /// Phase currents in A/B/C order. The expected invariant is ia + ib + ic = 0.
+  system::ThreePhase<unit::Current> phase_currents;
+  /// DC-link voltage of the sample.
   unit::Voltage dc_link;
-  /// A sample of this cycle exceeded the overcurrent limit. The hardware layer
-  /// has already tripped the power stage when this is set.
+  /// The sample exceeded the overcurrent limit. The hardware layer has already
+  /// tripped the power stage when this is set.
   bool overcurrent{false};
-  /// A DC-link sample of this cycle reached the overvoltage limit. The hardware
-  /// layer has already tripped the power stage when this is set.
+  /// The DC-link sample reached the overvoltage limit. The hardware layer has
+  /// already tripped the power stage when this is set.
   bool overvoltage{false};
-  /// Time of the last sample (the control boundary) in ticks of the
-  /// timestamp clock (kTimestampFrequency), the clock of the Hall events.
+  /// Time of the sample (its boundary) in ticks of the timestamp clock
+  /// (kTimestampFrequency), the clock of the Hall events.
   uint32_t timestamp{0U};
 };
-
-/**
- * @brief Phase duties for the kHalfPeriodsPerCycle PWM half periods after a control boundary.
- *
- * Entry k applies to the half period that starts k + 1 boundaries after the
- * control boundary. On the STM32H7 entry 0 is written directly into the PWM
- * preload registers and entries 1 to 3 are delivered by DMA at the following
- * update events (hot_path::SetDutyPlan()).
- */
-struct DutyPlan {
-  std::array<system::ThreePhase<unit::Ratio>, kHalfPeriodsPerCycle>
-      duties{system::ThreePhase<unit::Ratio>{unit::Ratio{0.5F}, unit::Ratio{0.5F}, unit::Ratio{0.5F}},
-             system::ThreePhase<unit::Ratio>{unit::Ratio{0.5F}, unit::Ratio{0.5F}, unit::Ratio{0.5F}},
-             system::ThreePhase<unit::Ratio>{unit::Ratio{0.5F}, unit::Ratio{0.5F}, unit::Ratio{0.5F}},
-             system::ThreePhase<unit::Ratio>{unit::Ratio{0.5F}, unit::Ratio{0.5F}, unit::Ratio{0.5F}}};
-};
-
-static_assert(kHalfPeriodsPerCycle == 4U, "DutyPlan initializer lists four entries");
 
 /**
  * @brief Optional temperature measurements provided by a hardware target.
@@ -115,10 +96,10 @@ class HardwareSystemInterface {
  *  - The hardware samples the currents and the DC link once per PWM half
  *    period and checks each sample against the overcurrent and the
  *    overvoltage limit itself.
- *  - After kHalfPeriodsPerCycle samples it calls ControlCycleHandler() in the
- *    zero-latency context.
- *  - Then it runs ObserverHandler() in a lower-priority interrupt that may be
- *    preempted by the sampling interrupt.
+ *  - After every sample it calls SampleHandler() in the zero-latency context,
+ *    which writes the duties of the next half period.
+ *  - When SampleHandler() ends a control cycle, it runs ObserverHandler() in a
+ *    lower-priority interrupt that may be preempted by the sampling interrupt.
  */
 class HardwareInterface {
  public:
@@ -171,8 +152,8 @@ class HardwareInterface {
   /**
    * @brief Initializes the hardware and starts its interrupts.
    *
-   * From then on the platform calls ControlCycleHandler() and
-   * ObserverHandler() (hot_path_interface.hpp) once per control cycle.
+   * From then on the platform calls SampleHandler() once per current sample
+   * and ObserverHandler() after each control cycle (hot_path_interface.hpp).
    *
    * @param pwm_frequency Requested PWM switching frequency.
    * @param adc_trigger_offset ADC trigger compare offset in timer ticks.
@@ -185,9 +166,9 @@ class HardwareInterface {
   /**
    * @brief Stops the cycle source before a new Initialize().
    *
-   * Afterwards neither ControlCycleHandler() nor ObserverHandler() runs and
+   * Afterwards neither SampleHandler() nor ObserverHandler() runs and
    * the hardware is in a state Initialize() may reprogram (STM32H7: interrupts
-   * off, timer, duty DMA and ADC sequences stopped, ADCs disabled). The power
+   * off, timer and ADC sequences stopped, ADCs disabled). The power
    * stage must be disabled. Does nothing before the first Initialize().
    */
   void Stop() const noexcept { stop_(); }

@@ -51,7 +51,7 @@ log is on RTT and on the bus. The phase order below is the plan.
 3. `hardware/host` uses `std::thread`, `<chrono>`, `<fstream>`, an environment
    variable for the settings file and zero-value stubs.
 4. `CurrentControlIsr` and `SlowUpdate` are singletons; `samples_ready` is a
-   `volatile bool`. `OnControlCycle()` only calls hardware callbacks, which
+   `volatile bool`. `OnSample()` only calls hardware callbacks, which
    fits a zero-latency IRQ, but those callbacks must not log or call kernel APIs.
 5. Cyphal: only identifiers, heartbeat serialization and the `Transport`
    interface existed. Resolved in Phase 5 (the old heartbeat serializer

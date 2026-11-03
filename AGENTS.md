@@ -21,13 +21,14 @@ Read `README.md` for the supported motor types and public features, and
   `native_sim` for host simulation.
 - **Only the FOC hot path runs in zero-latency IRQs.** The hot path is the
   sample ISR (ADC end of injected sequence, once per half PWM period: raw copy
-  and overcurrent check) and the control cycle it runs every fourth sample
-  (16 kHz at 32 kHz PWM: PI once, four duties for the next four half periods,
-  entry 0 into the CCR preload and entries 1 to 3 by DMA). The observer
-  (`SlowUpdate`) runs after each control cycle in a software-pended
-  normal-priority interrupt, not at zero latency (`docs/hotpath_plan.md`).
-  The trace sampling (`trace::OnControlCycle()`, cymon `Tick()`) runs right
-  after the control cycle (`docs/cymon_integration_plan.md`).
+  and overcurrent check) and the control step it runs on every sample
+  (64 kHz at 32 kHz PWM: Park, PI, inverse Park, SVM, the duties of the next
+  half period into the CCR preload). Every four steps form a control cycle
+  (16 kHz); the observer (`SlowUpdate`) runs after each control cycle in a
+  software-pended normal-priority interrupt, not at zero latency
+  (`docs/hotpath_plan.md`). The trace sampling (`trace::OnControlCycle()`,
+  cymon `Tick()`) runs right after the last step of each control cycle
+  (`docs/cymon_integration_plan.md`).
   Do not add other work to a zero-latency context.
 
 ## Project Layout

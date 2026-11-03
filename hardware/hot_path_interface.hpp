@@ -28,23 +28,24 @@ namespace unimoc::hardware {
 
 /**
  * @namespace unimoc::hardware::hot_path
- * @brief Hardware access of the control cycle; defined by the platform.
+ * @brief Hardware access of the sample handler; defined by the platform.
  *
- * Only call these from the control-cycle handler. They take no locks and call
+ * Only call these from the sample handler. They take no locks and call
  * no kernel API.
  */
 namespace hot_path {
 
-/// Samples of the control cycle that just ended (four half periods, oldest first).
-[[nodiscard]] ControlCycleSamples GetControlCycleSamples() noexcept;
+/// Current sample of the boundary that just passed.
+[[nodiscard]] CurrentSample GetSample() noexcept;
 
 /**
- * @brief Writes the duties of the next kHalfPeriodsPerCycle half periods.
+ * @brief Writes the duties of the next half period.
  *
- * Must be called before the first PWM boundary after the control boundary:
- * entry 0 goes directly into the PWM preload registers.
+ * Must be called before the next PWM boundary: the duties go directly into
+ * the PWM preload registers and take effect at that boundary, one half period
+ * after the sample.
  */
-void SetDutyPlan(const DutyPlan& plan) noexcept;
+void SetDuties(const system::ThreePhase<unit::Ratio>& duties) noexcept;
 
 /// Switches the outputs off at once and latches the fault, like kPowerStage.Trip().
 void TripPowerStage() noexcept;
@@ -52,12 +53,15 @@ void TripPowerStage() noexcept;
 }  // namespace hot_path
 
 /**
- * @brief Control-cycle handler, defined by the application.
+ * @brief Sample handler, defined by the application: the fast current control.
  *
- * The platform calls it once per control cycle in the zero-latency context
- * (STM32H7: inside every kHalfPeriodsPerCycle-th sample interrupt).
+ * The platform calls it once per current sample (every PWM half period) in the
+ * zero-latency context (STM32H7: inside the sample interrupt).
+ *
+ * @return true when the sample ended a control cycle: the platform then runs
+ *         ObserverHandler() below the sample interrupt.
  */
-void ControlCycleHandler() noexcept;
+[[nodiscard]] bool SampleHandler() noexcept;
 
 /**
  * @brief Observer handler, defined by the application.

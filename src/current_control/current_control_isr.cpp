@@ -61,7 +61,6 @@ void CurrentControlIsr::Init(const settings::NvmSettings& settings,
   hardware.SetOvervoltageLimit(state.calibration.gain_vdc > Ratio{}
                                    ? state.dc_link_trip / state.calibration.gain_vdc
                                    : state.dc_link_trip);
-  hfi.Init(settings);
   dtc.Init(settings);
   svm.Init(settings);
 
@@ -79,26 +78,23 @@ void CurrentControlIsr::Init(const settings::NvmSettings& settings,
   // --- Mechanical observer parameters ---
   mech_obs.Init(settings);
 
-  // --- Pre-fill both double-buffer halves with zero-angle sin/cos ---
-  for (auto& buf : state.double_buf.buf) {
-    for (uint8_t k = 0U; k < kNumSubSteps; ++k) {
-      buf.sc[k] = system::SinCos<unit::Ratio>(0.0_rad);
-      buf.sc_out[k] = system::SinCos<unit::Ratio>(0.0_rad);
-    }
+  // --- Zero angle, standing still, until the observer hands over a reference ---
+  for (auto& reference : state.angles.buf) {
+    reference = AngleReference{};
   }
-  state.double_buf.active.store(0U, std::memory_order_release);
+  state.angles.active.store(0U, std::memory_order_release);
+  angle_ = system::SinCos<unit::Ratio>{};
+  reference_sample_ = 0U;
+  record_index_ = 0U;
+  cycle_controlled_ = false;
 
   // --- Reset algorithm state ---
   cc.Reset();
-  hfi.Reset();
-  // The observer feeds sample 0 of a cycle first; it answers the last
-  // injection step of the previous plan (docs/hotpath_plan.md, section 4).
-  hfi.step = kNumSubSteps - 1;
   state.samples_ready = false;
   state.observer_pending.store(false, std::memory_order_release);
   state.observer_overruns = 0U;
+  state.samples = 0U;
   state.control_cycles = 0U;
-  state.duty_plan = hardware::DutyPlan{};
   state.phase_duties = system::ThreePhase<unit::Ratio>{0.5_ratio, 0.5_ratio, 0.5_ratio};
   // A restart leaves a bring-up mode: the control loop runs again, from zero
   // current until the outer loop hands over a reference.
@@ -111,61 +107,66 @@ void CurrentControlIsr::Init(const settings::NvmSettings& settings,
 }
 
 // =============================================================================
-// on_control_cycle — once per kNumSubSteps PWM half periods, zero latency
+// on_sample — the control step, once per PWM half period, zero latency
 // =============================================================================
 //
-// Must finish before the first PWM boundary after the control boundary: duty
-// entry 0 goes directly into the CCR preload registers. It reaches the
-// hardware only through hot_path:: (bound at link time, no function
-// pointers) and calls no libm function (built with -fno-math-errno).
+// Must finish before the next PWM boundary: the duties go directly into the
+// CCR preload registers. It reaches the hardware only through hot_path::
+// (bound at link time, no function pointers) and calls no libm function
+// (built with -fno-math-errno).
 //
 static bool Exceeds(const system::ThreePhase<unit::Current>& currents, const unit::Current limit) noexcept {
   return unit::Abs(currents.a) > limit || unit::Abs(currents.b) > limit || unit::Abs(currents.c) > limit;
 }
 
-/// The samples with the calibration of the startup aid: i = (i_raw - offset) * gain, v = v_raw * gain.
-static hardware::ControlCycleSamples Calibrated(const hardware::ControlCycleSamples& raw,
-                                                const settings::AdcCalibration& calibration) noexcept {
-  hardware::ControlCycleSamples samples = raw;
-  for (auto& currents : samples.phase_currents) {
-    currents.a = (currents.a - calibration.offset_a) * calibration.gain_a;
-    currents.b = (currents.b - calibration.offset_b) * calibration.gain_b;
-    currents.c = (currents.c - calibration.offset_c) * calibration.gain_c;
-  }
-  samples.dc_link = raw.dc_link * calibration.gain_vdc;
-  return samples;
+/// The sample with the calibration of the startup aid: i = (i_raw - offset) * gain, v = v_raw * gain.
+static hardware::CurrentSample Calibrated(const hardware::CurrentSample& raw,
+                                          const settings::AdcCalibration& calibration) noexcept {
+  hardware::CurrentSample sample = raw;
+  sample.phase_currents.a = (raw.phase_currents.a - calibration.offset_a) * calibration.gain_a;
+  sample.phase_currents.b = (raw.phase_currents.b - calibration.offset_b) * calibration.gain_b;
+  sample.phase_currents.c = (raw.phase_currents.c - calibration.offset_c) * calibration.gain_c;
+  sample.dc_link = raw.dc_link * calibration.gain_vdc;
+  return sample;
 }
 
-void CurrentControlIsr::OnControlCycle() noexcept {
+bool CurrentControlIsr::OnSample() noexcept {
   if (hardware_ == nullptr) {
-    return;
+    return false;
   }
-  ++state.control_cycles;
+  const uint32_t kSampleIndex = ++state.samples;
+  const auto kStep = static_cast<uint8_t>((kSampleIndex - 1U) % kNumSubSteps);
+  const bool kCycleEnd = kStep == kNumSubSteps - 1U;
 
   // -------------------------------------------------------------------------
-  // 1. Samples of the cycle (oldest first) from the hardware boundary.
+  // 1. The sample, raw and calibrated — always, regardless of control mode.
+  //    The startup FSM reads the raw one from a lower-priority context.
   // -------------------------------------------------------------------------
-  const hardware::ControlCycleSamples kRawSamples = hardware::hot_path::GetControlCycleSamples();
-  const hardware::ControlCycleSamples kSamples = Calibrated(kRawSamples, state.calibration);
-  const unit::Voltage kDcLinkVoltage = kSamples.dc_link;
+  const hardware::CurrentSample kRaw = hardware::hot_path::GetSample();
+  const hardware::CurrentSample kSample = Calibrated(kRaw, state.calibration);
+  state.raw_phase_currents = kRaw.phase_currents;
+  state.raw_vdc = kRaw.dc_link;
+  state.phase_currents = kSample.phase_currents;
+  state.dc_link = kSample.dc_link;
+  AdvanceAngle(kSampleIndex);
 
-  // -------------------------------------------------------------------------
-  // 1a. Store the newest sample, raw and calibrated — always, regardless of
-  //     control mode. The startup FSM reads the raw one from a lower-priority
-  //     context.
-  // -------------------------------------------------------------------------
-  state.raw_phase_currents = kRawSamples.phase_currents[kNumSubSteps - 1U];
-  state.raw_vdc = kRawSamples.dc_link;
-  state.phase_currents = kSamples.phase_currents[kNumSubSteps - 1U];
-  state.dc_link = kDcLinkVoltage;
-  state.i_ref = state.i_ref_mailbox.Read();
-  // The motor identification replaces the outer loop's reference (its angle is SlowUpdate's).
-  const IdentificationDrive kIdentification = identification_.Read();
-  const IdentificationDrive* const kDrive =
-      identification_active_.load(std::memory_order_acquire) ? &kIdentification : nullptr;
-  if (kDrive != nullptr) {
-    state.i_ref = kDrive->current_ref;
+  // The identification's drive holds for a whole cycle (the observer
+  // demodulates the cycle with it); the reference and the gains every step.
+  CycleRecord& record = state.records[record_index_];
+  if (kStep == 0U) {
+    drive_active_ = identification_active_.load(std::memory_order_acquire);
+    if (drive_active_) {
+      drive_ = identification_.Read();
+    }
+    cycle_controlled_ = true;
+    i_dq_sum_ = system::Rotor<unit::Current>{0.0F, 0.0F};
+    u_dq_sum_ = system::Rotor<unit::Voltage>{0.0F, 0.0F};
+    record.first_sample = kSampleIndex;
+    record.injection_amplitude = drive_active_ ? drive_.injection_amplitude : unit::Voltage{};
+    record.injection_axis = drive_active_ ? static_cast<uint8_t>(drive_.injection_axis) : 0U;
   }
+  const IdentificationDrive* const kDrive = drive_active_ ? &drive_ : nullptr;
+  state.i_ref = (kDrive != nullptr) ? kDrive->current_ref : state.i_ref_mailbox.Read();
   if (gains_pending_.load(std::memory_order_acquire)) {
     gains_pending_.store(false, std::memory_order_relaxed);
     const CurrentGains kGains = gains_.Read();
@@ -176,109 +177,109 @@ void CurrentControlIsr::OnControlCycle() noexcept {
   }
 
   // -------------------------------------------------------------------------
-  // 1b. Hard overcurrent limit. The hardware has checked every sample and
-  //     tripped the stage already; this repeats the check on the scaled
-  //     currents. The loop stays frozen at neutral duties until the trip is
-  //     acknowledged.
+  // 2. Hard overcurrent limit. The hardware has checked the sample and
+  //    tripped the stage already; this repeats the check on the calibrated
+  //    currents. The loop stays frozen at neutral duties until the trip is
+  //    acknowledged. DC-link overvoltage: no braking current can be taken any
+  //    more; the outer loop has derated regenerative braking before this level.
   // -------------------------------------------------------------------------
-  if (!state.overcurrent_tripped) {
-    bool over = kSamples.overcurrent;
-    for (const auto& currents : kSamples.phase_currents) {
-      over = over || Exceeds(currents, state.overcurrent_limit);
-    }
-    if (over) {
-      hardware::hot_path::TripPowerStage();
-      state.overcurrent_tripped = true;
-    }
+  if (!state.overcurrent_tripped &&
+      (kSample.overcurrent || Exceeds(kSample.phase_currents, state.overcurrent_limit))) {
+    hardware::hot_path::TripPowerStage();
+    state.overcurrent_tripped = true;
   }
-  // 1c. DC-link overvoltage: no braking current can be taken any more; the
-  //     outer loop has derated regenerative braking before this level. The
-  //     hardware has checked every DC-link sample and tripped the stage
-  //     already; the cycle repeats the check on the calibrated last sample.
-  if (!state.overvoltage_tripped && (kSamples.overvoltage || !(kSamples.dc_link < state.dc_link_trip))) {
+  if (!state.overvoltage_tripped && (kSample.overvoltage || !(kSample.dc_link < state.dc_link_trip))) {
     hardware::hot_path::TripPowerStage();
     state.overvoltage_tripped = true;
   }
   if (state.overcurrent_tripped || state.overvoltage_tripped) {
-    SetUniformDuties(system::ThreePhase<unit::Ratio>{0.5_ratio, 0.5_ratio, 0.5_ratio});
-    FinishCycleWithoutControl();
-    return;
+    SetDuties(system::ThreePhase<unit::Ratio>{0.5_ratio, 0.5_ratio, 0.5_ratio});
+    return FinishStepWithoutControl(kCycleEnd);
   }
 
-  // -------------------------------------------------------------------------
-  // 1d. Force-duty mode: fixed duties, no control loop.
-  // -------------------------------------------------------------------------
+  // Force-duty mode: fixed duties, no control loop.
   if (force_duty_active_.load(std::memory_order_acquire)) {
-    SetUniformDuties(forced_duties_.Read());
-    FinishCycleWithoutControl();
-    return;
+    SetDuties(forced_duties_.Read());
+    return FinishStepWithoutControl(kCycleEnd);
   }
 
   // -------------------------------------------------------------------------
-  // 2. Angles of this cycle. The observer prepared them for this cycle; if it
-  //    is still busy with the previous one, it is late: count and reuse.
+  // 3. Clarke and Park with the angle of the sample.
   // -------------------------------------------------------------------------
-  if (state.observer_pending.load(std::memory_order_acquire)) {
-    ++state.observer_overruns;
-  }
-  const uint8_t kActiveBuffer = state.double_buf.active.load(std::memory_order_acquire);
-  SubStepBuffer& buffer = state.double_buf.buf[kActiveBuffer];
-  buffer.timestamp = kSamples.timestamp;
-  buffer.cycle = state.control_cycles;
-  buffer.dc_link = kDcLinkVoltage;
-  buffer.injection_amplitude = kDrive != nullptr ? kDrive->injection_amplitude : unit::Voltage{};
-  buffer.injection_axis = kDrive != nullptr ? static_cast<uint8_t>(kDrive->injection_axis) : 0U;
+  const system::Stator<unit::Current> kCurrentAlphaBeta = kSample.phase_currents.ToStator();
+  const system::Rotor<unit::Current> kCurrentDq = kCurrentAlphaBeta.ToRotor(angle_);
+  record.sc[kStep] = angle_;
+  record.i_ab_samples[kStep] = kCurrentAlphaBeta;
+  i_dq_sum_.d += kCurrentDq.d;
+  i_dq_sum_.q += kCurrentDq.q;
+  state.i_dq_last = kCurrentDq;
 
   // -------------------------------------------------------------------------
-  // 3. Clarke per sample, Park with the angle of the sample, mean d/q current.
+  // 4. Current PI with decoupling feedforward over one half period; frozen
+  //    (its last output held) when the identification asks for it.
   // -------------------------------------------------------------------------
-  system::Rotor<unit::Current> i_dq_mean{0.0F, 0.0F};
-  for (uint8_t k = 0U; k < kNumSubSteps; ++k) {
-    const system::Stator<unit::Current> kCurrentAlphaBeta = kSamples.phase_currents[k].ToStator();
-    buffer.i_ab_samples[k] = kCurrentAlphaBeta;
-    const system::Rotor<unit::Current> kCurrentDq = kCurrentAlphaBeta.ToRotor(buffer.sc[k]);
-    i_dq_mean.d += kCurrentDq.d;
-    i_dq_mean.q += kCurrentDq.q;
-  }
-  constexpr float kInverseCount = 1.0F / static_cast<float>(kNumSubSteps);
-  i_dq_mean.d *= kInverseCount;
-  i_dq_mean.q *= kInverseCount;
-  buffer.i_dq_mean = i_dq_mean;
-  state.i_dq_last = i_dq_mean;
-
-  // -------------------------------------------------------------------------
-  // 4. Current PI with decoupling feedforward, once per cycle; frozen (its
-  //    last output held) when the identification asks for it.
-  // -------------------------------------------------------------------------
-  const system::Rotor<unit::Voltage> kVoltageDq = ControlVoltage(kDrive, i_dq_mean, kDcLinkVoltage);
-  buffer.u_dq = kVoltageDq;
+  const system::Rotor<unit::Voltage> kVoltageDq = ControlVoltage(kDrive, kCurrentDq, kSample.dc_link);
+  u_dq_sum_.d += kVoltageDq.d;
+  u_dq_sum_.q += kVoltageDq.q;
   state.u_dq_last = kVoltageDq;
 
   // -------------------------------------------------------------------------
-  // 5. One duty entry per half period: inverse Park with the angle of the
-  //    entry, HFI step k, dead-time compensation from the newest current, SVM.
-  //    One reciprocal of V_dc for all entries (M2).
+  // 5. Duties of the next half period: inverse Park with the angle at its
+  //    middle, dead-time compensation from this sample's current, SVM.
   // -------------------------------------------------------------------------
-  const system::Stator<unit::Ratio> kDtcRatio = DeadTimeRatio(kDrive, buffer.i_ab_samples[kNumSubSteps - 1U]);
-  const auto kInverseVDc = control::Svm::InverseDcLinkVoltage(kSamples.dc_link);
-  hardware::DutyPlan plan{};
-  for (uint8_t k = 0U; k < kNumSubSteps; ++k) {
-    const system::SinCos<unit::Ratio>& sc_out = buffer.sc_out[k];
-    system::Stator<unit::Voltage> u_ab =
-        WithInjection(kVoltageDq, kDrive, state.control_cycles, k).ToStator(sc_out);
-    if (hfi_active) {
-      u_ab = u_ab + hfi.GetInjectionVoltage(static_cast<int>(k), sc_out.sin, sc_out.cos);
-    }
-    plan.duties[k] = svm.CalculateWithInverseDcLinkVoltage(u_ab, kInverseVDc, kDtcRatio);
-  }
+  const AngleReference& reference = state.angles.buf[state.angles.active.load(std::memory_order_acquire)];
+  const system::SinCos<unit::Ratio> kAngleOut = system::Rotated(angle_, reference.out);
+  const system::Stator<unit::Voltage> kVoltageAlphaBeta =
+      WithInjection(kVoltageDq, kDrive, kSampleIndex).ToStator(kAngleOut);
+  SetDuties(svm.CalculateWithDeadTimeCompensation(kVoltageAlphaBeta,
+                                                  kSample.dc_link,
+                                                  DeadTimeRatio(kDrive, kCurrentAlphaBeta)));
 
-  // -------------------------------------------------------------------------
-  // 6. Write the plan; the observer runs next.
-  // -------------------------------------------------------------------------
-  SetDutyPlan(plan);
-  state.observer_buffer = kActiveBuffer;
-  state.observer_pending.store(true, std::memory_order_release);
+  return kCycleEnd && FinishCycle(record, kSample);
+}
+
+void CurrentControlIsr::AdvanceAngle(const uint32_t sample) noexcept {
+  const AngleReference& reference = state.angles.buf[state.angles.active.load(std::memory_order_acquire)];
+  if (reference.sample != reference_sample_ && sample >= reference.sample) {
+    // A new reference: normally of this very sample, later when the observer was late.
+    reference_sample_ = reference.sample;
+    angle_ = reference.sc;
+    for (uint32_t k = reference.sample; k < sample && k < reference.sample + kNumSubSteps; ++k) {
+      angle_ = system::Rotated(angle_, reference.step);
+    }
+  } else {
+    angle_ = system::Rotated(angle_, reference.step);
+  }
+  angle_ = system::Renormalized(angle_);
+}
+
+bool CurrentControlIsr::FinishStepWithoutControl(const bool cycle_end) noexcept {
+  cycle_controlled_ = false;
+  if (cycle_end) {
+    ++state.control_cycles;
+    state.samples_ready = true;
+  }
+  return false;  // the observer runs only on cycles of the control loop
+}
+
+bool CurrentControlIsr::FinishCycle(CycleRecord& record, const hardware::CurrentSample& sample) noexcept {
+  ++state.control_cycles;
   state.samples_ready = true;
+  if (!cycle_controlled_) {
+    return false;  // the cycle started without the control loop
+  }
+  constexpr float kInverseCount = 1.0F / static_cast<float>(kNumSubSteps);
+  record.i_dq_mean = system::Rotor<unit::Current>{i_dq_sum_.d * kInverseCount, i_dq_sum_.q * kInverseCount};
+  record.u_dq = system::Rotor<unit::Voltage>{u_dq_sum_.d * kInverseCount, u_dq_sum_.q * kInverseCount};
+  record.timestamp = sample.timestamp;
+  record.dc_link = sample.dc_link;
+  if (state.observer_pending.load(std::memory_order_acquire)) {
+    ++state.observer_overruns;  // the observer has not finished the previous cycle
+  }
+  state.observer_buffer = record_index_;
+  state.observer_pending.store(true, std::memory_order_release);
+  record_index_ = static_cast<uint8_t>(1U - record_index_);
+  return true;
 }
 
 // =============================================================================
@@ -326,28 +327,17 @@ void CurrentControlIsr::SetOvercurrentLimit(const unit::Current limit) noexcept 
 // duty output helpers
 // =============================================================================
 
-void CurrentControlIsr::SetUniformDuties(const system::ThreePhase<unit::Ratio>& duties) noexcept {
-  hardware::DutyPlan plan{};
-  for (auto& entry : plan.duties) {
-    entry = duties;
-  }
-  SetDutyPlan(plan);
+void CurrentControlIsr::SetDuties(const system::ThreePhase<unit::Ratio>& duties) noexcept {
+  state.phase_duties = duties;
+  hardware::hot_path::SetDuties(duties);
 }
-
-void CurrentControlIsr::SetDutyPlan(const hardware::DutyPlan& plan) noexcept {
-  state.duty_plan = plan;
-  state.phase_duties = plan.duties[0];
-  hardware::hot_path::SetDutyPlan(plan);
-}
-
-void CurrentControlIsr::FinishCycleWithoutControl() noexcept { state.samples_ready = true; }
 
 // =============================================================================
 // motor identification helpers of the control cycle
 // =============================================================================
 
 system::Rotor<unit::Voltage> CurrentControlIsr::ControlVoltage(const IdentificationDrive* const drive,
-                                                               const system::Rotor<unit::Current>& i_dq_mean,
+                                                               const system::Rotor<unit::Current>& i_dq,
                                                                const unit::Voltage dc_link) noexcept {
   if (drive != nullptr && drive->hold_voltage) {
     if (!holding_) {
@@ -357,7 +347,7 @@ system::Rotor<unit::Voltage> CurrentControlIsr::ControlVoltage(const Identificat
     return held_voltage_;
   }
   holding_ = false;
-  return cc.Update(state.i_ref, i_dq_mean, mech_obs.omega, state.dt_slow, dc_link);
+  return cc.Update(state.i_ref, i_dq, mech_obs.omega, state.dt_fast, dc_link);
 }
 
 system::Stator<unit::Ratio> CurrentControlIsr::DeadTimeRatio(
@@ -370,14 +360,12 @@ system::Stator<unit::Ratio> CurrentControlIsr::DeadTimeRatio(
 
 system::Rotor<unit::Voltage> CurrentControlIsr::WithInjection(system::Rotor<unit::Voltage> u_dq,
                                                               const IdentificationDrive* const drive,
-                                                              const uint32_t cycle,
-                                                              const uint8_t entry) noexcept {
+                                                              const uint32_t sample) noexcept {
   if (drive == nullptr || drive->injection_amplitude == unit::Voltage{}) {
     return u_dq;
   }
-  // The sine of M2 at the middle of the entry's half period (no libm: the table).
-  const unit::Voltage kSine =
-      drive->injection_amplitude * InjectionSinCos(InjectionEntryPhase(cycle, entry)).sin;
+  // The sine of M2 at the middle of the half period of the duties (no libm: the table).
+  const unit::Voltage kSine = drive->injection_amplitude * InjectionSinCos(InjectionEntryPhase(sample)).sin;
   if (drive->injection_axis == InjectionAxis::kD) {
     u_dq.d += kSine;
   } else {

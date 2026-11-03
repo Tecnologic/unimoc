@@ -76,7 +76,7 @@ void Before(void* /*unused*/) {
 }  // namespace
 
 // The platform calls these directly (hot_path_interface.hpp); the cycle never runs here.
-void unimoc::hardware::ControlCycleHandler() noexcept {}
+bool unimoc::hardware::SampleHandler() noexcept { return false; }
 void unimoc::hardware::ObserverHandler() noexcept {}
 
 ZTEST(sim_settings_persistence, test_empty_flash_loads_the_factory_profile) {
@@ -212,7 +212,7 @@ ZTEST(sim_settings_persistence, test_all_registers_fit_and_survive_rewrites) {
         },
         kSettings);
   }
-  zexpect_equal(StoredEntries(), 132U);
+  zexpect_equal(StoredEntries(), 130U);
 }
 
 ZTEST_SUITE(sim_settings_persistence, nullptr, nullptr, Before, nullptr, nullptr);

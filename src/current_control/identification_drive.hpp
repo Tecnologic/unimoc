@@ -54,9 +54,9 @@ struct IdentificationDrive {
  * @brief Phase of the injected sine, 2^32 counts per period.
  *
  * The sine has a fixed period of kInjectionHalfPeriods PWM half periods
- * (f_pwm / 64, 500 Hz at 32 kHz), counted from the first control cycle after
- * Init(): exact and drift-free in integer counts, the same in the control
- * cycle that generates it and in the observer that demodulates it.
+ * (f_pwm / 64, 500 Hz at 32 kHz), counted in samples from Init(): exact and
+ * drift-free in integer counts, the same in the control step that generates
+ * it and in the observer that demodulates it.
  */
 inline constexpr uint32_t kInjectionHalfPeriods = 128U;
 /// Control cycles of one injection period.
@@ -65,24 +65,18 @@ inline constexpr uint32_t kInjectionPeriodCycles = kInjectionHalfPeriods / kNumS
 inline constexpr uint32_t kInjectionPhaseStep = 0x1'0000'0000ULL / kInjectionHalfPeriods;
 
 /**
- * @brief Phase at the middle of duty entry @p entry of control cycle @p cycle.
+ * @brief Phase at the middle of the half period the duties of sample @p sample apply to.
  *
- * Entry k takes effect k + 1 half periods after the control boundary and
- * holds for one half period (hardware::DutyPlan); the boundary of cycle n is
- * half period 4 n.
+ * The control step of sample n writes the duties of the half period that
+ * starts at the next boundary, n + 1 (hardware::hot_path::SetDuties()).
  */
-[[nodiscard]] constexpr uint32_t InjectionEntryPhase(const uint32_t cycle, const uint8_t entry) noexcept {
-  return ((cycle * kNumSubSteps) + entry + 1U) * kInjectionPhaseStep + (kInjectionPhaseStep / 2U);
+[[nodiscard]] constexpr uint32_t InjectionEntryPhase(const uint32_t sample) noexcept {
+  return ((sample + 1U) * kInjectionPhaseStep) + (kInjectionPhaseStep / 2U);
 }
 
-/**
- * @brief Phase at current sample @p sample of the samples control cycle @p cycle works on.
- *
- * Sample k was taken at the (k + 1)-th boundary after the previous control
- * boundary (hardware::ControlCycleSamples).
- */
-[[nodiscard]] constexpr uint32_t InjectionSamplePhase(const uint32_t cycle, const uint8_t sample) noexcept {
-  return ((cycle * kNumSubSteps) + sample + 1U - kNumSubSteps) * kInjectionPhaseStep;
+/// Phase at current sample @p sample (CurrentControlState::samples), taken at boundary n.
+[[nodiscard]] constexpr uint32_t InjectionSamplePhase(const uint32_t sample) noexcept {
+  return sample * kInjectionPhaseStep;
 }
 
 /// Sine and cosine of an injection phase (no libm: the table of the hot path).

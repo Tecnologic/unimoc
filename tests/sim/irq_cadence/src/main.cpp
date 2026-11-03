@@ -23,30 +23,29 @@
 
 namespace {
 
-using unimoc::hardware::DutyPlan;
 using unimoc::hardware::kMotors;
 using namespace unimoc::unit;
 namespace sim = unimoc::hardware::sim;
 
-volatile uint32_t g_control_count = 0U;
+volatile uint32_t g_sample_count = 0U;
+volatile uint32_t g_control_count = 0U;  // control cycles: every fourth sample
 volatile uint32_t g_observer_count = 0U;
-volatile uint32_t g_misordered = 0U;  // observer callbacks not directly after a control callback
+volatile uint32_t g_misordered = 0U;  // observer callbacks not directly after the end of a control cycle
 
-// Plan of cycle n: phase A duty of entry k is 0.1 * (k + 1) + 0.01 * n.
-Ratio PlanDuty(const uint32_t cycle, const uint8_t entry) {
-  return (0.1_ratio * static_cast<float>(entry + 1U)) + (0.01_ratio * static_cast<float>(cycle));
-}
+// Duties written by the control step of sample n: phase A 0.1 + 0.01 * n.
+Ratio StepDuty(const uint32_t sample) { return 0.1_ratio + (0.01_ratio * static_cast<float>(sample)); }
 
 }  // namespace
 
 // The platform calls these directly (hot_path_interface.hpp).
-void unimoc::hardware::ControlCycleHandler() noexcept {
-  DutyPlan plan{};
-  for (uint8_t k = 0U; k < unimoc::hardware::kHalfPeriodsPerCycle; ++k) {
-    plan.duties[k].a = PlanDuty(g_control_count, k);
+bool unimoc::hardware::SampleHandler() noexcept {
+  unimoc::hardware::hot_path::SetDuties({StepDuty(g_sample_count), 0.5_ratio, 0.5_ratio});
+  g_sample_count = g_sample_count + 1U;
+  if (g_sample_count % 4U != 0U) {
+    return false;
   }
-  unimoc::hardware::hot_path::SetDutyPlan(plan);
   g_control_count = g_control_count + 1U;
+  return true;
 }
 
 void unimoc::hardware::ObserverHandler() noexcept {
@@ -59,6 +58,7 @@ void unimoc::hardware::ObserverHandler() noexcept {
 namespace {
 
 void Reset() {
+  g_sample_count = 0U;
   g_control_count = 0U;
   g_observer_count = 0U;
   g_misordered = 0U;
@@ -68,45 +68,49 @@ void Reset() {
 
 ZTEST(sim_irq_cadence, test_rejects_zero_frequency) { zassert_false(kMotors[0].Initialize(0.0_Hz, 0U)); }
 
-ZTEST(sim_irq_cadence, test_one_control_cycle_per_four_half_periods) {
+ZTEST(sim_irq_cadence, test_one_control_step_per_half_period_and_an_observer_per_cycle) {
   Reset();
   zassert_true(kMotors[0].Initialize(unimoc::unit::Frequency{32'000.0F}, 0U));
   k_sleep(K_MSEC(100));
 
   const unsigned int kIrqKey = irq_lock();
+  const uint32_t kSamples = g_sample_count;
   const uint32_t kControl = g_control_count;
   const uint32_t kObserver = g_observer_count;
   const uint32_t kMisordered = g_misordered;
   irq_unlock(kIrqKey);
   sim::SetFreeRunning(false);
 
-  // 100 ms at 32 kHz PWM: 64000 half periods, 16000 control cycles per second.
+  // 100 ms at 32 kHz PWM: 64000 half periods (control steps), 16000 control cycles per second.
+  zassert_equal(kSamples, 4U * kControl, "samples=%u control=%u", kSamples, kControl);
   zassert_between_inclusive(kControl, 1599U, 1601U, "control=%u", kControl);
   zassert_equal(kObserver, kControl, "control=%u observer=%u", kControl, kObserver);
   zassert_equal(kMisordered, 0U);
 }
 
-ZTEST(sim_irq_cadence, test_plan_entries_reach_the_following_half_periods) {
+ZTEST(sim_irq_cadence, test_duties_of_a_step_take_effect_at_the_next_boundary) {
   Reset();
   zassert_true(kMotors[0].Initialize(unimoc::unit::Frequency{32'000.0F}, 0U));
   sim::SetFreeRunning(false);
 
-  sim::StepCycle();  // control writes plan 0
+  // Sample n is taken at boundary n, the end of half period n. Its control
+  // step runs after that boundary, so its duties take effect at boundary
+  // n + 1: half period n + 2 runs them. The first two run neutral duties.
+  sim::StepCycle();
   auto applied = sim::AppliedDuties();
-  // The half period right after the control boundary still runs the old
-  // plan (neutral here); entries 0..2 follow.
   zassert_within(applied[0].a, 0.5_ratio, 1e-6_ratio);
-  for (uint8_t k = 1U; k < 4U; ++k) {
-    zassert_within(applied[k].a, PlanDuty(0U, k - 1U), 1e-6_ratio);
+  zassert_within(applied[1].a, 0.5_ratio, 1e-6_ratio);
+  for (uint8_t k = 2U; k < 4U; ++k) {
+    zassert_within(applied[k].a, StepDuty(k - 2U), 1e-6_ratio);
   }
 
-  sim::StepCycle();  // plan 1; entry 3 of plan 0 carries over
+  sim::StepCycle();
   applied = sim::AppliedDuties();
-  zassert_within(applied[0].a, PlanDuty(0U, 3U), 1e-6_ratio);
-  for (uint8_t k = 1U; k < 4U; ++k) {
-    zassert_within(applied[k].a, PlanDuty(1U, k - 1U), 1e-6_ratio);
+  for (uint8_t k = 0U; k < 4U; ++k) {
+    zassert_within(applied[k].a, StepDuty(k + 2U), 1e-6_ratio);
   }
   zassert_equal(sim::CycleCount(), 2U);
+  zassert_equal(g_sample_count, 8U);
 }
 
 ZTEST(sim_irq_cadence, test_stop_halts_the_cycle_source_until_the_next_initialize) {
@@ -127,6 +131,7 @@ ZTEST(sim_irq_cadence, test_stop_halts_the_cycle_source_until_the_next_initializ
   sim::StepCycle();
   zassert_equal(sim::CycleCount(), 1U);
   zassert_equal(g_control_count, kStopped + 1U);
+  zassert_equal(g_sample_count, 4U * (kStopped + 1U));
 }
 
 ZTEST(sim_irq_cadence, test_timing_probe_keeps_min_mean_max_and_resets_at_the_next_record) {

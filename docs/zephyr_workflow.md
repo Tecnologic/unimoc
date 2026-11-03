@@ -78,10 +78,10 @@ UNIMOC code fails the build of that scenario.
 | | STM32H7 (`hardware/zephyr_stm32h7`) | native_sim (`hardware/zephyr_sim`) |
 |---|---|---|
 | ADC trigger | TIM1 TRGO2 = rising OC4REF (CC4 = ARR - lead, before the peak) or rising OC6REF (CC6 = lead, before the valley); ADC1..3 JEXTSEL 8 (TIM8: 10) | - |
-| sample (64 kHz) | ADC1 end of injected sequence (JEOS), zero latency: raw ia/ib/ic into the cycle array, raw overcurrent window, break on violation | plant step per half period, sample and overcurrent check after each step |
-| control cycle (16 kHz) | inside every 4th sample ISR: `OnControlCycle()`, duty entry 0 into the CCR preload | kernel timer in simulated time, one expiry per cycle |
-| duties | TIM1 RCR = 0, CCR1..3 preload; DMA1 stream 0 (DMAMUX1 TIM1_UP) bursts 3 words per update event into CCR1..3 from 4 circular slots in non-cached AXI SRAM | entry 3 of the previous plan, then entries 0..2 of the new one, one per half period |
-| observer (16 kHz) | TIM1 update vector, pended by software (UIE stays 0), highest normal priority | directly after the control callback |
+| sample (64 kHz) | ADC1 end of injected sequence (JEOS), zero latency: raw ia/ib/ic and DC link, raw overcurrent window and overvoltage level, break on violation | plant step per half period, sample and checks after each step |
+| control step (64 kHz) | inside every sample ISR: `SampleHandler()` → `OnSample()`, duties of the next half period into the CCR preload | after every sample; a kernel timer in simulated time runs four half periods per expiry |
+| duties | TIM1 RCR = 0, CCR1..3 preload, written by the control step, effective at the next boundary (no DMA) | the duties of a step take effect at the boundary after its sample |
+| observer (16 kHz) | TIM1 update vector, pended by software after every fourth step (DIER stays 0), highest normal priority | directly after the step that ends a control cycle |
 
 `adc_trigger_offset` of the control core is the lead in timer ticks before
 peak and valley. Sample times are set per channel in `sample-times` of the
@@ -92,19 +92,22 @@ trigger, the current sample itself happens within the first 0.1 us. The core's d
 and is tuned by the startup sweep. The phase that switches next to a sample
 (highest duty at a peak, lowest at a valley, within lead + 1 us of the
 boundary) is reconstructed from the other two, so the duty range is limited
-by the minimum pulse (factory 3 %..97 %), not by the sampling window. All
-figures are estimates, not measurements.
+by the minimum pulse (factory 3 %..97 %), not by the sampling window. The
+sequence must end after the boundary of its trigger (lead below about 2.4 us),
+or the duties of the step take effect half a period early. The sequence time
+is an estimate; the interrupt times are measured (`docs/hotpath_plan.md`, section 4).
 
 The sample ISR is a zero-latency direct ISR (`IRQ_ZERO_LATENCY`,
 `CONFIG_ZERO_LATENCY_IRQS`): never masked by `irq_lock()`, no kernel calls and
-no logging in the handlers. It calls `ControlCycleHandler()` directly; the
+no logging in the handlers. It calls `SampleHandler()` directly; the
 core reaches the hardware through `hardware/hot_path_interface.hpp`, without
 function pointers. The UNIMOC code is built with `-fno-math-errno`, so
-`std::sqrt` in the hot path is an FPU instruction, not a libm call. The control cycle must finish before the next
-boundary (about 14 us at 32 kHz); `foc_stm32h7::DutyOverruns()` counts misses.
+`std::sqrt` in the hot path is an FPU instruction, not a libm call. The control step must finish before the next
+boundary (about 13 us after the JEOS at 32 kHz; measured worst case 5.7 us on the Nucleo);
+`foc_stm32h7::DutyOverruns()` counts misses.
 The observer interrupt is preempted by the sample ISR and must finish within
 one cycle (`state.observer_overruns`). `tests/sim/irq_cadence` checks
-the cadence and the half periods each plan entry reaches,
+the cadence and the half period the duties of each step reach,
 `tests/sim/closed_loop` runs current steps through the core against
 the plant.
 
@@ -117,8 +120,8 @@ and the drive application (`src/drive/drive_node.cpp`). It reaches the
 control cycle only through `CurrentControlIsr::SetCurrentRef()`, reads its
 state for the telemetry and restarts the runtime (`StartRuntime()`) with new
 settings while the power stage is disabled. A restart first stops the cycle
-source (`HardwareInterface::Stop()`; STM32H7: both interrupts off, TIM1 and the
-duty DMA stopped, the injected sequences stopped and the ADCs disabled), so
+source (`HardwareInterface::Stop()`; STM32H7: both interrupts off, TIM1
+stopped, the injected sequences stopped and the ADCs disabled), so
 the control state is not rewritten under the running interrupts and the ADC
 calibration and `JSQR` writes of `Initialize()` meet the reference manual.
 
@@ -181,9 +184,9 @@ MOSFETs per switch would need roughly twice the value.
 
 **Hooks in the core.** `SetOvercurrentLimit()` (main passes
 `max_phase_current` of the hardware profile) also sets the per-sample check of
-the hardware layer, which trips the stage at the sample. The control cycle
-(`CurrentControlIsr::OnControlCycle()`) checks the samples of the cycle
-again before any control computation. Over the limit it calls
+the hardware layer, which trips the stage at the sample. The control step
+(`CurrentControlIsr::OnSample()`) checks the calibrated sample again before
+any control computation. Over the limit it calls
 `kPowerStage.Trip()`, latches
 `state.overcurrent_tripped` and holds the duties at 50 % until
 `ClearTrips()`. `HwStartup::RequestRun()` is the explicit
@@ -229,8 +232,9 @@ stage is no longer enabled (trip, external break, e-stop), and
   power loss) is not verified on the board.
 - The sim plant (`lib/sim`) has no dead time, no ADC noise and no switching
   ripple; the sim checks logic and timing contract, not the time budget.
-- The duty DMA, the CCR preload, the counter start at ARR/2 and the
-  peak/valley detection are only build-tested, not run on the board.
+- The control step runs on the Nucleo at 64 kHz without a late duty write
+  (2026-11-03, outputs off); the PWM edges, the peak/valley detection and the
+  ADC alignment are not checked on the scope yet.
 - The cymon traces sample at the end of the control cycle (`cymon::Device::Tick()`,
-  zero latency); its cost on the board is not measured yet (M0,
-  `docs/cymon_integration_plan.md`).
+  zero latency, inside the last step of the cycle); its cost is part of the
+  measured sample interrupt (no capture armed).

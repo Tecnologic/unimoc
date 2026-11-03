@@ -44,15 +44,13 @@ inline constexpr bool kMotorTemperatureAvailable = true;
 // Interrupt layout (docs/hotpath_plan.md):
 //
 //   sample:   end of the injected sequence of the phase A ADC, zero latency, once per PWM half
-//             period. Copies the raw currents and checks the overcurrent limit.
-//   control:  runs inside every kHalfPeriodsPerCycle-th sample interrupt and
-//             writes the duties of the next kHalfPeriodsPerCycle half periods
-//             (entry 0 directly into the CCR preload, entries 1..3 by DMA).
+//             period. Copies the raw currents, checks the overcurrent limit and
+//             runs the current control, which writes the duties of the next
+//             half period directly into the CCR preload.
 //   observer: software-pended normal-priority interrupt after each control
-//             cycle. It is preempted by the sample interrupt.
-inline constexpr uint8_t kHalfPeriodsPerCycle = 4U;
+//             cycle (every fourth sample). It is preempted by the sample interrupt.
 
-// Timestamps of the control boundary and the Hall edges: the DWT cycle
+// Timestamps of the samples and the Hall edges: the DWT cycle
 // counter at the 400 MHz core clock (silicon rev. Y limit; the board overlay
 // sets the clock tree, hardware_interface.cpp checks it), wrapping every 10.7 s.
 inline constexpr uint32_t kTimestampFrequency = 400'000'000U;

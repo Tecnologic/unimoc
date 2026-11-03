@@ -23,7 +23,7 @@
 namespace unimoc::hardware::foc_stm32h7 {
 
 /**
- * @brief Brings up the pins, the timer, ADC1..3, the duty DMA and the interrupts.
+ * @brief Brings up the pins, the timer, ADC1..3 and the interrupts.
  *
  * Timing and interrupt layout of docs/hotpath_plan.md (taken over from the
  * former STM32G4 driver of the BCC); the timer is TIM1 or TIM8 of the
@@ -37,15 +37,11 @@ namespace unimoc::hardware::foc_stm32h7 {
  *    a lead of adc_trigger_offset ticks before each boundary: CC4 before the
  *    peak (up-counting) and CC6 before the valley (down-counting).
  *  - The end of the phase A ADC injected sequence raises the sample interrupt (zero
- *    latency). It copies the raw phase currents into the cycle array and
- *    compares them with the overcurrent window; a violation trips the power
- *    stage at once. Every kHalfPeriodsPerCycle-th sample it calls
- *    ControlCycleHandler() directly and pends the observer interrupt.
- *  - Every update event requests a DMA burst of three words (TIMx_DCR/DMAR)
- *    into CCR1..3 from a circular buffer of kHalfPeriodsPerCycle slots. The
- *    control cycle writes duty entry 0 directly into the preload (after the
- *    burst of the control boundary) and entries 1..3 into the slots of the
- *    next three update events, see SetDutyTicks().
+ *    latency). It copies the raw phase currents and compares them with the
+ *    overcurrent window; a violation trips the power stage at once. Then it
+ *    calls SampleHandler() directly, which writes the duties of the next half
+ *    period into the CCR preload (SetDutyTicks()), and pends the observer
+ *    interrupt when the handler ended a control cycle.
  *  - The observer interrupt (timer update vector, pended by software; the
  *    update interrupt enable UIE stays 0) is a normal Zephyr interrupt at the
  *    highest normal priority; it calls ObserverHandler(). The sample interrupt
@@ -55,6 +51,11 @@ namespace unimoc::hardware::foc_stm32h7 {
  * the phases with a mid-range duty do not switch. A phase with an extreme
  * duty switches close to the sample; the hardware layer then reconstructs it
  * from the other two (see SampleAtPeak()/AppliedTicks()).
+ *
+ * The end of the injected sequence must come after the boundary of its
+ * trigger (trigger lead shorter than the sequence): the duties written then
+ * take effect at the next boundary. With a longer lead they take effect half a
+ * period earlier.
  *
  * The outputs are held off (idle level, MOE = 0) until PowerStageEnable().
  *
@@ -70,7 +71,7 @@ namespace unimoc::hardware::foc_stm32h7 {
 /**
  * @brief Stops the sample and observer interrupts and the hardware they run on.
  *
- * Disables both interrupts, stops the timer (outputs off) and the duty DMA, stops
+ * Disables both interrupts, stops the timer (outputs off), stops
  * the injected sequences (JADSTP) and disables the ADCs (ADDIS), so that
  * Initialize() may calibrate and reprogram them: the reference manual allows
  * ADCAL only with ADEN = 0 and a JSQR write only with JADSTART = 0. Thread
@@ -107,38 +108,28 @@ void SetTriggerLead(uint32_t ticks) noexcept;
 /// Compare values of CCR1..3 for one half period.
 using PhaseTicks = std::array<uint32_t, 3>;
 
-/// Compare values of the kHalfPeriodsPerCycle half periods after a control boundary.
-using TickPlan = std::array<PhaseTicks, kHalfPeriodsPerCycle>;
-
 /**
- * @brief Writes the compare values of the next kHalfPeriodsPerCycle half periods.
+ * @brief Writes the compare values of the next half period into the CCR preload.
  *
- * Call only from the control cycle. Entries 1..3 go into the DMA slots of
- * the next three update events. Entry 0 goes directly into the CCR preload
- * when the burst of the control boundary is done (normal case), or into its
- * DMA slot when the control cycle runs before that boundary (long trigger lead).
- * Anything else counts as an overrun (DutyOverruns()).
+ * Call only from the sample handler, after the boundary of the sample: the
+ * values take effect at the next boundary. A write after that boundary
+ * counts as an overrun (DutyOverruns()).
  */
-void SetDutyTicks(const TickPlan& ticks) noexcept;
+void SetDutyTicks(const PhaseTicks& ticks) noexcept;
 
-/// Control cycles whose entry 0 missed its half period.
+/// Samples whose duties missed their half period.
 [[nodiscard]] uint32_t DutyOverruns() noexcept;
 
-/// Raw phase-current conversions (12 bit, right aligned) of one sample.
-struct RawCurrents {
-  uint16_t a, b, c;
+/// Raw values of one sample (valid in the sample handler).
+struct SampleRaw {
+  uint16_t ia, ib, ic;  ///< phase currents, 12 bit, right aligned
+  uint32_t vdc;         ///< DC link
+  bool overcurrent;     ///< a phase left the window
+  bool overvoltage;     ///< the DC link reached the limit
+  uint32_t timestamp;   ///< Timestamp() at the sample interrupt
 };
 
-/// Raw values of the control cycle that just ended (valid in the control cycle).
-struct CycleRaw {
-  std::array<RawCurrents, kHalfPeriodsPerCycle> currents;  ///< oldest first
-  uint32_t vdc;                                            ///< of the last sample
-  bool overcurrent;                                        ///< a sample left the window
-  bool overvoltage;                                        ///< a DC-link sample reached the limit
-  uint32_t timestamp;                                      ///< Timestamp() at the last sample
-};
-
-[[nodiscard]] const CycleRaw& CycleSamples() noexcept;
+[[nodiscard]] const SampleRaw& Sample() noexcept;
 
 /**
  * @brief The timestamp clock of the drive: the DWT cycle counter.
@@ -148,11 +139,11 @@ struct CycleRaw {
  */
 [[nodiscard]] uint32_t Timestamp() noexcept;
 
-/// Compare values that were active while sample k of the current cycle was taken.
-[[nodiscard]] const PhaseTicks& AppliedTicks(uint8_t sample) noexcept;
+/// Compare values that were active while the sample was taken.
+[[nodiscard]] const PhaseTicks& AppliedTicks() noexcept;
 
-/// true when sample k of the current cycle was taken before a peak, false before a valley.
-[[nodiscard]] bool SampleAtPeak(uint8_t sample) noexcept;
+/// true when the sample belongs to a peak, false when to a valley.
+[[nodiscard]] bool SampleAtPeak() noexcept;
 
 /**
  * @brief Raw window of the per-sample overcurrent check.

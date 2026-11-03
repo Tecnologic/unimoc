@@ -5,140 +5,180 @@
 > history; the STM32H7 platform (`hardware/zephyr_stm32h7`, Jacobi and the
 > NUCLEO-H743ZI) carries the same design.
 
-Status: 2026-10-20. All times and cycle counts in this document are estimates
-from the code. None of them is measured on the board (milestone M0 changes that).
+> **2026-11-03 (per-sample control):** the current PI runs on every sample
+> (every half PWM period, 64 kHz at 32 kHz PWM) instead of once per four
+> samples, and the control step writes the CCR preload directly. The duty DMA
+> and the four-entry duty plan are gone, and so is HFI: Hall sensors cover
+> low speed. Sections 1 to 4 describe this design. The earlier
+> four-entry design is in the git history (before this change).
 
-Timing base at 32 kHz PWM and 170 MHz: one half period T_h (one current sample)
-is 15.625 µs = 2656 cycles. One control cycle is four half periods, 62.5 µs =
-10625 cycles (16 kHz).
+Status: 2026-11-03. The times in section 4 are measured on the NUCLEO-H743ZI
+(400 MHz, power stage off, no motor), the rest are estimates.
+
+Timing base at 32 kHz PWM and 400 MHz (STM32H743): one half period T_h (one
+current sample, one control step) is 15.625 µs = 6250 cycles. One control
+cycle (the observer period) is four half periods, 62.5 µs = 25000 cycles (16 kHz).
 
 ## 1. Goal
 
 | Context | Rate | Content |
 |---|---|---|
-| Sample interrupt (ADC1 JEOS, zero latency) | 64 kHz | Copy the raw currents into the cycle array, overcurrent check on raw counts |
-| Control cycle (inside every 4th sample interrupt, zero latency) | 16 kHz | Mean current, PI once, four duty entries (inverse Park, HFI step, dead-time compensation, SVM), duty plan to the hardware |
-| Observer (software-pended normal interrupt) | 16 kHz | Flux observer, Kalman, HFI demodulation, later Hall fusion, angles of the next cycle |
+| Sample interrupt (ADC1 JEOS, zero latency) | 64 kHz | Raw copy, overcurrent and overvoltage check on raw counts, then the control step |
+| Control step (inside every sample interrupt, zero latency) | 64 kHz | Calibration, angle step, Park, PI (dt = T_h), inverse Park, dead-time compensation, SVM, duties into the CCR preload |
+| Observer (software-pended normal interrupt) | 16 kHz | Flux observer, Kalman, Hall fusion, angle reference of the next cycle |
 | Control thread (Zephyr, normal priority) | about 2 kHz | Speed controller, position controller, MTPA, field weakening, setpoint limiting |
 | Hall edges (EXTI, normal priority) | on edge | Only capture timestamp and Hall code |
 
-The control cycle and the sample interrupt are the hot path. The observer is
+The sample interrupt with its control step is the hot path. The observer is
 not zero-latency: it is a normal Zephyr interrupt at the highest normal
-priority, so the project rule (only the hot path is zero-latency) holds. This
-resolves the open decision of the former quarter-cycle IRQ.
+priority, so the project rule (only the hot path is zero-latency) holds.
 
-Assumption for the precomputation: speed is constant over one cycle (62.5 µs).
-Acceleration is not modeled.
+Assumption for the angle extrapolation: speed is constant between two
+observer runs (62.5 µs, longer when the observer is late). Acceleration is not
+modeled.
 
-## 2. Timing of One Cycle
+## 2. Timing of One Sample
 
-Boundaries B are the peaks and valleys of the center-aligned TIM8 counter.
-B0 is the control boundary of cycle c.
+Boundaries B are the peaks and valleys of the center-aligned counter.
 
 ```
-samples     s0      s1      s2      s3 (B0)
-            |       |       |       |
-------------B-3-----B-2-----B-1-----B0------B1------B2------B3------B4------B5----
-                                    |  ctrl  |
-duty in effect          ... prev[2] | prev[3]| new[0] | new[1] | new[2] | new[3] |
-                                    ^ DMA slot 0 burst (stale, overwritten)
-                                             ^ new[0] from the CCR preload
-                                                      ^ DMA slot 1, 2, 3 ...
+            B(n-1)          B(n)            B(n+1)          B(n+2)
+------------|---------------|---------------|---------------|------
+duty        |    w(n-2)     |    w(n-1)     |     w(n)      |
+                         ^ sample n (trigger lead before B(n))
+                            ^ JEOS, control step n writes w(n) into the preload
+                                            ^ w(n) takes effect
 ```
 
 - **Sampling.** The ADC injected sequence is triggered `adc_trigger_offset`
   ticks before every boundary (TRGO2 = OC4REF before the peak, OC6REF before the
-  valley). The JEOS interrupt copies ia, ib, ic into the cycle array and
-  compares them with a raw window (`SetOvercurrentWindow`, from
-  `max_phase_current`); a violation sets the break (`EGR = BG`) at once.
-- **Control.** The fourth sample interrupt of the cycle runs the control cycle
-  (`CurrentControlIsr::OnControlCycle()`), then pends the observer.
-- **Duties (variant B).** TIM8 runs with RCR = 0 and CCR1..3 preload. Every
-  update event requests a DMA burst of three words (TIM8_DCR/DMAR) from a
-  circular buffer of four slots (DMA1 channel 1, DMAMUX request TIM8_UP). The
-  burst at B0 (slot 0) writes the value for [B1, B2] before the control cycle
-  has run, so the control cycle writes entry 0 directly into the preload after
-  that burst; entries 1..3 go into slots 1..3. Slot 0 gets entry 3 as a
-  fallback for a late next cycle.
-- **Deadline.** Entry 0 must be in the preload before B1: about 14 µs after the
-  sample. `SetDutyTicks()` checks the DMA counter: one burst done = normal case,
-  no burst done (long trigger lead, control boundary still ahead) = entry 0
-  goes into slot 0, anything else counts as an overrun (`DutyOverruns()`).
-- **Delay.** Entry 0 takes effect 1 T_h after the sample; the middle of the
-  four entries is 3 T_h = 46.9 µs after it. All four entries via DMA (variant A)
-  would add one T_h. A classic 16 kHz single-update loop has about 94 µs.
-- **Angles (D4).** The observer predicts the Park angle of each sample of the
-  next cycle (θ + k·ω·T_h) and the inverse-Park angle of each duty entry
-  (θ + (3 + delay + k)·ω·T_h, `output_delay_half_periods` = 1.5).
-- **Start.** The counter starts at ARR/2, between both trigger compares, so the
-  start produces no spurious ADC trigger. The first boundary is then both the
-  first sample and the first DMA burst, and the sample counter starts at the
-  last index of a cycle.
+  valley). The JEOS interrupt reads ia, ib, ic and the DC link and compares
+  them with the raw window (`SetOvercurrentWindow`, from `max_phase_current`)
+  and the raw overvoltage level; a violation sets the break (`EGR = BG`) at once.
+- **Control step.** The same interrupt then calls `SampleHandler()`
+  (`CurrentControlIsr::OnSample()`): it writes the duties of the next half
+  period into CCR1..3 (preload). Every fourth step ends a control cycle and
+  pends the observer.
+- **Deadline.** The duties must be in the preload before the next boundary:
+  T_h minus the end of the ADC sequence after the boundary. `SetDutyTicks()`
+  counts a write after that boundary as an overrun (`DutyOverruns()`): the
+  counter is then in the other half and moves away from the next boundary.
+  The end of the sequence must come after the boundary of its trigger (lead
+  shorter than the sequence, about 2.4 µs with the sample times of the
+  Nucleo); with a longer lead the duties take effect half a period early.
+- **Delay.** w(n) takes effect one half period after sample n and its middle
+  is 1.5 T_h = 23.4 µs after it (`output_delay_half_periods`). The four-entry
+  design had 4.5 T_h (70.3 µs) from the middle of the averaged samples to the
+  middle of the entries, and a classic 16 kHz single-update loop has about 94 µs.
+- **Angles (D4).** The observer hands over one angle reference per cycle
+  (`AngleReference`): the angle at the first sample of the next cycle, the
+  rotation of one half period (ω·T_h) and the rotation of the output delay
+  (ω·1.5 T_h). Each control step rotates its angle by one step (four
+  multiplications, `system::Rotated()`, renormalized) and takes the new
+  reference when the observer has published one, rotating it forward by the
+  samples it is late. A late observer means a longer extrapolation, not stale
+  angles.
+- **Phase of a sample.** The JEOS of a peak sample comes in the upper half of
+  the counter (before or after the peak), the one of a valley in the lower
+  half; the sample interrupt reads `CNT` to know the boundary type
+  (`SampleAtPeak()`), as long as lead and sequence stay below a quarter period.
 
-## 3. Duty Range
+## 3. Duty Range and Current Bandwidth
 
 The duties take effect through the preload at the boundaries, so the ISR
-timing no longer limits them. What remains:
+timing does not limit them. What remains:
 
 - **Sampling window.** At a peak the phase with the highest duty switches
   closest to the sample, at a valley the one with the lowest. When that edge
-  lies within `trigger lead + 1 µs` of the boundary, the BCC layer drops the
-  phase and reconstructs it from the other two (three inline sensors,
-  ia + ib + ic = 0). With SVM only one phase switches next to each sample.
-  The phase and parity come from the plan (`AppliedTicks()`, `SampleAtPeak()`).
-- **Minimum pulse.** 3 % of a PWM period (31.25 µs) is 0.94 µs, above the
-  400 ns dead time. Factory `svm_duty_min/max` = 0.03 / 0.97 on the BCC and in
-  the sim profile. To be checked on the scope with the bootstrap supply.
-- **Dead time.** At 32 kHz the 400 ns dead time is 2.6 % of a half period;
-  dead-time compensation matters twice as much as at 16 kHz.
+  lies within `trigger lead + 1 µs` of the boundary, the STM32H7 layer drops
+  the phase and reconstructs it from the other two (three inline sensors,
+  ia + ib + ic = 0). The compare values active during the sample are the ones
+  written two steps before (`AppliedTicks()`).
+- **Minimum pulse.** 3 % of a PWM period (31.25 µs) is 0.94 µs. Factory
+  `svm_duty_min/max` = 0.03 / 0.97 in the sim profile. To be checked on the
+  scope with the bootstrap supply.
+- **Dead time.** At 32 kHz the dead time is a larger part of a half period
+  than at 16 kHz; dead-time compensation runs on every step from the
+  current of its sample.
+
+**Current bandwidth.** With pole-zero cancellation (kp = L·ω_c, ki = R·ω_c)
+the open loop is an integrator with the delay T_d from a sample to the middle
+of its duties; the phase margin is 90° − ω_c·T_d.
+
+| Design | T_d at 32 kHz | ω_c for 60° margin | for 45° margin |
+|---|---|---|---|
+| PI every sample (now) | 1.5 T_h = 23.4 µs | 22.3 krad/s (3.6 kHz) | 33.5 krad/s (5.3 kHz) |
+| PI every fourth sample (before) | 4.5 T_h = 70.3 µs | 7.4 krad/s (1.2 kHz) | 11.2 krad/s (1.8 kHz) |
+
+In the discrete loop (dt = T_h, one step of delay) the 60° tuning,
+kp = L·π / (9 T_h), gives poles with about 5 % overshoot. `sim_closed_loop`
+runs a 10 A step with it on a locked rotor (100 µH, 50 mΩ): 60 % after one
+control cycle (62.5 µs), within 0.5 A after 125 µs. The factory gains are
+still the conservative 2000 rad/s of the hoverboard default; raise them per
+motor (`unimoc.control.current.*`).
 
 ## 4. Data Flow
 
-`SubStepBuffer` (double buffer, flip with release/acquire):
+`AngleBuffer` (observer → control steps, double buffer, flip with
+release/acquire) and a pair of `CycleRecord`s (control steps → observer):
 
 | Field | Writer | Reader |
 |---|---|---|
-| `sc[4]` Park angle per sample | observer (inactive buffer) | control cycle |
-| `sc_out[4]` inverse-Park angle per duty entry | observer (inactive buffer) | control cycle |
-| `i_ab_samples[4]`, `i_dq_mean`, `u_dq` | control cycle (active buffer) | observer |
+| `AngleReference` (sample, angle, step, output rotation) | observer (inactive buffer, then flip) | every control step |
+| `CycleRecord` `sc[4]`, `i_ab_samples[4]` | control step k of the cycle | observer, identification windows |
+| `CycleRecord` `i_dq_mean`, `u_dq` (means of the cycle), `timestamp`, `dc_link` | last control step of the cycle | observer |
 
-`observer_pending` (set by the control cycle, cleared by the observer after the
-flip) hands a cycle to the observer. A control cycle that finds it still set
-counts `observer_overruns` and reuses the old angles.
+The last step of a cycle hands its record over (`observer_pending`) and the
+next cycle fills the other one. A cycle that ends while the observer still
+processes the previous one counts `observer_overruns`. A cycle with a step
+that did not run the controller (trip, forced duties) is not handed over.
 
-**HFI.** One injection period (four steps +d, −d, +q, −q) is one cycle: entry k
-carries step k. Sample k + 1 answers step k, so the observer feeds sample 0 as
-step 3 (end of the previous period) and samples 1..3 as steps 0..2. The mean
-current of the PI is free of the injection response, because the four samples
-cover a whole injection period. The alignment of steps and samples is to be
-verified in the sim once HFI is active in a test.
+The control thread writes setpoints into a mailbox that every control step
+reads. No kernel functions are called from the zero-latency contexts; the
+observer interrupt may call them (for example to wake the control thread
+every eighth cycle).
 
-The control thread writes setpoints into a mailbox (seqlock or double buffer)
-that the control cycle reads. No kernel functions are called from the
-zero-latency contexts; the observer interrupt may call them (for example to
-wake the control thread every eighth cycle).
+### Control step
 
-### Control cycle (target 1500 cycles, 9 µs)
+1. The sample from the hardware (scaled, a disturbed phase reconstructed),
+   then the calibration of the startup aid. Repeat of the overcurrent and
+   overvoltage checks on the calibrated sample, latch, neutral duties.
+2. Angle of the sample: the new reference or one rotation step on.
+3. Clarke and Park with that angle; sums for the record.
+4. PI with decoupling (dt = T_h).
+5. Inverse Park with the angle at the middle of the next half period,
+   dead-time compensation from this sample's current, SVM (one division by
+   V_dc), duties into the preload.
 
-1. Samples of the cycle from the hardware (scaled, the disturbed phase
-   reconstructed), then the calibration of the startup aid on every sample:
-   i = (i_raw - offset) · gain per phase, v = v_raw · gain_vdc (2026-10-29;
-   the raw sample stays in `raw_phase_currents` for the startup aid). Repeat
-   of the overcurrent check on the calibrated currents, latch, neutral plan.
-   The per-sample check of the sample interrupt stays on raw counts: it is
-   off by at most the offset and the gain error.
-2. Clarke and Park per sample with `sc[k]`, mean.
-3. PI with decoupling once per cycle (dt = 62.5 µs).
-4. Four entries: inverse Park with `sc_out[k]`, plus HFI step k, dead-time
-   compensation from the newest current, SVM.
-5. `SetDutyPlan()`: entry 0 to the preload, 1..3 to the DMA slots.
+### Observer
 
-### Observer (budget about 45 µs, target 3000 cycles)
-
-1. Flux observer with mean current and voltage of the cycle.
+1. Flux observer with the mean current and voltage of the cycle.
 2. Mechanical prediction (torque from i_d, i_q).
-3. HFI demodulation over the four samples (if active), later Hall (M6).
-4. Angles of the next cycle, flip.
+3. Hall edges and sector.
+4. Angle reference of the next cycle, flip.
+
+### Measured on the NUCLEO-H743ZI (M0)
+
+2026-11-03, `CONFIG_UNIMOC_HOT_PATH_TIMING=y`, 400 MHz, code in flash with the
+caches on, power stage off (MOE = 0), no motor. The trip latched by the
+floating ADC inputs was cleared and the window opened over the debugger, so
+the full control path ran (PI, circle limiter, SVM). The flux observer was
+idle (outputs off), Hall off. Cycles of the 400 MHz core, 6250 per half period:
+
+| Section | `-Os` (default) min / mean / max | `-O2` min / mean / max |
+|---|---|---|
+| Sample interrupt (incl. control step) | 1631 / 1774 / 2276 | 1304 / 1506 / 2001 |
+| Control step alone | 1405 / 1537 / 2025 | 1122 / 1317 / 1821 |
+| Observer (16 kHz) | 1787 / 1965 / 5109 | 1456 / 1648 / 2901 |
+
+64 300 samples and 16 070 observer runs per second, no duty overrun and no
+observer overrun. The worst sample interrupt takes 36 % of a half period; the
+mean load of hot path and observer is about 36 % of the CPU. Before the
+change the same board measured 2311 cycles (mean) for the four-entry control
+cycle, with the loop held in its trip path (the full path did not run then).
+
+Open: the observer with the flux observer and Hall fusion running, and the
+hot path in ITCM (code and data in flash and AXI SRAM today).
 
 ### Why the observer is a normal interrupt
 
@@ -154,13 +194,6 @@ Communication interrupts are served in all variants, as long as the total CPU
 load leaves room: their peripherals buffer frames (FDCAN FIFO, USB endpoint
 buffers, Ethernet DMA descriptors), and a delay of 10 to 20 µs is far below
 their deadlines. A thread is too slow and too jittery for a 62.5 µs deadline.
-A second zero-latency level is the fallback if M0 shows that kernel critical
-sections push the observer past its deadline.
-
-### CPU budget (estimate, per cycle of 10625 cycles)
-
-Sample interrupts 4 × 60, control cycle 1500, observer 3000: about 4700 cycles,
-45 % CPU. Everything else (Zephyr, Cyphal, USB, control thread) gets the rest.
 
 ## 5. Hall Sensor Fusion
 
@@ -211,58 +244,64 @@ hardware layer does not expose the Hall signals yet (M5).
   `unit::AngularVelocityVariance` for the Hall speed bound R_sector/τ², checked against the unit of the
   innovation at compile time); the covariance P stays `float` (mixed-unit state vector). The Hall
   timing (tick period, edge age, time since the last change) is `unit::Time` (2026-10-29).
-- **D3** Decoupling from the mean current of the cycle.
-- **D4** Dedicated angle table for the output side (`sc_out`), delay as a parameter.
+- **D3** Decoupling from the current of the sample (2026-11-03; before: the mean of the cycle).
+- **D4** Dedicated angle for the output side (`AngleReference::out`, the rotation of the output
+  delay), delay as a parameter.
 - **Integer arithmetic: no.** On Cortex-M4F float add and multiply cost one cycle; the time goes into
   function pointers, `sqrtf` (libm, errno) and divisions.
-- **STM32H7.** Same concept (advanced timer, TRGO, preload, DMA burst). Budget per half period about
-  7500 cycles at 480 MHz; code and plan in ITCM/DTCM, `-fsingle-precision-constant`.
+- **STM32H7.** Advanced timer, TRGO, preload written by the control step (no DMA since 2026-11-03).
+  Budget per half period 6250 cycles at 400 MHz (rev. Y); ITCM/DTCM and
+  `-fsingle-precision-constant` are open options if the measurements need them.
 
 ## 7. Simulation (native_sim)
 
 `hardware/zephyr_sim` closes the loop around `MotorSimulation`. A kernel timer in simulated time runs
-one control cycle per expiry (exact mean rate, scheduled from the elapsed time because 62.5 µs is not a
-whole number of 1 µs ticks):
+four half periods (one control cycle) per expiry (exact mean rate, scheduled from the elapsed time
+because 62.5 µs is not a whole number of 1 µs ticks). Each half period:
 
-1. control callback and observer callback on the samples of the cycle that ended,
-2. the plant over the next four half periods: the first with entry 3 of the previous plan, the next three
-   with entries 0..2 of the new plan; after each half period a sample and the overcurrent check.
+1. the plant with the duties in effect,
+2. the sample at its end and the per-sample overcurrent and overvoltage checks; at the boundary the
+   duties of the last control step take effect (the preload),
+3. the sample handler (control step), and the observer when the step ended a control cycle.
 
-That is the timing of variant B. The sim checks the control logic and this timing contract, not the
-time budget, ADC noise, quantization or dead time (the inverter model has none). Tests:
-`sim_irq_cadence` (cadence and plan timing), `sim_overcurrent` (per-sample trip), `sim_closed_loop`
-(current steps on a locked rotor through the real control core).
+The sim checks the control logic and this timing contract, not the time budget, ADC noise,
+quantization or dead time (the inverter model has none). Tests: `sim_irq_cadence` (cadence and the
+half period the duties of a step apply to), `sim_overcurrent` (per-sample trip), `sim_closed_loop`
+(current steps on a locked rotor through the real control core, one at the 3.6 kHz tuning).
 
 ## 8. Milestones
 
-Each milestone builds for BCC and native_sim and keeps the twister green.
+Each milestone builds for the STM32H7 boards and native_sim and keeps the twister green.
 
 | M | Content | Evidence |
 |---|---|---|
-| M0 | Instrumentation done in code (`CONFIG_UNIMOC_HOT_PATH_TIMING`, `hardware/hot_path_timing.hpp`): DWT cycles around the sample interrupt of the boundary, the control cycle and the observer, min/mean/max, `DutyOverruns()`, `observer_overruns`; read over the `unimoc.timing.*` registers. Open: the numbers from the board. | Numbers from the board |
-| M1 | Done in code: RCR = 0, CCR preload, DMA burst, control cycle in the 4th sample interrupt, pended observer, sim at the 16 kHz cycle. | Twister: `sim_irq_cadence`, `sim_closed_loop` |
-| M2 | Done in code: one reciprocal of V_dc per cycle for the four SVM entries (`Svm::CalculateWithInverseDcLinkVoltage`), circle limiter without libm (`vsqrt.f32` through `-fno-math-errno`). Precomputing `v_limit_sq` and `ki·dt` in the observer was dropped: the PI runs once per cycle, so it saves only a few multiplications. | `svm_test`, call-graph check below |
-| M3 | Done in code: hot-path hardware access through `hardware/hot_path_interface.hpp` (link-time bound, no function pointers); the platform calls `ControlCycleHandler()`/`ObserverHandler()` of the application directly; `-fno-math-errno` for the Zephyr build. Inlining across the translation units (LTO or header-only access) is open until M0 shows it matters. | Call-graph check below, cycles against the M0 baseline |
+| M0 | Instrumentation (`CONFIG_UNIMOC_HOT_PATH_TIMING`, `hardware/hot_path_timing.hpp`): DWT cycles around every sample interrupt, the control step and the observer, min/mean/max, `DutyOverruns()`, `observer_overruns`; read over the `unimoc.timing.*` registers. First numbers from the NUCLEO-H743ZI (2026-11-03, section 4, outputs off). Open: with the flux observer and Hall fusion running. | Numbers from the board |
+| M1 | Done: RCR = 0, CCR preload, pended observer, sim at the 16 kHz cycle. Since 2026-11-03 the control step runs in every sample interrupt and writes the preload; the duty DMA is gone. | Twister: `sim_irq_cadence`, `sim_closed_loop`; Nucleo: 64.3 k steps/s, no overrun |
+| M2 | Done in code: circle limiter without libm (`vsqrt.f32` through `-fno-math-errno`). The control step makes one division by V_dc for its SVM. | `svm_test`, call-graph check below |
+| M3 | Done in code: hot-path hardware access through `hardware/hot_path_interface.hpp` (link-time bound, no function pointers); the platform calls `SampleHandler()`/`ObserverHandler()` of the application directly; `-fno-math-errno` for the Zephyr build. Inlining across the translation units (LTO or header-only access) and ITCM placement are open; `-O2` saves about 15 % (section 4). | Call-graph check below, cycles against the M0 baseline |
 | M4 | Done in code: `MechanicalObserver` with `PredictCovariance()`, `UpdateAngle()`/`UpdateSpeed()` each with its own R, error wrap in `angle_wrap.hpp`; the flux observer as an angle measurement with R_flux = R0 + k/ω². | `mechanical_observer_test` (synthetic profiles) |
 | M5 | Done in code: `HallDecoder` and `HallEventQueue` (`hall_capture.hpp`), BCC EXTI capture with timestamps (not run on the board), sim Hall events with the edge time from the plant. | `hall_decoder_test`, `hall_sensor_test` (generated edges) |
 | M6 | Done in code: `HallFusion` with edge and sector measurement, speed bound from the sector time, standstill hold, sector center at the start. | `hall_fusion_test`, `sim_hall_fusion` (standstill without drift, ramps, Hall failure) |
 | M7 | Done in code: control thread (`control_thread.hpp`), `OuterLoop` with `SpeedController`, `PositionController`, setpoint limiting and `Mailbox`; speed and position setpoints over Cyphal. | `sim_speed_control` (step in ω, current limit), `sim_cyphal_drive` |
-| M8 | Board: DMA and preload on the scope, ADC alignment, Hall table, closed current loop with the 50 A limit. | Measurements, oscilloscope |
+| M8 | Board: preload timing on the scope, ADC alignment, Hall table, closed current loop with the 50 A limit, current step at the 3.6 kHz tuning. | Measurements, oscilloscope |
 
 ### Call-graph check of the zero-latency path (M2/M3)
 
-On the BCC build, everything reachable from `SampleIsr` was listed from the
-disassembly (`arm-zephyr-eabi-objdump -d`, following `bl`/`b.w`): the core
-(`on_control_cycle`, SVM, dead-time compensation), the BCC glue and driver
-functions and `memset`. No libm function (`sqrtf` was there before
-`-fno-math-errno`), no indirect call (`blx rN`), no kernel function and no
-`__cxa_guard_*`. Repeat the check after changes to the hot path.
+2026-11-03 on the NUCLEO-H743ZI build (`-Os`), everything reachable from
+`SampleIsr` was listed from the disassembly (`arm-zephyr-eabi-objdump -d`,
+following `bl`/`b.w`/`b`): 37 functions, the control step (`OnSample`,
+`AdvanceAngle`, `Rotated`, the PI, SVM, dead-time compensation, the sine
+table of the identification), the STM32H7 glue and driver functions, the
+trace sampling (`trace::OnControlCycle`, `cymon::Device::Tick`), the timing
+probe, `memset` and `memmove`. No libm function, no indirect call (`blx rN`),
+no kernel function and no `__cxa_guard_*`. Repeat the check after changes to
+the hot path.
 
 ## 9. Risks and Open Points
 
-- **Not run on hardware.** DMA burst, preload, the start at ARR/2 and the parity detection
-  (`TIM8_CR1.DIR` right after the control boundary) are written from the reference manual and only
-  build-tested. M0/M8 must verify them, first with the outputs off.
+- **Not verified on the scope.** The control step runs on the Nucleo at 64 kHz without a late
+  preload write (2026-11-03), but the PWM edges, the boundary type from `CNT` and the ADC
+  alignment are not checked against the outputs yet (M8, first with the outputs off).
 - **ADC1 JEOS as "all ADCs done".** The sample interrupt reads ADC2/3/4 as well. This assumes equal
   sample times and simultaneous triggers on all ADCs (as before).
 - **Overcurrent only in software.** The board has no comparators on the current channels; the check is
@@ -270,20 +309,19 @@ functions and `memset`. No libm function (`sqrtf` was there before
   next sample). The analog watchdog of the ADCs is a possible addition. The DC-link overvoltage is
   checked the same way since 2026-10-31: the sample interrupt compares the raw DC-link conversion of
   every sample with the trip level in counts (before the calibration, `SetOvervoltageCounts()`) and
-  breaks the timer; the control cycle repeats the check on the calibrated last sample. It reads one
-  more register of ADC4 per sample (the same assumption as for ADC2/3: its sequence is done at the
-  ADC1 JEOS). Not run on the board.
-- **Observer overrun.** If the observer does not finish within one cycle, the control cycle reuses the
-  old angles (and the sample buffer can race); counted, to be measured in M0.
+  breaks the timer; the control step repeats the check on the calibrated sample. It reads one
+  more register of the phase C ADC per sample (the same assumption: its sequence is done at the
+  ADC1 JEOS). Not run on the board with a power stage.
+- **Observer overrun.** A late observer only lengthens the angle extrapolation of the control steps.
+  If it does not finish within one cycle, the control steps start to refill the record it reads;
+  counted (`observer_overruns`), none measured on the Nucleo.
 - **FPU in zero-latency ISRs.** Lazy stacking costs cycles when a thread uses the FPU. Measure in M0.
-- **Code and data in flash.** At 170 MHz the flash has wait states (the ART cache mitigates them). If the
-  jitter is a problem: hot path and buffers in CCM SRAM (Zephyr `CODE_DATA_RELOCATION`). Only after measuring.
-- **Check: is the hot path in CCM SRAM on the G4?** Today it is not: the sample ISR, the control cycle and
-  their buffers are linked to flash and SRAM1 (nothing uses `CODE_DATA_RELOCATION`). Check the map file
-  after any change to the linking. Running from CCM SRAM (32 KB on the G473, I-bus at 0x10000000) would
-  also keep the hot path free of the flash stall while a write runs in bank 1 (settings, see
-  `docs/settings_plan.md`). The settings gate still holds the stage disabled during a save.
+- **Code and data in flash.** The hot path runs from flash through the M7 caches (the
+  sample interrupt varies between 1631 and 2276 cycles). ITCM (64 KB, zero wait states, Zephyr
+  `CODE_DATA_RELOCATION`) would cut the time and the jitter and keep the hot path free of the
+  flash stall of a settings write; the settings gate holds the stage disabled during a save.
 - **Hall alignment.** Without a calibrated table, angle errors of up to about ±10° are possible.
 - **Start-up.** At standstill the fusion only knows the sector (±30°): about 87 % torque (cos 30°).
+  HFI was removed (2026-11-03): the Hall sensors are the low-speed angle source.
 - **Motor data missing.** Maximum electrical frequency, inductance and resistance of the target motors are
   needed for R, the thresholds and the controller parameters.

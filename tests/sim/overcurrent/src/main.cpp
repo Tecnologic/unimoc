@@ -40,7 +40,7 @@ constexpr float kLimitA = 50.0F;
 }  // namespace
 
 // The platform calls these directly (hot_path_interface.hpp).
-void unimoc::hardware::ControlCycleHandler() noexcept { CurrentControlIsr::Instance().OnControlCycle(); }
+bool unimoc::hardware::SampleHandler() noexcept { return CurrentControlIsr::Instance().OnSample(); }
 void unimoc::hardware::ObserverHandler() noexcept { SlowUpdate::Instance().RunOnce(); }
 
 struct sim_overcurrent_fixture {
@@ -52,8 +52,7 @@ struct sim_overcurrent_fixture {
 
 namespace {
 
-// One control cycle covers four half periods; the samples of a cycle reach
-// the controller in the next one.
+// One control cycle covers four half periods, each with its sample and control step.
 void RunCycles(const unsigned count) {
   for (unsigned i = 0; i < count; ++i) {
     sim::StepCycle();
@@ -98,16 +97,16 @@ ZTEST_F(sim_overcurrent, test_sample_check_trips_at_once_and_freezes_loop) {
   zassert_true(kPowerStage.Enable());
   sim::SetPhaseCurrentOverride(0.0F, 60.0F, -60.0F);
   RunCycles(1);
-  // The per-sample check of the hardware layer, before any control cycle saw it.
+  // The per-sample check of the hardware layer, and the control step of the
+  // same sample latches the trip.
   zassert_equal(kPowerStage.GetState(), PowerStageState::kFault);
-  zassert_false(CurrentControlIsr::Instance().state.overcurrent_tripped);
-
-  RunCycles(1);  // the control cycle with these samples latches the trip
   zassert_true(CurrentControlIsr::Instance().state.overcurrent_tripped);
-  for (const auto& duties : CurrentControlIsr::Instance().state.duty_plan.duties) {
-    zassert_within(duties.a, 0.5_ratio, 1e-6_ratio);
-    zassert_within(duties.b, 0.5_ratio, 1e-6_ratio);
-    zassert_within(duties.c, 0.5_ratio, 1e-6_ratio);
+  const auto kDuties = CurrentControlIsr::Instance().state.phase_duties;
+  zassert_within(kDuties.a, 0.5_ratio, 1e-6_ratio);
+  zassert_within(kDuties.b, 0.5_ratio, 1e-6_ratio);
+  zassert_within(kDuties.c, 0.5_ratio, 1e-6_ratio);
+  for (const auto& duties : sim::AppliedDuties()) {
+    zassert_within(duties.b, 0.5_ratio, 1e-6_ratio, "neutral from the first half period on");
   }
 
   // The latched fault survives the current going away.
@@ -121,19 +120,17 @@ ZTEST_F(sim_overcurrent, test_forced_duties_replace_the_loop_until_released) {
   const Ratio kDutyMax = isr.svm.duty_max;
   isr.ForceDuty(0.25_ratio, 0.5_ratio, 2.0_ratio);  // phase C clamped to the SVM limit
   RunCycles(1);
-  for (const auto& duties : isr.state.duty_plan.duties) {
-    zassert_within(duties.a, 0.25_ratio, 1e-6_ratio);
-    zassert_within(duties.b, 0.5_ratio, 1e-6_ratio);
-    zassert_within(duties.c, kDutyMax, 1e-6_ratio);
-  }
+  zassert_within(isr.state.phase_duties.a, 0.25_ratio, 1e-6_ratio);
+  zassert_within(isr.state.phase_duties.b, 0.5_ratio, 1e-6_ratio);
+  zassert_within(isr.state.phase_duties.c, kDutyMax, 1e-6_ratio);
+  // From the second half period on the plant runs them.
+  zassert_within(sim::AppliedDuties()[3].a, 0.25_ratio, 1e-6_ratio);
 
   // Released, the loop runs again: zero current and reference give neutral duties.
   isr.ReleaseForceDuty();
   RunCycles(2);
-  for (const auto& duties : isr.state.duty_plan.duties) {
-    zassert_within(duties.a, 0.5_ratio, 1e-3_ratio);
-    zassert_within(duties.c, 0.5_ratio, 1e-3_ratio);
-  }
+  zassert_within(isr.state.phase_duties.a, 0.5_ratio, 1e-3_ratio);
+  zassert_within(isr.state.phase_duties.c, 0.5_ratio, 1e-3_ratio);
 }
 
 ZTEST_F(sim_overcurrent, test_dc_link_overvoltage_trips_and_freezes_the_loop) {
@@ -145,13 +142,11 @@ ZTEST_F(sim_overcurrent, test_dc_link_overvoltage_trips_and_freezes_the_loop) {
   zassert_equal(kPowerStage.GetState(), PowerStageState::kEnabled);
 
   sim::Plant().SetDcLinkVoltage(58.5_V);
-  RunCycles(2);  // the samples of a cycle reach the control cycle in the next one
+  RunCycles(1);  // the control step of the sample latches it
   zassert_true(isr.state.overvoltage_tripped);
   zassert_true(isr.Tripped());
   zassert_equal(kPowerStage.GetState(), PowerStageState::kFault);
-  for (const auto& duties : isr.state.duty_plan.duties) {
-    zassert_within(duties.a, 0.5_ratio, 1e-6_ratio);
-  }
+  zassert_within(isr.state.phase_duties.a, 0.5_ratio, 1e-6_ratio);
 
   sim::Plant().SetDcLinkVoltage(48.0_V);
   RunCycles(2);
@@ -160,16 +155,14 @@ ZTEST_F(sim_overcurrent, test_dc_link_overvoltage_trips_and_freezes_the_loop) {
   zassert_false(isr.Tripped());
 }
 
-ZTEST_F(sim_overcurrent, test_dc_link_sample_check_trips_before_the_control_cycle) {
+ZTEST_F(sim_overcurrent, test_dc_link_sample_check_trips_in_the_step_of_the_sample) {
   CurrentControlIsr& isr = CurrentControlIsr::Instance();
   zassert_true(kPowerStage.Enable());
   sim::Plant().SetDcLinkVoltage(58.5_V);
   RunCycles(1);
-  // The per-sample check of the hardware layer, before any control cycle saw the sample.
+  // The per-sample check of the hardware layer trips the stage; the control
+  // step of the same sample latches the trip.
   zassert_equal(kPowerStage.GetState(), PowerStageState::kFault);
-  zassert_false(isr.state.overvoltage_tripped);
-
-  RunCycles(1);  // the control cycle with these samples latches the trip
   zassert_true(isr.state.overvoltage_tripped);
   zassert_false(isr.state.overcurrent_tripped);
   zexpect_str_equal(isr.TripName(), "DC-link overvoltage trip");
@@ -191,7 +184,7 @@ ZTEST_F(sim_overcurrent, test_startup_run_releases_stage_and_fault_cuts_it) {
   zassert_equal(kPowerStage.GetState(), PowerStageState::kEnabled);
 
   sim::SetPhaseCurrentOverride(70.0F, -35.0F, -35.0F);
-  RunCycles(2);  // trip at the sample, then samples_ready for the startup FSM
+  RunCycles(1);  // trip at the sample, samples_ready for the startup FSM at the end of the cycle
   startup.RunOnce();
   zassert_equal(startup.State(), unimoc::startup::FsmState::kFault);
   zassert_not_equal(kPowerStage.GetState(), PowerStageState::kEnabled);

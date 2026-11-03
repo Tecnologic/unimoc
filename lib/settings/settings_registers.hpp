@@ -185,8 +185,6 @@ void ForEachRegister(const Visitor& visit, Settings&... settings) {
   visit(Setting(reg::kDtcDeadTime, "Gate driver dead time of the dead-time compensation", AtLeast(0.0F)), settings.dtc_dead_time...);
   visit(Setting(reg::kDtcFPwm, "PWM frequency of the dead-time compensation", AtLeast(0.0F), "Hz"), settings.dtc_f_pwm...);
   visit(Setting(reg::kDtcIThreshold, "Phase current below which the dead-time compensation counts a zero crossing"), settings.dtc_i_threshold...);
-  visit(Setting(reg::kHfiVInject, "Injection voltage of the HFI observer"), settings.hfi_v_inject...);
-  visit(Setting(reg::kHfiErrorGain, "Current error to angle gain of the HFI observer", kAny, "rad/A"), settings.hfi_error_gain...);
   visit(Setting(reg::kExcitMode, "EESM excitation mode: 0 current, 1 flux", Between(0.0F, 1.0F)), settings.excitation_mode...);
   visit(Setting(reg::kExcitLM, "Mutual inductance L_m of the excitation controller"), settings.excitation_l_m...);
   visit(Setting(reg::kExcitKp, "Proportional gain of the excitation controller", kAny, "V/A"), settings.excitation_kp...);

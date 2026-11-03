@@ -269,16 +269,6 @@ inline constexpr const char* kDtcFPwm = "unimoc.control.dtc.f_pwm";
 /// Type: real32[1] (read/write, persistent)
 inline constexpr const char* kDtcIThreshold = "unimoc.control.dtc.i_threshold";
 
-// --- HFI observer ---
-
-/// HFI injection voltage [V].
-/// Type: real32[1] (read/write, persistent)
-inline constexpr const char* kHfiVInject = "unimoc.observer.hfi.v_inject";
-
-/// HFI current-error to angle scaling gain [rad/A].
-/// Type: real32[1] (read/write, persistent)
-inline constexpr const char* kHfiErrorGain = "unimoc.observer.hfi.error_gain";
-
 // --- EESM excitation controller ---
 
 /// Excitation mode: 0=CurrentMode, 1=FluxMode.
@@ -479,12 +469,13 @@ inline constexpr const char* kStartupAdcOffsetC = "unimoc.startup.adc_offset_c";
 // Execution times of the interrupts (M0, CONFIG_UNIMOC_HOT_PATH_TIMING)
 // =========================================================================
 
-/// Whole sample interrupt of a control boundary, including the control cycle:
+/// Whole sample interrupt (every sample), including its control step:
 /// min, mean, max [timestamp-clock cycles] and the number of records.
 /// Type: natural32[4] (read-only)
 inline constexpr const char* kTimingSampleIsr = "unimoc.timing.sample_isr";
 
-/// The control cycle alone: min, mean, max [cycles], records.
+/// The control step of one sample alone (the name predates the per-sample
+/// control): min, mean, max [cycles], records.
 /// Type: natural32[4] (read-only)
 inline constexpr const char* kTimingControlCycle = "unimoc.timing.control_cycle";
 
@@ -492,8 +483,8 @@ inline constexpr const char* kTimingControlCycle = "unimoc.timing.control_cycle"
 /// Type: natural32[4] (read-only)
 inline constexpr const char* kTimingObserver = "unimoc.timing.observer";
 
-/// Duty plans applied late and control cycles that started while the
-/// observer still ran, since start.
+/// Duties written after their half period started and control cycles that
+/// ended while the observer still ran, since start.
 /// Type: natural32[2] (read-only)
 inline constexpr const char* kTimingOverruns = "unimoc.timing.overruns";
 

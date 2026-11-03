@@ -41,12 +41,12 @@ inline constexpr bool kCpuTemperatureAvailable = false;
 inline constexpr bool kBridgeTemperatureAvailable = false;
 inline constexpr bool kMotorTemperatureAvailable = false;
 
-// The simulation emulates the same cadence as the STM32H7: one current sample per
-// PWM half period, one control cycle (control and observer handler) every
-// kHalfPeriodsPerCycle samples.
+// The simulation emulates the same cadence as the STM32H7: one current sample
+// and control step per PWM half period. The cycle timer runs
+// kHalfPeriodsPerCycle of them per expiry, one control cycle of the observer.
 inline constexpr uint8_t kHalfPeriodsPerCycle = 4U;
 
-// Timestamps of the control boundary and the Hall edges: nanoseconds of
+// Timestamps of the samples and the Hall edges: nanoseconds of
 // virtual (simulated) time, wrapping every 4.3 s.
 inline constexpr uint32_t kTimestampFrequency = 1'000'000'000U;
 

@@ -36,8 +36,8 @@ namespace unimoc::trace {
  * (RegisterControlSignals()).
  */
 struct TraceSignals {
-  float i_d{0.0F};               ///< Measured d current, mean of the cycle [A].
-  float i_q{0.0F};               ///< Measured q current, mean of the cycle [A].
+  float i_d{0.0F};               ///< Measured d current of the last control step [A].
+  float i_q{0.0F};               ///< Measured q current of the last control step [A].
   float i_d_ref{0.0F};           ///< d current reference of the cycle [A].
   float i_q_ref{0.0F};           ///< q current reference of the cycle [A].
   float u_d{0.0F};               ///< d voltage demand [V].
@@ -74,7 +74,8 @@ struct TraceSignals {
 /**
  * @brief Fills the mirror from the control cycle that just ran and samples the traces.
  *
- * Zero-latency context, right after CurrentControlIsr::OnControlCycle():
+ * Zero-latency context, right after the CurrentControlIsr::OnSample() that
+ * ended a control cycle (once per kNumSubSteps samples):
  * copies twelve floats and runs cymon::Device::Tick(), which takes no lock,
  * calls no kernel or libm function and no function pointer.
  */

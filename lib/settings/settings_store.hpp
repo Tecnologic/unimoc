@@ -104,7 +104,6 @@ template <unit::UnitLike U>
          unit::IsFinite(settings.current_v_max) && unit::IsFinite(settings.svm_duty_min) &&
          unit::IsFinite(settings.svm_duty_max) && unit::IsFinite(settings.dtc_dead_time) &&
          unit::IsFinite(settings.dtc_f_pwm) && unit::IsFinite(settings.dtc_i_threshold) &&
-         unit::IsFinite(settings.hfi_v_inject) && unit::IsFinite(settings.hfi_error_gain) &&
          unit::IsFinite(settings.excitation_l_m) && unit::IsFinite(settings.excitation_kp) &&
          unit::IsFinite(settings.excitation_ki) && unit::IsFinite(settings.excitation_i_f_min) &&
          unit::IsFinite(settings.excitation_i_f_max) && unit::IsFinite(settings.excitation_obs_tau) &&

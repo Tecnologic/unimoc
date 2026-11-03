@@ -36,10 +36,10 @@ ADCs, G4 price), STM32H723 (no package below LQFP100, single flash bank).
 |---|---|---|
 | Core | Cortex-M7, 480 MHz (silicon rev. V; rev. Y 400 MHz), double-precision FPU, I/D cache, ITCM 64 KB, DTCM 128 KB | Hot path from ITCM/DTCM, plan with 400 MHz (check: VOS0 junction temperature limit for 480 MHz) |
 | Flash | 2 MB, two banks of 1 MB, 128 KB sectors, 256 bit write | Image in bank 1; DFU slot and settings in bank 2 (an erase in bank 2 does not stall the code in bank 1) |
-| RAM | AXI SRAM 512 KB, SRAM1..3 288 KB (D2), SRAM4 64 KB (D3) | Duty DMA buffers in D2 SRAM, non-cacheable MPU region |
+| RAM | AXI SRAM 512 KB, SRAM1..3 288 KB (D2), SRAM4 64 KB (D3) | No duty DMA buffer since the per-sample control (2026-11-03) |
 | ADC | ADC1, ADC2 (D2), ADC3 (D3), 16 bit, injected group, JEXTSEL 8 = TIM1_TRGO2 | Three phase currents sampled at once, one per ADC |
 | Timers | TIM1, TIM8 (CH1..CH3 + CHxN, BDTR, BKIN/BKIN2), TIM2..TIM5 | TIM1 phases; TIM8 free (was the fourth half bridge) |
-| DMA | DMA1/DMA2 with DMAMUX1 (as on the G4), MDMA, BDMA | Duty DMA as on the G4. DMA1/2 cannot reach DTCM. |
+| DMA | DMA1/DMA2 with DMAMUX1 (as on the G4), MDMA, BDMA | Not used by the hot path: the control step writes the CCR preload every sample (2026-11-03). |
 | CAN | FDCAN1, FDCAN2 | FDCAN1 with the TCAN334 |
 | Analog extras | COMP1, COMP2, DAC1 (2 channels) | Chopper comparator (section 5) |
 | USB | OTG FS (PA11/PA12) | DFU later |
@@ -148,7 +148,8 @@ module. The notes below stay for that module if it uses an H743.
   G4 platform of the BCC is removed (2026-11-03). Above `hardware/hot_path_interface.hpp` and
   `hardware/power_stage_interface.hpp` nothing changes.
 - Reused nearly as is: the TIM programming, `dead_time.hpp` (same BDTR
-  coding, other timer clock), the break logic, the DMAMUX duty DMA.
+  coding, other timer clock), the break logic (the DMAMUX duty DMA was
+  dropped with the per-sample control, 2026-11-03).
 - New: the H7 ADC (clock and boost, linear and offset calibration, 16 bit
   data or the 12 bit mode for shorter conversions), ADC3 in the D3 domain,
   the cache and MPU setup (non-cacheable D2 region for the DMA buffers),
@@ -173,10 +174,11 @@ UNIMOC parts. Built, not run on the board yet.
 - Platform `hardware/zephyr_stm32h7/` (binding `unimoc,foc-stm32h7`): the
   G4 driver ported to the H7 ADC (asynchronous clock, boost by silicon
   revision, linearity calibration, channel preselection `PCSEL`, 12 bit),
-  three injected conversions per ADC, the duty DMA on DMA1 stream 0 through
-  DMAMUX1 from a `__nocache` buffer in AXI SRAM, the unlocked M7 cycle
-  counter. The hot path still runs from flash with the caches on; ITCM/DTCM
-  placement and the control cycle on every sample are the next steps.
+  three injected conversions per ADC, the unlocked M7 cycle counter. Since
+  2026-11-03 the control step runs in every sample interrupt and writes the
+  CCR preload (no duty DMA); measured on the Nucleo in `docs/hotpath_plan.md`,
+  section 4. The hot path still runs from flash with the caches on; ITCM/DTCM
+  placement is open.
 - Image: 191 KB flash, 77 KB RAM (bank 1); settings (ZMS, 2 x 128 KB) and
   the DFU slot in bank 2.
 

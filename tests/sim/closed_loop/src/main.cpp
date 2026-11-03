@@ -72,7 +72,7 @@ bool Finite(const unimoc::system::Rotor<Current>& current) {
 }  // namespace
 
 // The platform calls these directly (hot_path_interface.hpp).
-void unimoc::hardware::ControlCycleHandler() noexcept { CurrentControlIsr::Instance().OnControlCycle(); }
+bool unimoc::hardware::SampleHandler() noexcept { return CurrentControlIsr::Instance().OnSample(); }
 void unimoc::hardware::ObserverHandler() noexcept { SlowUpdate::Instance().RunOnce(); }
 
 struct sim_closed_loop_fixture {
@@ -133,6 +133,35 @@ ZTEST_F(sim_closed_loop, test_q_current_step_settles) {
   zassert_false(isr.state.overcurrent_tripped);
 }
 
+ZTEST_F(sim_closed_loop, test_q_current_step_at_the_bandwidth_of_the_per_sample_loop) {
+  // PI every half period: 1.5 half periods from a sample to the middle of
+  // its duties. 60 degrees phase margin: w_c = (pi / 6) / (1.5 T_h), 22.3 krad/s
+  // (3.6 kHz) at 32 kHz PWM, discrete poles with about 5 % overshoot.
+  auto& isr = CurrentControlIsr::Instance();
+  const InverseTime kWc = std::numbers::pi_v<float> / (9.0F * isr.state.dt_fast);
+  const VoltagePerCurrent kKp = 100e-6_H * kWc;
+  const VoltagePerCurrentTime kKi = 0.05_Ohm * kWc;
+  isr.SetCurrentGains({.kp_d = kKp, .ki_d = kKi, .kp_q = kKp, .ki_q = kKi});
+  isr.SetCurrentRef({0.0_A, 10.0_A});
+
+  // Two control cycles, eight control steps (125 us): within 5 % of the step.
+  sim::StepCycle();
+  sim::StepCycle();
+  const auto kEarly = PlantCurrentInControllerFrame();
+  zassert_within(kEarly.q, 10.0_A, 0.5_A, "i_q after 125 us");
+
+  Current peak{};
+  for (unsigned i = 0; i < kCyclesPerMs; ++i) {
+    sim::StepCycle();
+    peak = Max(peak, PlantCurrentInControllerFrame().q);
+  }
+  zassert_true(peak < 10.8_A, "overshoot");
+  const auto kSettled = PlantCurrentInControllerFrame();
+  zassert_within(kSettled.q, 10.0_A, 0.1_A);
+  zassert_within(kSettled.d, 0.0_A, 0.1_A);
+  zassert_false(isr.state.overcurrent_tripped);
+}
+
 ZTEST_F(sim_closed_loop, test_d_current_step_settles) {
   auto& isr = CurrentControlIsr::Instance();
   isr.SetCurrentRef({-8.0_A, 0.0_A});
@@ -170,7 +199,8 @@ ZTEST_F(sim_closed_loop, test_slow_update_runs_once_per_control_cycle) {
     zassert_equal(isr.state.control_cycles, i);
     zassert_equal(sim::CycleCount(), i);
     zassert_false(isr.state.observer_pending.load());
-    zassert_equal(isr.state.double_buf.active.load(), i % 2U, "cycle %u", i);
+    zassert_equal(isr.state.angles.active.load(), i % 2U, "cycle %u", i);
+    zassert_equal(isr.state.samples, 4U * i, "one control step per half period");
   }
   zassert_equal(isr.state.observer_overruns, 0U);
   // 16 kHz control cycle: exactly 62.5 us each, no rounding drift.

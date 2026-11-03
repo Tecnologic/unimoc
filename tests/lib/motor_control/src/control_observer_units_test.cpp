@@ -20,7 +20,6 @@
 #include "asm_flux_observer.hpp"
 #include "dead_time_compensation.hpp"
 #include "field_weakening.hpp"
-#include "hfi.hpp"
 #include "mechanical_observer.hpp"
 #include "mtpa.hpp"
 #include "nvm_settings.hpp"
@@ -66,10 +65,9 @@ ZTEST(control_observer_units, test_motor_control_physical_state_uses_unit_types)
   static_assert(
       std::is_same_v<decltype(observer::AsmFluxObserver<float>::flux_magnitude), unit::MagneticFlux>);
   static_assert(std::is_same_v<decltype(observer::AsmFluxObserver<float>::flux_angle), unit::Angle>);
-  static_assert(std::is_same_v<decltype(observer::Hfi<float>::i_d_step0), unit::Current>);
 }
 
-ZTEST(control_observer_units, test_asm_and_hfi_apis_accept_physical_units) {
+ZTEST(control_observer_units, test_asm_apis_accept_physical_units) {
   observer::MechanicalObserver<float> mechanical_observer;
   mechanical_observer.J = 1.0_kg_m2;
   mechanical_observer.omega_min = -100.0_rad_per_s;
@@ -96,12 +94,6 @@ ZTEST(control_observer_units, test_asm_and_hfi_apis_accept_physical_units) {
   control::AsmFluxController asm_controller;
   const unit::Current kCurrentReference = asm_controller.Update(0.05_Wb, 0.01_Wb, 1.0_A, 100_us);
   zexpect_true(kCurrentReference >= asm_controller.i_d_min);
-
-  observer::Hfi<float> hfi;
-  hfi.v_inject = 2.0_V;
-  const auto kInjection = hfi.GetInjectionVoltage(0.0_ratio, 1.0_ratio);
-  UNIMOC_EXPECT_FLOAT_EQ(kInjection.alpha, 2.0_V);
-  hfi.Update(system::Stator<unit::Current>{0.0F, 0.0F}, 0.0_ratio, 1.0_ratio, 10_us, mechanical_observer);
 }
 
 ZTEST(control_observer_units, test_algorithms_load_initial_settings_from_nvm) {
@@ -117,8 +109,6 @@ ZTEST(control_observer_units, test_algorithms_load_initial_settings_from_nvm) {
   settings.dtc_dead_time = 2_us;
   settings.dtc_f_pwm = 25.0_kHz;
   settings.dtc_i_threshold = 0.7_A;
-  settings.hfi_v_inject = 2.5_V;
-  settings.hfi_error_gain = 3.0_rad_per_A;
   settings.svm_duty_min = 0.1_ratio;
   settings.svm_duty_max = 0.9_ratio;
 
@@ -138,11 +128,6 @@ ZTEST(control_observer_units, test_algorithms_load_initial_settings_from_nvm) {
   UNIMOC_EXPECT_FLOAT_EQ(dead_time_compensation.dead_time, 0.000002_s);
   UNIMOC_EXPECT_FLOAT_EQ(dead_time_compensation.f_pwm, 25000.0_Hz);
   UNIMOC_EXPECT_FLOAT_EQ(dead_time_compensation.i_threshold, 0.7_A);
-
-  observer::Hfi<float> hfi;
-  hfi.Init(settings);
-  UNIMOC_EXPECT_FLOAT_EQ(hfi.v_inject, 2.5_V);
-  UNIMOC_EXPECT_FLOAT_EQ(hfi.error_gain, 3.0_rad_per_A);
 
   control::Svm svm;
   svm.Init(settings);

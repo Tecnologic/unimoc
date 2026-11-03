@@ -26,12 +26,17 @@
 #include "status_leds.hpp"
 #include "trace_signals.hpp"
 
-// Called directly by the platform (hot_path_interface.hpp), no registration.
-// The traces sample the state of the cycle right after it (docs/cymon_integration_plan.md).
-void unimoc::hardware::ControlCycleHandler() noexcept {
+// Called directly by the platform (hot_path_interface.hpp), no registration:
+// the control step of every sample. The traces sample the state once per
+// control cycle, right after its last step, also while tripped or forced
+// (docs/cymon_integration_plan.md).
+bool unimoc::hardware::SampleHandler() noexcept {
   auto& current_control = unimoc::current_control::CurrentControlIsr::Instance();
-  current_control.OnControlCycle();
-  unimoc::trace::OnControlCycle(current_control);
+  const bool kObserver = current_control.OnSample();
+  if (current_control.CycleEnded()) {
+    unimoc::trace::OnControlCycle(current_control);
+  }
+  return kObserver;
 }
 
 // The observer interrupt wakes the control thread every
