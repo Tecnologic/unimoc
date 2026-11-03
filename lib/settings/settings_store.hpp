@@ -22,6 +22,7 @@
 #include <span>
 #include <string_view>
 #include <utility>
+#include "control_timing.hpp"
 #include "settings_profile.hpp"
 #include "settings_registers.hpp"
 #include "settings_storage.hpp"
@@ -132,16 +133,15 @@ template <unit::UnitLike U>
   const bool kValidControlMode = settings.control_mode == cyphal::ControlMode::kTorque ||
                                  settings.control_mode == cyphal::ControlMode::kSpeed ||
                                  settings.control_mode == cyphal::ControlMode::kPosition;
-  constexpr std::array<unit::Frequency, 5> kPwmFrequencies{unit::Frequency{16000.0F},
-                                                           unit::Frequency{20000.0F},
-                                                           unit::Frequency{24000.0F},
-                                                           unit::Frequency{28000.0F},
-                                                           unit::Frequency{32000.0F}};
   const bool kValidPwmFrequency =
-      std::find(kPwmFrequencies.begin(), kPwmFrequencies.end(), settings.pwm_frequency) !=
-      kPwmFrequencies.end();
-  return kValidMotorType && kValidControlMode && kValidPwmFrequency && settings.excitation_mode <= 1U &&
-         settings.hall_enable <= 1U && settings.cart_wheel <= 3U && settings.cart_reversed <= 1U;
+      settings.pwm_frequency == unit::Frequency{} || IsPwmFrequency(settings.pwm_frequency);
+  const bool kValidDivider =
+      settings.control_divider == 0U ||
+      std::find(kControlDividers.begin(), kControlDividers.end(), settings.control_divider) !=
+          kControlDividers.end();
+  return kValidMotorType && kValidDivider && kValidControlMode && kValidPwmFrequency &&
+         settings.excitation_mode <= 1U && settings.hall_enable <= 1U && settings.cart_wheel <= 3U &&
+         settings.cart_reversed <= 1U;
 }
 
 [[nodiscard]] inline bool IsValidProfile(const SettingsProfile& profile) noexcept {
@@ -155,7 +155,11 @@ template <unit::UnitLike U>
          limits.max_battery_drive_current > ZeroOf(limits.max_battery_drive_current) &&
          limits.max_battery_charge_current >= ZeroOf(limits.max_battery_charge_current) &&
          unit::IsFinite(limits.max_dc_link_voltage) &&
-         limits.max_dc_link_voltage > ZeroOf(limits.max_dc_link_voltage);
+         limits.max_dc_link_voltage > ZeroOf(limits.max_dc_link_voltage) &&
+         unit::IsFinite(limits.max_pwm_frequency) &&
+         limits.max_pwm_frequency > ZeroOf(limits.max_pwm_frequency) &&
+         unit::IsFinite(limits.max_control_frequency) &&
+         limits.max_control_frequency > ZeroOf(limits.max_control_frequency);
 }
 
 /// Largest Cyphal subject-ID.
@@ -247,6 +251,10 @@ template <std::size_t kCount>
       settings.dc_link_regen_derate_start <= ZeroOf(settings.dc_link_regen_derate_start) ||
       settings.dc_link_trip <= settings.dc_link_regen_derate_start ||
       settings.dc_link_trip > limits.max_dc_link_voltage) {
+    return SettingsStatus::kOutOfRange;
+  }
+  // The PWM frequency and the control divider the board runs (control_timing.hpp).
+  if (!ResolveControlTiming(settings, limits).Valid()) {
     return SettingsStatus::kOutOfRange;
   }
 

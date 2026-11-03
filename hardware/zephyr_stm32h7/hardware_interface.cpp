@@ -8,8 +8,8 @@
  *    @file hardware_interface.cpp
  *    @brief STM32H7 hardware interface (Jacobi, NUCLEO-H743ZI).
  *
- *    Glue between the portable HardwareInterface and the TIM1/TIM8 / ADC1..3 /
- *    DMA driver (foc_stm32h7). Pins, timer and ADC channels come from the foc0
+ *    Glue between the portable HardwareInterface and the TIM1/TIM8 / ADC1..3
+ *    driver (foc_stm32h7). Pins, timer and ADC channels come from the foc0
  *    node of the board devicetree. Counterpart of hardware/zephyr_sim.
  *
  *    SPDX-License-Identifier: GPL-3.0-or-later
@@ -41,7 +41,10 @@ namespace {
 
 const settings::SettingsProfile kSettingsProfile = [] {
   settings::SettingsProfile profile{};
-  profile.factory_settings.pwm_frequency = 32.0_kHz;  // 16 kHz control cycle
+  // 32 kHz PWM, a control step every period (divider automatic, 32 kHz), the
+  // observer at 16 kHz. With the 1 us dead time of the 4850 power board higher
+  // frequencies cost too much voltage (docs/hotpath_plan.md, section 3).
+  profile.factory_settings.pwm_frequency = 32.0_kHz;
   // Duty range: the minimum off/on time per PWM period is 4 % of 31.25 us =
   // 1.25 us, above the 1 us dead time of the 4850 power board (legacy
   // firmware). Estimate, to be checked on the scope with the bootstrap
@@ -61,6 +64,10 @@ const settings::SettingsProfile kSettingsProfile = [] {
   profile.factory_settings.dc_link_regen_derate_start = 55.0_V;
   profile.factory_settings.dc_link_trip = 58.0_V;
   profile.capabilities.max_dc_link_voltage = 60.0_V;
+  // A control step every period up to 64 kHz: 1908 cycles worst of 3125 per
+  // half period at 400 MHz from ITCM (docs/hotpath_plan.md, section 4).
+  profile.capabilities.max_pwm_frequency = 64.0_kHz;
+  profile.capabilities.max_control_frequency = 64.0_kHz;
   return profile;
 }();
 
@@ -162,9 +169,9 @@ system::ThreePhase<Current> PhaseCurrents(const foc_stm32h7::RawSamples& raw) no
 
 system::ThreePhase<Current> GetPhaseCurrents() noexcept { return PhaseCurrents(foc_stm32h7::ReadRaw()); }
 
-// Phase currents of the sample. At a peak the phase with the
-// highest duty switches closest to the sample, at a valley the one with the
-// lowest. When that edge falls into the guard window around the sample, the
+// Phase currents of the sample (the control samples the valleys). At a peak
+// the phase with the highest duty switches closest to the sample, at a valley
+// the one with the lowest. When that edge falls into the guard window around the sample, the
 // phase is reconstructed from the other two (ia + ib + ic = 0); otherwise
 // the zero-sequence error of all three sensors is removed.
 system::ThreePhase<Current> SampleCurrents(const foc_stm32h7::SampleRaw& raw) noexcept {

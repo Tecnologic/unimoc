@@ -32,21 +32,31 @@ using namespace unit;
 // init
 // =============================================================================
 
-void CurrentControlIsr::Init(const settings::NvmSettings& settings,
+bool CurrentControlIsr::Init(const settings::NvmSettings& settings,
                              const hardware::HardwareInterface& hardware,
                              const uint32_t timer_clock_hz) noexcept {
-  hardware_ = &hardware;
-
-  // --- Timing parameters ---
-  const auto kPwmHz = static_cast<uint32_t>(settings.pwm_frequency.Value());
-  if (kPwmHz == 0U) {
-    return;
+  // --- Timing: the PWM frequency and the divider for this board ---
+  const settings::HardwareCapabilities& limits = hardware::kSettings.GetSettingsProfile().capabilities;
+  const settings::ControlTiming kTiming = settings::ResolveControlTiming(settings, limits);
+  if (!kTiming.Valid()) {
+    hardware_ = nullptr;  // OnSample() does nothing
+    return false;
   }
+  hardware_ = &hardware;
+  state.timing = kTiming;
+  const unit::Frequency kSuggested = settings::SuggestedPwmFrequency(settings, limits);
+  state.pwm_suggestion = PwmSuggestion{
+      .pwm_frequency = kSuggested,
+      .ripple = settings::PwmRipple(settings, kSuggested),
+      .running_ripple = settings::PwmRipple(settings, kTiming.pwm_frequency),
+  };
 
   // Centre-aligned PWM: ARR = timer_clock / (2 × f_pwm) − 1
+  const auto kPwmHz = static_cast<uint32_t>(kTiming.pwm_frequency.Value());
   state.arr = timer_clock_hz / (2U * kPwmHz) - 1U;
-  state.dt_fast = DtFastFromPwmFrequency(settings.pwm_frequency);
-  state.dt_slow = DtSlowFromPwmFrequency(settings.pwm_frequency);
+  state.dt_fast = kTiming.StepPeriod();
+  state.dt_slow = kTiming.CyclePeriod();
+  state.output_delay_steps = kTiming.OutputDelaySteps();
   state.adc_trigger_offset = static_cast<uint32_t>(std::roundf(1e-6F * static_cast<float>(timer_clock_hz)));
 
   state.dc_link_trip = settings.dc_link_trip;
@@ -87,6 +97,7 @@ void CurrentControlIsr::Init(const settings::NvmSettings& settings,
   reference_sample_ = 0U;
   record_index_ = 0U;
   cycle_controlled_ = false;
+  cycle_ended_ = false;
 
   // --- Reset algorithm state ---
   cc.Reset();
@@ -94,6 +105,7 @@ void CurrentControlIsr::Init(const settings::NvmSettings& settings,
   state.observer_pending.store(false, std::memory_order_release);
   state.observer_overruns = 0U;
   state.samples = 0U;
+  state.periods = 0U;
   state.control_cycles = 0U;
   state.phase_duties = system::ThreePhase<unit::Ratio>{0.5_ratio, 0.5_ratio, 0.5_ratio};
   // A restart leaves a bring-up mode: the control loop runs again, from zero
@@ -104,16 +116,17 @@ void CurrentControlIsr::Init(const settings::NvmSettings& settings,
   state.i_ref_mailbox.Write(state.i_ref);
   state.i_dq_last = system::Rotor<unit::Current>{0.0F, 0.0F};
   state.u_dq_last = system::Rotor<unit::Voltage>{0.0F, 0.0F};
+  return true;
 }
 
 // =============================================================================
-// on_sample — the control step, once per PWM half period, zero latency
+// on_sample — once per PWM period, a control step every timing.divider periods, zero latency
 // =============================================================================
 //
-// Must finish before the next PWM boundary: the duties go directly into the
-// CCR preload registers. It reaches the hardware only through hot_path::
-// (bound at link time, no function pointers) and calls no libm function
-// (built with -fno-math-errno).
+// Must finish before the next peak: the duties go directly into the CCR
+// preload registers, which the timer takes over there. It reaches the
+// hardware only through hot_path:: (bound at link time, no function pointers)
+// and calls no libm function (built with -fno-math-errno).
 //
 static bool Exceeds(const system::ThreePhase<unit::Current>& currents, const unit::Current limit) noexcept {
   return unit::Abs(currents.a) > limit || unit::Abs(currents.b) > limit || unit::Abs(currents.c) > limit;
@@ -131,12 +144,20 @@ static hardware::CurrentSample Calibrated(const hardware::CurrentSample& raw,
 }
 
 bool CurrentControlIsr::OnSample() noexcept {
+  cycle_ended_ = false;
   if (hardware_ == nullptr) {
     return false;
   }
+  // The periods between two control steps: the duties of the last step hold,
+  // the platform keeps the trip flags of their samples for the next step.
+  if (state.periods++ % state.timing.divider != 0U) {
+    return false;
+  }
   const uint32_t kSampleIndex = ++state.samples;
-  const auto kStep = static_cast<uint8_t>((kSampleIndex - 1U) % kNumSubSteps);
-  const bool kCycleEnd = kStep == kNumSubSteps - 1U;
+  const uint8_t kStepsPerCycle = state.timing.steps_per_cycle;
+  const auto kStep = static_cast<uint8_t>((kSampleIndex - 1U) % kStepsPerCycle);
+  const bool kCycleEnd = kStep == kStepsPerCycle - 1U;
+  cycle_ended_ = kCycleEnd;
 
   // -------------------------------------------------------------------------
   // 1. The sample, raw and calibrated — always, regardless of control mode.
@@ -215,7 +236,7 @@ bool CurrentControlIsr::OnSample() noexcept {
   state.i_dq_last = kCurrentDq;
 
   // -------------------------------------------------------------------------
-  // 4. Current PI with decoupling feedforward over one half period; frozen
+  // 4. Current PI with decoupling feedforward over one control step; frozen
   //    (its last output held) when the identification asks for it.
   // -------------------------------------------------------------------------
   const system::Rotor<unit::Voltage> kVoltageDq = ControlVoltage(kDrive, kCurrentDq, kSample.dc_link);
@@ -224,13 +245,14 @@ bool CurrentControlIsr::OnSample() noexcept {
   state.u_dq_last = kVoltageDq;
 
   // -------------------------------------------------------------------------
-  // 5. Duties of the next half period: inverse Park with the angle at its
-  //    middle, dead-time compensation from this sample's current, SVM.
+  // 5. Duties from the next peak on: inverse Park with the angle at the middle
+  //    of the interval they apply to, dead-time compensation from this
+  //    sample's current, SVM.
   // -------------------------------------------------------------------------
   const AngleReference& reference = state.angles.buf[state.angles.active.load(std::memory_order_acquire)];
   const system::SinCos<unit::Ratio> kAngleOut = system::Rotated(angle_, reference.out);
   const system::Stator<unit::Voltage> kVoltageAlphaBeta =
-      WithInjection(kVoltageDq, kDrive, kSampleIndex).ToStator(kAngleOut);
+      WithInjection(kVoltageDq, kDrive, kSampleIndex, state.timing.divider).ToStator(kAngleOut);
   SetDuties(svm.CalculateWithDeadTimeCompensation(kVoltageAlphaBeta,
                                                   kSample.dc_link,
                                                   DeadTimeRatio(kDrive, kCurrentAlphaBeta)));
@@ -244,7 +266,8 @@ void CurrentControlIsr::AdvanceAngle(const uint32_t sample) noexcept {
     // A new reference: normally of this very sample, later when the observer was late.
     reference_sample_ = reference.sample;
     angle_ = reference.sc;
-    for (uint32_t k = reference.sample; k < sample && k < reference.sample + kNumSubSteps; ++k) {
+    for (uint32_t k = reference.sample; k < sample && k < reference.sample + state.timing.steps_per_cycle;
+         ++k) {
       angle_ = system::Rotated(angle_, reference.step);
     }
   } else {
@@ -268,7 +291,7 @@ bool CurrentControlIsr::FinishCycle(CycleRecord& record, const hardware::Current
   if (!cycle_controlled_) {
     return false;  // the cycle started without the control loop
   }
-  constexpr float kInverseCount = 1.0F / static_cast<float>(kNumSubSteps);
+  const float kInverseCount = 1.0F / static_cast<float>(state.timing.steps_per_cycle);
   record.i_dq_mean = system::Rotor<unit::Current>{i_dq_sum_.d * kInverseCount, i_dq_sum_.q * kInverseCount};
   record.u_dq = system::Rotor<unit::Voltage>{u_dq_sum_.d * kInverseCount, u_dq_sum_.q * kInverseCount};
   record.timestamp = sample.timestamp;
@@ -360,12 +383,14 @@ system::Stator<unit::Ratio> CurrentControlIsr::DeadTimeRatio(
 
 system::Rotor<unit::Voltage> CurrentControlIsr::WithInjection(system::Rotor<unit::Voltage> u_dq,
                                                               const IdentificationDrive* const drive,
-                                                              const uint32_t sample) noexcept {
+                                                              const uint32_t sample,
+                                                              const uint8_t divider) noexcept {
   if (drive == nullptr || drive->injection_amplitude == unit::Voltage{}) {
     return u_dq;
   }
-  // The sine of M2 at the middle of the half period of the duties (no libm: the table).
-  const unit::Voltage kSine = drive->injection_amplitude * InjectionSinCos(InjectionEntryPhase(sample)).sin;
+  // The sine of M2 at the middle of the interval of the duties (no libm: the table).
+  const unit::Voltage kSine =
+      drive->injection_amplitude * InjectionSinCos(InjectionEntryPhase(sample, divider)).sin;
   if (drive->injection_axis == InjectionAxis::kD) {
     u_dq.d += kSine;
   } else {

@@ -10,15 +10,17 @@
  *
  *    Counterpart of hardware/zephyr_stm32h7, closed around the motor plant of
  *    lib/sim. A kernel timer in simulated time runs kHalfPeriodsPerCycle PWM
- *    half periods per expiry (16 kHz at 32 kHz PWM). Each half period
+ *    half periods per expiry, starting at a valley (two PWM periods, 62.5 us
+ *    at 32 kHz PWM). Each half period
  *
  *     1. advances the plant with the duties in effect,
- *     2. ends with a current sample and the per-sample overcurrent and DC-link
- *        overvoltage checks; at its boundary the duties written by the last
- *        control step take effect (the CCR preload of the STM32H7), and
- *     3. calls SampleHandler() (STM32H7: the sample interrupt), which writes
- *        the duties of the next half period, and ObserverHandler() (STM32H7:
- *        pended interrupt) when the handler ended a control cycle.
+ *     2. ends with a current sample and the overcurrent and DC-link
+ *        overvoltage checks, and
+ *     3. at a peak: the duties written by the last control step take effect
+ *        (the CCR preload of the STM32H7, RCR = 1); at a valley: calls
+ *        SampleHandler() (STM32H7: the sample interrupt), which writes the
+ *        duties on its control steps, and ObserverHandler() (STM32H7: pended
+ *        interrupt) when the handler ended a control cycle.
  *
  *    Timestamps are nanoseconds of virtual time. A change of the simulated
  *    Hall code is queued with the time of the edge, as the EXTI capture of
@@ -56,7 +58,7 @@ const settings::SettingsProfile kSettingsProfile = [] {
   // A fixed Cyphal node-ID, so tools reach a fresh simulation without a
   // plug-and-play allocator (--node-id overrides it per process).
   profile.factory_settings.node_id = 10U;
-  profile.factory_settings.pwm_frequency = 32.0_kHz;  // 16 kHz control cycle
+  profile.factory_settings.pwm_frequency = 32.0_kHz;  // a control step every period, the observer at 16 kHz
   // Duty range of the sampling window and the minimum pulse.
   profile.factory_settings.svm_duty_min = 0.03_ratio;
   profile.factory_settings.svm_duty_max = 0.97_ratio;
@@ -73,6 +75,8 @@ const settings::SettingsProfile kSettingsProfile = [] {
   profile.factory_settings.dc_link_regen_derate_start = 55.0_V;  // as the STM32H7
   profile.factory_settings.dc_link_trip = 58.0_V;
   profile.capabilities.max_dc_link_voltage = 60.0_V;
+  profile.capabilities.max_pwm_frequency = 64.0_kHz;  // as the STM32H7
+  profile.capabilities.max_control_frequency = 64.0_kHz;
   return profile;
 }();
 
@@ -137,9 +141,12 @@ sim::PlantTrace g_plant_trace;
 bool g_initialized = false;
 Time g_half_period{};
 
-CurrentSample g_sample{};    // the sample of the boundary that just passed
+CurrentSample g_sample{};    // the sample of the last valley
 Duties g_active = kNeutral;  // duties in effect (the active compare values)
-Duties g_next = kNeutral;    // written by the last control step: in effect from the next boundary
+Duties g_next = kNeutral;    // written by the last control step: in effect from the next peak
+// Trips of the samples since the control step last read one (as on the STM32H7).
+bool g_pending_overcurrent = false;
+bool g_pending_overvoltage = false;
 std::array<Duties, kHalfPeriodsPerCycle> g_applied{kNeutral, kNeutral, kNeutral, kNeutral};
 Current g_overcurrent_limit{std::numeric_limits<float>::infinity()};
 Voltage g_overvoltage_limit{std::numeric_limits<float>::infinity()};
@@ -240,21 +247,26 @@ void RunCycle() noexcept {
     CaptureHall(kBoundaryNs);
     UpdatePlantTrace();
 
-    // Sample at the end of the half period, then the per-sample checks.
+    // Sample at the end of the half period, then the checks of every sample.
     CurrentSample sample{};
     sample.phase_currents = MeasuredCurrents();
     if (Exceeds(sample.phase_currents)) {
       PowerStageTrip();
-      sample.overcurrent = true;
+      g_pending_overcurrent = true;
     }
     if (!(g_plant.Output().dc_link_voltage < g_overvoltage_limit)) {
       PowerStageTrip();
-      sample.overvoltage = true;
+      g_pending_overvoltage = true;
     }
+    if (k % 2U == 0U) {
+      g_active = g_next;  // the peak: the preload of the last control step takes effect
+      continue;
+    }
+    sample.overcurrent = g_pending_overcurrent;
+    sample.overvoltage = g_pending_overvoltage;
     sample.dc_link = g_plant.Output().dc_link_voltage;
     sample.timestamp = static_cast<uint32_t>(kBoundaryNs);
     g_sample = sample;
-    g_active = g_next;  // the boundary: the preload of the last control step takes effect
     RunHandlers();
   }
   ++g_cycle_count;
@@ -294,6 +306,8 @@ void ResetCycleState() noexcept {
   g_sample.dc_link = g_plant.Output().dc_link_voltage;
   g_active = kNeutral;
   g_next = kNeutral;
+  g_pending_overcurrent = false;
+  g_pending_overvoltage = false;
   g_applied = {kNeutral, kNeutral, kNeutral, kNeutral};
   g_cycle_count = 0U;
 }
@@ -359,7 +373,12 @@ uint32_t timing::DutyOverruns() noexcept { return 0U; }
 
 namespace hot_path {
 
-CurrentSample GetSample() noexcept { return g_sample; }
+// The trips are reported once: with this sample, not again with the next.
+CurrentSample GetSample() noexcept {
+  g_pending_overcurrent = false;
+  g_pending_overvoltage = false;
+  return g_sample;
+}
 
 void SetDuties(const Duties& duties) noexcept { g_next = duties; }
 

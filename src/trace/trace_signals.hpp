@@ -75,7 +75,7 @@ struct TraceSignals {
  * @brief Fills the mirror from the control cycle that just ran and samples the traces.
  *
  * Zero-latency context, right after the CurrentControlIsr::OnSample() that
- * ended a control cycle (once per kNumSubSteps samples):
+ * ended a control cycle (once per timing.steps_per_cycle control steps):
  * copies twelve floats and runs cymon::Device::Tick(), which takes no lock,
  * calls no kernel or libm function and no function pointer.
  */

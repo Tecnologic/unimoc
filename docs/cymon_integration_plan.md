@@ -84,8 +84,8 @@ integration with ztest and pytest, as below.
    field is registered once at start-up with its SI unit. On `native_sim`,
    also add the plant truth (`unimoc.sim.Plant` fields).
 7. **Sampling**: call `trace.Tick()` right after the mirror is filled, at
-   the end of the control cycle (zero-latency IRQ, 16 kHz,
-   `SetTickPeriod(62.5F)`). `Tick()` meets the zero-latency rules of
+   the end of the control cycle (zero-latency IRQ, at most 16 kHz, the tick
+   period from the running `dt_slow`). `Tick()` meets the zero-latency rules of
    `AGENTS.md`: no kernel calls, no locks, no function pointers, no libm.
    M0 has to confirm the cost (target < 1 µs at 170 MHz). The fallback is
    the observer's pended interrupt.

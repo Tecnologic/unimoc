@@ -12,8 +12,10 @@
  *    assignments come from the foc0 devicetree node, see foc_stm32h7_dt.hpp.
  *    The timing is the one of the former STM32G4 driver of the BCC; the
  *    differences are the H7 ADC (clock, boost, linearity calibration,
- *    channel preselection) and the M7 cycle counter. The current control
- *    runs on every sample and writes the CCR preload directly (no duty DMA).
+ *    channel preselection) and the M7 cycle counter. The ADCs sample at every
+ *    peak and valley (the overcurrent and overvoltage checks); the current
+ *    control runs after the valley sample and writes the CCR preload, which
+ *    the timer takes over at the peak only (RCR = 1, no duty DMA).
  *
  *    Not run on hardware yet.
  *
@@ -60,9 +62,14 @@ constexpr uint32_t kCalibrationTimeoutLoops = 1'000'000U;
 // OC6 the trigger before the valley, see InitTimer().
 constexpr uint32_t kMasterMode2Oc4Oc6Rising = TIM_CR2_MMS2_3 | TIM_CR2_MMS2_2;
 
-// Center aligned with RCR = 0: an update event (the preloaded duties take
-// effect) at every peak and every valley.
-constexpr uint32_t kRepetitionCounter = 0U;
+// Center aligned with RCR = 1: an update event (the preloaded duties take
+// effect) once per PWM period, at the peak: the duties written after a valley
+// sample change between two pulses, every pulse stays symmetric about its
+// valley. The repetition counter counts every overflow and underflow and
+// raises the update when it is 0; InitTimer() starts it at 0, so the first
+// update is the first peak (measured on the NUCLEO-H743ZI, 2026-11-03: with
+// the counter started at 1 every update fell on the valley).
+constexpr uint32_t kRepetitionCounter = 1U;
 
 // ADC clock: asynchronous from the kernel clock (pll2_p_ck) with PRESC = /4.
 // Rev. Y allows 36 MHz; rev. V halves the clock internally once more.
@@ -104,7 +111,11 @@ uint32_t g_trigger_lead = 0U;
 
 // Sample interrupt state. Only the zero-latency context writes it.
 SampleRaw g_sample{};
-bool g_sample_at_peak = true;  // the boundary of g_sample
+bool g_sample_at_peak = true;  // the boundary of the last sample
+// Trips of the samples since the control step last read one (peaks, and the
+// valleys between two control steps): Sample() reports them with the next.
+bool g_pending_overcurrent = false;
+bool g_pending_overvoltage = false;
 
 // Overcurrent window, low limit in bits 0..15 and high limit in bits 16..31.
 // Written by the thread context (SetOvercurrentWindow()), read by the sample
@@ -117,10 +128,9 @@ std::atomic<uint32_t> g_overcurrent_window{PackWindow(0U, 0xFFFU)};
 std::atomic<uint32_t> g_overvoltage_counts{kOvervoltageCheckOff};
 static_assert(std::atomic<uint32_t>::is_always_lock_free);
 
-// Compare values active while the sample was taken (written two samples
-// before) and the ones of the next half period (written by the last sample).
+// Compare values of the last control step: active from the peak after their
+// write, so also at the next valley sample.
 PhaseTicks g_applied{};
-PhaseTicks g_next{};
 bool g_started = false;  // Initialize() has programmed the hardware, Stop() has not run since
 uint32_t g_duty_overruns = 0U;
 
@@ -264,19 +274,26 @@ ISR_DIRECT_DECLARE(SampleIsr) {
   const uint32_t kIa = kAdcFast->JDR1;
   const uint32_t kIb = kAdcB->JDR1;
   const uint32_t kIc = kAdcC->JDR1;
-  g_sample.ia = static_cast<uint16_t>(kIa);
-  g_sample.ib = static_cast<uint16_t>(kIb);
-  g_sample.ic = static_cast<uint16_t>(kIc);
   const uint32_t kWindow = g_overcurrent_window.load(std::memory_order_relaxed);
-  g_sample.overcurrent =
+  const bool kOvercurrent =
       OutsideWindow(kIa, kWindow) || OutsideWindow(kIb, kWindow) || OutsideWindow(kIc, kWindow);
   // The DC link of every sample: rank 2 of the phase C ADC, converted with the same trigger and sample times.
   const uint32_t kVdc = kAdcC->JDR2;
-  g_sample.vdc = kVdc;
-  g_sample.overvoltage = kVdc >= g_overvoltage_counts.load(std::memory_order_relaxed);
-  if (g_sample.overcurrent || g_sample.overvoltage) {
+  const bool kOvervoltage = kVdc >= g_overvoltage_counts.load(std::memory_order_relaxed);
+  if (kOvercurrent || kOvervoltage) {
     kTim->EGR = TIM_EGR_BG;  // break: outputs off at once, BIF latched
   }
+  g_pending_overcurrent = g_pending_overcurrent || kOvercurrent;
+  g_pending_overvoltage = g_pending_overvoltage || kOvervoltage;
+  if (g_sample_at_peak) {
+    return 0;  // the control samples the valley, the middle of the high-side pulses
+  }
+  g_sample.ia = static_cast<uint16_t>(kIa);
+  g_sample.ib = static_cast<uint16_t>(kIb);
+  g_sample.ic = static_cast<uint16_t>(kIc);
+  g_sample.vdc = kVdc;
+  g_sample.overcurrent = g_pending_overcurrent;
+  g_sample.overvoltage = g_pending_overvoltage;
   g_sample.timestamp = DWT->CYCCNT;  // in the clock of the Hall events
 
   bool observer = false;
@@ -319,8 +336,9 @@ void ApplyTriggerLead(const uint32_t ticks) noexcept {
 
 void InitDutyState() noexcept {
   const uint32_t kNeutral = g_auto_reload / 2U;
-  g_next = PhaseTicks{kNeutral, kNeutral, kNeutral};
-  g_applied = g_next;
+  g_applied = PhaseTicks{kNeutral, kNeutral, kNeutral};
+  g_pending_overcurrent = false;
+  g_pending_overvoltage = false;
 }
 
 bool ExternalEnablePresent() noexcept { return gpio_pin_get_raw(kEnableInput.port, kEnableInput.pin) > 0; }
@@ -341,11 +359,11 @@ bool InitTimer(const uint32_t pwm_hz, const uint32_t trigger_offset) noexcept {
   kTim->CR1 = TIM_CR1_CMS;  // center aligned mode 3, counter disabled
   kTim->PSC = 0U;
   kTim->ARR = g_auto_reload;
-  kTim->RCR = kRepetitionCounter;
+  kTim->RCR = 0U;  // loaded into the repetition counter by UG below
   kTim->CR2 = kMasterMode2Oc4Oc6Rising;
 
   // CH1..CH3: PWM mode 1 with CCR preload: a compare value takes effect at
-  // the next update event (peak or valley), never inside a half period.
+  // the next update event (the peak), never inside a PWM period.
   // CH4 (PWM mode 2) and CH6 (PWM mode 1) have no pin; they only generate the
   // ADC triggers (no preload, the lead changes rarely):
   //   OC4REF rises while counting up at CCR4 = ARR - lead  (lead before the peak)
@@ -370,7 +388,11 @@ bool InitTimer(const uint32_t pwm_hz, const uint32_t trigger_offset) noexcept {
   // Break on, outputs held in the idle (off) state. MOE stays 0 until PowerStageEnable().
   kTim->BDTR = kBreakConfig | *kDtg;
 
-  kTim->EGR = TIM_EGR_UG;  // load ARR, RCR and the preloaded compare values
+  // Load ARR, the preloaded compare values and a repetition counter of 0, then
+  // RCR = 1 into its preload: the counter starts below the peak counting up,
+  // updates at the first peak and from then on at every peak.
+  kTim->EGR = TIM_EGR_UG;
+  kTim->RCR = kRepetitionCounter;
   kTim->SR = 0U;
   // Start between the trigger compares: neither OC4REF nor OC6REF is active
   // there, so starting the counter cannot produce a spurious ADC trigger.
@@ -507,21 +529,24 @@ void SetDutyTicks(const PhaseTicks& ticks) noexcept {
   kTim->CCR1 = ticks[0];
   kTim->CCR2 = ticks[1];
   kTim->CCR3 = ticks[2];
-  // Late: the counter has passed the next boundary (the one the preload was
-  // meant for) and moves away from it. Early (before the boundary of the
-  // sample, long trigger lead) the duties take effect half a period sooner.
+  // Late: the counter has passed the peak the preload was meant for and
+  // counts down to the next valley; the duties take effect one period later.
   const bool kUpperHalf = kTim->CNT > g_auto_reload / 2U;
   const bool kCountingDown = (kTim->CR1 & TIM_CR1_DIR) != 0U;
-  if (kUpperHalf != g_sample_at_peak && kCountingDown != g_sample_at_peak) {
+  if (kUpperHalf && kCountingDown) {
     ++g_duty_overruns;
   }
-  g_applied = g_next;
-  g_next = ticks;
+  g_applied = ticks;
 }
 
 uint32_t DutyOverruns() noexcept { return g_duty_overruns; }
 
-const SampleRaw& Sample() noexcept { return g_sample; }
+const SampleRaw& Sample() noexcept {
+  // The trips are reported once: with this sample, not again with the next.
+  g_pending_overcurrent = false;
+  g_pending_overvoltage = false;
+  return g_sample;
+}
 
 uint32_t Timestamp() noexcept { return DWT->CYCCNT; }
 

@@ -78,10 +78,10 @@ UNIMOC code fails the build of that scenario.
 | | STM32H7 (`hardware/zephyr_stm32h7`) | native_sim (`hardware/zephyr_sim`) |
 |---|---|---|
 | ADC trigger | TIM1 TRGO2 = rising OC4REF (CC4 = ARR - lead, before the peak) or rising OC6REF (CC6 = lead, before the valley); ADC1..3 JEXTSEL 8 (TIM8: 10) | - |
-| sample (64 kHz) | ADC1 end of injected sequence (JEOS), zero latency: raw ia/ib/ic and DC link, raw overcurrent window and overvoltage level, break on violation | plant step per half period, sample and checks after each step |
-| control step (64 kHz) | inside every sample ISR: `SampleHandler()` → `OnSample()`, duties of the next half period into the CCR preload | after every sample; a kernel timer in simulated time runs four half periods per expiry |
-| duties | TIM1 RCR = 0, CCR1..3 preload, written by the control step, effective at the next boundary (no DMA) | the duties of a step take effect at the boundary after its sample |
-| observer (16 kHz) | TIM1 update vector, pended by software after every fourth step (DIER stays 0), highest normal priority | directly after the step that ends a control cycle |
+| sample (2 × f_pwm) | ADC1 end of injected sequence (JEOS), zero latency: raw ia/ib/ic and DC link, raw overcurrent window and overvoltage level, break on violation; trips kept for the next read | plant step per half period, sample and checks after each step |
+| control step (f_pwm / divider) | inside the valley sample ISR: `SampleHandler()` → `OnSample()` on every call, a control step on every `control_divider`-th, duties into the CCR preload | after every valley; a kernel timer in simulated time runs four half periods (two PWM periods) per expiry |
+| duties | TIM1 RCR = 1, the repetition counter started at 0: updates at the peak only; CCR1..3 preload, written by the control step (no DMA) | the duties of a step take effect at the peak after its sample |
+| observer (at most 16 kHz) | TIM1 update vector, pended by software after every `steps_per_cycle`-th step (DIER stays 0), highest normal priority | directly after the step that ends a control cycle |
 
 `adc_trigger_offset` of the control core is the lead in timer ticks before
 peak and valley. Sample times are set per channel in `sample-times` of the
@@ -107,7 +107,8 @@ boundary (about 13 us after the JEOS at 32 kHz; measured worst case 5.7 us on th
 `foc_stm32h7::DutyOverruns()` counts misses.
 The observer interrupt is preempted by the sample ISR and must finish within
 one cycle (`state.observer_overruns`). `tests/sim/irq_cadence` checks
-the cadence and the half period the duties of each step reach,
+the cadence, the half periods the duties of each step reach and the
+trips of unread samples,
 `tests/sim/closed_loop` runs current steps through the core against
 the plant.
 

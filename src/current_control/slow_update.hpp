@@ -40,7 +40,7 @@ namespace unimoc::current_control {
  * --------
  * `SlowUpdate` owns the `PmsmFluxObserver` and the Hall fusion and drives
  * the `MechanicalObserver` (docs/hotpath_plan.md, D2 and section 5). After
- * every control cycle of kNumSubSteps control steps (signalled through
+ * every control cycle of timing.steps_per_cycle control steps (signalled through
  * `CurrentControlIsr::state.observer_pending`) it:
  *
  *  1. Takes the mean d/q current and the mean voltage demand of the cycle

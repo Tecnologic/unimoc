@@ -18,6 +18,7 @@
 #include <atomic>
 #include <cstdint>
 #include <limits>
+#include "control_timing.hpp"
 #include "current_controller.hpp"
 #include "dead_time_compensation.hpp"
 #include "hardware_interface.hpp"
@@ -42,28 +43,18 @@ namespace unimoc::current_control {
 
 using namespace unit;
 
-/**
- * @brief Timer period in seconds derived from a PWM frequency.
- *
- * Returns the period of one PWM half-period (i.e. the sample interval), which
- * is 1 / (2 × f_pwm).
- *
- * @param freq  PWM frequency selection.
- * @return      dt_fast.
- */
-[[nodiscard]] constexpr unit::Time DtFastFromPwmFrequency(unit::Frequency freq) noexcept {
-  return 1.0F / (2.0F * freq);
-}
+/// Timing the state assumes until Init() sets it: 32 kHz PWM, a control step every period.
+inline constexpr settings::ControlTiming kInitialTiming{32.0_kHz, 1U, 2U};
 
-/**
- * @brief Control-cycle period = kNumSubSteps × dt_fast.
- */
-[[nodiscard]] constexpr unit::Time DtSlowFromPwmFrequency(unit::Frequency freq) noexcept {
-  return DtFastFromPwmFrequency(freq) * static_cast<float>(kNumSubSteps);
-}
-
-/// PWM frequency the timing of the state assumes until Init() sets it.
-inline constexpr unit::Frequency kInitialPwmFrequency{32000.0F};
+/// The PWM frequency for the inductance of the running settings (settings::SuggestedPwmFrequency()).
+struct PwmSuggestion {
+  /// The suggested PWM frequency.
+  unit::Frequency pwm_frequency;
+  /// Peak-to-peak current ripple at the suggested frequency.
+  unit::Current ripple;
+  /// Peak-to-peak current ripple at the running frequency.
+  unit::Current running_ripple;
+};
 
 /// Gains of the current PI that may change while the loop runs (live tuning).
 struct CurrentGains {
@@ -77,10 +68,10 @@ struct CurrentGains {
  * @brief Shared state block for the control steps and the observer.
  *
  * A single instance of this struct is owned by `CurrentControlIsr`. The
- * control step (zero latency, once per PWM half period), the observer
- * (`SlowUpdate`, lower-priority interrupt after each control cycle of
- * kNumSubSteps steps) and the startup FSM access it; the access discipline is
- * documented per member.
+ * control step (zero latency, every `timing.divider` PWM periods), the
+ * observer (`SlowUpdate`, lower-priority interrupt after each control cycle
+ * of `timing.steps_per_cycle` steps) and the startup FSM access it; the
+ * access discipline is documented per member.
  *
  * Thread-safety model
  * -------------------
@@ -126,25 +117,35 @@ struct CurrentControlState {
   /// Control cycles that ended while the observer still processed the previous one.
   uint32_t observer_overruns{0U};
 
-  /// Current samples (control steps) since Init(); the first sample is 1.
+  /// Control steps (current samples the control used) since Init(); the first is 1.
   uint32_t samples{0U};
 
-  /// Control cycles (kNumSubSteps samples) run since Init().
+  /// PWM periods (calls of OnSample()) since Init().
+  uint32_t periods{0U};
+
+  /// Control cycles (timing.steps_per_cycle steps) run since Init().
   uint32_t control_cycles{0U};
 
   /// Set to true by the control step once per cycle; consumed by the startup FSM.
   volatile bool samples_ready{false};
 
-  /// Duration of one PWM half period (one current sample) — set by Init().
-  unit::Time dt_fast{DtFastFromPwmFrequency(kInitialPwmFrequency)};
+  /// PWM frequency, control divider and steps per cycle — set by Init() from
+  /// the settings and the board's limits (settings::ResolveControlTiming()).
+  settings::ControlTiming timing{kInitialTiming};
+
+  /// The PWM frequency for the inductance of the settings — set by Init().
+  PwmSuggestion pwm_suggestion{};
+
+  /// Duration of one control step (timing.divider PWM periods) — set by Init().
+  unit::Time dt_fast{kInitialTiming.StepPeriod()};
 
   /// Duration of one control cycle (the observer period) — set by Init().
-  unit::Time dt_slow{DtSlowFromPwmFrequency(kInitialPwmFrequency)};
+  unit::Time dt_slow{kInitialTiming.CyclePeriod()};
 
-  /// Delay from a sample to the middle of the half period its duties apply
-  /// to, in PWM half periods (D4). The duties go directly into the CCR preload
-  /// and take effect at the next boundary: 1.5. Tuned on the board.
-  float output_delay_half_periods{1.5F};
+  /// Delay from a sample to the middle of the interval its duties apply to,
+  /// in control steps (D4, settings::ControlTiming::OutputDelaySteps()): the
+  /// duties take effect at the next peak and hold for timing.divider periods.
+  float output_delay_steps{kInitialTiming.OutputDelaySteps()};
 
   /// Timer auto-reload value used for timing calculations — set by Init().
   uint32_t arr{2655U};
@@ -152,7 +153,7 @@ struct CurrentControlState {
   /// ADC trigger compare offset in timer ticks — set by Init().
   uint32_t adc_trigger_offset{170U};
 
-  /// Most recently requested normalized phase duties (of the next half period).
+  /// Most recently requested normalized phase duties (from the next peak on).
   system::ThreePhase<unit::Ratio> phase_duties{0.5_ratio, 0.5_ratio, 0.5_ratio};
 
   /// Newest raw ADC sample, without the calibration; updated by every
@@ -203,35 +204,38 @@ struct CurrentControlState {
  *
  * Execution model
  * ---------------
- * The PWM timer runs in centre-aligned mode and the hardware samples the
- * phase currents once per half period (at every peak and valley). After every
- * sample it calls `OnSample()` in the zero-latency context, the control step:
+ * The PWM timer runs in centre-aligned mode. The hardware samples the phase
+ * currents at every valley (the middle of the high-side pulses) and calls
+ * `OnSample()` in the zero-latency context once per PWM period. Every
+ * `timing.divider`-th call is a control step:
  *
  *  1. calibrates the sample and repeats the overcurrent and overvoltage checks,
- *  2. advances the angle by one half period (or takes the observer's new
- *     reference) and parks the sample with it,
- *  3. runs the PI current controller (dt = one half period),
- *  4. inverse-parks the voltage with the angle at the middle of the next half
- *     period, adds the dead-time compensation and modulates (SVM), and
- *  5. writes the duties of the next half period to the hardware.
+ *  2. advances the angle by one step (or takes the observer's new reference)
+ *     and parks the sample with it,
+ *  3. runs the PI current controller (dt = one control step),
+ *  4. inverse-parks the voltage with the angle at the middle of the interval
+ *     the duties apply to, adds the dead-time compensation and modulates (SVM),
+ *  5. writes the duties to the CCR preload, which the timer takes over at
+ *     the next peak (every pulse stays symmetric).
  *
- * Every kNumSubSteps steps (a control cycle, 16 kHz at 32 kHz PWM) the last
- * step hands the samples, the mean current and the mean voltage of the cycle
- * to the observer. The delay from a sample to the middle of its duties is 1.5
- * half periods (23 us at 32 kHz), which sets the reachable current bandwidth.
+ * Every `timing.steps_per_cycle` steps (a control cycle, at most 16 kHz) the
+ * last step hands the samples, the mean current and the mean voltage of the
+ * cycle to the observer. The delay from a sample to the middle of its duties
+ * is 0.5 + divider / 2 PWM periods (one period at divider 1), which sets the
+ * reachable current bandwidth (docs/hotpath_plan.md, section 3).
  *
  * Duty range
  * ----------
- * The duties take effect through the PWM preload at the boundaries, so they
- * are not limited by the ISR timing; only `svm.duty_min` / `svm.duty_max`
- * apply (sampling window and minimum pulse of the power stage).
+ * The duties take effect through the PWM preload at the peak, so they are not
+ * limited by the ISR timing; only `svm.duty_min` / `svm.duty_max` apply
+ * (sampling window and minimum pulse of the power stage).
  *
  * Usage
  * -----
  * @code
  *   // One-time setup (before enabling the timer/ADC):
  *   auto& isr = unimoc::current_control::CurrentControlIsr::Instance();
- *   isr.Init(settings, hardware, hardware.GetTimerClockFrequency());
+ *   (void)isr.Init(settings, hardware, hardware.GetTimerClockFrequency());
  *
  *   // From hardware::SampleHandler() (zero latency), every sample:
  *   const bool kObserver = isr.OnSample();
@@ -259,8 +263,10 @@ class CurrentControlIsr {
   /**
    * @brief Configure the current-control ISR from NVM settings.
    *
-   * Computes timing parameters (ARR, ADC trigger offset, dt_fast, dt_slow)
-   * from `settings.pwm_frequency` and loads all algorithm parameters.
+   * Resolves the timing (PWM frequency, control divider, steps per cycle) from
+   * the settings and the board's limits (hardware::kSettings), computes ARR,
+   * the ADC trigger offset, dt_fast and dt_slow, and loads all algorithm
+   * parameters. An invalid timing leaves the controller uninitialized.
    *
    * The hardware interface owns timer and ADC configuration. The calculated
    * values remain in `state` for diagnostics and runtime timing.
@@ -273,10 +279,11 @@ class CurrentControlIsr {
    * @param hardware  Hardware callbacks for ADC samples and PWM output.
    * @param timer_clock_hz  Timer peripheral clock frequency in Hz
    *                        (e.g. 168 000 000 for a 168 MHz APB2 timer).
+   * @return False when the board does not run the PWM frequency and divider of the settings.
    */
-  void Init(const settings::NvmSettings& settings,
-            const hardware::HardwareInterface& hardware,
-            uint32_t timer_clock_hz) noexcept;
+  [[nodiscard]] bool Init(const settings::NvmSettings& settings,
+                          const hardware::HardwareInterface& hardware,
+                          uint32_t timer_clock_hz) noexcept;
 
   // =========================================================================
   // ISR entry point
@@ -285,10 +292,12 @@ class CurrentControlIsr {
   /**
    * @brief Control step: the fast current control of one sample.
    *
-   * Called from hardware::SampleHandler() (zero latency) once per PWM half
-   * period. Reads the sample, runs the current controller and writes the
-   * duties of the next half period through hardware::hot_path. Does nothing
-   * before Init().
+   * Called from hardware::SampleHandler() (zero latency) once per PWM period,
+   * after the sample of the valley. Every timing.divider-th call reads the
+   * sample, runs the current controller and writes the duties of the next
+   * peak through hardware::hot_path; the other calls return at once (the
+   * platform keeps the trip flags of their samples for the next step). Does
+   * nothing before Init().
    *
    * @return true when the step ended a control cycle whose record the
    *         observer is to process.
@@ -296,7 +305,7 @@ class CurrentControlIsr {
   [[nodiscard]] bool OnSample() noexcept;
 
   /// True when the last OnSample() ended a control cycle, whether or not it ran the controller.
-  [[nodiscard]] bool CycleEnded() const noexcept { return state.samples % kNumSubSteps == 0U; }
+  [[nodiscard]] bool CycleEnded() const noexcept { return cycle_ended_; }
 
   // =========================================================================
   // Setpoint interface (called from lower-priority context)
@@ -462,7 +471,7 @@ class CurrentControlIsr {
  private:
   CurrentControlIsr() = default;
 
-  /// Writes the duties of the next half period.
+  /// Writes the duties of the next peak.
   void SetDuties(const system::ThreePhase<unit::Ratio>& duties) noexcept;
 
   /// Angle of the sample @p sample: the observer's new reference, else one step on.
@@ -483,10 +492,11 @@ class CurrentControlIsr {
   [[nodiscard]] system::Stator<unit::Ratio> DeadTimeRatio(
       const IdentificationDrive* drive, const system::Stator<unit::Current>& i_ab) const noexcept;
 
-  /// @p u_dq with the identification's sine of the duties of sample @p sample.
+  /// @p u_dq with the identification's sine of the duties of sample @p sample (control divider @p divider).
   [[nodiscard]] static system::Rotor<unit::Voltage> WithInjection(system::Rotor<unit::Voltage> u_dq,
                                                                   const IdentificationDrive* drive,
-                                                                  uint32_t sample) noexcept;
+                                                                  uint32_t sample,
+                                                                  uint8_t divider) noexcept;
 
   const hardware::HardwareInterface* hardware_{nullptr};
 
@@ -519,6 +529,7 @@ class CurrentControlIsr {
   IdentificationDrive drive_{};        ///< The identification's drive of the cycle.
   bool drive_active_{false};           ///< drive_ applies to the cycle.
   bool cycle_controlled_{false};       ///< Every step of the cycle ran the controller.
+  bool cycle_ended_{false};            ///< The last OnSample() ended a control cycle.
   uint8_t record_index_{0U};           ///< The record the cycle fills.
   system::Rotor<unit::Current> i_dq_sum_{0.0F, 0.0F};  ///< Sum of the parked currents of the cycle.
   system::Rotor<unit::Voltage> u_dq_sum_{0.0F, 0.0F};  ///< Sum of the voltage demands of the cycle.

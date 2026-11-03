@@ -29,14 +29,24 @@ namespace unimoc::drive {
 
 namespace {
 
-enum class TimingRegister : uint8_t { kSampleIsr, kControlCycle, kObserver, kOverruns, kClockHz };
+enum class TimingRegister : uint8_t {
+  kSampleIsr,
+  kControlCycle,
+  kObserver,
+  kOverruns,
+  kClockHz,
+  kPwm,
+  kPwmSuggestion
+};
 
-constexpr std::array<std::string_view, 5> kNames{
+constexpr std::array<std::string_view, 7> kNames{
     cyphal::reg::kTimingSampleIsr,
     cyphal::reg::kTimingControlCycle,
     cyphal::reg::kTimingObserver,
     cyphal::reg::kTimingOverruns,
     cyphal::reg::kTimingClockHz,
+    cyphal::reg::kTimingPwm,
+    cyphal::reg::kTimingPwmSuggestion,
 };
 
 using cyphal::RegisterEffect;
@@ -47,6 +57,8 @@ constexpr std::array<cyphal::RegisterDescription, kNames.size()> kDescriptions{{
     {"cycles", -kInf, kInf, RegisterEffect::kImmediate, "Observer run time: min, mean, max, count"},
     {{}, -kInf, kInf, RegisterEffect::kImmediate, "Overruns: duty updates too late, observer late"},
     {"Hz", -kInf, kInf, RegisterEffect::kImmediate, "Clock of the run time counters"},
+    {"Hz", -kInf, kInf, RegisterEffect::kImmediate, "PWM, control step and observer rate, control divider"},
+    {{}, -kInf, kInf, RegisterEffect::kImmediate, "PWM for the inductance [Hz], ripple there and now [A pp]"},
 }};
 
 void SetNatural32Array(cyphal::RegisterValue& value, const std::span<const uint32_t> numbers) noexcept {
@@ -55,6 +67,14 @@ void SetNatural32Array(cyphal::RegisterValue& value, const std::span<const uint3
     value.natural32.value.elements[i] = numbers[i];
   }
   value.natural32.value.count = numbers.size();
+}
+
+void SetReal32Array(cyphal::RegisterValue& value, const std::span<const float> numbers) noexcept {
+  uavcan_register_Value_1_0_select_real32_(&value);
+  for (std::size_t i = 0U; i < numbers.size(); ++i) {
+    value.real32.value.elements[i] = numbers[i];
+  }
+  value.real32.value.count = numbers.size();
 }
 
 void SetStats(cyphal::RegisterValue& value, const hardware::timing::Section section) noexcept {
@@ -98,6 +118,25 @@ cyphal::RegisterFlags TimingRegisters::Read(const std::size_t index,
     case TimingRegister::kClockHz:
       cyphal::SetNatural32(value, hardware::kTimestampFrequency);
       break;
+    case TimingRegister::kPwm: {
+      const settings::ControlTiming& timing = current_control::CurrentControlIsr::Instance().state.timing;
+      const std::array<float, 4>
+          kNumbers{timing.pwm_frequency.Value(),
+                   timing.StepFrequency().Value(),
+                   (timing.StepFrequency() / static_cast<float>(timing.steps_per_cycle)).Value(),
+                   static_cast<float>(timing.divider)};
+      SetReal32Array(value, kNumbers);
+      break;
+    }
+    case TimingRegister::kPwmSuggestion: {
+      const current_control::PwmSuggestion& suggestion =
+          current_control::CurrentControlIsr::Instance().state.pwm_suggestion;
+      const std::array<float, 3> kNumbers{suggestion.pwm_frequency.Value(),
+                                          suggestion.ripple.Value(),
+                                          suggestion.running_ripple.Value()};
+      SetReal32Array(value, kNumbers);
+      break;
+    }
     default:
       cyphal::SetEmpty(value);
       return {false, false};

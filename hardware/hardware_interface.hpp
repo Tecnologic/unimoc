@@ -27,22 +27,24 @@
 namespace unimoc::hardware {
 
 /**
- * @brief ADC values of one current sample (one PWM half period).
+ * @brief ADC values of one current sample.
  *
  * The hardware samples the phase currents once per half period, at every peak
- * and valley of the center-aligned counter (the boundaries). The sample
- * handler works on the sample of the boundary that just passed.
+ * and valley of the center-aligned counter (the boundaries), and checks each
+ * sample. The sample handler works on the sample of the valley that just
+ * passed, the middle of the high-side pulses.
  */
 struct CurrentSample {
   /// Phase currents in A/B/C order. The expected invariant is ia + ib + ic = 0.
   system::ThreePhase<unit::Current> phase_currents;
   /// DC-link voltage of the sample.
   unit::Voltage dc_link;
-  /// The sample exceeded the overcurrent limit. The hardware layer has already
-  /// tripped the power stage when this is set.
+  /// This sample or one not read since (a peak, a skipped valley) exceeded the
+  /// overcurrent limit. The hardware layer has already tripped the power stage
+  /// when this is set.
   bool overcurrent{false};
-  /// The DC-link sample reached the overvoltage limit. The hardware layer has
-  /// already tripped the power stage when this is set.
+  /// This DC-link sample or one not read since reached the overvoltage limit.
+  /// The hardware layer has already tripped the power stage when this is set.
   bool overvoltage{false};
   /// Time of the sample (its boundary) in ticks of the timestamp clock
   /// (kTimestampFrequency), the clock of the Hall events.
@@ -96,8 +98,9 @@ class HardwareSystemInterface {
  *  - The hardware samples the currents and the DC link once per PWM half
  *    period and checks each sample against the overcurrent and the
  *    overvoltage limit itself.
- *  - After every sample it calls SampleHandler() in the zero-latency context,
- *    which writes the duties of the next half period.
+ *  - After every valley sample it calls SampleHandler() in the zero-latency
+ *    context, which writes the duties on its control steps; they take
+ *    effect at the next peak (settings::ControlTiming).
  *  - When SampleHandler() ends a control cycle, it runs ObserverHandler() in a
  *    lower-priority interrupt that may be preempted by the sampling interrupt.
  */

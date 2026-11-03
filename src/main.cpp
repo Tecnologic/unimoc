@@ -27,7 +27,7 @@
 #include "trace_signals.hpp"
 
 // Called directly by the platform (hot_path_interface.hpp), no registration:
-// the control step of every sample. The traces sample the state once per
+// once per PWM period, a control step every control divider periods. The traces sample the state once per
 // control cycle, right after its last step, also while tripped or forced
 // (docs/cymon_integration_plan.md).
 bool unimoc::hardware::SampleHandler() noexcept {

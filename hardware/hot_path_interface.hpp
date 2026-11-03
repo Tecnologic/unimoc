@@ -35,15 +35,20 @@ namespace unimoc::hardware {
  */
 namespace hot_path {
 
-/// Current sample of the boundary that just passed.
+/**
+ * @brief Current sample of the valley that just passed.
+ *
+ * Its trip flags also carry the trips of the samples that were not read (the
+ * peaks, and the valleys between two control steps); they are reported once.
+ */
 [[nodiscard]] CurrentSample GetSample() noexcept;
 
 /**
- * @brief Writes the duties of the next half period.
+ * @brief Writes the duties of the next PWM periods.
  *
- * Must be called before the next PWM boundary: the duties go directly into
- * the PWM preload registers and take effect at that boundary, one half period
- * after the sample.
+ * Must be called before the next peak: the duties go directly into the PWM
+ * preload registers and take effect at that peak, half a period after the
+ * sample. They hold until the next write.
  */
 void SetDuties(const system::ThreePhase<unit::Ratio>& duties) noexcept;
 
@@ -55,8 +60,9 @@ void TripPowerStage() noexcept;
 /**
  * @brief Sample handler, defined by the application: the fast current control.
  *
- * The platform calls it once per current sample (every PWM half period) in the
- * zero-latency context (STM32H7: inside the sample interrupt).
+ * The platform calls it once per PWM period, after the sample of the valley,
+ * in the zero-latency context (STM32H7: inside the sample interrupt). The
+ * application runs its control step on every control_divider-th call.
  *
  * @return true when the sample ended a control cycle: the platform then runs
  *         ObserverHandler() below the sample interrupt.

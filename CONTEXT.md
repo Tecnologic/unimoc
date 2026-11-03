@@ -31,9 +31,11 @@ external API requires different wording.
 |---|---|
 | **hot path** | The FOC work that runs in zero-latency IRQs: the sample ISR and its control step. Only this runs at zero latency. |
 | **zero-latency IRQ** | An interrupt that bypasses the Zephyr scheduler and kernel locking (`IRQ_ZERO_LATENCY`). It may not call kernel APIs, log, or lock. |
-| **sample ISR** | The end of the injected ADC sequence (JEOS), once per half PWM period. It copies the raw currents, checks the overcurrent limit and runs the control step. |
-| **control step** | The fast current control of one sample, inside every sample ISR (64 kHz at 32 kHz PWM): Park, PI, inverse Park, SVM, duties of the next half period into the CCR preload. `CurrentControlIsr::OnSample()` in code. |
-| **control cycle** | Four control steps (16 kHz at 32 kHz PWM), the period of the observer. The last step of a cycle hands its record (samples, mean current and voltage) to the observer. |
+| **sample ISR** | The end of the injected ADC sequence (JEOS), once per half PWM period. It checks the raw currents and the DC link against the trip limits; after a valley sample it calls the control step. |
+| **control step** | The fast current control of one valley sample, every `control_divider`-th PWM period: Park, PI, inverse Park, SVM, duties into the CCR preload, taken over at the next peak. `CurrentControlIsr::OnSample()` in code. |
+| **control divider** | PWM periods per control step (1, 2 or 4; `unimoc.control.divider`, 0 automatic from the board's `max_control_frequency`). `settings::ResolveControlTiming()` resolves it with the PWM frequency. |
+| **control cycle** | A power of two of control steps (at most 16 kHz), the period of the observer. The last step of a cycle hands its record (samples, mean current and voltage) to the observer. |
+| **PWM suggestion** | The lowest PWM frequency from 20 kHz on whose ripple (0.15 V_dc / (L f)) stays within 30 % of `motor_i_max`; `pwm_frequency` 0 runs it, `unimoc.timing.pwm_suggestion` reports it. |
 | **hot-path interface** | `hardware/hot_path_interface.hpp`: the hardware access of the control step (`hot_path::GetSample`, `SetDuties`, `TripPowerStage`) and the two handlers the platform calls (`SampleHandler`, `ObserverHandler`). Bound at link time per platform, no function pointers. |
 | **observer** | The flux observer, Kalman filter and Hall fusion after each control cycle, in a software-pended normal-priority interrupt. It hands the control steps the angle reference of the next cycle. `SlowUpdate` in code. |
 | **Zephyr thread** | Any work outside the zero-latency IRQs: logging, the Cyphal thread, settings, and startup sequencing. |

@@ -46,7 +46,7 @@ void SlowUpdate::Init(const settings::NvmSettings& settings,
   // --- Hall fusion: the estimate refers to the first sample of a cycle,
   //     the platform timestamps the last one. ---
   hall.Init(settings);
-  const unit::Time kOffset = isr.state.dt_fast * static_cast<float>(kNumSubSteps - 1U);
+  const unit::Time kOffset = isr.state.dt_fast * static_cast<float>(isr.state.timing.steps_per_cycle - 1U);
   reference_offset_ticks_ =
       static_cast<uint32_t>((kOffset.Value() * static_cast<float>(hardware::kTimestampFrequency)) + 0.5F);
 
@@ -111,8 +111,8 @@ bool SlowUpdate::RunOnce() noexcept {
 
   // -------------------------------------------------------------------------
   // 4. Angle reference of the next cycle into the inactive buffer: the angle
-  //    at its first sample, the rotation of one half period, and the rotation
-  //    from a sample to the middle of the half period its duties apply to
+  //    at its first sample, the rotation of one control step, and the rotation
+  //    from a sample to the middle of the interval its duties apply to
   //    (output delay, D4). The control steps advance the angle themselves.
   // -------------------------------------------------------------------------
   AngleBuffer& angles = state.angles;
@@ -131,10 +131,10 @@ bool SlowUpdate::RunOnce() noexcept {
   const unit::AngularVelocity kOmega = kUseForced ? forced_now_.speed : mech_obs.omega;
   const unit::Angle kStep = kOmega * kDtFast;
 
-  next.sample = cycle.first_sample + kNumSubSteps;
+  next.sample = cycle.first_sample + state.timing.steps_per_cycle;
   next.sc = system::SinCos<unit::Ratio>(kUseForced ? forced_now_.angle : mech_obs.theta);
   next.step = system::SinCos<unit::Ratio>(kStep);
-  next.out = system::SinCos<unit::Ratio>(kStep * state.output_delay_half_periods);
+  next.out = system::SinCos<unit::Ratio>(kStep * state.output_delay_steps);
 
   // -------------------------------------------------------------------------
   // 5. Publish: the control steps take the new reference.
@@ -162,13 +162,15 @@ void SlowUpdate::AccumulateWindow(const CycleRecord& cycle) noexcept {
   window_sums_.voltage_mean = window_sums_.voltage_mean + cycle.u_dq;
   window_sums_.dc_link_mean = window_sums_.dc_link_mean + cycle.dc_link;
   // The phasors of the sine: the currents at the phases of their samples, the
-  // voltage of each step's duties at the phase of the middle of their half period.
+  // voltage of each step's duties at the phase of the middle of their interval.
   const bool kAxisD = cycle.injection_axis == static_cast<uint8_t>(InjectionAxis::kD);
-  for (uint8_t k = 0U; k < kNumSubSteps; ++k) {
+  const settings::ControlTiming& timing = isr_->state.timing;
+  for (uint8_t k = 0U; k < timing.steps_per_cycle; ++k) {
     const system::Rotor<unit::Current> kCurrent = cycle.i_ab_samples[k].ToRotor(cycle.sc[k]);
     window_sums_.current_phasor.Add(kAxisD ? kCurrent.d : kCurrent.q,
                                     InjectionSinCos(InjectionSamplePhase(cycle.first_sample + k)));
-    const system::SinCos<unit::Ratio> kEntry = InjectionSinCos(InjectionEntryPhase(cycle.first_sample + k));
+    const system::SinCos<unit::Ratio> kEntry =
+        InjectionSinCos(InjectionEntryPhase(cycle.first_sample + k, timing.divider));
     window_sums_.voltage_phasor.Add(cycle.injection_amplitude * kEntry.sin, kEntry);
   }
   ++window_sums_.cycles;

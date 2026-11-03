@@ -44,6 +44,13 @@ struct HardwareCapabilities {
   /// Highest DC-link trip voltage the power stage allows [V] (below the
   /// rating of the switches and the DC-link capacitors).
   unit::Voltage max_dc_link_voltage{60.0_V};
+
+  /// Highest PWM frequency of the power stage (switching losses, dead time).
+  unit::Frequency max_pwm_frequency{64.0_kHz};
+
+  /// Highest control-step rate the processor sustains: the control step must
+  /// finish within half a PWM period (docs/hotpath_plan.md, section 4).
+  unit::Frequency max_control_frequency{64.0_kHz};
 };
 
 /**

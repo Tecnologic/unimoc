@@ -17,7 +17,7 @@
 7 lib/motor_control/src/rotor_angle.hpp
 5 lib/motor_control/src/sin_cos.hpp
 2 lib/settings/settings_registers.hpp
-7 lib/settings/settings_store.hpp
+2 lib/settings/settings_store.hpp
 5 lib/sim/src/inverter_model.hpp
 1 lib/sim/src/mechanical_model.hpp
 1 lib/sim/src/motor_simulation.hpp
@@ -27,6 +27,7 @@
 9 src/drive/commissioning.cpp
 31 src/drive/drive_node.cpp
 1 src/drive/settings_register_provider.cpp
+6 src/drive/timing_registers.cpp
 8 src/ebike/ebike_control.cpp
 1 src/identification/motor_identification.cpp
 8 src/startup/hw_startup.cpp

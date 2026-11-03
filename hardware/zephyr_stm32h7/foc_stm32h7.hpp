@@ -30,32 +30,34 @@ namespace unimoc::hardware::foc_stm32h7 {
  * foc0 node and the ADCs run three injected conversions each.
  *
  * Timing, all derived from the PWM frequency (T = one PWM period):
- *  - The timer runs center aligned (mode 3) with RCR = 0. The counter reverses at
- *    the peak (CNT = ARR) and at the valley (CNT = 0); both are update events.
- *  - CCR1..3 are preloaded: a written duty takes effect at the next update.
+ *  - The timer runs center aligned (mode 3) with RCR = 1. The counter reverses at
+ *    the peak (CNT = ARR) and at the valley (CNT = 0); only the peak is an
+ *    update event. The high-side pulses (PWM mode 1) are centered on the valley.
+ *  - CCR1..3 are preloaded: a written duty takes effect at the next peak.
  *  - The ADC1..3 injected sequences are triggered twice per period by TRGO2,
  *    a lead of adc_trigger_offset ticks before each boundary: CC4 before the
  *    peak (up-counting) and CC6 before the valley (down-counting).
  *  - The end of the phase A ADC injected sequence raises the sample interrupt (zero
- *    latency). It copies the raw phase currents and compares them with the
- *    overcurrent window; a violation trips the power stage at once. Then it
- *    calls SampleHandler() directly, which writes the duties of the next half
- *    period into the CCR preload (SetDutyTicks()), and pends the observer
- *    interrupt when the handler ended a control cycle.
+ *    latency). It compares the raw phase currents with the overcurrent window
+ *    and the DC link with its limit; a violation trips the power stage at
+ *    once. After a valley sample it calls SampleHandler() directly, which
+ *    writes the duties into the CCR preload (SetDutyTicks()) on its control
+ *    steps, and pends the observer interrupt when the handler ended a
+ *    control cycle. A peak sample only runs the checks.
  *  - The observer interrupt (timer update vector, pended by software; the
  *    update interrupt enable UIE stays 0) is a normal Zephyr interrupt at the
  *    highest normal priority; it calls ObserverHandler(). The sample interrupt
  *    preempts it.
  *
- * Why around the boundaries: the samples are centered on the boundary, where
- * the phases with a mid-range duty do not switch. A phase with an extreme
- * duty switches close to the sample; the hardware layer then reconstructs it
- * from the other two (see SampleAtPeak()/AppliedTicks()).
+ * Why at the valley: the sample is the middle of the high-side pulses, where
+ * the phases with a mid-range duty do not switch and the ripple of a
+ * symmetric pulse passes its mean. A phase with an extreme duty switches
+ * close to the sample; the hardware layer then reconstructs it from the other
+ * two (see SampleAtPeak()/AppliedTicks()).
  *
- * The end of the injected sequence must come after the boundary of its
- * trigger (trigger lead shorter than the sequence): the duties written then
- * take effect at the next boundary. With a longer lead they take effect half a
- * period earlier.
+ * The control step must write its duties before the next peak, half a
+ * period after the valley. The trigger lead does not matter for that: a write
+ * before the valley also waits for the peak.
  *
  * The outputs are held off (idle level, MOE = 0) until PowerStageEnable().
  *
@@ -105,30 +107,36 @@ void SetTriggerLead(uint32_t ticks) noexcept;
 /// Applied trigger lead [ticks].
 [[nodiscard]] uint32_t TriggerLead() noexcept;
 
-/// Compare values of CCR1..3 for one half period.
+/// Compare values of CCR1..3 for one PWM period.
 using PhaseTicks = std::array<uint32_t, 3>;
 
 /**
- * @brief Writes the compare values of the next half period into the CCR preload.
+ * @brief Writes the compare values into the CCR preload.
  *
- * Call only from the sample handler, after the boundary of the sample: the
- * values take effect at the next boundary. A write after that boundary
- * counts as an overrun (DutyOverruns()).
+ * Call only from the sample handler after a valley sample: the values take
+ * effect at the next peak. A write after that peak counts as an overrun
+ * (DutyOverruns()); it takes effect one period later.
  */
 void SetDutyTicks(const PhaseTicks& ticks) noexcept;
 
-/// Samples whose duties missed their half period.
+/// Control steps whose duties missed their peak.
 [[nodiscard]] uint32_t DutyOverruns() noexcept;
 
 /// Raw values of one sample (valid in the sample handler).
 struct SampleRaw {
   uint16_t ia, ib, ic;  ///< phase currents, 12 bit, right aligned
   uint32_t vdc;         ///< DC link
-  bool overcurrent;     ///< a phase left the window
-  bool overvoltage;     ///< the DC link reached the limit
+  bool overcurrent;     ///< a phase left the window, in this or an unreported sample
+  bool overvoltage;     ///< the DC link reached the limit, in this or an unreported sample
   uint32_t timestamp;   ///< Timestamp() at the sample interrupt
 };
 
+/**
+ * @brief The last valley sample, with the trips of every sample since the last call.
+ *
+ * The peaks and the valleys between two control steps only run the checks:
+ * their trips are reported once, with the next sample read.
+ */
 [[nodiscard]] const SampleRaw& Sample() noexcept;
 
 /**
@@ -139,7 +147,7 @@ struct SampleRaw {
  */
 [[nodiscard]] uint32_t Timestamp() noexcept;
 
-/// Compare values that were active while the sample was taken.
+/// Compare values that were active while the sample was taken (the last ones written).
 [[nodiscard]] const PhaseTicks& AppliedTicks() noexcept;
 
 /// true when the sample belongs to a peak, false when to a valley.

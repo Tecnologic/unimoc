@@ -36,7 +36,8 @@ namespace unimoc::current_control {
  * @param settings Motor and controller settings.
  * @param motor Hardware access of the motor.
  * @param overcurrent_limit Phase current at which the control cycle trips the power stage.
- * @return False when the hardware layer rejects the PWM frequency.
+ * @return False when the board does not run the PWM frequency and divider of
+ *         the settings, or the hardware layer rejects the PWM frequency.
  */
 [[nodiscard]] inline bool StartRuntime(const settings::NvmSettings& settings,
                                        const hardware::HardwareInterface& motor,
@@ -45,11 +46,14 @@ namespace unimoc::current_control {
   auto& slow_update = SlowUpdate::Instance();
   // A restart: no control cycle or observer may run while their state is rewritten.
   motor.Stop();
-  current_control.Init(settings, motor, motor.GetTimerClockFrequency());
+  if (!current_control.Init(settings, motor, motor.GetTimerClockFrequency())) {
+    return false;
+  }
   slow_update.Init(settings, current_control, motor);
   OuterLoop::Instance().Init(settings, current_control);
   current_control.SetOvercurrentLimit(overcurrent_limit);
-  return motor.Initialize(settings.pwm_frequency, current_control.state.adc_trigger_offset);
+  return motor.Initialize(current_control.state.timing.pwm_frequency,
+                          current_control.state.adc_trigger_offset);
 }
 
 }  // namespace unimoc::current_control

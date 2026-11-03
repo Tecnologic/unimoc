@@ -146,7 +146,8 @@ I7, regenerative braking on a dyno.
     a second bus module, the brake chopper stays in the BMS.
 13. The battery case controller (BCC, STM32G473) is removed: board, platform
     `hardware/zephyr_bcc`, the G4 and e-bike bindings. The e-bike control
-    remains for the simulation only.
+    remains for the simulation only. A revived BCC gets an STM32H743 too
+    (decision 2026-11-03, `docs/system_plan.md` section 5.1).
 
 ## Next: Cyphal/CAN-FD (focus)
 
@@ -228,7 +229,9 @@ no motor-type selection and runs the PMSM path only, and `lib/sim` has only
  - [x] Update to the Zephyr 4.5 release (done 2026-10-31, `docs/zephyr_port_plan.md`, "Zephyr 4.5 migration"; NSOS of 4.5 maps the multicast options, source check only): bump the revision in `west.yml` and check the module allowlist, work through the 4.5 migration guide and release notes (devicetree bindings, Kconfig renames, the STM32 FDCAN and ADC drivers, `native_sim` and NSOS, ZMS and settings, ztest and twister, the C++ library settings), the Zephyr SDK version required by 4.5 in `docs/zephyr_workflow.md`, the CI workflows (`ci-zephyr.yml`, `build-firmware.yml`) and `README.md` ("Requirements"); `check_format.sh` and `twister_sca.sh` green on `native_sim` and `bcc`, the map file of the BCC build compared before and after (hot-path placement, flash and RAM use). Recheck whether NSOS in 4.5 passes the multicast socket options (the Cyphal/UDP fallback of the multi-node simulation). No 4.5 feature is required (`docs/zephyr_port_plan.md`, "Risks and Open Points").
  - [ ] Measure the cost of the trace `Tick()` with an armed capture on the STM32H7 (M0, target < 1 us; idle it is inside the measured 5.7 us worst sample interrupt); move it to the observer interrupt if it is too slow.
  - [ ] Decide whether the hot-path data (control state, sample) goes into DTCM on the STM32H7 and whether the hot path is built with `-O2` (`docs/hotpath_plan.md`, section 4); M0 on the Nucleo from ITCM: 1727 cycles mean, 1908 worst at `-Os`, 1426 / 1679 at `-O2`.
- - [ ] Raise the factory current PI gains per motor to the bandwidth of the per-sample loop (kp = L * pi / (9 T_h), 3.6 kHz at 32 kHz PWM, `docs/hotpath_plan.md` section 3); the hoverboard default is still 2000 rad/s.
+ - [ ] Raise the factory current PI gains per motor to the bandwidth of the running timing (kp = L * w_c, w_c = (pi / 6) / T_d; 2.7 kHz at 32 kHz PWM, 5.3 kHz at 64 kHz, `docs/hotpath_plan.md` section 3); the hoverboard default is still 2000 rad/s. Derive them from L, R and the timing automatically once the identification results are applied.
+ - [x] Control divider and PWM frequency from the inductance (2026-11-03, `lib/settings/control_timing.hpp`, `docs/hotpath_plan.md`, the header and sections 1 to 3): one valley sample per PWM period, duties at the peak only (RCR = 1, repetition counter started at 0, measured on the Nucleo), the control step every 1, 2 or 4 periods (`unimoc.control.divider`, 0 from the board's `max_control_frequency`), the observer after 1 to 8 steps (at most 16 kHz), `pwm_frequency` up to 64 kHz and 0 from the inductance (30 % ripple target), `unimoc.timing.pwm` and `.pwm_suggestion`. Nucleo: 32.2 k and 64.4 k steps/s, no overrun.
+ - [ ] 64 kHz PWM on Jacobi: the dead time down to about 300 ns (devicetree `dead-time-ns`, now 1000), the hot path at `-O2` (0.9 us margin before the peak at `-Os`), then raise the factory frequency.
  - [x] Simulation-control commands over Cyphal for deterministic runs (SIL P2): pause, fixed-cycle advance, reset (`unimoc.sim.paused`, `.advance`, `.reset`, `.cycle_count`, `.cycle_period_ns`), run-until (`unimoc.sim.run_until`, stops at a trip) and the drive's timeouts in virtual time while paused (2026-10-31, `CyphalPlatformDriveTimeUs()`, pycyphal test).
 
 ### Blocked on hardware access

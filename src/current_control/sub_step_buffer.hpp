@@ -18,6 +18,7 @@
 #include <array>
 #include <atomic>
 #include <cstdint>
+#include "control_timing.hpp"
 #include "rotor_system.hpp"
 #include "sin_cos.hpp"
 #include "stator_system.hpp"
@@ -31,8 +32,9 @@
  */
 namespace unimoc::current_control {
 
-/// Current samples (control steps, PWM half periods) per control cycle; the observer runs once per cycle.
-inline constexpr uint8_t kNumSubSteps = 4U;
+/// Most control steps of one control cycle; the running count is
+/// settings::ControlTiming::steps_per_cycle (the observer runs once per cycle).
+inline constexpr uint8_t kMaxSubSteps = settings::kMaxStepsPerCycle;
 
 /**
  * @brief Angle the observer hands to the control steps.
@@ -48,10 +50,10 @@ struct AngleReference {
   /// Park angle at that sample.
   system::SinCos<unit::Ratio> sc;
 
-  /// Rotation over one PWM half period (omega x dt_fast).
+  /// Rotation over one control step (omega x dt_fast).
   system::SinCos<unit::Ratio> step;
 
-  /// Rotation from a sample to the middle of the half period its duties apply
+  /// Rotation from a sample to the middle of the interval its duties apply
   /// to (omega x output delay, docs/hotpath_plan.md D4).
   system::SinCos<unit::Ratio> out;
 };
@@ -74,7 +76,8 @@ struct AngleBuffer {
 /**
  * @brief What the control steps of one control cycle hand to the observer.
  *
- * Index k is the k-th sample (control step) of the cycle.
+ * Index k is the k-th sample (control step) of the cycle; the first
+ * settings::ControlTiming::steps_per_cycle entries are filled.
  *
  * Ownership protocol
  * ------------------
@@ -86,10 +89,10 @@ struct AngleBuffer {
  */
 struct CycleRecord {
   /// Park angle of each sample (the estimate the control step used).
-  std::array<system::SinCos<unit::Ratio>, kNumSubSteps> sc{};
+  std::array<system::SinCos<unit::Ratio>, kMaxSubSteps> sc{};
 
   /// Stator-frame (α/β) current samples of the cycle.
-  std::array<system::Stator<unit::Current>, kNumSubSteps> i_ab_samples{};
+  std::array<system::Stator<unit::Current>, kMaxSubSteps> i_ab_samples{};
 
   /// Mean rotor-frame current of the cycle.
   system::Rotor<unit::Current> i_dq_mean;

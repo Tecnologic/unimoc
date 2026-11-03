@@ -145,6 +145,12 @@ parts are not available. Its board definition, its platform
 STM32H7 platform took over its hot-path design. The code is in the git
 history before the removal.
 
+Decision 2026-11-03: when the BCC hardware is revived, it moves to the
+STM32H743 as well (no G4, H7A3, H723 or H745 variant): one MCU, one platform
+(`hardware/zephyr_stm32h7`) and one timing baseline for all drives. The
+control divider (`unimoc.control.divider`) stays portable but is not needed
+for a slower processor.
+
 ### 5.2 Jacobi: new 4850 logic board (STM32H743VIT6)
 
 Requirements for the redesign of [`logic/`](https://github.com/Tecnologic/hardware_4850/tree/master/logic):

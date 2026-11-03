@@ -31,7 +31,7 @@ void OuterLoop::Init(const settings::NvmSettings& settings, CurrentControlIsr& i
   Parameters parameters{};
   parameters.generation = ++generation_;
   parameters.pole_pairs = settings.pole_pairs;
-  parameters.dt = DtSlowFromPwmFrequency(settings.pwm_frequency) * static_cast<float>(kCyclesPerStep);
+  parameters.dt = isr.state.dt_slow * static_cast<float>(kCyclesPerStep);
   parameters.current_limit = settings.motor_i_max;
   parameters.torque_constant = settings.flux_pm * (1.5F * kPolePairs);
   parameters.dc_link = control::DcLinkLimit{.drive_current_max = settings.battery_drive_current_max,

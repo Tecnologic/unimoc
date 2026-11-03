@@ -53,28 +53,34 @@ struct IdentificationDrive {
 /**
  * @brief Phase of the injected sine, 2^32 counts per period.
  *
- * The sine has a fixed period of kInjectionHalfPeriods PWM half periods
- * (f_pwm / 64, 500 Hz at 32 kHz), counted in samples from Init(): exact and
+ * The sine has a fixed period of kInjectionSteps control steps (the step
+ * rate / 64, 500 Hz at 32 kHz), counted in samples from Init(): exact and
  * drift-free in integer counts, the same in the control step that generates
- * it and in the observer that demodulates it.
+ * it and in the observer that demodulates it. kInjectionSteps is a multiple
+ * of every settings::kStepsPerCycle, so a period is a whole number of cycles.
  */
-inline constexpr uint32_t kInjectionHalfPeriods = 128U;
-/// Control cycles of one injection period.
-inline constexpr uint32_t kInjectionPeriodCycles = kInjectionHalfPeriods / kNumSubSteps;
-/// Phase advance of one PWM half period.
-inline constexpr uint32_t kInjectionPhaseStep = 0x1'0000'0000ULL / kInjectionHalfPeriods;
+inline constexpr uint32_t kInjectionSteps = 64U;
+static_assert(kInjectionSteps % kMaxSubSteps == 0U, "an injection period is a whole number of cycles");
+/// Phase advance of one control step.
+inline constexpr uint32_t kInjectionPhaseStep = 0x1'0000'0000ULL / kInjectionSteps;
 
-/**
- * @brief Phase at the middle of the half period the duties of sample @p sample apply to.
- *
- * The control step of sample n writes the duties of the half period that
- * starts at the next boundary, n + 1 (hardware::hot_path::SetDuties()).
- */
-[[nodiscard]] constexpr uint32_t InjectionEntryPhase(const uint32_t sample) noexcept {
-  return ((sample + 1U) * kInjectionPhaseStep) + (kInjectionPhaseStep / 2U);
+/// Control cycles of one injection period at @p steps_per_cycle steps per cycle.
+[[nodiscard]] constexpr uint32_t InjectionPeriodCycles(const uint8_t steps_per_cycle) noexcept {
+  return kInjectionSteps / steps_per_cycle;
 }
 
-/// Phase at current sample @p sample (CurrentControlState::samples), taken at boundary n.
+/**
+ * @brief Phase at the middle of the interval the duties of sample @p sample apply to.
+ *
+ * The control step of sample n writes duties that take effect half a PWM
+ * period later and hold for @p divider periods: their middle lies
+ * (divider + 1) / (2 divider) steps after the sample (hardware::hot_path::SetDuties()).
+ */
+[[nodiscard]] constexpr uint32_t InjectionEntryPhase(const uint32_t sample, const uint8_t divider) noexcept {
+  return (sample * kInjectionPhaseStep) + ((kInjectionPhaseStep / (2U * divider)) * (divider + 1U));
+}
+
+/// Phase at current sample @p sample (CurrentControlState::samples).
 [[nodiscard]] constexpr uint32_t InjectionSamplePhase(const uint32_t sample) noexcept {
   return sample * kInjectionPhaseStep;
 }
@@ -84,11 +90,11 @@ inline constexpr uint32_t kInjectionPhaseStep = 0x1'0000'0000ULL / kInjectionHal
   return system::PortableSinCosProvider::Calculate(static_cast<int32_t>(phase));
 }
 
-/// Angular frequency of the injection at a PWM frequency.
-[[nodiscard]] constexpr unit::AngularVelocity InjectionAngularFrequency(const unit::Frequency pwm) noexcept {
+/// Angular frequency of the injection at a control-step rate.
+[[nodiscard]] constexpr unit::AngularVelocity InjectionAngularFrequency(
+    const unit::Frequency step_rate) noexcept {
   using unit::operator""_rad;
-  return pwm * 2.0F / static_cast<float>(kInjectionHalfPeriods) *
-         (2.0F * std::numbers::pi_v<float> * 1.0_rad);
+  return step_rate / static_cast<float>(kInjectionSteps) * (2.0F * std::numbers::pi_v<float> * 1.0_rad);
 }
 
 /// Sums of one measurement window of the observer.

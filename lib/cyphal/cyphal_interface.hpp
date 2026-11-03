@@ -390,10 +390,13 @@ inline constexpr const char* kBatteryTripVoltage = "unimoc.battery.limits.trip_v
 
 // --- PWM frequency ---
 
-/// PWM switching frequency selection: 16/20/24/28/32 kHz.
-/// Stored as the frequency value in kHz (uint8).
-/// Type: natural8[1] (read/write, persistent)
+/// PWM switching frequency: 16/20/24/28/32/40/48/64 kHz, 0 selects it from the inductance [Hz].
+/// Type: real32[1] (read/write, persistent)
 inline constexpr const char* kPwmFrequency = "unimoc.control.pwm_frequency";
+
+/// PWM periods per control step: 1, 2 or 4, 0 the fastest the board runs.
+/// Type: natural8[1] (read/write, persistent)
+inline constexpr const char* kControlDivider = "unimoc.control.divider";
 
 // --- d/q-axis current controller ---
 
@@ -483,7 +486,7 @@ inline constexpr const char* kTimingControlCycle = "unimoc.timing.control_cycle"
 /// Type: natural32[4] (read-only)
 inline constexpr const char* kTimingObserver = "unimoc.timing.observer";
 
-/// Duties written after their half period started and control cycles that
+/// Duties written after the peak they were meant for and control cycles that
 /// ended while the observer still ran, since start.
 /// Type: natural32[2] (read-only)
 inline constexpr const char* kTimingOverruns = "unimoc.timing.overruns";
@@ -491,6 +494,17 @@ inline constexpr const char* kTimingOverruns = "unimoc.timing.overruns";
 /// Frequency of the timestamp clock the times count in [Hz].
 /// Type: natural32[1] (read-only)
 inline constexpr const char* kTimingClockHz = "unimoc.timing.clock_hz";
+
+/// Timing the current control runs: PWM frequency, control-step rate,
+/// observer rate [Hz] and the control divider (settings::ResolveControlTiming()).
+/// Type: real32[4] (read-only)
+inline constexpr const char* kTimingPwm = "unimoc.timing.pwm";
+
+/// PWM frequency for the inductance of the running settings [Hz], the
+/// current ripple there and at the running PWM frequency [A peak to peak]
+/// (settings::SuggestedPwmFrequency()).
+/// Type: real32[3] (read-only)
+inline constexpr const char* kTimingPwmSuggestion = "unimoc.timing.pwm_suggestion";
 
 // New statistics: ExecuteCommand cmd::kCmdResetTiming (the overrun counters keep counting).
 
