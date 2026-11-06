@@ -89,6 +89,15 @@
 		hall-gpios = <&gpiod 12 GPIO_ACTIVE_HIGH>,
 			     <&gpiod 13 GPIO_ACTIVE_HIGH>,
 			     <&gpiod 14 GPIO_ACTIVE_HIGH>;
+		/*
+		 * Gate driver enable PWM_EN: the same pin as on Jacobi (PE7, on the
+		 * morpho connector, free on the Nucleo). Not driven by the platform
+		 * yet. The legacy 4850 power board has no enable input, so on the
+		 * Nucleo adapter (repository unimoc_jacobi, nucleo_adapter/) the
+		 * outputs are released by the break loop on PE15; PE7 is not wired
+		 * there yet.
+		 */
+		pwm-enable-gpios = <&gpioe 7 GPIO_ACTIVE_HIGH>;
 	};
 };
 

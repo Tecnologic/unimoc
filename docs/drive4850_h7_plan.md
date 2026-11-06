@@ -189,6 +189,7 @@ the 4850 proposal):
 |---|---|---|
 | PWM CH1..CH3, CH1N..CH3N | PE9, PE11, PE13, PE8, PE10, PE12 | TIM1 |
 | Break (external enable) | PE15 | TIM1_BKIN, pull-down: tie to 3V3 to release |
+| Gate driver enable `PWM_EN` | PE7 | `pwm-enable-gpios` in `zephyr,user` (as on Jacobi), not driven by the platform yet |
 | ia, va, bridge temperature | PA6, PF11, PF12 | ADC1 INP3, INP2, INP6 |
 | ib, vb, motor temperature | PB1, PF13, PF14 | ADC2 INP5, INP2, INP6 |
 | ic, vdc, vc | PC2_C, PC3_C, PF10 | ADC3 INP0, INP1, INP6 |
