@@ -3,7 +3,7 @@
 #
 # Collect the files of one firmware build for upload (CI and release).
 #   package_firmware.sh <target> <build-dir> <name-suffix> <out-dir>
-# <target> is jacobi or sim; the files are named unimoc-<target>-<name-suffix>.*
+# <target> is jacobi, nucleo_h743zi or sim; the files are named unimoc-<target>-<name-suffix>.*
 # The sim also writes the register description file unimoc-registers-<name-suffix>.json
 # (docs/gui_plan.md, section 4): every register with type, default, unit,
 # limits, effect and help, from the simulated drive on a fresh flash file.
@@ -18,11 +18,11 @@ out="$4"
 mkdir -p "$out"
 
 case "$target" in
-jacobi)
+jacobi | nucleo_h743zi)
   for ext in elf hex bin; do
-    cp "$build/zephyr/zephyr.$ext" "$out/unimoc-jacobi-$suffix.$ext"
+    cp "$build/zephyr/zephyr.$ext" "$out/unimoc-$target-$suffix.$ext"
   done
-  cp "$build/zephyr/zephyr.map" "$out/unimoc-jacobi-$suffix.map"
+  cp "$build/zephyr/zephyr.map" "$out/unimoc-$target-$suffix.map"
   ;;
 sim)
   # tar keeps the executable bit, which the artifact zip drops.

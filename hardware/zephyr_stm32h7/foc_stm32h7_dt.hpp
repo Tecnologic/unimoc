@@ -24,6 +24,7 @@
 #include <zephyr/drivers/clock_control/stm32_clock_control.h>
 #include <array>
 #include <cstdint>
+#include <string_view>
 
 // NOLINTBEGIN(cppcoreguidelines-macro-usage): the devicetree API is macro-only;
 // these helpers and the signal indices are pasted into DT_* macro names.
@@ -43,76 +44,158 @@
       .enr = DT_CLOCKS_CELL_BY_IDX(node_id, clk_index, bits),                                        \
   }
 
-// Position of a signal in io-channel-names / sample-times. Plain numbers:
-// the devicetree macros paste them into identifiers.
-#define UNIMOC_SIG_IA 0
-#define UNIMOC_SIG_VA 1
-#define UNIMOC_SIG_BRIDGE_TEMPERATURE 2
-#define UNIMOC_SIG_IB 3
-#define UNIMOC_SIG_VB 4
-#define UNIMOC_SIG_MOTOR_TEMPERATURE 5
-#define UNIMOC_SIG_IC 6
-#define UNIMOC_SIG_VDC 7
-#define UNIMOC_SIG_VC 8
-#define UNIMOC_SIG_COUNT 9
-
 #define UNIMOC_FOC_SAMPLE_CODE(index) DT_ENUM_IDX_BY_IDX(UNIMOC_FOC, sample_times, index)
 
-#define UNIMOC_FOC_ADC_TRIPLE(first, second, third, first_index, second_index, third_index) \
-  AdcDescription {                                                                          \
-    DT_REG_ADDR(UNIMOC_FOC_ADC(first)),                                                     \
-        {UNIMOC_FOC_ADC_CH(first), UNIMOC_FOC_ADC_CH(second), UNIMOC_FOC_ADC_CH(third)},    \
-        {UNIMOC_FOC_SAMPLE_CODE(first_index),                                               \
-         UNIMOC_FOC_SAMPLE_CODE(second_index),                                              \
-         UNIMOC_FOC_SAMPLE_CODE(third_index)},                                              \
-        UNIMOC_CLOCK_INFO(0, DT_PARENT(UNIMOC_FOC_ADC(first)))                              \
-  }
-
-#define UNIMOC_FOC_SAME_ADC(first, second) \
-  (DT_REG_ADDR(UNIMOC_FOC_ADC(first)) == DT_REG_ADDR(UNIMOC_FOC_ADC(second)))
+/// One io-channel of foc0, in devicetree order.
+#define UNIMOC_FOC_CHANNEL_ENTRY(node_id, prop, idx)                            \
+  ChannelEntry{DT_PROP_BY_IDX(node_id, io_channel_names, idx),                  \
+               DT_REG_ADDR(DT_IO_CHANNELS_CTLR_BY_IDX(node_id, idx)),           \
+               static_cast<uint8_t>(DT_IO_CHANNELS_INPUT_BY_IDX(node_id, idx)), \
+               static_cast<uint8_t>(DT_ENUM_IDX_BY_IDX(node_id, sample_times, idx))},
 // NOLINTEND(cppcoreguidelines-macro-usage)
 
 namespace unimoc::hardware::foc_stm32h7 {
 
-/// Conversions in the injected sequence of every ADC.
-inline constexpr uint32_t kRanks = 3U;
+/// Longest injected sequence of an STM32H7 ADC.
+inline constexpr uint32_t kMaxRanks = 4U;
 
-/// One ADC with an injected sequence of kRanks channels.
+/// One entry of io-channels with its name, ADC, input channel and SMP code.
+struct ChannelEntry {
+  std::string_view name;
+  uintptr_t adc;
+  uint8_t channel;
+  uint8_t sample_time;  ///< SMP code (0 = 1.5 ... 7 = 810.5 ADC clock cycles)
+};
+
+inline constexpr std::array kChannels{
+    DT_FOREACH_PROP_ELEM(UNIMOC_FOC, io_channels, UNIMOC_FOC_CHANNEL_ENTRY)};
+
+static_assert(DT_PROP_LEN(UNIMOC_FOC, sample_times) == kChannels.size(), "one sample time per io-channel");
+static_assert(DT_PROP_LEN(UNIMOC_FOC, io_channel_names) == kChannels.size(), "one name per io-channel");
+
+/// One ADC with its injected sequence: the entries of kChannels on it, in devicetree order.
 struct AdcDescription {
   uintptr_t base;
-  std::array<uint8_t, kRanks> channels;
-  std::array<uint8_t, kRanks> sample_times;  ///< SMP codes (0 = 1.5 ... 7 = 810.5 ADC clock cycles)
+  uint32_t ranks;
+  std::array<uint8_t, kMaxRanks> channels;
+  std::array<uint8_t, kMaxRanks> sample_times;
   struct stm32_pclken pclken;
 };
 
-// Each phase current is rank 0 of its own ADC; the triples fix the ranks.
-inline constexpr AdcDescription kAdcPhaseA = UNIMOC_FOC_ADC_TRIPLE(ia,
-                                                                   va,
-                                                                   bridge_temperature,
-                                                                   UNIMOC_SIG_IA,
-                                                                   UNIMOC_SIG_VA,
-                                                                   UNIMOC_SIG_BRIDGE_TEMPERATURE);
-inline constexpr AdcDescription kAdcPhaseB = UNIMOC_FOC_ADC_TRIPLE(ib,
-                                                                   vb,
-                                                                   motor_temperature,
-                                                                   UNIMOC_SIG_IB,
-                                                                   UNIMOC_SIG_VB,
-                                                                   UNIMOC_SIG_MOTOR_TEMPERATURE);
+[[nodiscard]] consteval AdcDescription MakeAdc(const uintptr_t base, const struct stm32_pclken pclken) {
+  AdcDescription adc{base, 0U, {}, {}, pclken};
+  for (const ChannelEntry& entry : kChannels) {
+    if (entry.adc == base && adc.ranks < kMaxRanks) {
+      adc.channels.at(adc.ranks) = entry.channel;
+      adc.sample_times.at(adc.ranks) = entry.sample_time;
+      ++adc.ranks;
+    }
+  }
+  return adc;
+}
+
+[[nodiscard]] consteval uint32_t RanksOn(const uintptr_t base) {
+  uint32_t ranks = 0U;
+  for (const ChannelEntry& entry : kChannels) {
+    ranks += (entry.adc == base) ? 1U : 0U;
+  }
+  return ranks;
+}
+
+// Each phase current has its own ADC; the other signals may sit on any of the three.
+inline constexpr AdcDescription kAdcPhaseA =
+    MakeAdc(DT_REG_ADDR(UNIMOC_FOC_ADC(ia)), UNIMOC_CLOCK_INFO(0, DT_PARENT(UNIMOC_FOC_ADC(ia))));
+inline constexpr AdcDescription kAdcPhaseB =
+    MakeAdc(DT_REG_ADDR(UNIMOC_FOC_ADC(ib)), UNIMOC_CLOCK_INFO(0, DT_PARENT(UNIMOC_FOC_ADC(ib))));
 inline constexpr AdcDescription kAdcPhaseC =
-    UNIMOC_FOC_ADC_TRIPLE(ic, vdc, vc, UNIMOC_SIG_IC, UNIMOC_SIG_VDC, UNIMOC_SIG_VC);
+    MakeAdc(DT_REG_ADDR(UNIMOC_FOC_ADC(ic)), UNIMOC_CLOCK_INFO(0, DT_PARENT(UNIMOC_FOC_ADC(ic))));
+inline constexpr std::array<const AdcDescription*, 3> kAdcs{&kAdcPhaseA, &kAdcPhaseB, &kAdcPhaseC};
 
-static_assert(UNIMOC_FOC_SAME_ADC(ia, va) && UNIMOC_FOC_SAME_ADC(ia, bridge_temperature),
-              "ia, va and bridge-temperature share one ADC");
-static_assert(UNIMOC_FOC_SAME_ADC(ib, vb) && UNIMOC_FOC_SAME_ADC(ib, motor_temperature),
-              "ib, vb and motor-temperature share one ADC");
-static_assert(UNIMOC_FOC_SAME_ADC(ic, vdc) && UNIMOC_FOC_SAME_ADC(ic, vc), "ic, vdc and vc share one ADC");
-static_assert(!UNIMOC_FOC_SAME_ADC(ia, ib) && !UNIMOC_FOC_SAME_ADC(ia, ic) && !UNIMOC_FOC_SAME_ADC(ib, ic),
+/// Where a signal is converted: the index into kAdcs and its rank (0 = JDR1).
+struct SignalLocation {
+  uint32_t adc;
+  uint32_t rank;
+};
+
+[[nodiscard]] consteval bool HasSignal(const std::string_view name) {
+  uint32_t found = 0U;
+  for (const ChannelEntry& entry : kChannels) {
+    found += (entry.name == name) ? 1U : 0U;
+  }
+  return found == 1U;
+}
+
+[[nodiscard]] consteval SignalLocation LocationOf(const std::string_view name) {
+  for (uint32_t adc = 0U; adc < kAdcs.size(); ++adc) {
+    uint32_t rank = 0U;
+    for (const ChannelEntry& entry : kChannels) {
+      if (entry.adc != kAdcs.at(adc)->base) {
+        continue;
+      }
+      if (entry.name == name) {
+        return SignalLocation{adc, rank};
+      }
+      ++rank;
+    }
+  }
+  return SignalLocation{0U, kMaxRanks};
+}
+
+/// Length of an injected sequence in half ADC clock cycles (sampling plus the 6.5 cycles of a 12 bit
+/// conversion).
+[[nodiscard]] consteval uint32_t SequenceHalfCycles(const AdcDescription& adc) {
+  constexpr std::array<uint32_t, 8> kSampleHalfCycles{3U, 5U, 17U, 33U, 65U, 129U, 775U, 1621U};
+  constexpr uint32_t kConversionHalfCycles = 13U;
+  uint32_t total = 0U;
+  for (uint32_t rank = 0U; rank < adc.ranks; ++rank) {
+    total += kSampleHalfCycles.at(adc.sample_times.at(rank)) + kConversionHalfCycles;
+  }
+  return total;
+}
+
+static_assert(HasSignal("ia") && HasSignal("va") && HasSignal("bridge-temperature") && HasSignal("ib") &&
+                  HasSignal("vb") && HasSignal("motor-temperature") && HasSignal("ic") && HasSignal("vdc") &&
+                  HasSignal("vc"),
+              "foc0 io-channel-names: every signal of the binding exactly once");
+static_assert(kAdcPhaseA.base != kAdcPhaseB.base && kAdcPhaseA.base != kAdcPhaseC.base &&
+                  kAdcPhaseB.base != kAdcPhaseC.base,
               "every phase current has its own ADC");
+static_assert(RanksOn(kAdcPhaseA.base) + RanksOn(kAdcPhaseB.base) + RanksOn(kAdcPhaseC.base) ==
+                  kChannels.size(),
+              "every io-channel is on the ADC of a phase current");
+static_assert(kAdcPhaseA.ranks <= kMaxRanks && kAdcPhaseB.ranks <= kMaxRanks &&
+                  kAdcPhaseC.ranks <= kMaxRanks && RanksOn(kAdcPhaseA.base) <= kMaxRanks &&
+                  RanksOn(kAdcPhaseB.base) <= kMaxRanks && RanksOn(kAdcPhaseC.base) <= kMaxRanks,
+              "at most four injected conversions per ADC");
+static_assert(LocationOf("ia").rank == 0U && LocationOf("ib").rank == 0U && LocationOf("ic").rank == 0U,
+              "each phase current is the first conversion of its ADC, so the three are sampled together");
+// The sample interrupt is the end of the phase A sequence: the other sequences, with the DC link
+// that the interrupt checks, must be complete by then.
+static_assert(SequenceHalfCycles(kAdcPhaseA) >= SequenceHalfCycles(kAdcPhaseB) &&
+                  SequenceHalfCycles(kAdcPhaseA) >= SequenceHalfCycles(kAdcPhaseC),
+              "the injected sequence of the phase A ADC must be the longest");
 
-static_assert(DT_PROP_LEN(UNIMOC_FOC, sample_times) == UNIMOC_SIG_COUNT, "one sample time per io-channel");
-static_assert(DT_PROP_LEN(UNIMOC_FOC, io_channel_names) == UNIMOC_SIG_COUNT, "signal order of the binding");
+inline constexpr SignalLocation kVdcLocation = LocationOf("vdc");
 
 inline constexpr uint32_t kDeadTimeNs = DT_PROP(UNIMOC_FOC, dead_time_ns);
+
+// Analog front end and limits of the board (foc0).
+inline constexpr uint32_t kShuntNanoOhm = DT_PROP(UNIMOC_FOC, shunt_nano_ohm);
+inline constexpr uint32_t kCurrentAmplifierGain = DT_PROP(UNIMOC_FOC, current_amplifier_gain);
+inline constexpr uint32_t kDividerTopOhm = DT_PROP_BY_IDX(UNIMOC_FOC, voltage_divider_ohms, 0);
+inline constexpr uint32_t kDividerBottomOhm = DT_PROP_BY_IDX(UNIMOC_FOC, voltage_divider_ohms, 1);
+inline constexpr uint32_t kMaxPhaseCurrentAmps = DT_PROP(UNIMOC_FOC, max_phase_current_amps);
+inline constexpr uint32_t kMaxMotorCurrentAmps = DT_PROP(UNIMOC_FOC, max_motor_current_amps);
+inline constexpr uint32_t kDcLinkDerateMillivolts = DT_PROP_BY_IDX(UNIMOC_FOC, dc_link_millivolts, 0);
+inline constexpr uint32_t kDcLinkTripMillivolts = DT_PROP_BY_IDX(UNIMOC_FOC, dc_link_millivolts, 1);
+inline constexpr uint32_t kDcLinkMaxMillivolts = DT_PROP_BY_IDX(UNIMOC_FOC, dc_link_millivolts, 2);
+static_assert(DT_PROP_LEN(UNIMOC_FOC, voltage_divider_ohms) == 2, "voltage-divider-ohms: <top bottom>");
+static_assert(DT_PROP_LEN(UNIMOC_FOC, dc_link_millivolts) == 3, "dc-link-millivolts: <derate trip max>");
+static_assert(kDcLinkDerateMillivolts < kDcLinkTripMillivolts &&
+                  kDcLinkTripMillivolts <= kDcLinkMaxMillivolts,
+              "dc-link-millivolts: derate below trip, trip at most max");
+static_assert(kMaxMotorCurrentAmps <= kMaxPhaseCurrentAmps, "the motor current stays below the trip limit");
+static_assert(kShuntNanoOhm > 0U && kCurrentAmplifierGain > 0U && kDividerBottomOhm > 0U, "front end values");
 /// Phase currents from low-side shunts (current-sense = "low-side"), else inline.
 inline constexpr bool kLowSideCurrentSense = DT_ENUM_IDX(UNIMOC_FOC, current_sense) == 1;
 inline constexpr uintptr_t kTimerBase = DT_REG_ADDR(UNIMOC_FOC_TIMER);

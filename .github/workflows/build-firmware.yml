@@ -1,6 +1,6 @@
 name: Build firmware
 
-# The firmware of every target as artifacts (unimoc-jacobi, unimoc-native_sim). Called by the
+# The firmware of every target as artifacts (unimoc-jacobi, unimoc-nucleo_h743zi, unimoc-native_sim). Called by the
 # Zephyr CI workflow, whose release job attaches them to the GitHub release.
 # A new board or simulator is one more matrix row and a case in
 # scripts/package_firmware.sh (docs/release_plan.md).
@@ -26,6 +26,9 @@ jobs:
           - target: jacobi
             board: unimoc_jacobi
             artifact: unimoc-jacobi
+          - target: nucleo_h743zi
+            board: nucleo_h743zi
+            artifact: unimoc-nucleo_h743zi
           - target: sim
             board: native_sim/native/64
             artifact: unimoc-native_sim
