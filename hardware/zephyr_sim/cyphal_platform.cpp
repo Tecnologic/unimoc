@@ -519,8 +519,8 @@ class RiderRegisters final : public cyphal::RegisterProvider {
     if (!std::isfinite(kValue)) {
       return RegisterWriteResult::kOutOfRange;
     }
-    const cyphal::RegisterDescription& kLimits = kRiderDescriptions[index];
-    if (kValue < kLimits.minimum || kValue > kLimits.maximum) {
+    const cyphal::RegisterDescription& limits = kRiderDescriptions[index];
+    if (kValue < limits.minimum || kValue > limits.maximum) {
       return RegisterWriteResult::kOutOfRange;
     }
     switch (static_cast<RiderRegister>(index)) {
