@@ -193,7 +193,8 @@ Plan: [docs/motor_identification_plan.md](docs/motor_identification_plan.md) (al
 ## Cart system
 
  - [ ] Jacobi schematic (Tecnologic/unimoc_jacobi, MCU drawn 2026-11-03): the reserved functions (overcurrent comparator, angle sensor, CAN STB), the *(RM0433)* points, board size in the enclosure. The fourth half bridge is dropped (separate module).
- - [x] (2026-11-08) Jacobi devicetree to the schematic (`docs/drive4850_h7_plan.md` section 4 note): PWM pins, ADC channels, LEDs, `PWM_EN` = break PE15 (drop the PE7 `pwm-enable-gpios`), CAN STB PD2, PWR_DET PE4, +12P sense PC5. The binding now takes one to four conversions per ADC by signal name (both temperatures on ADC1, vdc on ADC2). Open: the +12P gate supply (PC5), PWR_DET (PE4) and the accelerator inputs (PC0, PC4) are not read yet; LED polarity.
+ - [x] (2026-11-08) Jacobi devicetree to the schematic (`docs/drive4850_h7_plan.md` section 4 note): PWM pins, ADC channels, LEDs, `PWM_EN` = break PE15 (drop the PE7 `pwm-enable-gpios`), CAN STB PD2, PWR_DET PE4, +12P sense PC5. The binding now takes one to four conversions per ADC by signal name (both temperatures on ADC1, vdc on ADC2). Open: LED polarity; the inputs below.
+ - [ ] Jacobi inputs the firmware does not read yet: the power-board detect PWR_DET (PE4), the +12P gate supply sense (PC5) and the accelerator inputs (PC0, PC4). Decide what each gates (engage refused without the power board or with +12P low; the accelerator as a local setpoint), then the devicetree, the platform and sim tests.
  - [x] (2026-11-08, foc0 `max-phase-current-amps`, `max-motor-current-amps`, `dc-link-millivolts`, `shunt-nano-ohm`, `current-amplifier-gain`, `voltage-divider-ohms`) Limits per board (`docs/drive4850_h7_plan.md` open point 9): the STM32H7 profile has the legacy 4850 values (48 V, trip 58 V, 60 A trip); Jacobi has 60 V FETs (36 V systems, not for 13S), ±160 A sensing, trip 120 to 130 A, 100 A peak. Take them from the devicetree or a board profile; the current scaling (0.5 mΩ, INA240A1 gain 20) differs from the legacy board too.
  - [x] H7 platform `hardware/zephyr_stm32h7` on a NUCLEO-H743ZI rev. Y (2026-11-01, `docs/drive4850_h7_plan.md` section 7): H7 ADC and calibration, non-cacheable duty DMA buffer, dual-bank flash layout, 400 MHz; builds and passes clang-tidy, not run on the board.
  - [ ] NUCLEO-H743ZI on the bench (plan section 7, steps 1 to 5): boot, settings, PWM and break, ADC, timing, Cyphal, then the 4850 power board through an adapter.
@@ -254,6 +255,7 @@ no motor-type selection and runs the PMSM path only, and `lib/sim` has only
  - [ ] M8 remainder: Hall table, closed current loop with the 50 A limit.
  - [x] First Zephyr release: `develop` merged into `main` and published as v0.1.0 (2026-10-24) by the release workflow (`docs/release_plan.md`).
  - [x] Release setup on GitHub: `RELEASE_TOKEN`, merge methods per branch, required checks (check run names) and "Automatically delete head branches" off, which had deleted `develop` after the first release merge.
+ - [ ] Repository settings (by hand): add the check `firmware (nucleo_h743zi)` of `.github/workflows/build-firmware.yml` to the required checks of the `develop` ruleset, next to the other firmware builds.
 
 ## Unit types
 
