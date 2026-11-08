@@ -314,24 +314,6 @@ void SlowUpdate::TrackBackEmf(const CycleRecord& cycle,
   const uint8_t kSteps = isr_->state.timing.steps_per_cycle;
   const std::span<const system::Stator<unit::Voltage>> kSamples{cycle.u_ab_samples.data(), kSteps};
 
-  const std::optional<observer::BackEmfSpeed::Measurement> kSpeed =
-      emf_speed_.Update(kSamples, flux_setpoint_.d);
-  if (!kSpeed.has_value()) {
-    return;
-  }
-  if (kSpeed->upper_bound) {
-    // Too little back-EMF for an angle: the flux observer starts anew, as
-    // without the sense; the voltages still bound the speed, so an estimate
-    // beyond the bound is pulled to it.
-    flux_obs.Reset();
-    if (Abs(mech_obs.omega) > kSpeed->speed) {
-      const unit::AngularVelocity kBound =
-          mech_obs.omega > unit::AngularVelocity{} ? kSpeed->speed : -kSpeed->speed;
-      mech_obs.UpdateSpeed(kBound - mech_obs.omega, kSpeed->variance);
-    }
-    return;
-  }
-
   // The flux observer turns its voltage into the stator frame with the
   // estimate it reads now, the angle at the cycle's first sample, and compares
   // the integrated flux with that angle. The samples are in the stator frame
@@ -352,7 +334,31 @@ void SlowUpdate::TrackBackEmf(const CycleRecord& cycle,
           .ToRotor(system::SinCos<unit::Ratio>(mech_obs.theta + (mech_obs.omega * kFluxTime)));
   const std::optional<unit::Angle> kFluxError =
       flux_obs.Calculate(kVoltageDq, current_dq, flux_setpoint_, isr_->state.dt_slow, mech_obs);
+
+  const std::optional<observer::BackEmfSpeed::Measurement> kSpeed =
+      emf_speed_.Update(kSamples, flux_setpoint_.d);
+  if (!kSpeed.has_value()) {
+    return;
+  }
+  if (kSpeed->upper_bound) {
+    // Too little back-EMF for an angle: the flux observer starts anew (its
+    // state would drift against the estimate) and settles once the motor is
+    // faster; the voltages still bound the speed, so an estimate beyond the
+    // bound is pulled to it.
+    flux_obs.Reset();
+    flux_settle_ = kFluxSettleTime;
+    if (Abs(mech_obs.omega) > kSpeed->speed) {
+      const unit::AngularVelocity kBound =
+          mech_obs.omega > unit::AngularVelocity{} ? kSpeed->speed : -kSpeed->speed;
+      mech_obs.UpdateSpeed(kBound - mech_obs.omega, kSpeed->variance);
+    }
+    return;
+  }
   mech_obs.UpdateSpeed(kSpeed->speed - mech_obs.omega, kSpeed->variance);
+  if (flux_settle_ > unit::Time{}) {
+    flux_settle_ = flux_settle_ - isr_->state.dt_slow;  // its start-up transient is no angle
+    return;
+  }
   if (kFluxError.has_value()) {
     mech_obs.UpdateAngle(*kFluxError, FluxNoise(mech_obs.omega));
   }

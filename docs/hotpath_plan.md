@@ -303,7 +303,10 @@ observer now uses it:
   motor, which the angle alone cannot. Below 0.3 V of back-EMF the voltages
   only bound the speed, |omega| < 0.3 V / psi: an estimate beyond the bound
   is pulled to it, one within it is left to Hall and the prediction, and the
-  flux observer starts anew (no angle from so little back-EMF).
+  flux observer starts anew (no angle from so little back-EMF; its state
+  would drift against the estimate). After such a restart its angle is used
+  only after 50 ms, about three time constants of its feedback, so its
+  start-up transient does not kick the estimate.
 
 The flux observer is no longer reset by a disengage: its state runs on and
 the engage starts from it (in the simulation 0.8 A peak at 1200 rad/s

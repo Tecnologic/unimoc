@@ -350,6 +350,11 @@ class SlowUpdate {
   /// Speed of the coasting motor from its back-EMF (outputs open).
   observer::BackEmfSpeed emf_speed_;
 
+  /// Outputs open: after a restart of the flux observer its angle is used
+  /// only after this time (about three time constants of its feedback C_d).
+  static constexpr unit::Time kFluxSettleTime = unit::operator""_s(0.05L);
+  unit::Time flux_settle_;  ///< Observer only: settling time left.
+
   /// Coast-down meter of M3: started by generation, stopped when coast_stop_ equals it.
   Mailbox<identification::CoastDownMeter::Parameters> coast_parameters_{};
   std::atomic<uint32_t> coast_generation_{0U};
