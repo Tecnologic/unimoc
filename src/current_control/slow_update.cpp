@@ -21,6 +21,7 @@
 #include <optional>
 #include <span>
 #include "angle_wrap.hpp"
+#include "atan2.hpp"
 #include "hall_capture.hpp"
 #include "power_stage_interface.hpp"
 #include "rotor_system.hpp"
@@ -39,6 +40,7 @@ void SlowUpdate::Init(const settings::NvmSettings& settings,
                       const hardware::HardwareInterface& hardware) noexcept {
   isr_ = &isr;
   hardware_ = &hardware;
+  sense_delays_ = hardware.GetSenseDelays();
 
   // --- PMSM flux observer parameters ---
   flux_obs.Init(settings);
@@ -53,6 +55,32 @@ void SlowUpdate::Init(const settings::NvmSettings& settings,
 
   // Initial flux setpoint: d-axis = nominal ψ_PM, q-axis = 0
   flux_setpoint_ = {settings.flux_pm, unit::MagneticFlux{}};
+
+  motor_type_ = settings.motor_type;
+  // EESM: no field until the excitation module reports one.
+  field_flux_.Write(unit::MagneticFlux{});
+  slip_.Write(unit::AngularVelocity{});
+  rotor_flux_.Write(unit::MagneticFlux{});
+  asm_obs.R_s = settings.asm_r_s;
+  asm_obs.R_r = settings.asm_r_r;
+  asm_obs.L_s = settings.asm_l_s;
+  asm_obs.L_r = settings.asm_l_r;
+  asm_obs.L_m = settings.asm_l_m;
+  asm_obs.g_i = settings.asm_obs_g_i;
+  asm_obs.g_flux = settings.asm_obs_g_flux;
+  asm_obs.Reset();
+  asm_flux_reference_ = settings.asm_flux_psi_r;
+  field_speed_ = unit::AngularVelocity{};
+  last_flux_angle_ = unit::Angle{};
+  rotor_speed_integral_ = unit::AngularVelocity{};
+  if (motor_type_ == system::MotorType::kAsm) {
+    // No torque model for the field frame (UpdateAsm()): no flux, no reluctance.
+    isr.mech_obs.L_d = settings.asm_l_s;
+    isr.mech_obs.L_q = settings.asm_l_s;
+    isr.mech_obs.psi = unit::MagneticFlux{};
+  } else if (motor_type_ == system::MotorType::kEesm) {
+    isr.mech_obs.psi = unit::MagneticFlux{};
+  }
 }
 
 // =============================================================================
@@ -95,18 +123,27 @@ bool SlowUpdate::RunOnce() noexcept {
   // measures them, the flux observer integrates those voltages instead and the
   // speed follows from them; otherwise it has nothing to integrate and starts anew.
   const bool kOutputsOpen = hardware::kPowerStage.GetState() != hardware::PowerStageState::kEnabled;
-  if (!kOutputsOpen) {
-    emf_speed_.Reset();
-    const std::optional<unit::Angle> kFluxError =
-        flux_obs.Calculate(cycle.u_dq, kCurrentDqMean, flux_setpoint_, kDtSlow, mech_obs);
-    if (kFluxError.has_value()) {
-      mech_obs.UpdateAngle(*kFluxError, FluxNoise(mech_obs.omega));
-    }
-  } else if (cycle.phase_voltages_valid && flux_setpoint_.d > unit::MagneticFlux{}) {
-    TrackBackEmf(cycle, kCurrentDqMean);
+  if (motor_type_ == system::MotorType::kAsm) {
+    UpdateAsm(cycle, !kOutputsOpen);
   } else {
-    emf_speed_.Reset();
-    flux_obs.Reset();
+    if (motor_type_ == system::MotorType::kEesm) {
+      const unit::MagneticFlux kField = field_flux_.Read();
+      flux_setpoint_ = {kField, unit::MagneticFlux{}};
+      mech_obs.psi = kField;
+    }
+    if (!kOutputsOpen) {
+      emf_speed_.Reset();
+      const std::optional<unit::Angle> kFluxError =
+          flux_obs.Calculate(cycle.u_dq, kCurrentDqMean, flux_setpoint_, kDtSlow, mech_obs);
+      if (kFluxError.has_value()) {
+        mech_obs.UpdateAngle(*kFluxError, FluxNoise(mech_obs.omega));
+      }
+    } else if (cycle.phase_voltages_valid && flux_setpoint_.d > unit::MagneticFlux{}) {
+      TrackBackEmf(cycle, kCurrentDqMean);  // an EESM only with its field on
+    } else {
+      emf_speed_.Reset();
+      flux_obs.Reset();
+    }
   }
   MeasureCoast(cycle, kOutputsOpen);
   FuseHall(cycle);
@@ -157,9 +194,12 @@ bool SlowUpdate::RunOnce() noexcept {
   const unit::Angle kStep = kOmega * kDtFast;
 
   next.sample = cycle.first_sample + state.timing.steps_per_cycle;
-  next.sc = system::SinCos<unit::Ratio>(kUseForced ? forced_now_.angle : mech_obs.theta);
+  // The measured currents lag by their filter delay: the Park angle is the
+  // angle they show, and the rotation to the output interval longer by as much.
+  const unit::Angle kCurrentLag = kOmega * sense_delays_.current;
+  next.sc = system::SinCos<unit::Ratio>((kUseForced ? forced_now_.angle : mech_obs.theta) - kCurrentLag);
   next.step = system::SinCos<unit::Ratio>(kStep);
-  next.out = system::SinCos<unit::Ratio>(kStep * state.output_delay_steps);
+  next.out = system::SinCos<unit::Ratio>((kStep * state.output_delay_steps) + kCurrentLag);
   next.speed = kOmega;
 
   // -------------------------------------------------------------------------
@@ -168,6 +208,58 @@ bool SlowUpdate::RunOnce() noexcept {
   angles.active.store(kInactive, std::memory_order_release);
   state.observer_pending.store(false, std::memory_order_release);
   return true;
+}
+
+// =============================================================================
+// update_asm — the rotor flux frame of an induction motor
+// =============================================================================
+
+void SlowUpdate::UpdateAsm(const CycleRecord& cycle, const bool powered) noexcept {
+  auto& mech_obs = isr_->mech_obs;
+  const CurrentControlState& state = isr_->state;
+  if (!powered) {
+    asm_obs.Reset();
+    field_speed_ = unit::AngularVelocity{};
+    last_flux_angle_ = unit::Angle{};
+    rotor_speed_integral_ = unit::AngularVelocity{};
+    slip_.Write(unit::AngularVelocity{});
+    rotor_flux_.Write(unit::MagneticFlux{});
+    return;
+  }
+  // Slip from the last flux estimate: omega_slip = R_r / L_r * L_m i_q / |psi_r| (electrical). While the
+  // flux builds up, at least half the reference counts, so a small estimate gives no runaway slip.
+  constexpr unit::MagneticFlux kMinFlux = 1.0_mWb;
+  const unit::MagneticFlux kSlipFlux = unit::Max(asm_obs.flux_magnitude, asm_flux_reference_ * 0.5F);
+  unit::AngularVelocity slip;
+  if (kSlipFlux > kMinFlux) {
+    slip = ((asm_obs.R_r / asm_obs.L_r) * ((asm_obs.L_m * cycle.i_dq_mean.q) / kSlipFlux)) * 1.0_rad;
+  }
+  // Speed adaptation of the full-order observer (Kubota): the current error crossed with the estimated rotor
+  // flux drives the rotor speed estimate, so the rotor speed is observed instead of assumed. The field turns
+  // at the rotor speed plus the slip; its angle is the flux angle (Atan2, no libm).
+  const uint8_t kSteps = state.timing.steps_per_cycle;
+  for (uint8_t k = 0U; k < kSteps; ++k) {
+    const system::Stator<unit::Current>& measured = cycle.i_ab_samples[k];
+    const unit::Torque kCross = ((measured.alpha - asm_obs.i_alpha_hat) * asm_obs.psi_r_beta) -
+                                ((measured.beta - asm_obs.i_beta_hat) * asm_obs.psi_r_alpha);
+    rotor_speed_integral_ = rotor_speed_integral_ + (kCross * speed_ki_ * state.dt_fast);
+    const unit::AngularVelocity kRotorSpeed = rotor_speed_integral_ + (kCross * speed_kp_);
+    asm_obs.Estimate(cycle.u_dq.ToStator(cycle.sc[k]), measured, kRotorSpeed, state.dt_fast);
+  }
+  const unit::AngularVelocity kRotorSpeed = rotor_speed_integral_;
+  if (asm_obs.flux_magnitude > asm_flux_reference_ * 0.5F && asm_obs.flux_magnitude > kMinFlux) {
+    field_speed_ = kRotorSpeed + slip;
+  } else {
+    // While the flux builds up its angle is the direction of the magnetizing current.
+    field_speed_ = kRotorSpeed;
+  }
+  last_flux_angle_ = asm_obs.flux_angle;
+  const unit::Angle kFrame = (asm_obs.flux_magnitude > kMinFlux) ? asm_obs.flux_angle : mech_obs.theta;
+  // The observer state refers to the start of the next cycle; Predict() then adds omega dt_slow.
+  mech_obs.Reset(observer::WrapAngle(kFrame - (field_speed_ * state.dt_slow)), field_speed_);
+  slip = field_speed_ - kRotorSpeed;
+  slip_.Write(slip);
+  rotor_flux_.Write(asm_obs.flux_magnitude);
 }
 
 // =============================================================================
@@ -222,6 +314,24 @@ void SlowUpdate::TrackBackEmf(const CycleRecord& cycle,
   const uint8_t kSteps = isr_->state.timing.steps_per_cycle;
   const std::span<const system::Stator<unit::Voltage>> kSamples{cycle.u_ab_samples.data(), kSteps};
 
+  const std::optional<observer::BackEmfSpeed::Measurement> kSpeed =
+      emf_speed_.Update(kSamples, flux_setpoint_.d);
+  if (!kSpeed.has_value()) {
+    return;
+  }
+  if (kSpeed->upper_bound) {
+    // Too little back-EMF for an angle: the flux observer starts anew, as
+    // without the sense; the voltages still bound the speed, so an estimate
+    // beyond the bound is pulled to it.
+    flux_obs.Reset();
+    if (Abs(mech_obs.omega) > kSpeed->speed) {
+      const unit::AngularVelocity kBound =
+          mech_obs.omega > unit::AngularVelocity{} ? kSpeed->speed : -kSpeed->speed;
+      mech_obs.UpdateSpeed(kBound - mech_obs.omega, kSpeed->variance);
+    }
+    return;
+  }
+
   // The flux observer turns its voltage into the stator frame with the
   // estimate it reads now, the angle at the cycle's first sample, and compares
   // the integrated flux with that angle. The samples are in the stator frame
@@ -229,23 +339,20 @@ void SlowUpdate::TrackBackEmf(const CycleRecord& cycle,
   // its last sample, (N - 1/2) steps after the first. Their mean turned into
   // the frame of the estimate at that instant makes the flux the observer
   // integrates the flux at the first sample, so the estimate settles on the
-  // angle of the samples, as the control steps use it.
+  // angle at the samples. The measured voltages lag by their filter delay:
+  // their flux is that much earlier.
   system::Stator<unit::Voltage> voltage_sum{0.0F, 0.0F};
   for (const auto& sample : kSamples) {
     voltage_sum = voltage_sum + sample;
   }
-  const unit::Time kFluxTime = isr_->state.dt_fast * (static_cast<float>(kSteps) - 0.5F);
+  const unit::Time kFluxTime =
+      (isr_->state.dt_fast * (static_cast<float>(kSteps) - 0.5F)) - sense_delays_.phase_voltage;
   const system::Rotor<unit::Voltage> kVoltageDq =
       (voltage_sum / static_cast<float>(kSteps))
           .ToRotor(system::SinCos<unit::Ratio>(mech_obs.theta + (mech_obs.omega * kFluxTime)));
   const std::optional<unit::Angle> kFluxError =
       flux_obs.Calculate(kVoltageDq, current_dq, flux_setpoint_, isr_->state.dt_slow, mech_obs);
-
-  const std::optional<observer::BackEmfSpeed::Measurement> kSpeed =
-      emf_speed_.Update(kSamples, flux_setpoint_.d);
-  if (kSpeed.has_value()) {
-    mech_obs.UpdateSpeed(kSpeed->speed - mech_obs.omega, kSpeed->variance);
-  }
+  mech_obs.UpdateSpeed(kSpeed->speed - mech_obs.omega, kSpeed->variance);
   if (kFluxError.has_value()) {
     mech_obs.UpdateAngle(*kFluxError, FluxNoise(mech_obs.omega));
   }
@@ -307,8 +414,8 @@ void SlowUpdate::FuseHall(const CycleRecord& cycle) noexcept {
   while (count < events.size() && hardware_->PopHallEvent(events[count])) {
     ++count;
   }
-  if (!hall.Enabled()) {
-    return;  // taken anyway, so the queue of the platform never overflows
+  if (!hall.Enabled() || motor_type_ == system::MotorType::kAsm) {
+    return;  // taken anyway, so the queue of the platform never overflows; an ASM's Hall is not its field
   }
   constexpr unit::Time kTickPeriod = 1.0_s / static_cast<float>(hardware::kTimestampFrequency);
   hall.Update(std::span<const observer::HallEvent>{events.data(), count},

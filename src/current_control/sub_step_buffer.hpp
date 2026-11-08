@@ -47,14 +47,15 @@ struct AngleReference {
   /// Sample counter (CurrentControlState::samples) of the sample `sc` belongs to.
   uint32_t sample{0U};
 
-  /// Park angle at that sample.
+  /// Park angle at that sample: the angle its measured currents show (the
+  /// estimate less the rotation over the current filter delay).
   system::SinCos<unit::Ratio> sc;
 
   /// Rotation over one control step (omega x dt_fast).
   system::SinCos<unit::Ratio> step;
 
-  /// Rotation from a sample to the middle of the interval its duties apply
-  /// to (omega x output delay, docs/hotpath_plan.md D4).
+  /// Rotation from the Park angle to the middle of the interval the duties
+  /// apply to (omega x (output delay + current filter delay), docs/hotpath_plan.md D4).
   system::SinCos<unit::Ratio> out;
 
   /// Electrical speed of the reference: the observer's estimate, or the

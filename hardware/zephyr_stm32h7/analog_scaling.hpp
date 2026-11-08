@@ -25,6 +25,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <numbers>
 #include "foc_stm32h7_dt.hpp"
 #include "units.hpp"
 
@@ -69,6 +70,35 @@ inline constexpr unit::Current kCurrentPerCount =
 
 /// DC-link voltage of one count: the resolution of the DC-link channel.
 inline constexpr unit::Voltage kVoltagePerCount = CountsToVoltage(1U);
+
+// The delays of the analog filters, from the devicetree (SenseDelays).
+using unit::operator""_s;
+
+/// Time constant of an RC low pass of @p ohm and @p picofarad.
+[[nodiscard]] constexpr unit::Time RcTime(const float ohm, const float picofarad) noexcept {
+  return 1.0_s * (ohm * picofarad * 1.0e-12F);
+}
+
+/// Delay of the phase currents: the amplifier's bandwidth and the RC filter.
+inline constexpr unit::Time kCurrentFilterDelay =
+    (foc_stm32h7::kCurrentAmplifierBandwidthHz > 0U
+         ? 1.0_s / (2.0F * std::numbers::pi_v<float> *
+                    static_cast<float>(foc_stm32h7::kCurrentAmplifierBandwidthHz))
+         : unit::Time{}) +
+    RcTime(static_cast<float>(foc_stm32h7::kCurrentFilterOhm),
+           static_cast<float>(foc_stm32h7::kCurrentFilterPf));
+
+/// Delay of the phase voltages: the ladder of the divider (its source resistance with the capacitor
+/// across the bottom resistor) and the RC filter, at low frequency its Elmore delay
+/// R_th C_1 + (R_th + R_2) C_2.
+inline constexpr unit::Time kPhaseVoltageFilterDelay = [] {
+  constexpr float kTop = static_cast<float>(foc_stm32h7::kDividerTopOhm);
+  constexpr float kBottom = static_cast<float>(foc_stm32h7::kDividerBottomOhm);
+  constexpr float kSource = kTop * kBottom / (kTop + kBottom);
+  return RcTime(kSource, static_cast<float>(foc_stm32h7::kDividerFilterPf)) +
+         RcTime(kSource + static_cast<float>(foc_stm32h7::kPhaseVoltageFilterOhm),
+                static_cast<float>(foc_stm32h7::kPhaseVoltageFilterPf));
+}();
 
 static_assert(CountsToCurrent(static_cast<uint32_t>(kCurrentZeroCounts)) == unit::Current{});
 static_assert(kCurrentPerCount > unit::Current{});

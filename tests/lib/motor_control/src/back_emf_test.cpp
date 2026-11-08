@@ -92,12 +92,13 @@ ZTEST(back_emf_speed, test_follows_a_reversal) {
   UNIMOC_EXPECT_NEAR(kReversed.speed, -600.0_rad_per_s, 0.6_rad_per_s);
 }
 
-ZTEST(back_emf_speed, test_below_the_band_the_motor_stands) {
+ZTEST(back_emf_speed, test_below_the_band_the_speed_is_bounded) {
   BackEmfSpeed meter;
   // 10 rad/s give 0.1 V, below the band of 0.3 V.
   const BackEmfSpeed::Measurement kSlow = RunSpeed(meter, 10.0F, 5U);
-  zexpect_equal(kSlow.speed, AngularVelocity{});
+  zexpect_true(kSlow.upper_bound, "below the band the voltages only bound the speed");
   const AngularVelocity kBand = (meter.GetParameters().min_back_emf / kFlux) * 1.0_rad;
+  UNIMOC_EXPECT_FLOAT_EQ(kSlow.speed, kBand);
   UNIMOC_EXPECT_FLOAT_EQ(kSlow.variance, kBand * kBand);
 }
 

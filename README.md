@@ -74,18 +74,31 @@ Outputs open (disengaged, tripped): the flux observer integrates the measured
 phase voltages, the back-EMF of the open terminals, and their magnitude and
 sense of rotation give the speed, so the estimate stays with a coasting motor
 (also reversed or stopped) and the next engage starts from the right angle
-and speed. Below about 0.3 V of back-EMF the motor counts as standing.
+and speed. Below about 0.3 V of back-EMF the voltages only bound the speed.
+The filter delays of the current and voltage sense (foc0) are compensated.
 
 ### ASM — Asynchronous (Induction) Motor
-Squirrel-cage induction motors.
-Control path: AsmFluxObserver (Luenberger) → AsmFluxController (PI) → MechanicalObserver (shared PLL) → SVM.
+Squirrel-cage induction motors, sensorless (`unimoc.motor.type` 1, decided 2026-11-08: sensorless first).
+Control path: AsmFluxObserver (full-order, current model with the stator current correction
+`unimoc.observer.asm_flux.g_i`; `g_flux` is 0 by default) with a speed adaptation (current error
+crossed with the rotor flux) → the rotor flux angle (libm-free `Atan2`) is the field frame and the
+adapted rotor speed plus the slip its speed → AsmFluxController (`unimoc.control.asm_flux.*`, flux
+reference `psi_r`) sets i_d → SVM. Until the flux reaches half its reference the frame stands. The Hall
+sensors are not fused (they see the rotor, not the field). The outer loop reports the rotor speed.
 
 ### EESM — Electrically Excited Synchronous Machine
-Wound-rotor synchronous motors with external excitation (slip-rings or brushless exciter).
-Stator control path identical to PMSM.  Additionally:
-- **ExcitationController** — PI loop on rotor current I_f (CurrentMode) or flux ψ_f = L_m · I_f (FluxMode).
-- **ExcitationObserver** — first-order low-pass filter on measured I_f → adaptive ψ_f estimate fed into MTPA.
-- Excitation setpoint and mode received via Cyphal subject.
+Wound-rotor synchronous motors (`unimoc.motor.type` 2). The field winding is fed by a separate
+excitation module on the bus (docs/system_plan.md, section 5.2.1), which runs the field current loop:
+- The drive publishes `unimoc.excitation.Command.0.1` (`uavcan.pub.excitation_command.id`, 100 Hz):
+  the field current of its operating point (`unimoc.control.excitation.i_f_max`, reduced where the
+  field's back-EMF reaches 0.95 V_dc / sqrt(3), at least `i_f_min`), enabled while engaged.
+- A field current setpoint on `uavcan.sub.excitation_setpoint.id`
+  (`uavcan.si.unit.electric_current.Scalar.1.0`) overrides it while fresh.
+- The module's `unimoc.excitation.Status.0.1` (`uavcan.sub.excitation_status.id`) gives the measured
+  field current: psi_f = L_m i_f (`unimoc.control.excitation.L_m`) is the flux of the observer and the
+  torque constant. Without a fresh status the drive does not engage; a lost status or a module fault
+  disengages it.
+- `native_sim` runs a simulated module in process (`hardware/zephyr_sim/sim_excitation.hpp`).
 
 ---
 
@@ -163,8 +176,12 @@ interfaces and the simulation registers are platform specific.
 > `unimoc.lib.cyphal` and `unimoc.sim.cyphal_drive`, and by hand with yakut).
 > Jacobi and the NUCLEO-H743ZI build with the node on FDCAN1 but have not
 > run on a board; CAN FD frames run at 1 Mbit/s without bit rate switch
-> (`boards/unimoc/jacobi/unimoc_jacobi.dts`).  Not implemented
-> yet: firmware update over Cyphal.  Speed, position and UDRAL servo
+> (`boards/unimoc/jacobi/unimoc_jacobi.dts`).  The firmware update over
+> Cyphal (`BEGIN_SOFTWARE_UPDATE`, `uavcan.file.Read` from the commanding
+> node, the UNIMOC image header checked, `unimoc.update.*`) runs on
+> `native_sim` into a RAM bank; the boards refuse it until flash bank 2 and
+> the bootloader exist.  The simulation serves its register description
+> file as `registers.json` over `uavcan.file.Read`.  Speed, position and UDRAL servo
 > setpoints run the outer loop in the control thread; the startup FSM runs
 > over the commissioning commands and status message (Hardware Bring-Up Guide).  The cymon traces run on both
 > platforms; their cost in the control cycle is not yet measured on the board.
@@ -200,7 +217,7 @@ takes effect after a restart.
 ### Settings via registers
 
 Every persistent setting (`ForEachRegister()` in
-`lib/settings/settings_registers.hpp`, 132 registers) is a Cyphal register
+`lib/settings/settings_registers.hpp`, 144 registers) is a Cyphal register
 under the same name; `yakut rl <node>` lists them.  Units and floats are
 `real32[1]`, counts and enums `natural8[1]`, `uavcan.node.id` and the port-IDs
 `natural16[1]`, the name a string; writes accept any numeric type.  A write is
@@ -330,6 +347,33 @@ it engages again only after a readiness other than `ENGAGED` (re-arm).
 `STANDBY` while disengaged acknowledges a latched trip or fault without
 releasing the outputs; the settings can only be stored without one.
 
+### Board inputs and the accelerator
+
+The drive reads the slow inputs of its board every spin
+(`hardware/board_inputs_interface.hpp`); a board without an input does not
+gate on it (the NUCLEO-H743ZI has none):
+
+- Power board detect (Jacobi: `PWR_DET` on PE4, low while the power board is plugged in) and the
+  gate driver supply +12P (Jacobi: PC5 through 10k / 2k2). Without the power board or below the engage
+  limit of the gate supply (Jacobi: 10.5 V) the drive does not engage, reports the power stage `BLOCKED`
+  (telemetry, drive status, heartbeat) and the health `WARNING`. While engaged, the loss of the power
+  board or a gate supply below the trip limit (10 V) for 5 ms trips the power stage: a latched fault,
+  re-armed like a trip. The limits are the devicetree property `gate-supply-millivolts` of `foc0`.
+- Read-only registers: `unimoc.board.power_board`, `unimoc.board.gate_supply` [V],
+  `unimoc.board.accelerator` [V], `unimoc.board.brake` [V] (NaN without the input) and `unimoc.board.ready`.
+- Accelerator and brake lever (Jacobi: J601, `AIN_ACC` on PC0 and `AIN_DCC` on PC4, sensors on 3.3 V):
+  with `unimoc.accel.mode` 1 (accelerator) or 2 (with the brake lever) a drive without the e-bike takes
+  its torque from them, as the e-bike does from the pedals. The accelerator gives up to
+  `unimoc.accel.torque_max`, the brake lever wins and brakes regeneratively up to
+  `unimoc.accel.brake_torque_max` against the motion, fading out below 10 rad/s; the travel is
+  calibrated by `unimoc.accel.throttle_min`/`throttle_max` and `brake_min`/`brake_max` [V]. The control
+  engages the drive on demand and holds it for `unimoc.accel.engage_hold`; `STANDBY` and `SLEEP`
+  release it until both inputs read released, as a trip or a refused engage do. A sensor voltage 0.3 V outside its calibrated range (a broken wire or a short)
+  drops the torque until both inputs read released again.
+- `native_sim`: the board inputs are registers (volatile): `unimoc.sim.power_board`,
+  `unimoc.sim.gate_supply` [V, 12 at the start], `unimoc.sim.accelerator` and `unimoc.sim.brake`
+  [V, 0.8 at the start].
+
 ### E-bike
 
 With `CONFIG_UNIMOC_EBIKE=y` (off by default) the drive becomes the motor of a
@@ -348,12 +392,21 @@ T9N) and the display (KT-LCD8, Kunteng protocol) feed the assist law (`lib/ebike
 - Registers (all persistent): `unimoc.ebike.pulses_per_rev`, `wheel_circumference` [m], `gear_ratio`,
   `battery_cells`, `nominal_voltage`, `gain_1` to `gain_5`, `power_scale`, `max_ratio`, `torque_ratio`,
   `torque_deadband`, `min_cadence`, `speed_taper`, `rise_time`, `fall_time`, `engage_hold`, `rearm_time`,
-  `display_timeout`; the direction is `unimoc.cart.reversed`. A change while engaged waits for the disengage. The
-  defaults are untuned starting values: try them on the bench first.
+  `display_timeout`, `torque_offset` [N m]; the direction is `unimoc.cart.reversed`. A change while engaged
+  waits for the disengage. The defaults are untuned starting values: try them on the bench first.
+- Torque sensor offset: `unimoc.ebike.torque_offset` is the reading at zero load the pedal observer starts
+  with; it learns the offset while the crank stands still. While the drive is disengaged and not requested, the
+  drive saves the learned value once it moved 0.1 N m, at most once a minute. If other register changes are not
+  saved yet, the offset only changes in RAM and goes to flash with them at the next `STORE_PERSISTENT_STATES`.
 - Hardware: none at the moment; a drive with a crank sensor and a display port adds an `ebike_io.cpp` to its platform.
 - `native_sim`: a simulated rider and display (`hardware/zephyr_sim/sim_ebike.hpp`) drive the control in the
   tests (`sim_cyphal_drive` attaches the control itself); the simulation app keeps the bus readiness for the
-  pytest integration tests, so `CONFIG_UNIMOC_EBIKE` is off there too.
+  pytest integration tests, so `CONFIG_UNIMOC_EBIKE` is off there too. Built with it
+  (`-DCONFIG_UNIMOC_EBIKE=y`, the pytest scenario `unimoc.app.cyphal_integration.ebike`), the simulated rider
+  and display are registers (volatile): `unimoc.sim.pedal_cadence` [rad/s, 0: standstill],
+  `unimoc.sim.pedal_torque` [N m, at standstill the sensor offset], `unimoc.sim.display_on` (bit: the display
+  polls), `unimoc.sim.display_level` (0 to 7), `unimoc.sim.display_max_speed` [km/h, 10 to 63],
+  `unimoc.sim.display_light` and the read-only `unimoc.sim.display_frames` (status frames the drive answered).
 
 ### Readiness per drive and the heartbeat status
 
@@ -374,12 +427,12 @@ without any other subscription (`cyphal::vendor_status`,
 
 | Bits | Meaning |
 |---|---|
-| 0 to 2 | Power stage: 0 disabled, 1 enabled, 2 fault, 3 blocked (external enable missing) |
+| 0 to 2 | Power stage: 0 disabled, 1 enabled, 2 fault, 3 blocked (external enable missing, or the board inputs refuse the engage) |
 | 3 | Engaged |
 | 4 | Trip latched (overcurrent or overvoltage); `STANDBY` acknowledges it |
 | 5 | Emergency stop latched until a restart (health CAUTION as well) |
 | 6 | Settings wait for the disengage (`unimoc.settings.pending`) |
-| 7 | Local control: the e-bike control engages the drive, the bus readiness does not |
+| 7 | Local control: the e-bike or the accelerator engages the drive, the bus readiness does not |
 
 ### Commands (uavcan.node.ExecuteCommand)
 

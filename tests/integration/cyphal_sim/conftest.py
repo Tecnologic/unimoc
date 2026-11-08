@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import asyncio
+import fcntl
 import logging
 import os
 import tempfile
@@ -43,10 +44,14 @@ def _compile_dsdl() -> None:
     stamp = _GENERATED / ".stamp"
     sources = [*(_REPO / "dsdl").rglob("*.dsdl"), *_CYMON_DSDL.rglob("*.dsdl")]
     newest = max(path.stat().st_mtime for path in sources)
-    if not stamp.exists() or stamp.stat().st_mtime < newest:
-        for namespace in _NAMESPACES:
-            pycyphal.dsdl.compile(namespace, [str(path) for path in _NAMESPACES], _GENERATED)
-        stamp.touch()
+    _GENERATED.mkdir(parents=True, exist_ok=True)
+    # Twister runs the pytest scenarios in parallel: one compiles, the others wait for it.
+    with open(_GENERATED.parent / "unimoc_pycyphal.lock", "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        if not stamp.exists() or stamp.stat().st_mtime < newest:
+            for namespace in _NAMESPACES:
+                pycyphal.dsdl.compile(namespace, [str(path) for path in _NAMESPACES], _GENERATED)
+            stamp.touch()
     sys.path.insert(0, str(_GENERATED))
     sys.modules.pop("unimoc", None)
     sys.modules.pop("cymon", None)
@@ -107,6 +112,11 @@ def configure_test_motor(client: SimClient) -> None:
     for name, value in TEST_MOTOR.items():
         assert client.write(name, value) is not None, name
     client.hold(0.2, STANDBY)
+
+
+def pytest_configure(config) -> None:
+    config.addinivalue_line(
+        "markers", "ebike: needs the e-bike build (CONFIG_UNIMOC_EBIKE, scenario unimoc.app.cyphal_integration.ebike)")
 
 
 @pytest.fixture(scope="session")

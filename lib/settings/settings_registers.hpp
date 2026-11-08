@@ -171,6 +171,7 @@ void ForEachRegister(const Visitor& visit, Settings&... settings) {
   visit(Setting(reg::kAsmFluxKi, "Integral gain of the ASM flux controller", kAny, "A/(Wb s)"), settings.asm_flux_ki...);
   visit(Setting(reg::kAsmFluxIDMin, "Smallest d-axis current of the ASM flux controller", AtLeast(0.0F)), settings.asm_flux_i_d_min...);
   visit(Setting(reg::kAsmFluxIDMax, "Largest d-axis current of the ASM flux controller, at least i_d_min", AtLeast(0.0F)), settings.asm_flux_i_d_max...);
+  visit(Setting(reg::kAsmFluxPsiR, "Rotor flux reference of the ASM flux controller", AtLeast(0.0F)), settings.asm_flux_psi_r...);
   visit(Setting(reg::kFwVMax, "Voltage vector magnitude from which field weakening starts", AtLeast(0.0F)), settings.fw_v_max...);
   visit(Setting(reg::kFwKi, "Integral gain of the field weakening", kAny, "A/(V s)"), settings.fw_ki...);
   visit(Setting(reg::kFwIDMin, "Most negative d-axis current of the field weakening"), settings.fw_i_d_min...);
@@ -235,6 +236,9 @@ void ForEachRegister(const Visitor& visit, Settings&... settings) {
   visit(AfterRestart(reg::kPubDriveStatusId, "Cart drive status subject; 65535: off", kPortId), settings.pub_drive_status_id...);
   visit(AfterRestart(reg::kPubCommissioningId, "Commissioning status subject (startup aid); 65535: off", kPortId), settings.pub_commissioning_id...);
   visit(AfterRestart(reg::kPubHomingStateId, "Homing state subject; 65535: off", kPortId), settings.pub_homing_state_id...);
+  visit(AfterRestart(reg::kPubExcitationCommandId, "EESM field current command subject to the excitation module; 65535: off", kPortId), settings.pub_excitation_command_id...);
+  visit(AfterRestart(reg::kSubExcitationStatusId, "EESM excitation module status subject; 65535: off", kPortId), settings.sub_excitation_status_id...);
+  visit(AfterRestart(reg::kSubExcitationSetpointId, "EESM field current setpoint subject (overrides the drive's field current); 65535: off", kPortId), settings.sub_excitation_setpoint_id...);
   visit(Setting(reg::kCartWheel, "Cart wheel of this drive (WheelCommand.WHEEL_*)", Between(0.0F, 3.0F)), settings.cart_wheel...);
   visit(Setting(reg::kCartReversed, "1: positive rotor torque drives the cart backward", Between(0.0F, 1.0F)), settings.cart_reversed...);
   visit(Setting(reg::kCartTimeout, "Timeout of wheel command, pedal state and battery status; at most the command timeout", AtLeast(0.0F)), settings.cart_timeout...);
@@ -264,6 +268,15 @@ void ForEachRegister(const Visitor& visit, Settings&... settings) {
   visit(Setting(reg::kEbikeEngageHold, "E-bike: the drive stays engaged this long after the assist ended", AtLeast(0.0F)), settings.ebike_engage_hold...);
   visit(Setting(reg::kEbikeRearmTime, "E-bike: after a fault the pedals stand still this long before the drive engages again", AtLeast(0.0F)), settings.ebike_rearm_time...);
   visit(Setting(reg::kEbikeDisplayTimeout, "E-bike: without a display request for this long the display counts as lost", AtLeast(0.0F)), settings.ebike_display_timeout...);
+  visit(Setting(reg::kEbikeTorqueOffset, "E-bike torque sensor reading at zero load; learned at standstill and stored by the drive", Between(-10.0F, 10.0F)), settings.ebike_torque_offset...);
+  visit(Setting(reg::kAccelMode, "Accelerator inputs: 0 off, 1 accelerator, 2 accelerator and brake lever (not in the e-bike build)", Between(0.0F, 2.0F)), settings.accel_mode...);
+  visit(Setting(reg::kAccelThrottleMin, "Accelerator sensor voltage when released", Between(0.0F, 3.3F)), settings.accel_throttle_min...);
+  visit(Setting(reg::kAccelThrottleMax, "Accelerator sensor voltage when fully pressed", Between(0.0F, 3.3F)), settings.accel_throttle_max...);
+  visit(Setting(reg::kAccelBrakeMin, "Brake lever sensor voltage when released", Between(0.0F, 3.3F)), settings.accel_brake_min...);
+  visit(Setting(reg::kAccelBrakeMax, "Brake lever sensor voltage when fully pulled", Between(0.0F, 3.3F)), settings.accel_brake_max...);
+  visit(Setting(reg::kAccelTorqueMax, "Drive torque at the fully pressed accelerator", AtLeast(0.0F)), settings.accel_torque_max...);
+  visit(Setting(reg::kAccelBrakeTorqueMax, "Regenerative braking torque at the fully pulled brake lever; fades out at standstill", AtLeast(0.0F)), settings.accel_brake_torque_max...);
+  visit(Setting(reg::kAccelEngageHold, "Accelerator: the drive stays engaged this long after both inputs were released", AtLeast(0.0F)), settings.accel_engage_hold...);
   // clang-format on
 }
 

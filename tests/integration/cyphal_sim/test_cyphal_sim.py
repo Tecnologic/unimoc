@@ -3,13 +3,16 @@
 # The native_sim drive as a Cyphal node, tested from pycyphal over the slcan
 # pseudo terminal: node services, registers, arming, setpoints, telemetry,
 # the simulation registers, diagnostics, traces (cymon), persistence across
-# a restart and the register description file (--describe-registers).
+# a restart, the register description file (--describe-registers and over
+# uavcan.file.Read) and the firmware update into the simulated bank.
 # The tests share one simulation process and run in file order.
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import math
+import os
 import subprocess
 from pathlib import Path
 
@@ -30,6 +33,7 @@ from sim_client import (
     STANDBY,
     VENDOR_EMERGENCY_STOP,
     VENDOR_ENGAGED,
+    VENDOR_LOCAL_CONTROL,
     VENDOR_SETTINGS_PENDING,
     VENDOR_TRIP_LATCHED,
     SimClient,
@@ -56,6 +60,19 @@ def value_type(value) -> tuple[str, int]:
         if field is not None:
             return name, (0 if name == "empty" else len(field.value))
     raise AssertionError(f"unknown register value {value}")
+
+
+def load_image_script():
+    """scripts/make_firmware_image.py, the tool that wraps a binary into an update image."""
+    path = Path(__file__).resolve().parents[3] / "scripts" / "make_firmware_image.py"
+    spec = importlib.util.spec_from_file_location("make_firmware_image", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+BEGIN_SOFTWARE_UPDATE = 65533
+UPDATE_DOWNLOADING, UPDATE_READY, UPDATE_FAILED = 1, 2, 3
 
 
 def describe_registers(dut, directory: Path) -> dict:
@@ -120,6 +137,20 @@ def test_registers_list_read_write_and_validation(sim: SimClient):
     assert sim.write("uavcan.pub.cymon_trigger.id", natural16(65535)) == 65535
 
 
+def test_every_port_has_a_type_register(sim: SimClient):
+    """Each port-ID register `uavcan.<pub|sub|cln|srv>.<name>.id` has its read-only `.type` (docs/gui_plan.md)."""
+    names = set(sim.register_names())
+    ports = [name for name in names
+             if name.split(".")[:2][-1] in ("pub", "sub", "cln", "srv") and name.endswith(".id")]
+    assert len(ports) >= 20
+    for port in ports:
+        type_name = port[: -len(".id")] + ".type"
+        assert type_name in names, f"{port} has no {type_name}"
+        response = sim.access(type_name)
+        assert not response.mutable, type_name
+        assert response.value.string is not None and response.value.string.value.tobytes(), type_name
+
+
 def test_registers_json_describes_every_register_on_the_bus(dut, sim: SimClient, tmp_path: Path):
     described = describe_registers(dut, tmp_path)
     assert described["schema"] == 1
@@ -147,7 +178,7 @@ def test_registers_json_describes_every_register_on_the_bus(dut, sim: SimClient,
 
     # The persistent settings, among them the e-bike registers past the 128th.
     settings = [entry for entry in entries if entry["persistent"] and entry["mutable"]]
-    assert len(settings) == 131
+    assert len(settings) == 144
     assert "unimoc.ebike.display_timeout" in by_name
 
 
@@ -384,6 +415,60 @@ def test_dc_link_overvoltage_trips_the_drive(sim: SimClient):
     sim.hold(0.2, STANDBY)  # acknowledges the trip
     sim.expect(sim.telemetry, lambda t: t.power_stage == 0)  # DISABLED
     sim.expect(sim.heartbeat, lambda h: h.vendor_specific_status_code == 0 and h.health.value == 0)
+
+
+def test_board_inputs_gate_the_engage(sim: SimClient):
+    # Without the power board (PWR_DET): no engage, BLOCKED and WARNING.
+    mark = sim.record_mark()
+    assert sim.write("unimoc.sim.power_board", real(0.0)) == 0
+    sim.expect_record("board not ready: no power board", mark)
+    assert sim.read("unimoc.board.power_board") == 0
+    assert sim.read("unimoc.board.ready") == 0
+    sim.hold(0.3, ENGAGED, sim.current_setpoint(0.0, 1.0))
+    telemetry = sim.expect(sim.telemetry, lambda t: t.power_stage == 3)  # BLOCKED
+    assert not telemetry.engaged
+    assert sim.next(sim.heartbeat).health.value == 3  # WARNING
+    assert sim.write("unimoc.sim.power_board", real(1.0)) == 1
+    sim.hold(0.2, STANDBY)  # the refused engage needs a re-arm
+    sim.hold(0.2, ENGAGED, sim.current_setpoint(0.0, 1.0))
+    sim.expect(sim.telemetry, lambda t: t.engaged)
+
+    # The gate driver supply +12P below its trip limit (10 V) trips the engaged drive.
+    assert sim.read("unimoc.board.gate_supply") == pytest.approx(12.0)
+    mark = sim.record_mark()
+    assert sim.write("unimoc.sim.gate_supply", real(9.0)) == pytest.approx(9.0)
+    telemetry = sim.expect(sim.telemetry, lambda t: not t.engaged)
+    sim.expect_record("disengaged: gate supply undervoltage", mark)
+    assert sim.write("unimoc.sim.gate_supply", real(12.0)) == pytest.approx(12.0)
+    sim.hold(0.2, STANDBY)  # acknowledges the trip
+    sim.expect(sim.telemetry, lambda t: t.power_stage == 0)  # DISABLED
+    sim.expect(sim.heartbeat, lambda h: h.health.value == 0)
+    assert sim.read("unimoc.board.ready") == 1
+
+
+def test_accelerator_is_the_local_control(sim: SimClient):
+    sim.wait(1.2)  # the STANDBY of the test before must not release the accelerator's engage
+    assert sim.write("unimoc.accel.mode", natural8(1)) == 1
+    sim.expect(sim.heartbeat, lambda h: h.vendor_specific_status_code & VENDOR_LOCAL_CONTROL)
+    assert sim.write("unimoc.sim.accelerator", real(2.6)) == pytest.approx(2.6)
+    assert sim.read("unimoc.board.accelerator") == pytest.approx(2.6)
+    sim.expect(sim.telemetry, lambda t: t.engaged)
+    # A Cyphal setpoint overrides the accelerator while the readiness is fresh.
+    sim.hold(0.3, ENGAGED, sim.current_setpoint(0.0, 1.5))
+    telemetry = sim.next(sim.telemetry)
+    assert telemetry.engaged and telemetry.i_q_ref == pytest.approx(1.5, abs=1e-3)
+    assert not sim.next(sim.heartbeat).vendor_specific_status_code & VENDOR_LOCAL_CONTROL
+    assert sim.write("unimoc.sim.accelerator", real(0.8)) == pytest.approx(0.8)
+    sim.wait(0.1)  # ends the readiness stream of hold(): the bus falls silent
+    sim.expect(sim.telemetry, lambda t: not t.engaged, timeout=5.0)  # the readiness timeout
+    # A broken wire (below the released voltage by more than 0.3 V) is reported, no engage.
+    mark = sim.record_mark()
+    assert sim.write("unimoc.sim.accelerator", real(0.1)) == pytest.approx(0.1)
+    sim.expect_record("accelerator or brake sensor out of range", mark)
+    assert not sim.next(sim.telemetry).engaged
+    assert sim.write("unimoc.sim.accelerator", real(0.8)) == pytest.approx(0.8)
+    assert sim.write("unimoc.accel.mode", natural8(0)) == 0
+    sim.expect(sim.heartbeat, lambda h: not h.vendor_specific_status_code & VENDOR_LOCAL_CONTROL)
 
 
 def test_settings_that_need_a_restart_are_reported_while_engaged(sim: SimClient):
@@ -672,6 +757,49 @@ def test_identification_m3_measures_the_flux_by_a_coast_down(sim: SimClient):
         assert sim.write("unimoc.motor.limits.i_max", real(current_before)) == pytest.approx(current_before)
         sim.hold(0.2, STANDBY)  # acknowledges a trip of a failed run
         sim.hold(0.2, SLEEP)
+def test_the_register_description_file_is_served_over_file_read(sim: SimClient):
+    served = json.loads(sim.read_file("registers.json", timeout=10.0))
+    assert served["schema"] == 1
+    assert [entry["name"] for entry in served["registers"]] == sim.register_names()
+    assert "unimoc.update.state" in {entry["name"] for entry in served["registers"]}
+    with pytest.raises(Exception):  # NOT_FOUND
+        sim.read_file("nothing.json")
+
+
+def test_firmware_update_downloads_a_checked_image_into_the_bank(sim: SimClient):
+    images = load_image_script()
+    payload = os.urandom(3000)
+    image = images.make_image(payload, "native_sim", 7, 3, 0x0123ABCD)
+    (sim.file_root / "unimoc.bin").write_bytes(image)
+    assert sim.read("unimoc.update.state") == 0  # idle
+
+    status, output = sim.command_output(BEGIN_SOFTWARE_UPDATE, "unimoc.bin")
+    assert status == 0, output
+    sim.expect_register("unimoc.update.state", lambda state: state == UPDATE_READY, timeout=20.0)
+    assert sim.read("unimoc.update.result") == 0
+    assert sim.read("unimoc.update.received") == len(image)
+    assert list(sim.access("unimoc.update.version").value.natural8.value) == [7, 3]
+    assert sim.next(sim.heartbeat).mode.value == 0  # OPERATIONAL again after the download
+
+
+def test_firmware_update_refuses_a_bad_image(sim: SimClient):
+    images = load_image_script()
+    payload = os.urandom(1500)
+    corrupt = bytearray(images.make_image(payload, "native_sim", 7, 4, 0))
+    corrupt[-1] ^= 0x01
+    (sim.file_root / "corrupt.bin").write_bytes(bytes(corrupt))
+    (sim.file_root / "jacobi.bin").write_bytes(images.make_image(payload, "unimoc_jacobi", 7, 4, 0))
+
+    assert sim.command(BEGIN_SOFTWARE_UPDATE, "corrupt.bin") == 0
+    sim.expect_register("unimoc.update.state", lambda state: state == UPDATE_FAILED, timeout=20.0)
+    assert sim.read("unimoc.update.result") == 7  # CRC
+    assert sim.command(BEGIN_SOFTWARE_UPDATE, "jacobi.bin") == 0
+    sim.expect_register("unimoc.update.state", lambda state: state == UPDATE_FAILED, timeout=20.0)
+    assert sim.read("unimoc.update.result") == 4  # board
+    assert sim.command(BEGIN_SOFTWARE_UPDATE, "missing.bin") == 0
+    sim.expect_register("unimoc.update.state", lambda state: state == UPDATE_FAILED, timeout=20.0)
+    assert sim.read("unimoc.update.file_error") == 2  # NOT_FOUND
+    assert sim.command(BEGIN_SOFTWARE_UPDATE, "") == 4  # BAD_PARAMETER: no path
 
 
 def test_emergency_stop_latches_until_the_restart(sim: SimClient):

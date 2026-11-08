@@ -113,7 +113,7 @@ record.
 | USB | Firmware update (DFU) only, later. The CDC-ACM console and the shell were dropped (2026-10-21): the bench log is on RTT, the log also goes out as `uavcan.diagnostic.Record`. | One operating interface; USB stays the recovery path. |
 | Settings | Cyphal registers on the existing `SettingsStore` (`docs/settings_plan.md`). | Already designed that way. |
 | Fourth half bridge on the 4850 | ~~One auxiliary half bridge per drive~~ (2026-10-23). **Changed 2026-11-03: Jacobi has three phases only**; the EESM excitation is a second module on the bus, the brake chopper stays in the BMS (section 5.2.1). | Keeps the logic board and the power board connector simple. Costs the local chopper: above the back-EMF peak a PMSM keeps charging the DC link through the body diodes after a trip (section 7.1), so the BMS chopper must hold the DC link. |
-| Firmware update | Cyphal file service into flash bank 2 (dual-bank flash: 2 MB H743, `docs/settings_plan.md`); USB DFU as recovery. | Update all nodes over the bus without opening the cart. |
+| Firmware update | Cyphal file service into flash bank 2 (dual-bank flash: 2 MB H743, `docs/settings_plan.md`); USB DFU as recovery. An image carries a UNIMOC header (magic, version, size, board name, CRC32 of the payload), checked after the download, before the bank swap (decided 2026-11-08; signatures come with the bootloader). Status 2026-11-08: the download and the check run on `native_sim` into a RAM bank (`lib/cyphal/file_service.*`, `unimoc.update.*`); the flash writer and the bootloader are open. | Update all nodes over the bus without opening the cart. |
 
 ## 5. Hardware Plan
 
@@ -180,6 +180,22 @@ becomes a second module on the bus that the drive commands over Cyphal; the
 brake chopper of the PMSM case stays in the BMS controller (section 5.5). The
 requirements below (decided 2026-10-23 for a half bridge on the drive) now
 apply to that module.
+
+Decided 2026-11-08 for the drive-to-module link:
+
+- **The field current loop runs in the excitation module**
+  (`ExcitationController`, `ExcitationObserver`). The drive publishes a
+  field current command (`unimoc.excitation.Command.0.1`: field current,
+  enable) and subscribes the module's status (`unimoc.excitation.Status.0.1`:
+  measured field current, field voltage, fault). The `native_sim` platform
+  runs a simulated module that feeds the field voltage of the EESM plant.
+- **The drive decides the field current** from its operating point (the
+  rated field current, reduced in field weakening, within
+  `unimoc.excitation.i_f_min`/`i_f_max`); an excitation setpoint on the bus
+  overrides it while fresh, like the other setpoints (tests, the VDC).
+- **ASM sensorless first:** the induction motor runs without a rotor sensor
+  (an adaptive full-order flux observer, implemented 2026-11-08); a sensored
+  path (Hall or encoder) is a later option.
 
 The role of the extra half bridge follows the motor type (`unimoc.motor.type`):
 
@@ -580,10 +596,10 @@ Not a safety concept; a list of what one must cover.
 7. **Brake resistor:** power and energy rating from the cart mass, top speed
    and longest braking; chopper switch and its cooling.
 8. **Steering assist:** concept, torque sensor, interface (later).
-9. **Fourth half bridge (section 5.2.1):** placement (logic or power board),
-   PWM timer channel and comparator routing, current measurement, field and
-   resistor ratings, de-excitation of the EESM; whether the BMS still needs
-   its own chopper.
+9. ~~**Fourth half bridge (section 5.2.1)**~~: dropped from the drive
+   (2026-11-03, confirmed 2026-11-08); the excitation and chopper are a
+   separate board with its own open points (placement, comparator routing,
+   field and resistor ratings, de-excitation of the EESM).
 
 ## 13. Risks
 
@@ -598,11 +614,13 @@ Not a safety concept; a list of what one must cover.
   the battery state and the bus; covered by the limp-home path, the brake
   chopper and the mechanical emergency brake (section 7.1).
 - **Chopper in hardware:** the comparator-to-timer path of the H743 has to be
-  confirmed in the schematic (BMS and the fourth half bridge of the drives);
+  confirmed in the schematic (BMS and the separate excitation and chopper
+  board);
   otherwise the chopper needs a fast interrupt.
-- **ASM and EESM without a plant model:** the libraries exist, but the
-  simulation and the runtime run the PMSM only; the fourth half bridge and
-  the EESM are first tested in the sim once its plants exist.
+- **ASM and EESM only in the sim:** plants and runtime paths exist since
+  2026-11-08 (sensorless ASM, EESM with a simulated excitation module); no
+  real machine has run on them, and the sensorless ASM at standstill depends
+  on exact motor parameters.
 - **H743 logic board:** the LQFP100 needs more board area than the LQFP64,
   a second hot-path platform is to maintain, and the H7 adds cache, MPU and
   power-supply details (`docs/drive4850_h7_plan.md`).

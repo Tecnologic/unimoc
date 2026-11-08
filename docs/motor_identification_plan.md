@@ -247,8 +247,8 @@ option, cogging, the encoder (none on Jacobi yet; the SPI3 angle sensor pins are
 
 ASM: R_s as M1, the leakage inductance from M2 (at standstill the rotor
 short-circuits it), R_r and L_m from a no-load run and a locked-rotor
-injection. EESM: the field winding (R_f, L_f from a step of the fourth half
-bridge), L_m from the back-EMF at a known field current. Both wait for the
+injection. EESM: the field winding (R_f, L_f from a step of the excitation
+module, a separate board), L_m from the back-EMF at a known field current. Both wait for the
 runtime paths.
 
 ## 5. Firmware

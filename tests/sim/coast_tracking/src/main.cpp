@@ -133,6 +133,7 @@ void Before(void* data) {
   kPowerStage.Disable();
   zassert_equal(sim::Plant().Configure(settings), unimoc::sim::Status::kOk);
   sim::Plant().SetInput(unimoc::sim::SimulationInput{});
+  sim::SetSenseFilters(unimoc::hardware::SenseDelays{});
   sim::Reset();
   zassert_true(unimoc::current_control::StartRuntime(settings, unimoc::hardware::kMotors[0], 60.0_A));
   sim::SetFreeRunning(false);
@@ -157,10 +158,11 @@ ZTEST_F(sim_coast_tracking, test_the_estimate_follows_the_open_terminals) {
   RunMs(300U);
   ExpectTracking(-700.0_rad_per_s, 0.01_rad);
 
-  // The shaft stops: no back-EMF, the speed estimate follows to zero.
+  // The shaft stops: below 0.3 V the voltages only bound the speed (0.3 V / psi = 60 rad/s),
+  // and the estimate is pulled within the bound.
   ImposeSpeed(AngularVelocity{});
   RunMs(200U);
-  zexpect_within(CurrentControlIsr::Instance().mech_obs.omega, AngularVelocity{}, 60.0_rad_per_s);
+  zexpect_within(CurrentControlIsr::Instance().mech_obs.omega, AngularVelocity{}, 65.0_rad_per_s);
 }
 
 ZTEST_F(sim_coast_tracking, test_engages_on_the_coasting_motor_without_a_current_jump) {
@@ -199,6 +201,54 @@ ZTEST_F(sim_coast_tracking, test_the_estimate_follows_after_a_trip) {
   ImposeSpeed(-500.0_rad_per_s);
   RunMs(300U);
   ExpectTracking(-500.0_rad_per_s, 0.01_rad);
+}
+
+namespace {
+
+/// Restarts the controller with sense filters in the plant; it reads their delays.
+void StartWithSenseFilters(const unimoc::settings::NvmSettings& settings,
+                           const unimoc::hardware::SenseDelays& filters) {
+  sim::SetSenseFilters(filters);
+  sim::Reset();
+  zassert_true(unimoc::current_control::StartRuntime(settings, unimoc::hardware::kMotors[0], 60.0_A));
+  sim::SetFreeRunning(false);
+}
+
+}  // namespace
+
+ZTEST_F(sim_coast_tracking, test_the_phase_voltage_filter_delay_is_compensated) {
+  // The Jacobi phase-voltage filters, about 7 us: uncompensated 0.014 rad at 2000 rad/s.
+  StartWithSenseFilters(fixture->settings, unimoc::hardware::SenseDelays{Time{}, 7.2e-6_s});
+  ImposeSpeed(2000.0_rad_per_s);
+  RunMs(300U);
+  ExpectTracking(2000.0_rad_per_s, 0.003_rad);
+}
+
+namespace {
+
+/// The plant's d current at 1000 rad/s, engaged with a q current of 5 A behind a current filter.
+Current DCurrentBehind(const unimoc::settings::NvmSettings& settings, const Time filter) {
+  StartWithSenseFilters(settings, unimoc::hardware::SenseDelays{filter, Time{}});
+  ImposeSpeed(1000.0_rad_per_s);
+  RunMs(300U);
+  CurrentControlIsr::Instance().ClearTrips();
+  zassert_true(kPowerStage.Enable());
+  CurrentControlIsr::Instance().SetCurrentRef(unimoc::system::Rotor<Current>{Current{}, 5.0_A});
+  RunMs(50U);
+  CurrentControlIsr::Instance().SetCurrentRef(unimoc::system::Rotor<Current>{});
+  UNIMOC_EXPECT_NEAR(sim::Plant().Output().rotor_current.q, 5.0_A, 0.1_A);
+  kPowerStage.Disable();
+  return sim::Plant().Output().rotor_current.d;
+}
+
+}  // namespace
+
+ZTEST_F(sim_coast_tracking, test_the_current_filter_delay_is_compensated) {
+  // A slow current filter, 40 us: uncompensated the Park angle lags 0.04 rad at 1000 rad/s and the
+  // plant carries 0.2 A of d current more than without the filter (measured: 0.21 A).
+  const Current kWithout = DCurrentBehind(fixture->settings, Time{});
+  const Current kBehind = DCurrentBehind(fixture->settings, 40.0e-6_s);
+  UNIMOC_EXPECT_NEAR(kBehind, kWithout, 0.05_A);
 }
 
 ZTEST_SUITE(sim_coast_tracking, nullptr, Setup, Before, After, nullptr);

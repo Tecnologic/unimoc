@@ -26,6 +26,7 @@
 #include <zephyr/sys/reboot.h>
 #include <algorithm>
 #include <array>
+#include "board_inputs_interface.hpp"
 #include "current_control_isr.hpp"
 #include "cyphal/canard_transport.hpp"
 #include "cyphal/node.hpp"
@@ -157,11 +158,11 @@ void CyphalThread(void* /*unused*/, void* /*unused*/, void* /*unused*/) {
   info.unique_id = g_unique_id;
   node.SetInfo(info);
 
-  static drive::DriveNode drive{node,
-                                *g_store,
-                                kMotors[0],
-                                drive::DriveHooks{Restart, SettingsApplied},
-                                std::span<const uint8_t>{g_unique_id}};
+  StartBoardInputs();  // power board detect, gate supply, accelerator and brake (board_inputs_interface.hpp)
+  drive::DriveHooks hooks{Restart, SettingsApplied};
+  hooks.board = CONFIG_BOARD;  // the board name an update image must carry
+  CyphalPlatformDriveHooks(hooks);
+  static drive::DriveNode drive{node, *g_store, kMotors[0], hooks, std::span<const uint8_t>{g_unique_id}};
   // The e-bike control engages the drive and sets its torque (docs/ebike_plan.md).
   static ebike::EbikeControl ebike_control{GetEbikeIo()};
   if (IS_ENABLED(CONFIG_UNIMOC_EBIKE)) {

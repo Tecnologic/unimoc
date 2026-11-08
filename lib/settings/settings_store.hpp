@@ -80,7 +80,12 @@ template <unit::UnitLike U>
          unit::IsFinite(settings.ebike_torque_deadband) && unit::IsFinite(settings.ebike_min_cadence) &&
          unit::IsFinite(settings.ebike_speed_taper) && unit::IsFinite(settings.ebike_rise_time) &&
          unit::IsFinite(settings.ebike_fall_time) && unit::IsFinite(settings.ebike_engage_hold) &&
-         unit::IsFinite(settings.ebike_rearm_time) && unit::IsFinite(settings.ebike_display_timeout);
+         unit::IsFinite(settings.ebike_rearm_time) && unit::IsFinite(settings.ebike_display_timeout) &&
+         unit::IsFinite(settings.ebike_torque_offset) && unit::IsFinite(settings.accel_throttle_min) &&
+         unit::IsFinite(settings.accel_throttle_max) && unit::IsFinite(settings.accel_brake_min) &&
+         unit::IsFinite(settings.accel_brake_max) && unit::IsFinite(settings.accel_torque_max) &&
+         unit::IsFinite(settings.accel_brake_torque_max) && unit::IsFinite(settings.accel_engage_hold) &&
+         unit::IsFinite(settings.asm_flux_psi_r);
 }
 
 [[nodiscard]] inline bool IsFinite(const NvmSettings& settings) noexcept {
@@ -177,6 +182,11 @@ inline constexpr uint8_t kMaxEbikePulses = 64U;
 inline constexpr float kMinWheelCircumference = 0.5F;
 inline constexpr float kMaxWheelCircumference = 4.0F;
 inline constexpr uint8_t kMaxBatteryCells = 30U;
+/// Largest torque sensor offset (the sensor reads 0 at its rest voltage; the observer trims a few N m).
+inline constexpr unit::Torque kMaxEbikeTorqueOffset = 10.0_Nm;
+inline constexpr uint8_t kMaxAccelMode = 2U;
+/// The accelerator and brake sensors run from the ADC reference (3.3 V).
+inline constexpr unit::Voltage kMaxAccelSensorVoltage = 3.3_V;
 
 /// True when two enabled ports in @p port_ids share one port-ID.
 template <std::size_t kCount>
@@ -189,6 +199,46 @@ template <std::size_t kCount>
     }
   }
   return false;
+}
+
+/// E-bike: sensor, wheel, battery and assist parameters.
+[[nodiscard]] inline bool IsValidEbike(const NvmSettings& settings) noexcept {
+  const auto kIsGain = [](const unit::Ratio value) {
+    return value >= ZeroOf(value) && value <= kMaxEbikeRatio;
+  };
+  return !((
+      settings.ebike_pulses_per_rev < kMinEbikePulses || settings.ebike_pulses_per_rev > kMaxEbikePulses ||
+      settings.ebike_wheel_circumference < kMinWheelCircumference ||
+      settings.ebike_wheel_circumference > kMaxWheelCircumference ||
+      settings.ebike_gear_ratio <= ZeroOf(settings.ebike_gear_ratio) ||
+      settings.ebike_gear_ratio > kMaxEbikeRatio * 5.0F || settings.ebike_battery_cells < 1U ||
+      settings.ebike_battery_cells > kMaxBatteryCells || settings.ebike_nominal_voltage == 0U ||
+      !kIsGain(settings.ebike_gain_1) || !kIsGain(settings.ebike_gain_2) || !kIsGain(settings.ebike_gain_3) ||
+      !kIsGain(settings.ebike_gain_4) || !kIsGain(settings.ebike_gain_5) ||
+      !kIsGain(settings.ebike_max_ratio) || !kIsGain(settings.ebike_torque_ratio) ||
+      settings.ebike_power_scale <= ZeroOf(settings.ebike_power_scale) ||
+      settings.ebike_torque_deadband < ZeroOf(settings.ebike_torque_deadband) ||
+      settings.ebike_min_cadence < ZeroOf(settings.ebike_min_cadence) ||
+      settings.ebike_speed_taper <= ZeroOf(settings.ebike_speed_taper) ||
+      settings.ebike_rise_time <= ZeroOf(settings.ebike_rise_time) ||
+      settings.ebike_fall_time <= ZeroOf(settings.ebike_fall_time) ||
+      settings.ebike_engage_hold < ZeroOf(settings.ebike_engage_hold) ||
+      settings.ebike_rearm_time < ZeroOf(settings.ebike_rearm_time) ||
+      settings.ebike_display_timeout <= ZeroOf(settings.ebike_display_timeout) ||
+      unit::Abs(settings.ebike_torque_offset) > kMaxEbikeTorqueOffset));
+}
+
+/// Accelerator and brake lever: a released voltage below the pressed one, both within the sensor range.
+[[nodiscard]] inline bool IsValidAccelerator(const NvmSettings& settings) noexcept {
+  const auto kIsSensorRange = [](const unit::Voltage released, const unit::Voltage pressed) {
+    return released >= ZeroOf(released) && released < pressed && pressed <= kMaxAccelSensorVoltage;
+  };
+  return settings.accel_mode <= kMaxAccelMode &&
+         kIsSensorRange(settings.accel_throttle_min, settings.accel_throttle_max) &&
+         kIsSensorRange(settings.accel_brake_min, settings.accel_brake_max) &&
+         settings.accel_torque_max >= ZeroOf(settings.accel_torque_max) &&
+         settings.accel_brake_torque_max >= ZeroOf(settings.accel_brake_torque_max) &&
+         settings.accel_engage_hold >= ZeroOf(settings.accel_engage_hold);
 }
 
 /**
@@ -209,7 +259,7 @@ template <std::size_t kCount>
       (settings.node_id == 0U && settings.sub_readiness_id == cyphal::kReadinessFollowsNodeId)
           ? cyphal::kUnsetPortId
           : cyphal::EffectiveReadinessId(settings.sub_readiness_id, settings.node_id);
-  const std::array<uint16_t, 13U> kSubjects{kReadiness,
+  const std::array<uint16_t, 16U> kSubjects{kReadiness,
                                             settings.sub_current_setpoint_id,
                                             settings.sub_torque_setpoint_id,
                                             settings.sub_speed_setpoint_id,
@@ -221,7 +271,10 @@ template <std::size_t kCount>
                                             settings.sub_battery_status_id,
                                             settings.pub_drive_status_id,
                                             settings.pub_commissioning_id,
-                                            settings.pub_homing_state_id};
+                                            settings.pub_homing_state_id,
+                                            settings.pub_excitation_command_id,
+                                            settings.sub_excitation_status_id,
+                                            settings.sub_excitation_setpoint_id};
   const std::array<uint16_t, 5U> kServices{settings.srv_cymon_variables_id,
                                            settings.srv_cymon_buffer_info_id,
                                            settings.srv_cymon_setup_id,
@@ -268,6 +321,7 @@ template <std::size_t kCount>
       settings.motor_j <= ZeroOf(settings.motor_j) ||
       settings.asm_flux_i_d_min < ZeroOf(settings.asm_flux_i_d_min) ||
       settings.asm_flux_i_d_max < settings.asm_flux_i_d_min ||
+      settings.asm_flux_psi_r < ZeroOf(settings.asm_flux_psi_r) ||
       settings.excitation_i_f_min < ZeroOf(settings.excitation_i_f_min) ||
       settings.excitation_i_f_max < settings.excitation_i_f_min ||
       settings.dtc_dead_time < ZeroOf(settings.dtc_dead_time) ||
@@ -321,6 +375,8 @@ template <std::size_t kCount>
   if (!kIsSubjectId(settings.sub_wheel_command_id) || !kIsSubjectId(settings.sub_pedal_state_id) ||
       !kIsSubjectId(settings.sub_battery_status_id) || !kIsSubjectId(settings.pub_drive_status_id) ||
       !kIsSubjectId(settings.pub_commissioning_id) || !kIsSubjectId(settings.pub_homing_state_id) ||
+      !kIsSubjectId(settings.pub_excitation_command_id) || !kIsSubjectId(settings.sub_excitation_status_id) ||
+      !kIsSubjectId(settings.sub_excitation_setpoint_id) ||
       settings.cart_timeout <= ZeroOf(settings.cart_timeout) ||
       settings.cart_timeout > settings.command_timeout ||
       settings.cart_status_rate < ZeroOf(settings.cart_status_rate) ||
@@ -332,28 +388,11 @@ template <std::size_t kCount>
     return SettingsStatus::kOutOfRange;
   }
 
-  // E-bike: sensor, wheel, battery and assist parameters.
-  const auto kIsGain = [](const unit::Ratio value) {
-    return value >= ZeroOf(value) && value <= kMaxEbikeRatio;
-  };
-  if (settings.ebike_pulses_per_rev < kMinEbikePulses || settings.ebike_pulses_per_rev > kMaxEbikePulses ||
-      settings.ebike_wheel_circumference < kMinWheelCircumference ||
-      settings.ebike_wheel_circumference > kMaxWheelCircumference ||
-      settings.ebike_gear_ratio <= ZeroOf(settings.ebike_gear_ratio) ||
-      settings.ebike_gear_ratio > kMaxEbikeRatio * 5.0F || settings.ebike_battery_cells < 1U ||
-      settings.ebike_battery_cells > kMaxBatteryCells || settings.ebike_nominal_voltage == 0U ||
-      !kIsGain(settings.ebike_gain_1) || !kIsGain(settings.ebike_gain_2) || !kIsGain(settings.ebike_gain_3) ||
-      !kIsGain(settings.ebike_gain_4) || !kIsGain(settings.ebike_gain_5) ||
-      !kIsGain(settings.ebike_max_ratio) || !kIsGain(settings.ebike_torque_ratio) ||
-      settings.ebike_power_scale <= ZeroOf(settings.ebike_power_scale) ||
-      settings.ebike_torque_deadband < ZeroOf(settings.ebike_torque_deadband) ||
-      settings.ebike_min_cadence < ZeroOf(settings.ebike_min_cadence) ||
-      settings.ebike_speed_taper <= ZeroOf(settings.ebike_speed_taper) ||
-      settings.ebike_rise_time <= ZeroOf(settings.ebike_rise_time) ||
-      settings.ebike_fall_time <= ZeroOf(settings.ebike_fall_time) ||
-      settings.ebike_engage_hold < ZeroOf(settings.ebike_engage_hold) ||
-      settings.ebike_rearm_time < ZeroOf(settings.ebike_rearm_time) ||
-      settings.ebike_display_timeout <= ZeroOf(settings.ebike_display_timeout)) {
+  if (!IsValidEbike(settings)) {
+    return SettingsStatus::kOutOfRange;
+  }
+
+  if (!IsValidAccelerator(settings)) {
     return SettingsStatus::kOutOfRange;
   }
 

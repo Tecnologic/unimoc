@@ -116,6 +116,9 @@ void PowerStageClearFault() noexcept;
 
 [[nodiscard]] uint32_t TimerClockFrequency() noexcept;
 
+/// Clock of the ADC conversions in Hz: the prescaled kernel clock, halved once more on rev. V.
+[[nodiscard]] uint32_t AdcClockFrequency() noexcept;
+
 /// Auto-reload value of the running timer (full scale of the duty compare values).
 [[nodiscard]] uint32_t TimerAutoReload() noexcept;
 
@@ -193,9 +196,11 @@ inline constexpr uint32_t kOvervoltageCheckOff = 0xFFFFFFFFU;
  */
 void SetOvervoltageCounts(uint32_t counts) noexcept;
 
-/// Raw injected results (12 bit, unsigned, right aligned) of the last sequence.
+/// Raw injected results (12 bit, unsigned, right aligned) of the last sequence; 0 for an optional board input
+/// the devicetree does not list.
 struct RawSamples {
   uint32_t ia, va, bridge_temperature, ib, vb, motor_temperature, ic, vdc, vc;
+  uint32_t gate_supply, accelerator, brake;
 };
 
 [[nodiscard]] RawSamples ReadRaw() noexcept;

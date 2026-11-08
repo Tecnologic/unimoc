@@ -49,7 +49,9 @@ Read `README.md` for the supported motor types and public features, and
   (`cmake/UnimocZephyr.cmake`). `lib/cyphal/` is the portable Cyphal stack:
   libcanard and O1Heap (west projects, `modules/lib/`), the C serialization
   that Nunavut generates at configure time from the public regulated data
-  types and `dsdl/unimoc/`, the transport and the node services.
+  types and `dsdl/unimoc/`, the transport, the node services (servers and
+  clients) and the file service with the firmware update
+  (`file_service.*`, `firmware_update.hpp`, `firmware_image.hpp`).
 - `dsdl/unimoc/` is the UNIMOC DSDL namespace (every message fits in one CAN
   FD frame). Changing a type there changes the bus protocol.
 - `src/` contains the application core: `current_control/` (hot-path ISR and
@@ -84,21 +86,25 @@ Read `README.md` for the supported motor types and public features, and
   the platforms except `cyphal_platform.cpp` of each platform (STM32H7:
   transceiver standby pin; sim: slcan pseudo terminals, `unimoc.sim.*` registers,
   plant trace, the register description file `register_file.cpp` written by
-  `--describe-registers`). `hardware/hardware_interface.hpp`,
-  `hardware/power_stage_interface.hpp` and `hardware/cyphal_platform.hpp`
-  are the platform-independent boundaries.
+  `--describe-registers` and served as `registers.json` over `uavcan.file.Read`;
+  the RAM bank of the firmware update). `hardware/hardware_interface.hpp`,
+  `hardware/power_stage_interface.hpp`, `hardware/board_inputs_interface.hpp`
+  (power board detect, gate supply, accelerator, brake lever) and
+  `hardware/cyphal_platform.hpp` are the platform-independent boundaries.
 - `hardware/hot_path_interface.hpp` is the link-time bound hardware access of
   the zero-latency hot path.
 - `tests/` contains all tests, as ztest suites run by twister:
   `tests/lib/<library>/` covers `lib/<library>`, `tests/sim/<name>/` runs the
   application core against the `native_sim` platform and the motor plant
   (cycle cadence, overcurrent, closed loop, the Cyphal drive),
-  `tests/drive/<name>/` tests parts of `src/drive/` alone (the cart control).
+  `tests/drive/<name>/` tests parts of `src/drive/` alone (the cart control,
+  the accelerator control and the board input supervision).
   `tests/common/`
   holds the shared float checks and the in-memory CAN bus of the Cyphal
   tests. `tests/integration/cyphal_sim/` are pytest integration tests: twister
   starts the real application on `native_sim` (scenario
-  `unimoc.app.cyphal_integration` in `app/testcase.yaml`, pytest harness) and
+  `unimoc.app.cyphal_integration` in `app/testcase.yaml`, pytest harness; the
+  e-bike build in `unimoc.app.cyphal_integration.ebike`, marker `ebike`) and
   a pycyphal node drives it over an slcan pseudo terminal. They are skipped
   without pycyphal (`scripts/requirements-cyphal-tools.txt`).
 - `scripts/` holds the validation scripts (`check_format.sh`,

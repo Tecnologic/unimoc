@@ -17,11 +17,14 @@
 
 #include <cstddef>
 #include <cstdint>
+#include "asm_flux_observer.hpp"
 #include "back_emf_speed.hpp"
 #include "coast_down_meter.hpp"
 #include "current_control_isr.hpp"
 #include "hall_fusion.hpp"
 #include "hardware_interface.hpp"
+#include "mailbox.hpp"
+#include "motor_type.hpp"
 #include "nvm_settings.hpp"
 #include "pmsm_flux_observer.hpp"
 #include "rotor_system.hpp"
@@ -62,7 +65,20 @@ namespace unimoc::current_control {
  * The estimate before the state prediction refers to the first sample of the
  * cycle that just finished; the Hall edges are projected to that time.
  *
- * Outputs open (disengaged, tripped, the coast of M3): the voltage demand
+ * Motor types (`unimoc.motor.type`)
+ * ---------------------------------
+ *  - PMSM: the flux observer measures the rotor angle against psi_PM.
+ *  - EESM: as the PMSM, with the field flux L_m i_f of the excitation module
+ *    (SetFieldFlux()) in place of the magnet.
+ *  - ASM (sensorless): the `AsmFluxObserver` runs once per control step at
+ *    the rotor speed (the estimated synchronous speed less the slip); the
+ *    angle of its rotor flux (Atan2, no libm) is the field frame and its
+ *    filtered rate of change the synchronous speed, which the mechanical
+ *    observer only carries (its shaft model does not describe the field).
+ *    Until the flux reaches half its reference the frame stands. The Hall
+ *    sensors measure the rotor, not the field: they are not fused.
+ *
+ * Outputs open (PMSM, EESM; disengaged, tripped, the coast of M3): the voltage demand
  * does not reach the motor, but on a platform with a phase-voltage sense
  * the terminals carry the back-EMF. The flux observer then integrates the
  * measured voltages instead of the demand, and `BackEmfSpeed` measures the
@@ -137,6 +153,24 @@ class SlowUpdate {
   void SetFluxSetpoint(const system::Rotor<unit::MagneticFlux>& setpoint) noexcept {
     flux_setpoint_ = setpoint;
   }
+
+  /**
+   * @brief EESM: the field flux psi_f = L_m i_f of the measured field current; thread context.
+   *
+   * The flux observer takes it as its flux setpoint and the mechanical
+   * observer as the flux of its torque model, from the next cycle on.
+   */
+  void SetFieldFlux(const unit::MagneticFlux flux) noexcept { field_flux_.Write(flux); }
+
+  /// The motor type the observer runs for (from Init()).
+  [[nodiscard]] system::MotorType MotorType() const noexcept { return motor_type_; }
+
+  /// ASM: slip speed omega_slip = R_r / L_r * L_m i_q / |psi_r| of the last cycle (electrical); zero
+  /// otherwise.
+  [[nodiscard]] unit::AngularVelocity SlipSpeed() const noexcept { return slip_.Read(); }
+
+  /// ASM: estimated rotor flux magnitude of the last cycle; zero otherwise.
+  [[nodiscard]] unit::MagneticFlux RotorFlux() const noexcept { return rotor_flux_.Read(); }
 
   // =========================================================================
   // Main execution
@@ -260,6 +294,9 @@ class SlowUpdate {
   /// Hall sensor fusion (edges, sector, counters).
   observer::HallFusion<float> hall{};
 
+  /// ASM rotor flux observer (the angle measurement of an induction motor).
+  observer::AsmFluxObserver<float> asm_obs{};
+
   // NOLINTEND(cppcoreguidelines-non-private-member-variables-in-classes)
 
  private:
@@ -273,6 +310,9 @@ class SlowUpdate {
 
   /// Fuses the Hall events of the platform; drains them when Hall is off.
   void FuseHall(const CycleRecord& cycle) noexcept;
+
+  /// ASM: runs the rotor flux observer over the steps of the cycle and updates the angle with its flux angle.
+  void UpdateAsm(const CycleRecord& cycle, bool powered) noexcept;
 
   /// Adds the cycle to the requested measurement window; completes it after its cycles.
   void AccumulateWindow(const CycleRecord& cycle) noexcept;
@@ -324,6 +364,9 @@ class SlowUpdate {
   /// Hardware of the motor set by Init().
   const hardware::HardwareInterface* hardware_{nullptr};
 
+  /// Delays of the measured currents and phase voltages, compensated (from the hardware at Init()).
+  hardware::SenseDelays sense_delays_;
+
   /// Speed weighting k of the flux measurement noise (R + k / omega^2).
   unit::AngleVarianceSpeedWeight flux_r_speed_;
 
@@ -332,6 +375,18 @@ class SlowUpdate {
 
   /// Flux setpoint used by flux_obs.Calculate() — written by outer loop.
   system::Rotor<unit::MagneticFlux> flux_setpoint_{0.0F, 0.0F};
+
+  system::MotorType motor_type_{system::MotorType::kPmsm};
+  Mailbox<unit::MagneticFlux> field_flux_{};    ///< EESM: L_m i_f, from the drive thread.
+  Mailbox<unit::AngularVelocity> slip_{};       ///< ASM: slip of the last cycle, for the outer loop.
+  Mailbox<unit::MagneticFlux> rotor_flux_{};    ///< ASM: |psi_r| of the last cycle.
+  unit::MagneticFlux asm_flux_reference_;       ///< ASM: |psi_r*| (bounds the slip at a small flux).
+  unit::Angle last_flux_angle_;                 ///< ASM: flux angle of the last cycle.
+  unit::AngularVelocity field_speed_;           ///< ASM: synchronous speed (rotor speed plus slip).
+  unit::AngularVelocity rotor_speed_integral_;  ///< ASM: integral part of the adapted rotor speed.
+  /// ASM: gains of the speed adaptation, rad/s per (A Wb) and per (A Wb s).
+  decltype(unit::AngularVelocity{} / unit::Torque{}) speed_kp_{200.0F};
+  decltype(unit::AngularVelocity{} / (unit::Torque{} * unit::Time{})) speed_ki_{20000.0F};
 };
 
 }  // namespace unimoc::current_control

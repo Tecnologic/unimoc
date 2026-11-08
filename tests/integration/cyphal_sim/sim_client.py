@@ -27,11 +27,14 @@
 from __future__ import annotations
 
 import asyncio
+import tempfile
 import time
+from pathlib import Path
 from typing import Any, Callable
 
 import pycyphal
 import pycyphal.application
+import pycyphal.application.file
 from pycyphal.transport.can import CANTransport
 from pycyphal.transport.can.media.pythoncan import PythonCANMedia
 import can.interfaces.slcan
@@ -179,6 +182,9 @@ class SimClient:
             transport=transport,
         )
         self.node.start()
+        # The file server the drive downloads a firmware update from (BEGIN_SOFTWARE_UPDATE).
+        self.file_root = Path(tempfile.mkdtemp(prefix="unimoc_files_"))
+        self.file_server = pycyphal.application.file.FileServer(self.node, [self.file_root])
         self.heartbeat = self.node.make_subscriber(uavcan.node.Heartbeat_1_0)
         self.telemetry = self.node.make_subscriber(unimoc.drive.Telemetry_0_1, PORT_TELEMETRY)
         self.plant = self.node.make_subscriber(unimoc.sim.Plant_0_1, PORT_PLANT)
@@ -289,6 +295,17 @@ class SimClient:
         request = uavcan.node.ExecuteCommand_1_3.Request(command=code, parameter=parameter)
         response = self.call(uavcan.node.ExecuteCommand_1_3, request)
         return response.status, response.output.tobytes().decode()
+
+    def read_file(self, path: str, timeout: float = 5.0) -> bytes:
+        """Reads a file the drive serves over uavcan.file.Read."""
+        async def go():
+            client = pycyphal.application.file.FileClient2(self.node, DRIVE, response_timeout=timeout)
+            try:
+                return await client.read(path)
+            finally:
+                client.close()
+
+        return self._run(go())
 
     # --- Traces (cymon) -----------------------------------------------------------
 

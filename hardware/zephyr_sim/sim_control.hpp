@@ -17,6 +17,7 @@
 
 #include <array>
 #include <cstdint>
+#include "hardware_interface.hpp"
 #include "motor_simulation.hpp"
 #include "three_phase_system.hpp"
 #include "units.hpp"
@@ -102,6 +103,15 @@ struct Snapshot {
  * SetFreeRunning(false).
  */
 void Reset() noexcept;
+
+/**
+ * @brief First-order low passes on the measured phase currents and phase voltages.
+ *
+ * As the RC filters of a board: the samples lag the plant by these time
+ * constants, and GetSenseDelays() of the platform reports them. Zero (the
+ * default): no filter. Set before StartRuntime(), which reads the delays.
+ */
+void SetSenseFilters(const SenseDelays& filters) noexcept;
 
 /// Captures the platform state; consistent even while the cycle timer runs.
 [[nodiscard]] Snapshot TakeSnapshot() noexcept;

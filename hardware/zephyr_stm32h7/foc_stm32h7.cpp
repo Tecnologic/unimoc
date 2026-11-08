@@ -576,6 +576,8 @@ PowerStageState GetPowerStageState() noexcept {
 
 uint32_t TimerClockFrequency() noexcept { return kTimerClockHz; }
 
+uint32_t AdcClockFrequency() noexcept { return IsRevisionY() ? kAdcClockHz : kAdcClockHz / 2U; }
+
 uint32_t TimerAutoReload() noexcept { return g_auto_reload; }
 
 void SetTriggerLead(const uint32_t ticks) noexcept { ApplyTriggerLead(ticks); }
@@ -627,7 +629,7 @@ void SetOvervoltageCounts(const uint32_t counts) noexcept {
 
 RawSamples ReadRaw() noexcept {
   const auto kRead = [](const SignalLocation location) noexcept {
-    return InjectedResult(Adc(*kAdcs[location.adc]), location.rank);
+    return (location.rank < kMaxRanks) ? InjectedResult(Adc(*kAdcs[location.adc]), location.rank) : 0U;
   };
   return RawSamples{kRead(LocationOf("ia")),
                     kRead(LocationOf("va")),
@@ -637,7 +639,10 @@ RawSamples ReadRaw() noexcept {
                     kRead(LocationOf("motor-temperature")),
                     kRead(LocationOf("ic")),
                     kRead(LocationOf("vdc")),
-                    kRead(LocationOf("vc"))};
+                    kRead(LocationOf("vc")),
+                    kRead(LocationOf("gate-supply")),
+                    kRead(LocationOf("accelerator")),
+                    kRead(LocationOf("brake"))};
 }
 
 }  // namespace unimoc::hardware::foc_stm32h7

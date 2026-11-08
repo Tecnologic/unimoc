@@ -11,7 +11,10 @@ description: |
 
   Every entry of io-channels names its signal in io-channel-names: "ia",
   "ib", "ic", "va", "vb", "vc", "vdc", "bridge-temperature" and
-  "motor-temperature", each exactly once. The entries of one ADC form its
+  "motor-temperature", each exactly once, and the optional board inputs
+  "gate-supply" (gate driver supply sense), "accelerator" and "brake" (the
+  throttle and brake lever sensors, 0 V to the ADC reference), each at most
+  once. The drive reads the board inputs in thread context. The entries of one ADC form its
   injected sequence in devicetree order, one to four conversions. Each phase
   current is on its own ADC and comes first there; the other signals may be
   on any of the three. The end of the sequence of the phase A ADC is the
@@ -77,6 +80,48 @@ properties:
     description: |
       Top and bottom resistor of the dividers of Vdc and the phase voltages,
       in Ohm, e.g. <47000 2200>.
+
+  voltage-divider-filter-pf:
+    type: int
+    default: 0
+    description: |
+      Capacitor across the bottom resistor of the voltage dividers, in pF
+      (0: none). With phase-voltage-filter it sets the delay of the phase
+      voltages the observer compensates.
+
+  phase-voltage-filter:
+    type: array
+    description: |
+      RC low pass between the phase-voltage dividers and the ADC: series
+      resistor in Ohm and capacitor to ground in pF, e.g. <220 2200>. Absent:
+      none (no delay compensated).
+
+  current-filter:
+    type: array
+    description: |
+      RC low pass between the current amplifier and the ADC: series resistor
+      in Ohm and capacitor to ground in pF, e.g. <220 2200>. Absent: none.
+
+  current-amplifier-bandwidth-hz:
+    type: int
+    default: 0
+    description: |
+      Small-signal bandwidth of the current amplifier in Hz (INA240A1:
+      400000); its delay 1 / (2 pi f) adds to that of current-filter. 0:
+      not compensated.
+
+  gate-supply-divider-ohms:
+    type: array
+    description: |
+      Top and bottom resistor of the divider of the "gate-supply" channel, in
+      Ohm, e.g. <10000 2200>. Required with "gate-supply".
+
+  gate-supply-millivolts:
+    type: array
+    description: |
+      Limits of the gate driver supply in mV, <trip engage>: the drive does not
+      engage below the second value and switches an engaged power stage off
+      with a latched fault below the first. Required with "gate-supply".
 
   max-phase-current-amps:
     type: int

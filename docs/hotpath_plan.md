@@ -300,8 +300,10 @@ observer now uses it:
   a revolution on). Its noise is 0.1 V of back-EMF plus 5 % of the speed (the
   uncertainty of psi), so the angle measurement keeps the speed right while
   the motor turns; the speed measurement pulls in a reversed or a stopped
-  motor, which the angle alone cannot. Below 0.3 V of back-EMF the motor
-  counts as standing (speed 0, the band as its noise).
+  motor, which the angle alone cannot. Below 0.3 V of back-EMF the voltages
+  only bound the speed, |omega| < 0.3 V / psi: an estimate beyond the bound
+  is pulled to it, one within it is left to Hall and the prediction, and the
+  flux observer starts anew (no angle from so little back-EMF).
 
 The flux observer is no longer reset by a disengage: its state runs on and
 the engage starts from it (in the simulation 0.8 A peak at 1200 rad/s
@@ -312,6 +314,25 @@ nothing changes: the flux observer restarts on every open cycle. The phase
 voltages are scaled with the DC-link gain of the startup aid; their own gains
 (`gain_va/vb/vc`) and a bench check of the sense with open terminals are open
 (TODO.md, I3).
+
+**Sense delays.** The low passes in front of the ADC delay their signals by
+their time constant (`SenseDelays`, from the platform; foc0
+`current-filter`, `current-amplifier-bandwidth-hz`, `phase-voltage-filter`
+and `voltage-divider-filter-pf` with the divider of `voltage-divider-ohms`;
+the sim's `SetSenseFilters()`). The observer compensates both without work in
+the control step: the angle reference turns the Park angle back by
+omega T_i (the angle the measured currents show) and the output rotation on
+by as much; the coast tracking takes the voltages' flux T_v earlier. The
+phase voltages are held later in the ADC sequences than the currents, which
+shortens T_v (the sample times of the devicetree, at the ADC clock of the
+silicon revision). Jacobi: T_i = 0.88 us (INA240A1 0.40 us, 220R / 2n2
+0.48 us); T_v = 7.21 us (the 47k / 2k2 divider with 1n, then 220R / 2n2,
+Elmore delay R_th C_1 + (R_th + R_2) C_2) less 0.77 us of later sampling
+(1.53 us on rev. V): 6.44 us, at 1500 rad/s 0.010 rad. The NUCLEO-H743ZI
+adapter's filters are not described: no compensation there. Simulation:
+uncompensated, a 40 us current filter moves the d current by 0.21 A at 5 A and
+1000 rad/s, compensated by 0.03 A; a 7.2 us voltage filter is tracked within
+0.003 rad at 2000 rad/s (`sim_coast_tracking`).
 
 **Handover from a forced angle.** During the identification the control
 steps work at a forced angle and the observer runs on in the background, on

@@ -230,6 +230,8 @@ inline constexpr const char* kAsmFluxIDMin = "unimoc.control.asm_flux.i_d_min";
 /// ASM flux controller maximum d-axis current [A].
 /// Type: real32[1] (read/write, persistent)
 inline constexpr const char* kAsmFluxIDMax = "unimoc.control.asm_flux.i_d_max";
+/// Rotor flux reference |psi_r*| of the ASM flux controller [Wb]. Type: real32[1] (read/write, persistent)
+inline constexpr const char* kAsmFluxPsiR = "unimoc.control.asm_flux.psi_r";
 
 // --- Field weakening ---
 
@@ -612,6 +614,27 @@ inline constexpr const char* kPubCommissioningId = "uavcan.pub.commissioning.id"
 /// Type name of the commissioning status publication. Type: string (read-only)
 inline constexpr const char* kPubCommissioningType = "uavcan.pub.commissioning.type";
 
+/// EESM: field current command of the drive to its excitation module.
+/// Data type: unimoc.excitation.Command.0.1
+/// Type: natural16[1] (read/write, persistent)
+inline constexpr const char* kPubExcitationCommandId = "uavcan.pub.excitation_command.id";
+/// Type name of the excitation command publication. Type: string (read-only)
+inline constexpr const char* kPubExcitationCommandType = "uavcan.pub.excitation_command.type";
+
+/// EESM: state of the excitation module (measured field current).
+/// Data type: unimoc.excitation.Status.0.1
+/// Type: natural16[1] (read/write, persistent)
+inline constexpr const char* kSubExcitationStatusId = "uavcan.sub.excitation_status.id";
+/// Type name of the excitation status subscription. Type: string (read-only)
+inline constexpr const char* kSubExcitationStatusType = "uavcan.sub.excitation_status.type";
+
+/// EESM: field current setpoint of the bus; overrides the drive's own field current while fresh.
+/// Data type: uavcan.si.unit.electric_current.Scalar.1.0
+/// Type: natural16[1] (read/write, persistent)
+inline constexpr const char* kSubExcitationSetpointId = "uavcan.sub.excitation_setpoint.id";
+/// Type name of the excitation setpoint subscription. Type: string (read-only)
+inline constexpr const char* kSubExcitationSetpointType = "uavcan.sub.excitation_setpoint.type";
+
 /// Homing state publication (0 IDLE, 1 SEARCHING, 2 ZEROING, 3 DONE, 4 FAULT).
 /// Data type: uavcan.primitive.scalar.Natural8.1.0
 /// Type: natural16[1] (read/write, persistent)
@@ -739,6 +762,48 @@ inline constexpr const char* kEbikeRearmTime = "unimoc.ebike.rearm_time";
 /// Without a display request for this long the display counts as lost: no assist.
 /// Type: real32[1] (read/write, persistent)
 inline constexpr const char* kEbikeDisplayTimeout = "unimoc.ebike.display_timeout";
+
+/// Torque sensor reading at zero load [N m]; the pedal observer learns it while the crank stands still
+/// and the drive stores the learned value (docs/ebike_plan.md, section 4).
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kEbikeTorqueOffset = "unimoc.ebike.torque_offset";
+
+// ---- Accelerator and brake lever (docs/drive4850_h7_plan.md, section 4.3) ----
+
+/// 0 off, 1 accelerator, 2 accelerator and brake lever: the local torque setpoint of a drive without the
+/// e-bike. Type: natural8[1] (read/write, persistent)
+inline constexpr const char* kAccelMode = "unimoc.accel.mode";
+/// Accelerator sensor voltage when released [V]. Type: real32[1] (read/write, persistent)
+inline constexpr const char* kAccelThrottleMin = "unimoc.accel.throttle_min";
+/// Accelerator sensor voltage when fully pressed [V]. Type: real32[1] (read/write, persistent)
+inline constexpr const char* kAccelThrottleMax = "unimoc.accel.throttle_max";
+/// Brake lever sensor voltage when released [V]. Type: real32[1] (read/write, persistent)
+inline constexpr const char* kAccelBrakeMin = "unimoc.accel.brake_min";
+/// Brake lever sensor voltage when fully pulled [V]. Type: real32[1] (read/write, persistent)
+inline constexpr const char* kAccelBrakeMax = "unimoc.accel.brake_max";
+/// Drive torque at the fully pressed accelerator [N m]. Type: real32[1] (read/write, persistent)
+inline constexpr const char* kAccelTorqueMax = "unimoc.accel.torque_max";
+/// Regenerative braking torque at the fully pulled brake lever [N m]. Type: real32[1] (read/write,
+/// persistent)
+inline constexpr const char* kAccelBrakeTorqueMax = "unimoc.accel.brake_torque_max";
+/// The drive stays engaged this long after both inputs were released [s]. Type: real32[1] (read/write,
+/// persistent)
+inline constexpr const char* kAccelEngageHold = "unimoc.accel.engage_hold";
+
+// ---- Board inputs (read-only, board_inputs_interface.hpp) ----
+
+/// The power board is plugged in (Jacobi: PWR_DET); without the detect input always 1.
+/// Type: bit[1] (read-only)
+inline constexpr const char* kBoardPowerBoard = "unimoc.board.power_board";
+/// Gate driver supply +12P [V]; NaN without the input. Type: real32[1] (read-only)
+inline constexpr const char* kBoardGateSupply = "unimoc.board.gate_supply";
+/// Accelerator sensor voltage [V]; NaN without the input. Type: real32[1] (read-only)
+inline constexpr const char* kBoardAccelerator = "unimoc.board.accelerator";
+/// Brake lever sensor voltage [V]; NaN without the input. Type: real32[1] (read-only)
+inline constexpr const char* kBoardBrake = "unimoc.board.brake";
+/// The board inputs allow the engage (power board present, gate supply above its engage limit).
+/// Type: bit[1] (read-only)
+inline constexpr const char* kBoardReady = "unimoc.board.ready";
 
 /// Bus-off events of the CAN interfaces since start.
 /// Type: natural32[1] (read-only)
@@ -881,10 +946,15 @@ inline constexpr uint16_t kSubPositionSetpoint = 102U;
 /// Register: `uavcan.sub.control_mode.id`
 inline constexpr uint16_t kSubControlMode = 103U;
 
-/// EESM rotor excitation setpoint (current [A] or flux [Wb] per mode).
-/// Data type: uavcan.primitive.scalar.Real32.1.0
-/// Register: `uavcan.sub.excitation_sp.id`
+/// EESM field current setpoint [A]; overrides the drive's field current while fresh.
+/// Data type: uavcan.si.unit.electric_current.Scalar.1.0
+/// Register: `uavcan.sub.excitation_setpoint.id`
 inline constexpr uint16_t kSubExcitationSetpoint = 104U;
+
+/// EESM: the state of the excitation module.
+/// Data type: unimoc.excitation.Status.0.1
+/// Register: `uavcan.sub.excitation_status.id`
+inline constexpr uint16_t kSubExcitationStatus = 113U;
 
 // Readiness (arming) of the drive, reg.udral.service.common.Readiness.0.1, register
 // `uavcan.sub.readiness.id`: no fixed default; it follows the node-ID
@@ -983,6 +1053,11 @@ inline constexpr uint16_t kPubDriveStatus = 214U;
 /// Data type: unimoc.drive.CommissioningStatus.0.1
 /// Register: `uavcan.pub.commissioning.id`
 inline constexpr uint16_t kPubCommissioning = 215U;
+
+/// EESM: field current command to the excitation module.
+/// Data type: unimoc.excitation.Command.0.1
+/// Register: `uavcan.pub.excitation_command.id`
+inline constexpr uint16_t kPubExcitationCommand = 216U;
 
 /// @}
 

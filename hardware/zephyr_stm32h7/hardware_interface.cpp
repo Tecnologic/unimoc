@@ -260,6 +260,15 @@ TemperatureMeasurements GetTemperatureMeasurements() noexcept {
   return measurements;
 }
 
+// The filter delays of the devicetree; the phase voltages are held later in
+// the ADC sequences than the currents, which shortens their lag.
+SenseDelays GetSenseDelays() noexcept {
+  const float kAdcHalfCycle = 0.5F / static_cast<float>(foc_stm32h7::AdcClockFrequency());
+  const Time kSampleLag =
+      1.0_s * (static_cast<float>(foc_stm32h7::kVoltageSampleLagHalfCycles) * kAdcHalfCycle);
+  return SenseDelays{analog::kCurrentFilterDelay, analog::kPhaseVoltageFilterDelay - kSampleLag};
+}
+
 uint32_t DutyToTicks(const Ratio duty, const float reload) noexcept {
   return static_cast<uint32_t>(std::clamp(duty.Value(), 0.0F, 1.0F) * reload);
 }
@@ -345,6 +354,7 @@ const std::array<HardwareInterface, kMotorCount> kMotors = {HardwareInterface(In
                                                                               SetOvervoltageLimit,
                                                                               SetAdcTriggerOffset,
                                                                               GetTimerClockFrequency,
-                                                                              PopHallEvent)};
+                                                                              PopHallEvent,
+                                                                              GetSenseDelays)};
 
 }  // namespace unimoc::hardware

@@ -172,6 +172,11 @@ Current g_overcurrent_limit{std::numeric_limits<float>::infinity()};
 Voltage g_overvoltage_limit{std::numeric_limits<float>::infinity()};
 bool g_current_override = false;
 system::ThreePhase<Current> g_override_currents{};
+// First-order low passes of the measured signals (SetSenseFilters()): a step
+// of half a period weighs the input with h / (tau + h), a delay of tau.
+SenseDelays g_sense_filters{};
+system::ThreePhase<Current> g_filtered_currents{};
+system::ThreePhase<Voltage> g_filtered_voltages{};
 uint32_t g_cycle_count = 0U;
 
 observer::HallEventQueue<16U> g_hall_events;
@@ -187,7 +192,18 @@ uint64_t g_elapsed_ns = 0U;  // ideal time of the last expiry since the start
 uint64_t g_elapsed_us = 0U;  // the same, rounded down to the 1 us kernel tick
 
 system::ThreePhase<Current> MeasuredCurrents() noexcept {
-  return g_current_override ? g_override_currents : g_plant.Output().phase_currents;
+  return g_current_override ? g_override_currents : g_filtered_currents;
+}
+
+/// One step of half a period of a low pass with the time constant @p tau.
+template <typename T>
+system::ThreePhase<T> LowPass(const system::ThreePhase<T>& state,
+                              const system::ThreePhase<T>& input,
+                              const Time tau) {
+  const Ratio kWeight = g_half_period / (tau + g_half_period);
+  return {state.a + ((input.a - state.a) * kWeight),
+          state.b + ((input.b - state.b) * kWeight),
+          state.c + ((input.c - state.c) * kWeight)};
 }
 
 uint8_t MeasuredHallCode() noexcept { return g_hall_override.value_or(g_plant.Output().hall.code); }
@@ -278,6 +294,10 @@ void RunCycle() noexcept {
     g_plant.SetBridgeEnabled(g_power_stage.enabled);
     g_plant.SetPhaseDuties(g_active);
     (void)g_plant.Step(g_half_period);
+    g_filtered_currents =
+        LowPass(g_filtered_currents, g_plant.Output().phase_currents, g_sense_filters.current);
+    g_filtered_voltages =
+        LowPass(g_filtered_voltages, g_plant.Output().terminal_voltages, g_sense_filters.phase_voltage);
     const uint64_t kBoundaryNs = kStartNs + ((k + 1U) * g_half_period_ns);
     CaptureHall(kBoundaryNs);
     UpdatePlantTrace();
@@ -306,7 +326,7 @@ void RunCycle() noexcept {
     sample.overcurrent = g_pending_overcurrent;
     sample.overvoltage = g_pending_overvoltage;
     sample.dc_link = g_plant.Output().dc_link_voltage;
-    sample.phase_voltages = g_plant.Output().terminal_voltages;
+    sample.phase_voltages = g_filtered_voltages;
     sample.phase_voltages_valid = true;
     sample.timestamp = static_cast<uint32_t>(kBoundaryNs);
     g_sample = sample;
@@ -345,6 +365,8 @@ void StopTimer() noexcept {
 
 // Back to the first cycle: neutral duties, the sample of the plant at rest.
 void ResetCycleState() noexcept {
+  g_filtered_currents = g_plant.Output().phase_currents;
+  g_filtered_voltages = g_plant.Output().terminal_voltages;
   g_sample = CurrentSample{};
   g_sample.dc_link = g_plant.Output().dc_link_voltage;
   g_active = kNeutral;
@@ -396,7 +418,10 @@ void Stop() noexcept {
 system::ThreePhase<Current> GetPhaseCurrents() noexcept { return MeasuredCurrents(); }
 
 // The terminals against the negative rail, as the phase-voltage sense of the STM32H7 boards.
-system::ThreePhase<Voltage> GetPhaseVoltages() noexcept { return g_plant.Output().terminal_voltages; }
+system::ThreePhase<Voltage> GetPhaseVoltages() noexcept { return g_filtered_voltages; }
+
+// The delays of the sense filters of the simulation: none unless SetSenseFilters() set them.
+SenseDelays GetSenseDelays() noexcept { return g_sense_filters; }
 
 TemperatureMeasurements GetTemperatureMeasurements() noexcept { return {}; }
 
@@ -448,6 +473,12 @@ void SetPhaseCurrentOverride(const float a, const float b, const float c) noexce
 }
 
 void ClearPhaseCurrentOverride() noexcept { g_current_override = false; }
+
+void SetSenseFilters(const SenseDelays& filters) noexcept {
+  const unsigned int kIrqKey = irq_lock();
+  g_sense_filters = filters;
+  irq_unlock(kIrqKey);
+}
 
 void SetHallCodeOverride(const uint8_t code) noexcept {
   const unsigned int kIrqKey = irq_lock();
@@ -553,6 +584,7 @@ const std::array<HardwareInterface, kMotorCount> kMotors = {HardwareInterface(In
                                                                               SetOvervoltageLimit,
                                                                               SetAdcTriggerOffset,
                                                                               GetTimerClockFrequency,
-                                                                              PopHallEvent)};
+                                                                              PopHallEvent,
+                                                                              GetSenseDelays)};
 
 }  // namespace unimoc::hardware

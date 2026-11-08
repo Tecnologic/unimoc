@@ -38,8 +38,8 @@ using namespace unit;
  * outputs were off, including a reversed or a stopped one, where the angle
  * measurement alone cannot pull the speed in.
  *
- * Below `min_back_emf` the voltages carry no usable direction: the motor is
- * taken to stand within that band (speed 0, with the band as its noise).
+ * Below `min_back_emf` the voltages carry no usable direction, only a bound:
+ * |omega| <= min_back_emf / psi (Measurement::upper_bound).
  *
  * The magnitude rests on psi of the settings: an error of psi scales the
  * measured speed, so its noise has a relative part and the flux observer's
@@ -50,8 +50,11 @@ class BackEmfSpeed {
  public:
   /// One speed measurement for the mechanical observer.
   struct Measurement {
-    unit::AngularVelocity speed;             ///< Electrical speed, signed.
+    unit::AngularVelocity speed;             ///< Electrical speed, signed; the bound when upper_bound.
     unit::AngularVelocityVariance variance;  ///< Its noise variance (Kalman R).
+    /// Below the band the voltages only bound the speed: |omega| <= speed. Correct an estimate
+    /// beyond it towards the bound; leave one within it (Hall or the prediction know better).
+    bool upper_bound{false};
   };
 
   /// Tuning of the measurement.
@@ -113,7 +116,7 @@ class BackEmfSpeed {
     if (kMagnitude < kBand) {
       rotation_ = unit::Ratio{};
       const unit::AngularVelocity kBandSpeed = (kBand / psi) * 1.0_rad;
-      return Measurement{unit::AngularVelocity{}, kBandSpeed * kBandSpeed};
+      return Measurement{kBandSpeed, kBandSpeed * kBandSpeed, true};
     }
     rotation_ = (rotation_ * (1.0F - parameters_.direction_weight)) + (turn * parameters_.direction_weight);
     const unit::AngularVelocity kMagnitudeSpeed = (kMagnitude / psi) * 1.0_rad;

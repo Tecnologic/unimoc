@@ -69,6 +69,20 @@ enum class ControlSampling : uint8_t {
 };
 
 /**
+ * @brief How long the measured signals lag the motor at the sample instant.
+ *
+ * The sample instant is the boundary at which the currents are sampled. A
+ * low pass delays its signal by its time constant (the group delay well below
+ * its corner); a signal converted later in the ADC sequence lags less by that
+ * time. The observer compensates both delays: the current delay in the Park
+ * angle of the control step, the phase-voltage delay in the coast tracking.
+ */
+struct SenseDelays {
+  unit::Time current;        ///< Amplifier and RC filter of the phase currents.
+  unit::Time phase_voltage;  ///< Divider and RC filters of the phase voltages, less their later sampling.
+};
+
+/**
  * @brief Optional temperature measurements provided by a hardware target.
  */
 struct TemperatureMeasurements {
@@ -134,6 +148,7 @@ class HardwareInterface {
   using SetAdcTriggerOffsetCallback = void (*)(uint32_t) noexcept;
   using GetTimerClockFrequencyCallback = uint32_t (*)() noexcept;
   using PopHallEventCallback = bool (*)(observer::HallEvent&) noexcept;
+  using GetSenseDelaysCallback = SenseDelays (*)() noexcept;
 
   /**
    * @brief Constructs a motor hardware interface.
@@ -148,6 +163,7 @@ class HardwareInterface {
    * @param set_adc_trigger_offset Updates the ADC trigger compare value.
    * @param get_timer_clock_frequency Returns the timer input clock in Hz.
    * @param pop_hall_event Takes the oldest captured change of the Hall code.
+   * @param get_sense_delays Returns the delays of the measured signals.
    */
   HardwareInterface(InitializeCallback initialize,
                     StopCallback stop,
@@ -158,7 +174,8 @@ class HardwareInterface {
                     SetOvervoltageLimitCallback set_overvoltage_limit,
                     SetAdcTriggerOffsetCallback set_adc_trigger_offset,
                     GetTimerClockFrequencyCallback get_timer_clock_frequency,
-                    PopHallEventCallback pop_hall_event)
+                    PopHallEventCallback pop_hall_event,
+                    GetSenseDelaysCallback get_sense_delays)
       : initialize_(initialize),
         stop_(stop),
         get_phase_currents_(get_phase_currents),
@@ -168,7 +185,11 @@ class HardwareInterface {
         set_overvoltage_limit_(set_overvoltage_limit),
         set_adc_trigger_offset_(set_adc_trigger_offset),
         get_timer_clock_frequency_(get_timer_clock_frequency),
-        pop_hall_event_(pop_hall_event) {}
+        pop_hall_event_(pop_hall_event),
+        get_sense_delays_(get_sense_delays) {}
+
+  /// The delays of the measured signals (read when the controller starts).
+  [[nodiscard]] SenseDelays GetSenseDelays() const noexcept { return get_sense_delays_(); }
 
   /**
    * @brief Initializes the hardware and starts its interrupts.
@@ -279,6 +300,7 @@ class HardwareInterface {
   SetAdcTriggerOffsetCallback set_adc_trigger_offset_;
   GetTimerClockFrequencyCallback get_timer_clock_frequency_;
   PopHallEventCallback pop_hall_event_;
+  GetSenseDelaysCallback get_sense_delays_;
 };
 
 /**
