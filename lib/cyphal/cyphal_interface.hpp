@@ -738,6 +738,11 @@ inline constexpr const char* kEbikeRearmTime = "unimoc.ebike.rearm_time";
 /// Type: real32[1] (read/write, persistent)
 inline constexpr const char* kEbikeDisplayTimeout = "unimoc.ebike.display_timeout";
 
+/// Torque sensor reading at zero load [N m]; the pedal observer learns it while the crank stands still
+/// and the drive stores the learned value (docs/ebike_plan.md, section 4).
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kEbikeTorqueOffset = "unimoc.ebike.torque_offset";
+
 /// Bus-off events of the CAN interfaces since start.
 /// Type: natural32[1] (read-only)
 inline constexpr const char* kCanBusOffCount = "unimoc.can.bus_off_count";

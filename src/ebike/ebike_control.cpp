@@ -69,6 +69,7 @@ EbikeParameters EbikeParameters::From(const settings::NvmSettings& settings) noe
   parameters.battery_cells = settings.ebike_battery_cells;
   parameters.nominal_voltage = settings.ebike_nominal_voltage;
   parameters.reversed = settings.cart_reversed != 0U;
+  parameters.pedal.zero_offset = settings.ebike_torque_offset;
   return parameters;
 }
 
@@ -84,6 +85,18 @@ void EbikeControl::Configure(const EbikeParameters& parameters) noexcept {
   wanting_ = false;
   latched_ = false;
   output_ = EbikeOutput{};
+  stored_offset_ = parameters.pedal.zero_offset;
+}
+
+std::optional<unit::Torque> EbikeControl::OffsetToStore(const uint64_t now_us) const noexcept {
+  const unit::Torque kOffset = pedal_.ZeroOffset();
+  const unit::Torque kMoved = kOffset - stored_offset_;
+  const auto kIntervalUs = static_cast<uint64_t>(parameters_.offset_store_interval.Value() * 1e6F);
+  if (!started_ || wanting_ || pedal_.Pedaling() || now_us - last_offset_store_us_ < kIntervalUs ||
+      (kMoved < parameters_.offset_store_step && kMoved > -parameters_.offset_store_step)) {
+    return std::nullopt;
+  }
+  return kOffset;
 }
 
 EbikeOutput EbikeControl::Update(const uint64_t now_us, const EbikeVehicle& vehicle) noexcept {
@@ -94,6 +107,7 @@ EbikeOutput EbikeControl::Update(const uint64_t now_us, const EbikeVehicle& vehi
   if (!started_) {
     started_ = true;
     pedal_still_since_us_ = now_us;
+    last_offset_store_us_ = now_us;
   }
   last_update_us_ = now_us;
   const unit::Time kDt = unit::Time{static_cast<float>(kStepElapsedUs) * 1e-6F};

@@ -759,6 +759,11 @@ struct NvmSettings {
   /// Register: `unimoc.ebike.display_timeout`
   unit::Time ebike_display_timeout{2.0_s};
 
+  /// Torque sensor reading at zero load, learned by the pedal observer while the crank stands still. The
+  /// drive stores the learned value by itself (EbikeControl::OffsetToStore()).
+  /// Register: `unimoc.ebike.torque_offset`
+  unit::Torque ebike_torque_offset{};
+
   /// Restore all fields to factory defaults.
   void ResetToDefaults() noexcept { *this = NvmSettings{}; }
 };

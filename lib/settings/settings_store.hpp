@@ -80,7 +80,8 @@ template <unit::UnitLike U>
          unit::IsFinite(settings.ebike_torque_deadband) && unit::IsFinite(settings.ebike_min_cadence) &&
          unit::IsFinite(settings.ebike_speed_taper) && unit::IsFinite(settings.ebike_rise_time) &&
          unit::IsFinite(settings.ebike_fall_time) && unit::IsFinite(settings.ebike_engage_hold) &&
-         unit::IsFinite(settings.ebike_rearm_time) && unit::IsFinite(settings.ebike_display_timeout);
+         unit::IsFinite(settings.ebike_rearm_time) && unit::IsFinite(settings.ebike_display_timeout) &&
+         unit::IsFinite(settings.ebike_torque_offset);
 }
 
 [[nodiscard]] inline bool IsFinite(const NvmSettings& settings) noexcept {
@@ -177,6 +178,8 @@ inline constexpr uint8_t kMaxEbikePulses = 64U;
 inline constexpr float kMinWheelCircumference = 0.5F;
 inline constexpr float kMaxWheelCircumference = 4.0F;
 inline constexpr uint8_t kMaxBatteryCells = 30U;
+/// Largest torque sensor offset (the sensor reads 0 at its rest voltage; the observer trims a few N m).
+inline constexpr unit::Torque kMaxEbikeTorqueOffset = 10.0_Nm;
 
 /// True when two enabled ports in @p port_ids share one port-ID.
 template <std::size_t kCount>
@@ -353,7 +356,8 @@ template <std::size_t kCount>
       settings.ebike_fall_time <= ZeroOf(settings.ebike_fall_time) ||
       settings.ebike_engage_hold < ZeroOf(settings.ebike_engage_hold) ||
       settings.ebike_rearm_time < ZeroOf(settings.ebike_rearm_time) ||
-      settings.ebike_display_timeout <= ZeroOf(settings.ebike_display_timeout)) {
+      settings.ebike_display_timeout <= ZeroOf(settings.ebike_display_timeout) ||
+      unit::Abs(settings.ebike_torque_offset) > kMaxEbikeTorqueOffset) {
     return SettingsStatus::kOutOfRange;
   }
 

@@ -17,6 +17,7 @@
 
 #include <array>
 #include <cstdint>
+#include <optional>
 #include "assist_controller.hpp"
 #include "ebike_interface.hpp"
 #include "kunteng_protocol.hpp"
@@ -46,6 +47,10 @@ struct EbikeParameters {
   uint8_t nominal_voltage{36U};
   /// Positive rotor torque and speed drive backward.
   bool reversed{false};
+  /// The learned torque offset is worth storing once it moved this far from the stored one.
+  unit::Torque offset_store_step{0.1_Nm};
+  /// At most one store of the learned torque offset in this time (flash wear).
+  unit::Time offset_store_interval{60.0_s};
 
   /// The parameters of the settings (`unimoc.ebike.*`, and `unimoc.cart.reversed` for the direction).
   [[nodiscard]] static EbikeParameters From(const settings::NvmSettings& settings) noexcept;
@@ -132,6 +137,23 @@ class EbikeControl {
     wanting_ = false;
   }
 
+  /**
+   * @brief The learned torque offset when it is worth storing (`unimoc.ebike.torque_offset`).
+   *
+   * Only while the drive is not requested and the crank stands still, once the offset moved the store step
+   * away from the stored one, and at most once per store interval (the first one interval after the
+   * start). The caller stores it and confirms with OffsetStored().
+   *
+   * @param now_us Monotonic time [us], the clock of Update().
+   */
+  [[nodiscard]] std::optional<unit::Torque> OffsetToStore(uint64_t now_us) const noexcept;
+
+  /// The drive stored @p offset at @p now_us; the next store waits for the store interval.
+  void OffsetStored(unit::Torque offset, uint64_t now_us) noexcept {
+    stored_offset_ = offset;
+    last_offset_store_us_ = now_us;
+  }
+
   [[nodiscard]] const PedalObserver& Pedal() const noexcept { return pedal_; }
   [[nodiscard]] const AssistController& Assist() const noexcept { return assist_; }
   /// A valid display request arrived within the display timeout.
@@ -164,6 +186,9 @@ class EbikeControl {
   bool latched_{false};
   uint64_t pedal_still_since_us_{0U};
   bool was_engaged_{false};
+  // The stored torque offset and the time of the last store (or of the first update).
+  unit::Torque stored_offset_;
+  uint64_t last_offset_store_us_{0U};
   // Battery bars with hysteresis (0: below empty .. 5: four bars).
   std::size_t bars_{5U};
 };

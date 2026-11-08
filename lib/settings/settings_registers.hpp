@@ -264,6 +264,7 @@ void ForEachRegister(const Visitor& visit, Settings&... settings) {
   visit(Setting(reg::kEbikeEngageHold, "E-bike: the drive stays engaged this long after the assist ended", AtLeast(0.0F)), settings.ebike_engage_hold...);
   visit(Setting(reg::kEbikeRearmTime, "E-bike: after a fault the pedals stand still this long before the drive engages again", AtLeast(0.0F)), settings.ebike_rearm_time...);
   visit(Setting(reg::kEbikeDisplayTimeout, "E-bike: without a display request for this long the display counts as lost", AtLeast(0.0F)), settings.ebike_display_timeout...);
+  visit(Setting(reg::kEbikeTorqueOffset, "E-bike torque sensor reading at zero load; learned at standstill and stored by the drive", Between(-10.0F, 10.0F)), settings.ebike_torque_offset...);
   // clang-format on
 }
 

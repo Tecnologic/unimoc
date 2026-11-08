@@ -1449,4 +1449,34 @@ ZTEST(sim_cyphal_drive, test_ebike_trip_latches_until_the_pedals_stood_still) {
   zexpect_false(CurrentControlIsr::Instance().state.overcurrent_tripped);
 }
 
+ZTEST(sim_cyphal_drive, test_ebike_stores_the_learned_torque_offset) {
+  Rig& rig = *g_rig;
+  unimoc::ebike::EbikeParameters parameters;
+  parameters.pedal.zero_time_constant = 1.0_s;
+  parameters.offset_store_interval = 2.0_s;
+  rig.ebike.Configure(parameters);
+  rig.drive.SetLocalControl(&rig.ebike);
+  zassert_equal(rig.store.GetOperations().UnsavedCount(), 0U);
+
+  // The sensor reads 1 N m at standstill: the observer learns it, the drive saves it after the interval.
+  sim::SetPedal(AngularVelocity{}, 1.0_Nm);
+  rig.Run(1800U);
+  UNIMOC_EXPECT_FLOAT_EQ(rig.store.GetSnapshot().Get().ebike_torque_offset, 0.0_Nm);
+  rig.Run(500U);
+  const Torque kSaved = rig.store.GetSnapshot().Get().ebike_torque_offset;
+  zexpect_true(kSaved > 0.5_Nm && kSaved < 1.0_Nm, "the learned offset is saved");
+  zexpect_equal(rig.store.GetOperations().UnsavedCount(), 0U, "saved to flash");
+  UNIMOC_EXPECT_FLOAT_EQ(Torque{unimoc::cyphal::GetNumber(rig.Access(reg::kEbikeTorqueOffset, Empty()))
+                                    .value_or(0.0F)},
+                         kSaved);
+
+  // With another change not saved yet, the offset waits in RAM for the next STORE_PERSISTENT_STATES.
+  zassert_equal(rig.store.GetOperations().Update([](auto& settings) { settings.telemetry_rate = 25.0_Hz; }),
+                SettingsStatus::kSuccess);
+  rig.Run(2500U);
+  const Torque kLearned = rig.store.GetSnapshot().Get().ebike_torque_offset;
+  zexpect_true(kLearned > kSaved + 0.1_Nm);
+  zexpect_equal(rig.store.GetOperations().UnsavedCount(), 2U);
+}
+
 ZTEST_SUITE(sim_cyphal_drive, nullptr, nullptr, Before, After, nullptr);

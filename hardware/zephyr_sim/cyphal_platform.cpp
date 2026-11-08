@@ -15,6 +15,8 @@
  *      and whether the plant follows the motor settings.
  *    - The plant state (unimoc.sim.Plant.0.1) on `uavcan.pub.sim_plant.id`
  *      at the telemetry rate, to compare with the controller's estimates.
+ *    - With the e-bike (CONFIG_UNIMOC_EBIKE): the simulated rider and display
+ *      (`unimoc.sim.pedal_*`, `unimoc.sim.display_*`, volatile).
  *
  *    SPDX-License-Identifier: GPL-3.0-or-later
  *
@@ -41,6 +43,7 @@
 #include "register_file.hpp"
 #include "sim_cmdline.h"
 #include "sim_control.hpp"
+#include "sim_ebike.hpp"
 #include "slcan_media.hpp"
 
 LOG_MODULE_DECLARE(unimoc_cyphal, CONFIG_UNIMOC_LOG_LEVEL);
@@ -408,6 +411,158 @@ class SimRegisters final : public cyphal::RegisterProvider {
 
 SimRegisters g_registers;
 
+/// Inputs of the simulated rider and display (sim_ebike.hpp) that the registers set.
+struct RiderInputs {
+  float cadence{0.0F};  ///< Crank speed [rad/s]; 0: the crank stands still.
+  float torque{0.0F};   ///< Mean reading of the torque sensor [N m]; at standstill its offset.
+  bool display_on{false};
+  uint8_t level{0U};
+  uint8_t max_speed{25U};  ///< [km/h]
+  bool light{false};
+};
+
+enum class RiderRegister : uint8_t {
+  kCadence,
+  kTorque,
+  kDisplayOn,
+  kLevel,
+  kMaxSpeed,
+  kLight,
+  kFrames,
+};
+
+constexpr std::array<std::string_view, 7> kRiderNames{
+    "unimoc.sim.pedal_cadence",
+    "unimoc.sim.pedal_torque",
+    "unimoc.sim.display_on",
+    "unimoc.sim.display_level",
+    "unimoc.sim.display_max_speed",
+    "unimoc.sim.display_light",
+    "unimoc.sim.display_frames",
+};
+
+constexpr std::array<cyphal::RegisterDescription, kRiderNames.size()> kRiderDescriptions{{
+    {"rad/s",
+     0.0F,
+     100.0F,
+     RegisterEffect::kImmediate,
+     "Crank speed of the simulated rider; 0: the crank stands still"},
+    {"N m",
+     -10.0F,
+     200.0F,
+     RegisterEffect::kImmediate,
+     "Mean reading of the simulated torque sensor; at standstill the sensor offset the drive learns"},
+    {{},
+     -kInf,
+     kInf,
+     RegisterEffect::kImmediate,
+     "1: the simulated display polls the drive; 0: it falls silent"},
+    {{}, 0.0F, 7.0F, RegisterEffect::kImmediate, "Assist level the simulated display requests"},
+    {"km/h", 10.0F, 63.0F, RegisterEffect::kImmediate, "Speed limit the simulated display requests"},
+    {{}, -kInf, kInf, RegisterEffect::kImmediate, "1: the simulated display asks for the light"},
+    {"frames",
+     -kInf,
+     kInf,
+     RegisterEffect::kImmediate,
+     "Status frames the drive sent to the simulated display"},
+}};
+
+/// Registers of the simulated rider and display; only with the e-bike, not persistent.
+class RiderRegisters final : public cyphal::RegisterProvider {
+ public:
+  [[nodiscard]] std::size_t Count() const noexcept override { return kRiderNames.size(); }
+
+  [[nodiscard]] std::string_view Name(const std::size_t index) const noexcept override {
+    return index < kRiderNames.size() ? kRiderNames[index] : std::string_view{};
+  }
+
+  [[nodiscard]] cyphal::RegisterDescription Describe(const std::size_t index) const noexcept override {
+    return index < kRiderDescriptions.size() ? kRiderDescriptions[index] : cyphal::RegisterDescription{};
+  }
+
+  [[nodiscard]] RegisterFlags Read(const std::size_t index, RegisterValue& value) const noexcept override {
+    switch (static_cast<RiderRegister>(index)) {
+      case RiderRegister::kCadence:
+        cyphal::SetReal32(value, inputs_.cadence);
+        break;
+      case RiderRegister::kTorque:
+        cyphal::SetReal32(value, inputs_.torque);
+        break;
+      case RiderRegister::kDisplayOn:
+        cyphal::SetBit(value, inputs_.display_on);
+        break;
+      case RiderRegister::kLevel:
+        cyphal::SetNatural8(value, inputs_.level);
+        break;
+      case RiderRegister::kMaxSpeed:
+        cyphal::SetNatural8(value, inputs_.max_speed);
+        break;
+      case RiderRegister::kLight:
+        cyphal::SetBit(value, inputs_.light);
+        break;
+      case RiderRegister::kFrames:
+        cyphal::SetNatural32(value, sim::DisplayStatusCount());
+        return {false, false};
+    }
+    return {true, false};
+  }
+
+  [[nodiscard]] RegisterWriteResult Write(const std::size_t index,
+                                          const RegisterValue& value) noexcept override {
+    const auto kNumber = cyphal::GetNumber(value);
+    if (!kNumber.has_value()) {
+      return RegisterWriteResult::kTypeMismatch;
+    }
+    const float kValue = *kNumber;
+    if (!std::isfinite(kValue)) {
+      return RegisterWriteResult::kOutOfRange;
+    }
+    const cyphal::RegisterDescription& kLimits = kRiderDescriptions[index];
+    if (kValue < kLimits.minimum || kValue > kLimits.maximum) {
+      return RegisterWriteResult::kOutOfRange;
+    }
+    switch (static_cast<RiderRegister>(index)) {
+      case RiderRegister::kCadence:
+        inputs_.cadence = kValue;
+        break;
+      case RiderRegister::kTorque:
+        inputs_.torque = kValue;
+        break;
+      case RiderRegister::kDisplayOn:
+        inputs_.display_on = kValue != 0.0F;
+        break;
+      case RiderRegister::kLevel:
+        inputs_.level = static_cast<uint8_t>(kValue);
+        break;
+      case RiderRegister::kMaxSpeed:
+        inputs_.max_speed = static_cast<uint8_t>(kValue);
+        break;
+      case RiderRegister::kLight:
+        inputs_.light = kValue != 0.0F;
+        break;
+      case RiderRegister::kFrames:
+        return RegisterWriteResult::kReadOnly;
+    }
+    Apply(static_cast<RiderRegister>(index));
+    return RegisterWriteResult::kAccepted;
+  }
+
+ private:
+  void Apply(const RiderRegister changed) const noexcept {
+    if (changed == RiderRegister::kCadence || changed == RiderRegister::kTorque) {
+      sim::SetPedal(unit::AngularVelocity{inputs_.cadence}, unit::Torque{inputs_.torque});
+    } else if (inputs_.display_on) {
+      sim::SetDisplay(inputs_.level, inputs_.max_speed, inputs_.light);
+    } else if (changed == RiderRegister::kDisplayOn) {
+      sim::SilenceDisplay();
+    }
+  }
+
+  RiderInputs inputs_;
+};
+
+RiderRegisters g_rider_registers;
+
 // The slcan pseudo terminals: the slcan-uarts phandles of zephyr,user (app overlay).
 #define UNIMOC_SLCAN_NODE DT_PATH(zephyr_user)
 #if defined(CONFIG_UNIMOC_CYPHAL_SLCAN) && DT_NODE_HAS_PROP(UNIMOC_SLCAN_NODE, slcan_uarts)
@@ -456,6 +611,9 @@ std::span<cyphal::CanMedia* const> CyphalPlatformInterfaces() noexcept { return 
 
 void CyphalPlatformStart(cyphal::CyphalNode& node, const settings::NvmSettings& settings) noexcept {
   (void)node.AddRegisterProvider(g_registers);
+  if (IS_ENABLED(CONFIG_UNIMOC_EBIKE)) {
+    (void)node.AddRegisterProvider(g_rider_registers);
+  }
   (void)node.AddPublisher(g_plant_publisher);
   g_applied_settings = settings;
   SetPlantRate(settings);

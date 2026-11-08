@@ -230,6 +230,8 @@ class DriveNode final : public cyphal::MessageListener,
   void SpinStartup() noexcept;
   /// The e-bike control: engagement on demand and its torque (only with a local control).
   void SpinLocalControl(uint64_t now_us) noexcept;
+  /// Stores the torque offset the e-bike learned (unimoc.ebike.torque_offset), while disengaged.
+  void StoreTorqueOffset(uint64_t now_us) noexcept;
   /// Cart torque, readiness and fault checks, setpoint timeout, battery limits.
   void SpinEngagement(uint64_t now_us) noexcept;
   void Engage() noexcept;

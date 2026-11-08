@@ -397,6 +397,28 @@ void DriveNode::SpinLocalControl(const uint64_t now_us) noexcept {
       Disengage("e-bike");
     }
   }
+  if (!engaged_) {
+    StoreTorqueOffset(now_us);
+  }
+}
+
+void DriveNode::StoreTorqueOffset(const uint64_t now_us) noexcept {
+  // Flash is written with the power stage off only (a startup aid run holds it on).
+  const std::optional<unit::Torque> kOffset = ebike_->OffsetToStore(now_us);
+  if (!kOffset.has_value() || kPowerStage.GetState() == PowerStageState::kEnabled) {
+    return;
+  }
+  ebike_->OffsetStored(*kOffset, now_us);  // also after a failure: the next try waits for the interval
+  auto operations = store_->GetOperations();
+  if (operations.Update([&](settings::NvmSettings& settings) { settings.ebike_torque_offset = *kOffset; }) !=
+      settings::SettingsStatus::kSuccess) {
+    return;
+  }
+  // Registers written but not saved stay unsaved: the offset then goes to flash with them, at the next
+  // STORE_PERSISTENT_STATES.
+  if (operations.UnsavedCount() == 1U && operations.SaveToFlash() != settings::SettingsStatus::kSuccess) {
+    (void)node_->Log(cyphal::Severity::kWarning, "e-bike torque offset not saved");
+  }
 }
 
 void DriveNode::SpinEngagement(const uint64_t now_us) noexcept {
