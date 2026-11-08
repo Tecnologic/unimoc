@@ -170,7 +170,7 @@ struct Rig {
     return vdc.Write(Find(cyphal::reg::kVdcDriveNodeIds).value(), value);
   }
 
-  cyphal::RegisterValue Read(const std::string_view name) const {
+  [[nodiscard]] cyphal::RegisterValue Read(const std::string_view name) const {
     cyphal::RegisterValue value{};
     (void)vdc.Read(Find(name).value(), value);
     return value;
