@@ -1,5 +1,10 @@
 # cymon integration plan
 
+> **2026-11-03:** the battery case controller (BCC, STM32G473) and its
+> platform `hardware/zephyr_bcc` are removed. BCC references below are
+> history; the STM32H7 platform (`hardware/zephyr_stm32h7`, Jacobi and the
+> NUCLEO-H743ZI) carries the same design.
+
 Status: **implemented** (steps 1 to 10 below), not yet run on the board
 (M0 cost of `Tick()`). `lib/cymon` points at cymon-lib 0.2 on `main`.
 That version is ready for this integration: C++20, interrupt-safe `Tick()`,
@@ -79,8 +84,8 @@ integration with ztest and pytest, as below.
    field is registered once at start-up with its SI unit. On `native_sim`,
    also add the plant truth (`unimoc.sim.Plant` fields).
 7. **Sampling**: call `trace.Tick()` right after the mirror is filled, at
-   the end of the control cycle (zero-latency IRQ, 16 kHz,
-   `SetTickPeriod(62.5F)`). `Tick()` meets the zero-latency rules of
+   the end of the control cycle (zero-latency IRQ, at most 16 kHz, the tick
+   period from the running `dt_slow`). `Tick()` meets the zero-latency rules of
    `AGENTS.md`: no kernel calls, no locks, no function pointers, no libm.
    M0 has to confirm the cost (target < 1 µs at 170 MHz). The fallback is
    the observer's pended interrupt.
@@ -111,9 +116,10 @@ integration with ztest and pytest, as below.
   subscription may share one subject (decided 2026-10-22): every node of a
   bus then triggers the captures of the others; a node does not receive its
   own transfers. All other ports must have distinct IDs.
-- `Tick()` runs in `ControlCycleHandler()` (`src/main.cpp`) right after
-  `CurrentControlIsr::OnControlCycle()`, through `trace::OnControlCycle()`,
-  on every cycle (also while tripped or in force-duty mode). The mirror
+- `Tick()` runs in `SampleHandler()` (`src/main.cpp`) right after the
+  `CurrentControlIsr::OnSample()` that ends a control cycle (every fourth
+  sample), through `trace::OnControlCycle()`, on every cycle (also while
+  tripped or in force-duty mode). The mirror
   `trace::TraceSignals` is filled from the controller state;
   `CurrentControlState::i_dq_last` holds the measured d/q current for it.
 - The device is constructed in `.bss` (a `std::optional`) by the Cyphal

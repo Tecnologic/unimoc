@@ -1,5 +1,10 @@
 # Settings Persistence: Per-Register Keys on Zephyr Settings
 
+> **2026-11-03:** the battery case controller (BCC, STM32G473) and its
+> platform `hardware/zephyr_bcc` are removed. BCC references below are
+> history; the STM32H7 platform (`hardware/zephyr_stm32h7`, Jacobi and the
+> NUCLEO-H743ZI) carries the same design.
+
 > **Status (2026-10-20):** implemented on `native_sim` and built for the BCC. Not
 > run on the board: see "Not verified on hardware".
 
@@ -27,7 +32,7 @@ Cyphal register service / shell / startup FSM                 (threads)
 
 - **One key per register.** The key is the Cyphal register name
   (`cyphal::reg`), the Zephyr entry is `unimoc/<register name>`. The table of
-  132 persistent registers is `ForEachRegister()` in
+  131 persistent registers is `ForEachRegister()` in
   `lib/settings/settings_registers.hpp`; adding a register is one line there
   (with its description, below) plus the field in `NvmSettings`. The same
   table drives the Cyphal register service and the register description

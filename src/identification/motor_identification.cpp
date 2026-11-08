@@ -60,7 +60,6 @@ void MotorIdentification::Configure(const settings::NvmSettings& settings) noexc
   current_max_ = settings.motor_i_max;
   resistance_prior_ = settings.stator_r;
   inductance_prior_ = Max(settings.l_d, settings.l_q);
-  pwm_frequency_ = settings.pwm_frequency;
 }
 
 StartResult MotorIdentification::Start(const uint8_t measurements) noexcept {
@@ -133,6 +132,11 @@ Current MotorIdentification::Level(const uint32_t point) const noexcept {
   const float kFraction = kResistanceLevels[kIndex % kResistanceLevels.size()];
   const float kSign = kIndex < kResistanceLevels.size() ? 1.0F : -1.0F;
   return current_max_ * (kFraction * kSign);
+}
+
+uint32_t MotorIdentification::WindowCycles() const noexcept {
+  return kWindowPeriods * current_control::InjectionPeriodCycles(isr_->state.timing.divider,
+                                                                 isr_->state.timing.steps_per_cycle);
 }
 
 uint32_t MotorIdentification::SettleCycles() const noexcept {
@@ -214,8 +218,9 @@ void MotorIdentification::FinishResistance() noexcept {
   // The dead-time compensation adds sign(i) t_dead f_pwm per phase (Clarke,
   // amplitude invariant); with the current along one phase (the angles of M1)
   // that is 4/3 t_dead f_pwm V_dc on the d axis.
-  if (dc_link_ > Voltage{} && pwm_frequency_ > Frequency{}) {
-    results_.dead_time = Max(Time{}, kFit->dead_time_voltage * 0.75F / (dc_link_ * pwm_frequency_));
+  const Frequency kPwmFrequency = isr_->state.timing.pwm_frequency;
+  if (dc_link_ > Voltage{} && kPwmFrequency > Frequency{}) {
+    results_.dead_time = Max(Time{}, kFit->dead_time_voltage * 0.75F / (dc_link_ * kPwmFrequency));
   }
   bool agree = true;
   for (const auto& regression : per_angle_) {
@@ -237,7 +242,8 @@ void MotorIdentification::StartInductanceAxis(const Step step) noexcept {
   point_ = 0U;
   // The bias first, with the current PI; then it is held and the sine added.
   const Current kTarget = current_max_ * kInjectionCurrent;
-  const Resistance kReactance = (InjectionAngularFrequency(pwm_frequency_) / 1.0_rad) * inductance_prior_;
+  const Resistance kReactance =
+      (InjectionAngularFrequency(isr_->state.timing.pwm_frequency) / 1.0_rad) * inductance_prior_;
   amplitude_ = kTarget * (resistance_prior_ + kReactance);
   Drive(current_max_ * kInductanceBias, Angle{}, false, Voltage{}, 0U);
   phase_ = Phase::kBias;
@@ -259,7 +265,7 @@ void MotorIdentification::OnInductanceWindow(const IdentificationWindowResult& w
   }
   const auto kImpedance = EstimateImpedance(window.voltage_phasor,
                                             window.current_phasor,
-                                            InjectionAngularFrequency(pwm_frequency_));
+                                            InjectionAngularFrequency(isr_->state.timing.pwm_frequency));
   if (!kImpedance.has_value() || !(kImpedance->inductance > Inductance{})) {
     failed_ |= Bit(step_);
   } else if (step_ == Step::kInductanceD) {
@@ -320,7 +326,7 @@ void MotorIdentification::RunOnce() noexcept {
       return;
     case Phase::kSettle:
       phase_ = Phase::kMeasure;
-      slow_->RequestWindow(kWindowCycles);
+      slow_->RequestWindow(WindowCycles());
       return;
     case Phase::kMeasure:
       if (step_ == Step::kResistance) {

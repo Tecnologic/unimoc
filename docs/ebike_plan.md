@@ -1,5 +1,12 @@
 # Plan: Pedal Assist on the Battery Case Controller
 
+> **2026-11-03:** the BCC and its e-bike drivers (cadence capture, display
+> line, UART; `hardware/zephyr_bcc/ebike_io.cpp`) and the `unimoc,ebike`
+> binding are removed. The e-bike control runs in the simulation only;
+> `CONFIG_UNIMOC_EBIKE` depends on `native_sim`. A drive with a crank sensor
+> and a display port adds an `ebike_io.cpp` to its platform; the BCC wiring
+> below and the removed driver in the git history are the reference.
+
 Status: 2026-10-23. Steps 1 to 5 are implemented, tested under twister on `native_sim`
 (`lib/ebike/`, `src/ebike/`, `tests/lib/ebike/`, `tests/ebike/`, the e-bike tests of
 `tests/sim/cyphal_drive`) and compiled for the BCC (`unimoc.app.build.ebike`). Nothing is

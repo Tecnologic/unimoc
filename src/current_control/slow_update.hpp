@@ -40,22 +40,22 @@ namespace unimoc::current_control {
  * --------
  * `SlowUpdate` owns the `PmsmFluxObserver` and the Hall fusion and drives
  * the `MechanicalObserver` (docs/hotpath_plan.md, D2 and section 5). After
- * every control cycle (signalled through
+ * every control cycle of timing.steps_per_cycle control steps (signalled through
  * `CurrentControlIsr::state.observer_pending`) it:
  *
- *  1. Takes the mean d/q current and the voltage demand of the cycle from the
- *     buffer the control cycle used.
+ *  1. Takes the mean d/q current and the mean voltage demand of the cycle
+ *     from the record the control steps filled.
  *  2. Predicts the covariance of the mechanical Kalman filter for the cycle.
  *  3. Updates it with the angle measurements of the cycle, each with its own
  *     noise: the PMSM flux observer (weighted down at low speed, where it
  *     has no back-EMF) and, when enabled, the Hall edges captured by the
  *     platform and the Hall sector.
- *  4. Predicts the state to the next cycle and feeds the four samples to the
- *     HFI observer when HFI is active.
- *  5. Computes the angles of the next cycle (Park angle of each sample and
- *     inverse-Park angle of each duty entry, projected forward by
- *     `omega × dt_fast`) into the **inactive** buffer.
- *  6. Atomically flips the double buffer so the next control cycle uses them.
+ *  4. Predicts the state to the next cycle.
+ *  5. Writes the angle reference of the next cycle (the angle at its first
+ *     sample, the rotation of one half period and of the output delay) into
+ *     the **inactive** buffer.
+ *  6. Atomically flips the buffer; the control steps advance the angle from
+ *     the new reference.
  *
  * The estimate before the state prediction refers to the first sample of the
  * cycle that just finished; the Hall edges are projected to that time.
@@ -63,10 +63,12 @@ namespace unimoc::current_control {
  * Execution model
  * ---------------
  * The platform runs `RunOnce()` after each control cycle at a priority
- * below the sampling interrupt (BCC: a software-pended normal-priority
- * interrupt; native_sim: directly after the control callback). It must finish
- * before the next control cycle, one cycle (62.5 µs at 16 kHz) later;
- * `state.observer_overruns` counts the cycles where it did not.
+ * below the sampling interrupt (STM32H7: a software-pended normal-priority
+ * interrupt; native_sim: directly after the sample handler). It should
+ * finish before the first sample of the next cycle (one half period; else
+ * the control steps extrapolate a little longer) and must finish before the
+ * end of the next cycle (62.5 µs at 16 kHz); `state.observer_overruns`
+ * counts the cycles where it did not.
  *
  * Usage
  * -----
@@ -217,10 +219,10 @@ class SlowUpdate {
   [[nodiscard]] unit::AngleVariance FluxNoise(unit::AngularVelocity omega) const noexcept;
 
   /// Fuses the Hall events of the platform; drains them when Hall is off.
-  void FuseHall(const SubStepBuffer& cycle) noexcept;
+  void FuseHall(const CycleRecord& cycle) noexcept;
 
   /// Adds the cycle to the requested measurement window; completes it after its cycles.
-  void AccumulateWindow(const SubStepBuffer& cycle) noexcept;
+  void AccumulateWindow(const CycleRecord& cycle) noexcept;
 
   /// The angle of the next cycle, the observer's or the forced one.
   struct ForcedAngle {

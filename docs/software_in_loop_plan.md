@@ -1,5 +1,10 @@
 # Host Software-in-the-Loop Plan
 
+> **2026-11-03:** the battery case controller (BCC, STM32G473) and its
+> platform `hardware/zephyr_bcc` are removed. BCC references below are
+> history; the STM32H7 platform (`hardware/zephyr_stm32h7`, Jacobi and the
+> NUCLEO-H743ZI) carries the same design.
+
 > **Status (2026-10-21):** partly superseded. The single-motor host runtime is
 > the Zephyr `native_sim` platform (`hardware/zephyr_sim/`, see
 > `docs/zephyr_port_plan.md`, Phase 2), not `hardware/host/`. The network
@@ -68,7 +73,7 @@ The C++ simulator remains the source of truth for controller execution and physi
 Each motor runtime should expose operations equivalent to:
 
 - `Reset()` - restore settings, controller state, plant state, and virtual time.
-- `RunControlCycle()` - execute exactly one control cycle (`OnControlCycle()`, then the observer, then the plant over four half periods). On native_sim this is `hardware::sim::StepCycle()`.
+- `RunControlCycle()` - execute exactly one control cycle (four half periods of the plant, each with its sample and control step `OnSample()`, then the observer). On native_sim this is `hardware::sim::StepCycle()`.
 - `AdvanceCycles(count)` - execute a fixed number of coordinated cycles.
 - `Snapshot()` - return controller, plant, timing, and telemetry state.
 

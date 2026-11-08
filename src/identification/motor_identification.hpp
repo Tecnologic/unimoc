@@ -90,7 +90,7 @@ struct Status {
  * Runs in the Cyphal thread like the startup aid, one RunOnce() per spin.
  * Its clock is the control cycle: every wait is a measurement window of
  * SlowUpdate counted in control cycles, so a run takes the same virtual time
- * on the BCC, in the free-running and in the paused simulation.
+ * on the STM32H7, in the free-running and in the paused simulation.
  *
  * - M1 holds a d current at a forced angle (0, 120 and 240 degrees
  *   electrical, so each phase carries the full current once) at five levels
@@ -123,10 +123,8 @@ class MotorIdentification {
   static constexpr float kInjectionTolerance = 0.25F;
   /// Most amplitude adaptations of one M2 axis.
   static constexpr uint8_t kMaxInjectionTries = 4U;
-  /// Control cycles of one injection period.
-  static constexpr uint32_t kInjectionPeriodCycles = current_control::kInjectionPeriodCycles;
-  /// Measurement window of an M1 level and of an M2 axis [control cycles].
-  static constexpr uint32_t kWindowCycles = 25U * kInjectionPeriodCycles;  // 50 ms at 16 kHz
+  /// Injection periods of the measurement window of an M1 level and of an M2 axis (50 ms at 500 Hz).
+  static constexpr uint32_t kWindowPeriods = 25U;
   /// Shortest and longest settle time of a level [control cycles].
   static constexpr uint32_t kMinSettleCycles = 320U;
   static constexpr uint32_t kMaxSettleCycles = 8000U;
@@ -196,6 +194,8 @@ class MotorIdentification {
       unit::Current d_current, unit::Angle angle, bool hold, unit::Voltage amplitude, uint8_t axis) noexcept;
   [[nodiscard]] unit::Current Level(uint32_t point) const noexcept;
   [[nodiscard]] uint32_t SettleCycles() const noexcept;
+  /// Measurement window: kWindowPeriods injection periods [control cycles].
+  [[nodiscard]] uint32_t WindowCycles() const noexcept;
 
   current_control::CurrentControlIsr* isr_;
   current_control::SlowUpdate* slow_;
@@ -204,7 +204,6 @@ class MotorIdentification {
   unit::Current current_max_;
   unit::Resistance resistance_prior_;
   unit::Inductance inductance_prior_;
-  unit::Frequency pwm_frequency_;
 
   Step step_{Step::kIdle};
   Phase phase_{Phase::kSettle};

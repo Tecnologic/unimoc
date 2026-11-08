@@ -325,14 +325,22 @@ struct NvmSettings {
   // PWM frequency
   // =========================================================================
 
-  /// PWM switching frequency for the current-control timer.
+  /// PWM switching frequency for the current-control timer; 0 selects it from
+  /// the inductance (control_timing.hpp, SuggestedPwmFrequency()).
   ///
-  /// The ISR fires at 2× this frequency (once at peak, once at trough of the
-  /// centre-aligned timer) so the effective current-loop rate is 2 × f_pwm.
-  /// The slow-update task runs at (2 × f_pwm) / 4 = f_pwm / 2.
+  /// The current is sampled at every peak and valley; the control step runs
+  /// every control_divider half periods, the observer after a power of two of
+  /// control steps, at most 16 kHz (control_timing.hpp).
   ///
   /// Register: `unimoc.control.pwm_frequency`
   unit::Frequency pwm_frequency{20.0_kHz};
+
+  /// PWM half periods per control step: 1 (every peak and valley), 2 (every
+  /// valley), 4 or 8; 0 takes the smallest the board runs
+  /// (HardwareCapabilities::max_control_frequency).
+  ///
+  /// Register: `unimoc.control.divider`
+  uint8_t control_divider{0U};
 
   // =========================================================================
   // Current controller (d/q-axis PI with cross-coupling feedforward)
@@ -388,18 +396,6 @@ struct NvmSettings {
   /// Phase-current zero-crossing threshold [A].
   /// Register: `unimoc.control.dtc.i_threshold`
   unit::Current dtc_i_threshold{0.1_A};
-
-  // =========================================================================
-  // HFI (high-frequency injection) observer
-  // =========================================================================
-
-  /// HFI injection voltage [V].
-  /// Register: `unimoc.observer.hfi.v_inject`
-  unit::Voltage hfi_v_inject{0.0_V};
-
-  /// Current error to PLL angle scaling gain [rad/A].
-  /// Register: `unimoc.observer.hfi.error_gain`
-  unit::AnglePerCurrent hfi_error_gain{1.0_rad_per_A};
 
   // =========================================================================
   // EESM excitation controller

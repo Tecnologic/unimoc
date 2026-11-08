@@ -17,9 +17,16 @@
             "group": "build"
         },
         {
-            "label": "Zephyr: build bcc",
+            "label": "Zephyr: build jacobi",
             "type": "shell",
-            "command": "west build -b bcc unimoc/app -d unimoc/app/build/bcc",
+            "command": "west build -b unimoc_jacobi unimoc/app -d unimoc/app/build/jacobi",
+            "problemMatcher": "$gcc",
+            "group": "build"
+        },
+        {
+            "label": "Zephyr: build h743",
+            "type": "shell",
+            "command": "west build -b nucleo_h743zi unimoc/app -d unimoc/app/build/h743",
             "problemMatcher": "$gcc",
             "group": "build"
         },
@@ -27,7 +34,7 @@
             "label": "Zephyr: build all",
             "dependsOn": [
                 "Zephyr: build sim",
-                "Zephyr: build bcc"
+                "Zephyr: build jacobi"
             ],
             "dependsOrder": "sequence",
             "problemMatcher": [],
@@ -45,9 +52,9 @@
             "isBackground": false
         },
         {
-            "label": "Zephyr: twister (native_sim + bcc)",
+            "label": "Zephyr: twister (native_sim + jacobi)",
             "type": "shell",
-            "command": "west twister -T unimoc -p native_sim/native/64 -p bcc",
+            "command": "west twister -T unimoc -p native_sim/native/64 -p unimoc_jacobi",
             "problemMatcher": "$gcc",
             "group": {
                 "kind": "test",
@@ -55,16 +62,23 @@
             }
         },
         {
-            "label": "Zephyr: flash bcc",
+            "label": "Zephyr: flash jacobi",
             "type": "shell",
-            "command": "west flash -d unimoc/app/build/bcc",
-            "dependsOn": "Zephyr: build bcc",
+            "command": "west flash -d unimoc/app/build/jacobi --runner openocd",
+            "dependsOn": "Zephyr: build jacobi",
+            "problemMatcher": []
+        },
+        {
+            "label": "Zephyr: flash h743",
+            "type": "shell",
+            "command": "west flash -d unimoc/app/build/h743 --runner openocd --config unimoc/app/boards/nucleo_h743zi_openocd.cfg",
+            "dependsOn": "Zephyr: build h743",
             "problemMatcher": []
         },
         {
             "label": "Zephyr: pristine build all",
             "type": "shell",
-            "command": "west build -p always -b native_sim/native/64 unimoc/app -d unimoc/app/build/sim && west build -p always -b bcc unimoc/app -d unimoc/app/build/bcc",
+            "command": "west build -p always -b native_sim/native/64 unimoc/app -d unimoc/app/build/sim && west build -p always -b unimoc_jacobi unimoc/app -d unimoc/app/build/jacobi",
             "problemMatcher": "$gcc"
         }
     ]

@@ -11,7 +11,7 @@
  *    The Cyphal thread, the CAN interface on the chosen `zephyr,canbus` and
  *    the diagnostic log backend are shared by all Zephyr platforms
  *    (hardware/zephyr_common). A platform adds only what is specific to it
- *    (hardware/zephyr_bcc, hardware/zephyr_sim): extra CAN interfaces,
+ *    (hardware/zephyr_stm32h7, hardware/zephyr_sim): extra CAN interfaces,
  *    registers and publications. Thread context only.
  *
  *    SPDX-License-Identifier: GPL-3.0-or-later
@@ -44,7 +44,7 @@ void StartCyphal(settings::SettingsStore& store) noexcept;
  * @brief Applies the settings given on the command line to the RAM settings at start.
  *
  * native_sim: `--node-id` and `--cart-wheel`, so several simulated drives
- * share one bus with one firmware image; the BCC has none. The result is
+ * share one bus with one firmware image; the STM32H7 has none. The result is
  * validated like a register write and not stored.
  *
  * @param settings The live settings to change.
@@ -83,7 +83,7 @@ void CyphalPlatformSpin(cyphal::CyphalNode& node, uint64_t now_us) noexcept;
 /**
  * @brief The drive's time at @p now_us (DriveNode::Spin()): its timeouts and ramps run on it.
  *
- * The BCC returns @p now_us. The simulation leaves out the real time spent
+ * The STM32H7 returns @p now_us. The simulation leaves out the real time spent
  * paused and adds the virtual time a paused simulation advanced, so a
  * readiness or setpoint timeout neither expires while paused nor survives an
  * advance longer than it. Monotonic; called from the Cyphal thread only.

@@ -174,7 +174,8 @@ void ForEachRegister(const Visitor& visit, Settings&... settings) {
   visit(Setting(reg::kFwVMax, "Voltage vector magnitude from which field weakening starts", AtLeast(0.0F)), settings.fw_v_max...);
   visit(Setting(reg::kFwKi, "Integral gain of the field weakening", kAny, "A/(V s)"), settings.fw_ki...);
   visit(Setting(reg::kFwIDMin, "Most negative d-axis current of the field weakening"), settings.fw_i_d_min...);
-  visit(Setting(reg::kPwmFrequency, "PWM frequency: 16, 20, 24, 28 or 32 kHz; the control cycle runs at half of it", Between(16000.0F, 32000.0F), "Hz"), settings.pwm_frequency...);
+  visit(Setting(reg::kPwmFrequency, "PWM frequency: 16, 20, 24, 28, 32, 40, 48 or 64 kHz; 0 from the inductance", Between(0.0F, 64000.0F), "Hz"), settings.pwm_frequency...);
+  visit(Setting(reg::kControlDivider, "PWM half periods per control step: 1, 2, 4 or 8; 0 the fastest the board runs", Between(0.0F, 8.0F)), settings.control_divider...);
   visit(Tunable(reg::kCurrentKpD, "Proportional gain of the d-axis current controller", kAny, "V/A"), settings.current_kp_d...);
   visit(Tunable(reg::kCurrentKiD, "Integral gain of the d-axis current controller", kAny, "V/(A s)"), settings.current_ki_d...);
   visit(Tunable(reg::kCurrentKpQ, "Proportional gain of the q-axis current controller", kAny, "V/A"), settings.current_kp_q...);
@@ -185,8 +186,6 @@ void ForEachRegister(const Visitor& visit, Settings&... settings) {
   visit(Setting(reg::kDtcDeadTime, "Gate driver dead time of the dead-time compensation", AtLeast(0.0F)), settings.dtc_dead_time...);
   visit(Setting(reg::kDtcFPwm, "PWM frequency of the dead-time compensation", AtLeast(0.0F), "Hz"), settings.dtc_f_pwm...);
   visit(Setting(reg::kDtcIThreshold, "Phase current below which the dead-time compensation counts a zero crossing"), settings.dtc_i_threshold...);
-  visit(Setting(reg::kHfiVInject, "Injection voltage of the HFI observer"), settings.hfi_v_inject...);
-  visit(Setting(reg::kHfiErrorGain, "Current error to angle gain of the HFI observer", kAny, "rad/A"), settings.hfi_error_gain...);
   visit(Setting(reg::kExcitMode, "EESM excitation mode: 0 current, 1 flux", Between(0.0F, 1.0F)), settings.excitation_mode...);
   visit(Setting(reg::kExcitLM, "Mutual inductance L_m of the excitation controller"), settings.excitation_l_m...);
   visit(Setting(reg::kExcitKp, "Proportional gain of the excitation controller", kAny, "V/A"), settings.excitation_kp...);

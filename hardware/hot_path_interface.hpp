@@ -10,7 +10,7 @@
  *
  *    The zero-latency contexts (sample ISR and control cycle) must not reach
  *    the hardware through function pointers (docs/hotpath_plan.md, M3). The
- *    platform selected by the build (hardware/zephyr_bcc, hardware/zephyr_sim)
+ *    platform selected by the build (hardware/zephyr_stm32h7, hardware/zephyr_sim)
  *    defines the functions of `hot_path`; the application defines the two
  *    handlers, which the platform calls directly. Everything outside the hot
  *    path keeps using HardwareInterface.
@@ -28,23 +28,31 @@ namespace unimoc::hardware {
 
 /**
  * @namespace unimoc::hardware::hot_path
- * @brief Hardware access of the control cycle; defined by the platform.
+ * @brief Hardware access of the sample handler; defined by the platform.
  *
- * Only call these from the control-cycle handler. They take no locks and call
+ * Only call these from the sample handler. They take no locks and call
  * no kernel API.
  */
 namespace hot_path {
 
-/// Samples of the control cycle that just ended (four half periods, oldest first).
-[[nodiscard]] ControlCycleSamples GetControlCycleSamples() noexcept;
+/**
+ * @brief Current sample of the boundary that just passed.
+ *
+ * Its trip flags also carry the trips of the samples that were not read (the
+ * peaks in ControlSampling::kValleys, and the samples between two control
+ * steps); they are reported once.
+ */
+[[nodiscard]] CurrentSample GetSample() noexcept;
 
 /**
- * @brief Writes the duties of the next kHalfPeriodsPerCycle half periods.
+ * @brief Writes the duties of the next control step.
  *
- * Must be called before the first PWM boundary after the control boundary:
- * entry 0 goes directly into the PWM preload registers.
+ * Must be called before the next update: the duties go directly into the PWM
+ * preload registers and take effect at the next peak (ControlSampling::kValleys)
+ * or the next boundary (kEveryHalfPeriod), half a period after the sample.
+ * They hold until the next write.
  */
-void SetDutyPlan(const DutyPlan& plan) noexcept;
+void SetDuties(const system::ThreePhase<unit::Ratio>& duties) noexcept;
 
 /// Switches the outputs off at once and latches the fault, like kPowerStage.Trip().
 void TripPowerStage() noexcept;
@@ -52,18 +60,23 @@ void TripPowerStage() noexcept;
 }  // namespace hot_path
 
 /**
- * @brief Control-cycle handler, defined by the application.
+ * @brief Sample handler, defined by the application: the fast current control.
  *
- * The platform calls it once per control cycle in the zero-latency context
- * (BCC: inside every kHalfPeriodsPerCycle-th sample interrupt).
+ * The platform calls it after every valley sample, or after every sample
+ * (ControlSampling), in the zero-latency context (STM32H7: inside the sample
+ * interrupt). The application runs its control step on every
+ * settings::ControlTiming::CallsPerStep()-th call.
+ *
+ * @return true when the sample ended a control cycle: the platform then runs
+ *         ObserverHandler() below the sample interrupt.
  */
-void ControlCycleHandler() noexcept;
+[[nodiscard]] bool SampleHandler() noexcept;
 
 /**
  * @brief Observer handler, defined by the application.
  *
  * The platform calls it after each control cycle at a priority below the
- * sample interrupt (BCC: software-pended normal-priority interrupt).
+ * sample interrupt (STM32H7: software-pended normal-priority interrupt).
  */
 void ObserverHandler() noexcept;
 

@@ -1,0 +1,4 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+config BOARD_UNIMOC_JACOBI
+	select SOC_STM32H743XX

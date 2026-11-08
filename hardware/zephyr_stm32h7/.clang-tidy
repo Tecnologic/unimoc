@@ -12,5 +12,5 @@ Checks: >
   -readability-simplify-boolean-expr,
   -performance-no-int-to-ptr
 
-# The BCC driver accesses memory-mapped peripheral registers: casting their
+# The STM32H7 driver accesses memory-mapped peripheral registers: casting their
 # devicetree addresses to CMSIS register pointers is the point of this code.

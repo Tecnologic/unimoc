@@ -1,13 +1,11 @@
 # Unit-type escapes per file (scripts/check_unit_escapes.py); may only go down.
-12 hardware/hardware_interface.hpp
-4 hardware/zephyr_bcc/analog_scaling.hpp
-1 hardware/zephyr_bcc/ebike_io.cpp
-1 hardware/zephyr_bcc/foc_stm32g4.cpp
-3 hardware/zephyr_bcc/hardware_interface.cpp
 1 hardware/zephyr_common/cyphal_runtime.cpp
 15 hardware/zephyr_sim/cyphal_platform.cpp
 2 hardware/zephyr_sim/ebike_io.cpp
 16 hardware/zephyr_sim/hardware_interface.cpp
+3 hardware/zephyr_stm32h7/analog_scaling.hpp
+1 hardware/zephyr_stm32h7/foc_stm32h7.cpp
+3 hardware/zephyr_stm32h7/hardware_interface.cpp
 1 lib/ebike/src/assist_controller.hpp
 3 lib/ebike/src/kunteng_protocol.hpp
 2 lib/ebike/src/pedal_observer.hpp
@@ -19,7 +17,7 @@
 7 lib/motor_control/src/rotor_angle.hpp
 5 lib/motor_control/src/sin_cos.hpp
 2 lib/settings/settings_registers.hpp
-7 lib/settings/settings_store.hpp
+2 lib/settings/settings_store.hpp
 5 lib/sim/src/inverter_model.hpp
 1 lib/sim/src/mechanical_model.hpp
 1 lib/sim/src/motor_simulation.hpp
@@ -29,6 +27,7 @@
 9 src/drive/commissioning.cpp
 31 src/drive/drive_node.cpp
 1 src/drive/settings_register_provider.cpp
+7 src/drive/timing_registers.cpp
 8 src/ebike/ebike_control.cpp
 1 src/identification/motor_identification.cpp
 8 src/startup/hw_startup.cpp

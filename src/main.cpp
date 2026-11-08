@@ -18,18 +18,25 @@
 #include "cyphal_platform.hpp"
 #include "hardware_interface.hpp"
 #include "hot_path_interface.hpp"
+#include "hot_path_timing.hpp"
 #include "outer_loop.hpp"
 #include "settings_save_gate.hpp"
 #include "settings_store.hpp"
 #include "slow_update.hpp"
+#include "status_leds.hpp"
 #include "trace_signals.hpp"
 
-// Called directly by the platform (hot_path_interface.hpp), no registration.
-// The traces sample the state of the cycle right after it (docs/cymon_integration_plan.md).
-void unimoc::hardware::ControlCycleHandler() noexcept {
+// Called directly by the platform (hot_path_interface.hpp), no registration:
+// once per PWM period, a control step every control divider periods. The traces sample the state once per
+// control cycle, right after its last step, also while tripped or forced
+// (docs/cymon_integration_plan.md).
+bool unimoc::hardware::SampleHandler() noexcept {
   auto& current_control = unimoc::current_control::CurrentControlIsr::Instance();
-  current_control.OnControlCycle();
-  unimoc::trace::OnControlCycle(current_control);
+  const bool kObserver = current_control.OnSample();
+  if (current_control.CycleEnded()) {
+    unimoc::trace::OnControlCycle(current_control);
+  }
+  return kObserver;
 }
 
 // The observer interrupt wakes the control thread every
@@ -89,6 +96,12 @@ int main() {
 
   // Outer loop (speed, position, setpoints) of motor 0, below the observer.
   unimoc::hardware::StartControlThread();
+
+  // RUN, PWM and ERROR LEDs; the error LED also flashes for a missed deadline.
+  unimoc::hardware::StartStatusLeds([]() noexcept {
+    return unimoc::hardware::timing::DutyOverruns() +
+           unimoc::current_control::CurrentControlIsr::Instance().state.observer_overruns;
+  });
 
   // Cyphal/CAN: setpoints, registers, telemetry and the log (motor 0).
   unimoc::hardware::StartCyphal(settings_store);

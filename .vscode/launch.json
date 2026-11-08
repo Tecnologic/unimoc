@@ -22,13 +22,12 @@
             ]
         },
         {
-            "name": "Debug BCC (Zephyr)",
+            "name": "Debug Jacobi (Zephyr)",
             "type": "cortex-debug",
             "request": "launch",
-            "cwd": "${workspaceFolder}/app/build/bcc",
-            "executable": "${workspaceFolder}/app/build/bcc/zephyr/zephyr.elf",
-            "servertype": "jlink",
-            "device": "STM32G473CB",
+            "cwd": "${workspaceFolder}/app/build/jacobi",
+            "executable": "${workspaceFolder}/app/build/jacobi/zephyr/zephyr.elf",
+            "device": "STM32H743VI",
             "interface": "swd",
             "armToolchainPath": "/home/alex/zephyr-sdk-1.0.1/gnu/arm-zephyr-eabi/bin",
             "runToEntryPoint": "main",
@@ -44,6 +43,29 @@
                     }
                 ]
             },
+            "liveWatch": {
+                "enabled": true,
+                "samplesPerSecond": 4
+            }
+        },
+        {
+            "name": "Debug NUCLEO-H743ZI (Zephyr)",
+            "type": "cortex-debug",
+            "request": "launch",
+            "cwd": "${workspaceFolder}/app/build/h743",
+            "executable": "${workspaceFolder}/app/build/h743/zephyr/zephyr.elf",
+            "preLaunchTask": "Zephyr: build h743",
+            "servertype": "openocd",
+            "showDevDebugOutput": "raw",
+            "configFiles": [
+                "${workspaceFolder}/app/boards/nucleo_h743zi_openocd.cfg"
+            ],
+            "device": "STM32H743ZI",
+            "interface": "swd",
+            "armToolchainPath": "/home/alex/zephyr-sdk-1.0.1/gnu/arm-zephyr-eabi/bin",
+            "gdbPath": "/home/alex/zephyr-sdk-1.0.1/gnu/arm-zephyr-eabi/bin/arm-zephyr-eabi-gdb",
+            "objdumpPath": "/usr/bin/arm-none-eabi-objdump",
+            "runToEntryPoint": "main",
             "liveWatch": {
                 "enabled": true,
                 "samplesPerSecond": 4

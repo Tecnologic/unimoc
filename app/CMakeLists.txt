@@ -8,13 +8,15 @@ project(unimoc)
 set(UNIMOC_ROOT ${ZEPHYR_UNIMOC_MODULE_DIR})
 
 # --- Platform selection (Kconfig symbol chosen by the board) ----------------
-if(CONFIG_UNIMOC_PLATFORM_BCC)
-  set(UNIMOC_PLATFORM_DIR ${UNIMOC_ROOT}/hardware/zephyr_bcc)
-  set(UNIMOC_PLATFORM_EXTRA_SOURCES foc_stm32g4.cpp cyphal_platform.cpp ebike_io.cpp)
-elseif(CONFIG_UNIMOC_PLATFORM_SIM)
+if(CONFIG_UNIMOC_PLATFORM_SIM)
   set(UNIMOC_PLATFORM_DIR ${UNIMOC_ROOT}/hardware/zephyr_sim)
   set(UNIMOC_PLATFORM_EXTRA_SOURCES cyphal_platform.cpp register_file.cpp slcan_media.cpp sim_cmdline.c ebike_io.cpp)
   set(UNIMOC_PLATFORM_LIBRARIES unimoc_sim)
+elseif(CONFIG_UNIMOC_PLATFORM_STM32H7)
+  set(UNIMOC_PLATFORM_DIR ${UNIMOC_ROOT}/hardware/zephyr_stm32h7)
+  set(UNIMOC_PLATFORM_EXTRA_SOURCES foc_stm32h7.cpp cyphal_platform.cpp ebike_io.cpp)
+  # The hot path runs from ITCM (board chosen zephyr,itcm), not from flash.
+  zephyr_linker_sources(ITCM_SECTION ${UNIMOC_PLATFORM_DIR}/hot_path_itcm.ld)
 else()
   message(FATAL_ERROR "No UNIMOC platform for board '${BOARD}'.")
 endif()
@@ -56,6 +58,7 @@ target_sources(app PRIVATE
   ${UNIMOC_ROOT}/hardware/zephyr_common/system_interface.cpp
   ${UNIMOC_ROOT}/hardware/zephyr_common/zephyr_settings_storage.cpp
   ${UNIMOC_ROOT}/hardware/zephyr_common/control_thread.cpp
+  ${UNIMOC_ROOT}/hardware/zephyr_common/status_leds.cpp
   ${UNIMOC_ROOT}/hardware/zephyr_common/cyphal_runtime.cpp
   ${UNIMOC_ROOT}/hardware/zephyr_common/zephyr_can_media.cpp
   ${UNIMOC_PLATFORM_DIR}/hardware_interface.cpp)

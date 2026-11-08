@@ -115,7 +115,7 @@ OuterSetpoint Position(const Angle position) {
 
 // The platform calls these directly (hot_path_interface.hpp). The control
 // thread runs synchronously here, every OuterLoop::kCyclesPerStep cycles.
-void unimoc::hardware::ControlCycleHandler() noexcept { CurrentControlIsr::Instance().OnControlCycle(); }
+bool unimoc::hardware::SampleHandler() noexcept { return CurrentControlIsr::Instance().OnSample(); }
 void unimoc::hardware::ObserverHandler() noexcept {
   SlowUpdate::Instance().RunOnce();
   if (OuterLoop::Instance().OnObserverCycle()) {

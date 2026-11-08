@@ -49,7 +49,7 @@ constexpr Voltage kDcLink = 48.0_V;
 }  // namespace
 
 // The platform calls these directly (hot_path_interface.hpp).
-void unimoc::hardware::ControlCycleHandler() noexcept { CurrentControlIsr::Instance().OnControlCycle(); }
+bool unimoc::hardware::SampleHandler() noexcept { return CurrentControlIsr::Instance().OnSample(); }
 void unimoc::hardware::ObserverHandler() noexcept { SlowUpdate::Instance().RunOnce(); }
 
 struct sim_identification_fixture {

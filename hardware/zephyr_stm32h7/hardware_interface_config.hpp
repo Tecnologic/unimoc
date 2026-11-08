@@ -6,7 +6,7 @@
  *    \____/_/ |_/___/_/  /_/\____/\____/
  *
  *    @file hardware_interface_config.hpp
- *    @brief Static configuration of the battery case controller (BCC).
+ *    @brief Static configuration of the STM32H7 platform (Jacobi, NUCLEO-H743ZI).
  *
  *    SPDX-License-Identifier: GPL-3.0-or-later
  *
@@ -31,10 +31,10 @@ inline constexpr uint8_t kMotorCount = 1;  ///< Number of motors supported by th
 
 // The public interface always exposes ia, ib, and ic. A two-sensor backend
 // reconstructs ic as -(ia + ib); a three-sensor backend reads all phases.
+// Inline or low-side sensing: settings::HardwareCapabilities::current_sense
+// of the settings profile.
 inline constexpr uint8_t kCurrentSensorCount = 3U;
-inline constexpr bool kCurrentSenseIsLowSide = false;
 inline constexpr bool kCurrentSenseHasPhaseMeasurements = true;
-inline constexpr bool kCurrentSamplesArePwmWindowed = false;
 
 // Optional temperature channels provided by this board.
 inline constexpr bool kCpuTemperatureAvailable = false;
@@ -43,17 +43,16 @@ inline constexpr bool kMotorTemperatureAvailable = true;
 
 // Interrupt layout (docs/hotpath_plan.md):
 //
-//   sample:   ADC1 end of injected sequence, zero latency, once per PWM half
-//             period. Copies the raw currents and checks the overcurrent limit.
-//   control:  runs inside every kHalfPeriodsPerCycle-th sample interrupt and
-//             writes the duties of the next kHalfPeriodsPerCycle half periods
-//             (entry 0 directly into the CCR preload, entries 1..3 by DMA).
+//   sample:   end of the injected sequence of the phase A ADC, zero latency, once per PWM half
+//             period. Copies the raw currents, checks the overcurrent limit and
+//             runs the current control, which writes the duties of the next
+//             half period directly into the CCR preload.
 //   observer: software-pended normal-priority interrupt after each control
-//             cycle. It is preempted by the sample interrupt.
-inline constexpr uint8_t kHalfPeriodsPerCycle = 4U;
+//             cycle (every fourth sample). It is preempted by the sample interrupt.
 
-// Timestamps of the control boundary and the Hall edges: the DWT cycle
-// counter at the 170 MHz core clock (bcc.dts), wrapping every 25 s.
-inline constexpr uint32_t kTimestampFrequency = 170'000'000U;
+// Timestamps of the samples and the Hall edges: the DWT cycle
+// counter at the 400 MHz core clock (silicon rev. Y limit; the board overlay
+// sets the clock tree, hardware_interface.cpp checks it), wrapping every 10.7 s.
+inline constexpr uint32_t kTimestampFrequency = 400'000'000U;
 
 }  // namespace unimoc::hardware

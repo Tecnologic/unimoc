@@ -77,9 +77,10 @@ void SetPaused(bool paused) noexcept;
 /**
  * @brief Runs one control cycle synchronously.
  *
- * Same order as the timer: ControlCycleHandler() and ObserverHandler() on the
- * samples of the previous cycle, then the plant over the next
- * kHalfPeriodsPerCycle half periods. Use with SetFreeRunning(false).
+ * Same order as the timer: kHalfPeriodsPerCycle half periods of the plant,
+ * each followed by its sample and checks; after a valley (or every sample)
+ * SampleHandler() and, at the end of a control cycle, ObserverHandler(). Use
+ * with SetFreeRunning(false).
  */
 void StepCycle() noexcept;
 
@@ -95,7 +96,7 @@ struct Snapshot {
  * @brief Returns the platform to the state right after Initialize().
  *
  * The plant goes back to standstill (configuration, shaft mode and load are
- * kept), the cycle counter, the virtual time and the duty plan restart, the
+ * kept), the cycle counter, the virtual time and the duties restart, the
  * current override is cleared and the power stage is disabled. The controller
  * is not part of the platform: restart it with StartRuntime(). Use with
  * SetFreeRunning(false).
@@ -127,7 +128,7 @@ uint32_t RunUntil(uint32_t cycle) noexcept;
 /// Control cycles run since Initialize().
 [[nodiscard]] uint32_t CycleCount() noexcept;
 
-/// Plant truth as plain floats for the traces (SI units); updated at the end of every cycle.
+/// Plant truth as plain floats for the traces (SI units); updated at the end of every half period.
 struct PlantTrace {
   float i_a{0.0F};               ///< Phase current a [A].
   float i_b{0.0F};               ///< Phase current b [A].
@@ -140,7 +141,7 @@ struct PlantTrace {
   float torque{0.0F};            ///< Electromagnetic torque [N m].
 };
 
-/// The plant truth the control cycle of the next cycle sees; read by the trace device only.
+/// The plant truth at the last sample; read by the trace device only.
 [[nodiscard]] const PlantTrace& PlantTraceSignals() noexcept;
 
 }  // namespace unimoc::hardware::sim

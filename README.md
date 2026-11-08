@@ -9,8 +9,8 @@
 **UNIMOC** (**UNI**versal **MO**tor **C**ontrol) is a platform-independent
 C++ library and [Zephyr RTOS](https://zephyrproject.org/) firmware for
 Field-Oriented Control (FOC) of multi-phase electric motors.  It targets
-embedded micro-controllers (STM32 series, first the STM32G473 battery case
-controller).  The algorithm code is portable and tested with Zephyr's ztest
+embedded micro-controllers (STM32 series, first the STM32H743 of the Jacobi
+48 V / 50 A drive).  The algorithm code is portable and tested with Zephyr's ztest
 and twister on `native_sim`.
 
 Zephyr is the primary OS: logging, Cyphal/CAN FD, and settings run in
@@ -53,13 +53,13 @@ simulation.
 | Category | Capability |
 |---|---|
 | **Motor types** | PMSM, ASM (induction), EESM (wound-rotor synchronous) |
-| **Observers** | Back-EMF / PLL (PMSM), HFI sensorless (IPMSM), ASM rotor-flux Luenberger, EESM excitation LPF |
+| **Observers** | Back-EMF / PLL (PMSM) fused with Hall sensors, ASM rotor-flux Luenberger, EESM excitation LPF |
 | **Control** | MTPA, field-weakening, ASM flux PI, EESM excitation PI (current or flux mode) |
 | **Position** | Absolute multi-turn tracker (±4096+ rev), cascaded P+PI position controller, homing state machine |
-| **Modulation** | Space Vector PWM (SVPWM), dead-time compensation |
+| **Modulation** | Space Vector PWM (SVPWM), dead-time compensation; current PI every half PWM period, every period (valley sample, symmetric pulses) or every second or fourth period (control divider, the fastest the processor runs by default); PWM frequency selectable from the motor inductance; inline current sensors or low-side shunts (foc0 `current-sense`: valley sample in PWM mode 2, no step every half period, duty capped for the sample) |
 | **Network** | Cyphal (UAVCAN v1) over CAN FD — every setting a register, arming, setpoints, telemetry, traces (cymon) and the log on the bus, also for the simulation (see [Cyphal](#cyphal-uavcan-v1-interface)) |
 | **Persistence** | Live RAM settings for tuning; one flash entry per changed register (Zephyr settings on ZMS); saving only while the power stage is disabled |
-| **Platform** | HAL-free algorithms; tested on Linux x86-64 with GTest; Zephyr firmware for the BCC (STM32G473) and `native_sim` |
+| **Platform** | HAL-free algorithms; tested on Linux x86-64 with GTest; Zephyr firmware for the Jacobi drive (STM32H743), the NUCLEO-H743ZI and `native_sim` |
 | **Runtime** | Zephyr threads for logging, Cyphal, and settings; zero-latency IRQs only for the FOC hot path |
 
 ---
@@ -69,7 +69,7 @@ simulation.
 ### PMSM — Permanent-Magnet Synchronous Motor
 Surface-mount and interior-PM motors.
 Control path: MechanicalObserver (back-EMF PLL) → MTPA → FieldWeakening → SVM.
-Low-speed sensorless: HFI observer (requires inductance saliency, IPMSM only).
+Low speed and standstill: Hall sensors (edges and sector) fused with the back-EMF observer.
 
 ### ASM — Asynchronous (Induction) Motor
 Squirrel-cage induction motors.
@@ -99,7 +99,6 @@ lib/
 │   │   ├── svm.hpp                   # Space Vector PWM modulator
 │   │   ├── asm_flux_observer.hpp    # ASM full-order Luenberger rotor-flux observer
 │   │   ├── excitation_observer.hpp  # EESM excitation current LPF -> flux estimate
-│   │   ├── hfi.hpp                   # 4-step High-Frequency Injection (IPMSM standstill)
 │   │   ├── mechanical_observer.hpp  # Back-EMF observer + PLL (PMSM / shared with ASM)
 │   │   ├── position_tracker.hpp     # Absolute multi-turn position + homing
 │   │   └── *_system.hpp              # Rotor, stator, and three-phase coordinate systems
@@ -138,9 +137,8 @@ contexts are (details in [`docs/hotpath_plan.md`](docs/hotpath_plan.md)):
 
 | Context | Runs | Latency |
 |---|---|---|
-| Sample ISR (ADC end of injected sequence, every half PWM period, 64 kHz) | Raw current copy, overcurrent check on raw counts | Zero-latency IRQ |
-| Control cycle (every fourth sample, 16 kHz) | FOC hot path: mean current, Park, PI once, four duty entries (inverse Park, HFI step, SVM), entry 0 into the CCR preload, entries 1 to 3 by DMA | Zero-latency IRQ |
-| Observer (after each control cycle, 16 kHz) | Flux observer, Kalman, HFI, angles of the next cycle (`SlowUpdate`) | Software-pended normal-priority IRQ |
+| Sample ISR (ADC end of injected sequence, every half PWM period) | Overcurrent and overvoltage check on raw counts; every `control_divider` half periods (after every sample, or after the valley) the control step: Park, PI, inverse Park, SVM, duties into the CCR preload (taken over at the next boundary or peak) | Zero-latency IRQ |
+| Observer (after 1, 2, 4 or 8 control steps, at most 16 kHz) | Flux observer, Kalman, Hall fusion, angle reference of the next cycle (`SlowUpdate`) | Software-pended normal-priority IRQ |
 | Zephyr threads | Speed and position control (about 2 kHz, planned), logging (RTT), the Cyphal node, settings, startup sequencing | Normal scheduling |
 
 Zero-latency handlers may not call kernel APIs, log, or lock.  The
@@ -158,9 +156,9 @@ interfaces and the simulation registers are platform specific.
 
 > **Status:** integrated and tested on `native_sim` (ztest scenarios
 > `unimoc.lib.cyphal` and `unimoc.sim.cyphal_drive`, and by hand with yakut).
-> The BCC builds with the node on FDCAN3 but has not run on the board; its
-> SN65HVD230 is a classic CAN transceiver, so CAN FD frames run at 1 Mbit/s
-> without bit rate switch (`boards/unimoc/bcc/bcc.dts`).  Not implemented
+> Jacobi and the NUCLEO-H743ZI build with the node on FDCAN1 but have not
+> run on a board; CAN FD frames run at 1 Mbit/s without bit rate switch
+> (`boards/unimoc/jacobi/unimoc_jacobi.dts`).  Not implemented
 > yet: firmware update over Cyphal.  Speed, position and UDRAL servo
 > setpoints run the outer loop in the control thread; the startup FSM runs
 > over the commissioning commands and status message (Hardware Bring-Up Guide).  The cymon traces run on both
@@ -176,7 +174,7 @@ interfaces and the simulation registers are platform specific.
 | Drive application | `src/drive/` | Settings registers, arming, setpoints, telemetry, commands, the cart wheel drive (`cart_control.*`) |
 | Traces | `src/trace/`, `lib/cymon/` (cymon-lib 0.2) | cymon services, float mirror of the control state sampled in the control cycle |
 | Zephyr glue | `hardware/zephyr_common/` | Cyphal thread, CAN interface on the chosen `zephyr,canbus`, log backend to `uavcan.diagnostic.Record` |
-| Platform | `hardware/zephyr_bcc/`, `hardware/zephyr_sim/` | BCC: transceiver pin. Sim: slcan pseudo terminals, plant registers and plant trace, the register description file (`register_file.cpp`) |
+| Platform | `hardware/zephyr_stm32h7/`, `hardware/zephyr_sim/` | STM32H7: transceiver standby pin. Sim: slcan pseudo terminals, plant registers and plant trace, the register description file (`register_file.cpp`) |
 
 libcanard, O1Heap and the public regulated data types are pinned in
 `west.yml`; Nunavut is a Python requirement
@@ -184,7 +182,7 @@ libcanard, O1Heap and the public regulated data types are pinned in
 
 ### Node ID, identity and plug-and-play
 
-`uavcan.node.id` is 0 on a fresh BCC: the node then requests an ID with
+`uavcan.node.id` is 0 on a fresh drive: the node then requests an ID with
 `uavcan.pnp.NodeIDAllocationData.1.0` (an allocator such as
 `yakut monitor --plug-and-play <db>` answers) and stores the allocated ID.
 The simulation starts with node-ID 10 (`--node-id=<n>` overrides it per
@@ -283,11 +281,10 @@ hardware's 60 V), where the control cycle trips the power stage.  The trip
 switches all transistors off: above the line-to-line back-EMF peak the
 motor still feeds the DC link through the body diodes, so the trip level
 must stay above the battery voltage and a brake chopper has to hold the
-DC link (section 7.1 of `docs/system_plan.md`).  The BCC has none (an
-accepted risk); the new 4850 hardware gets a fourth half bridge that
-drives a brake resistor with a PMSM or the excitation winding of an EESM
-(section 5.2.1).  The BCC voltages
-are accepted values, to be checked against its schematic during bring-up.
+DC link (section 7.1 of `docs/system_plan.md`).  Jacobi has none; the
+brake chopper sits in the BMS controller, and the excitation of an EESM
+becomes its own Cyphal node (section 5.2.1).  The voltages are accepted values, to be checked against
+the schematic during bring-up.
 
 ### Cart wheel drive
 
@@ -347,10 +344,8 @@ T9N) and the display (KT-LCD8, Kunteng protocol) feed the assist law (`lib/ebike
   `torque_deadband`, `min_cadence`, `speed_taper`, `rise_time`, `fall_time`, `engage_hold`, `rearm_time`,
   `display_timeout`; the direction is `unimoc.cart.reversed`. A change while engaged waits for the disengage. The
   defaults are untuned starting values: try them on the bench first.
-- BCC wiring (from the schematic): the display transmit line is PB10 (USART3_TX); the display receive line is
-  on PB15, which has no UART receiver on the STM32G473, so TIM15 channel 2 captures its edges and a software
-  receiver decodes the bytes; the cadence pulse is PA5; the crank torque is a channel of the injected ADC
-  sequence behind a 2/3 divider.
+- Hardware: none at the moment. The e-bike inputs were wired on the battery case controller (BCC), which is
+  removed; a drive with a crank sensor and a display port adds an `ebike_io.cpp` to its platform.
 - `native_sim`: a simulated rider and display (`hardware/zephyr_sim/sim_ebike.hpp`) drive the control in the
   tests (`sim_cyphal_drive` attaches the control itself); the simulation app keeps the bus readiness for the
   pytest integration tests, so `CONFIG_UNIMOC_EBIKE` is off there too.
@@ -436,19 +431,21 @@ The sample period is a whole multiple of the control cycle; a capture of
 
 ### Interrupt timing (M0)
 
-With `CONFIG_UNIMOC_HOT_PATH_TIMING=y` the platform measures the sample
-interrupt of each control boundary (including the control cycle), the control
-cycle alone and the observer in cycles of the DWT counter (170 MHz on the
-BCC; `hardware/hot_path_timing.hpp`).  Read-only registers:
+With `CONFIG_UNIMOC_HOT_PATH_TIMING=y` the platform measures every sample
+interrupt (including its control step), the control step alone
+(`.control_cycle`) and the observer in cycles of the DWT counter (400 MHz on the
+STM32H7; `hardware/hot_path_timing.hpp`).  Read-only registers:
 
 | Register | Type | Content |
 |---|---|---|
 | `unimoc.timing.sample_isr`, `.control_cycle`, `.observer` | natural32[4] | min, mean, max [cycles], number of records |
-| `unimoc.timing.overruns` | natural32[2] | duty plans applied late, control cycles that started while the observer still ran |
+| `unimoc.timing.overruns` | natural32[2] | duties written after the peak they were meant for, control cycles that ended while the observer still ran |
 | `unimoc.timing.clock_hz` | natural32[1] | the timestamp clock |
+| `unimoc.timing.pwm` | real32[5] | running PWM frequency, control-step rate, observer rate [Hz], control divider in half periods, highest duty the current sensing allows (1 inline, below 1 on low-side shunts; also without the timing build) |
+| `unimoc.timing.pwm_suggestion` | real32[3] | PWM frequency for the inductance of the running settings [Hz], the ripple there and at the running frequency [A peak to peak] |
 
 ```sh
-west build -b bcc unimoc/app -d unimoc/app/build/bcc -- -DCONFIG_UNIMOC_HOT_PATH_TIMING=y
+west build -b unimoc_jacobi unimoc/app -d unimoc/app/build/jacobi -- -DCONFIG_UNIMOC_HOT_PATH_TIMING=y
 yakut call 10 uavcan.register.access '{name: {name: unimoc.timing.control_cycle}}'
 yakut cmd 10 768                               # RESET_TIMING: new statistics
 ```
@@ -459,12 +456,13 @@ the times are 0: simulated time stands still inside a cycle.
 
 ```sh
 cymon serve -i socketcan:vcan0 --dsdl unimoc/dsdl/unimoc --open      # simulation
-cymon serve -i canable:/dev/ttyACM0 --dsdl unimoc/dsdl/unimoc --open # BCC, CANable 2.0
+cymon serve -i canable:/dev/ttyACM0 --dsdl unimoc/dsdl/unimoc --open # drive, CANable 2.0
 ```
 
 ### Logging
 
-The bench log of the BCC goes to SEGGER RTT; USB and the shell are not used.
+The bench log of Jacobi goes to SEGGER RTT (the NUCLEO-H743ZI: the ST-LINK
+virtual COM port); USB and the shell are not used.
 Every Zephyr log line up to `CONFIG_UNIMOC_CYPHAL_LOG_LEVEL` (info) and the
 drive events (engaged, disengaged and why) are also published as
 `uavcan.diagnostic.Record`.
@@ -897,7 +895,7 @@ y cmd 42 514 motor-connected
 > over-current (OC) trip limit equal to `oc_fraction × max_phase_current_A`
 > (default 10 %) is active throughout.  The FSM transitions immediately to
 > FAULT if this limit is exceeded.  Independently, the fast ISR trips the power
-> stage at the hard limit `max_phase_current` (60 A on the BCC) and latches a
+> stage at the hard limit `max_phase_current` (60 A on Jacobi) and latches a
 > fault until it is cleared.
 
 ---
@@ -1097,12 +1095,24 @@ Run these from the west workspace root, which contains `unimoc/` and `zephyr/`:
 # Linux host simulation (native_sim)
 west build -b native_sim/native/64 unimoc/app -d unimoc/app/build/sim
 
-# Battery Case Controller (STM32G473)
-west build -b bcc unimoc/app -d unimoc/app/build/bcc
+# Jacobi, 48 V / 50 A drive (STM32H743VI)
+west build -b unimoc_jacobi unimoc/app -d unimoc/app/build/jacobi
+
+# STM32H7 platform on a NUCLEO-H743ZI (bring-up for Jacobi)
+west build -b nucleo_h743zi unimoc/app -d unimoc/app/build/h743
 
 ```
 
-The BCC has not run on hardware yet.
+Jacobi (`boards/unimoc/jacobi/`) is the H7 redesign of the hardware_4850 logic
+board without the fourth half bridge; the board is not drawn yet, its pins
+follow the proposal of `docs/drive4850_h7_plan.md`. The image is 197 KB
+flash, 84 KB RAM.
+
+The NUCLEO-H743ZI build (`hardware/zephyr_stm32h7`, pins in
+`app/boards/nucleo_h743zi.overlay`) has not run on the board yet either. It
+runs the core at 400 MHz, the limit of silicon rev. Y of the first Nucleo
+revision; PE15 (TIM1_BKIN) is the external enable and has to be tied to 3V3
+to release the outputs. The log is on the ST-LINK virtual COM port.
 
 ### Running the Tests
 
@@ -1113,7 +1123,7 @@ the application core against the simulated drive, and
 simulation over Cyphal. From the west workspace root:
 
 ```bash
-# All scenarios on native_sim and bcc, with clang-tidy as static analysis (as in CI)
+# All scenarios on native_sim, unimoc_jacobi and nucleo_h743zi, with clang-tidy as static analysis (as in CI)
 unimoc/scripts/twister_sca.sh
 
 # clang-format check of all C/C++ sources (--fix to apply)
@@ -1126,7 +1136,7 @@ west twister -T unimoc/app -p native_sim/native/64 --scenario unimoc.app.cyphal_
 west twister -T unimoc/tests/lib/motor_control -p native_sim/native/64
 ```
 
-Prebuilt firmware: every CI run uploads the BCC image (`unimoc-bcc`) and the
+Prebuilt firmware: every CI run uploads the Jacobi image (`unimoc-jacobi`) and the
 `native_sim` executable (`unimoc-native_sim`) as artifacts of the
 [Zephyr workflow](https://github.com/Tecnologic/unimoc/actions/workflows/ci-zephyr.yml).
 Releases (below) attach the same files with checksums, the twister report and
@@ -1155,7 +1165,7 @@ commit). Nothing is tagged by hand ([docs/release_plan.md](docs/release_plan.md)
   or `fix!`, because it changes the bus protocol.
 - The merge runs the Zephyr workflow on `main`. After the tests and all
   firmware builds passed, its `release` job creates the tag `vX.Y.Z` and the
-  GitHub release with the change log and every build (BCC, `native_sim`,
+  GitHub release with the change log and every build (Jacobi, `native_sim`,
   later ones), `SHA256SUMS`, the twister report and the Doxygen HTML. The
   release is a step of that CI run, so the badge of `main` shows it.
 

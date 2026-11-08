@@ -269,16 +269,6 @@ inline constexpr const char* kDtcFPwm = "unimoc.control.dtc.f_pwm";
 /// Type: real32[1] (read/write, persistent)
 inline constexpr const char* kDtcIThreshold = "unimoc.control.dtc.i_threshold";
 
-// --- HFI observer ---
-
-/// HFI injection voltage [V].
-/// Type: real32[1] (read/write, persistent)
-inline constexpr const char* kHfiVInject = "unimoc.observer.hfi.v_inject";
-
-/// HFI current-error to angle scaling gain [rad/A].
-/// Type: real32[1] (read/write, persistent)
-inline constexpr const char* kHfiErrorGain = "unimoc.observer.hfi.error_gain";
-
 // --- EESM excitation controller ---
 
 /// Excitation mode: 0=CurrentMode, 1=FluxMode.
@@ -400,10 +390,13 @@ inline constexpr const char* kBatteryTripVoltage = "unimoc.battery.limits.trip_v
 
 // --- PWM frequency ---
 
-/// PWM switching frequency selection: 16/20/24/28/32 kHz.
-/// Stored as the frequency value in kHz (uint8).
-/// Type: natural8[1] (read/write, persistent)
+/// PWM switching frequency: 16/20/24/28/32/40/48/64 kHz, 0 selects it from the inductance [Hz].
+/// Type: real32[1] (read/write, persistent)
 inline constexpr const char* kPwmFrequency = "unimoc.control.pwm_frequency";
+
+/// PWM half periods per control step: 1, 2, 4 or 8, 0 the fastest the board runs.
+/// Type: natural8[1] (read/write, persistent)
+inline constexpr const char* kControlDivider = "unimoc.control.divider";
 
 // --- d/q-axis current controller ---
 
@@ -479,12 +472,13 @@ inline constexpr const char* kStartupAdcOffsetC = "unimoc.startup.adc_offset_c";
 // Execution times of the interrupts (M0, CONFIG_UNIMOC_HOT_PATH_TIMING)
 // =========================================================================
 
-/// Whole sample interrupt of a control boundary, including the control cycle:
+/// Whole sample interrupt (every sample), including its control step:
 /// min, mean, max [timestamp-clock cycles] and the number of records.
 /// Type: natural32[4] (read-only)
 inline constexpr const char* kTimingSampleIsr = "unimoc.timing.sample_isr";
 
-/// The control cycle alone: min, mean, max [cycles], records.
+/// The control step of one sample alone (the name predates the per-sample
+/// control): min, mean, max [cycles], records.
 /// Type: natural32[4] (read-only)
 inline constexpr const char* kTimingControlCycle = "unimoc.timing.control_cycle";
 
@@ -492,14 +486,26 @@ inline constexpr const char* kTimingControlCycle = "unimoc.timing.control_cycle"
 /// Type: natural32[4] (read-only)
 inline constexpr const char* kTimingObserver = "unimoc.timing.observer";
 
-/// Duty plans applied late and control cycles that started while the
-/// observer still ran, since start.
+/// Duties written after the peak they were meant for and control cycles that
+/// ended while the observer still ran, since start.
 /// Type: natural32[2] (read-only)
 inline constexpr const char* kTimingOverruns = "unimoc.timing.overruns";
 
 /// Frequency of the timestamp clock the times count in [Hz].
 /// Type: natural32[1] (read-only)
 inline constexpr const char* kTimingClockHz = "unimoc.timing.clock_hz";
+
+/// Timing the current control runs: PWM frequency, control-step rate,
+/// observer rate [Hz], the control divider in half periods and the highest duty the current sensing
+/// allows (settings::ResolveControlTiming()).
+/// Type: real32[5] (read-only)
+inline constexpr const char* kTimingPwm = "unimoc.timing.pwm";
+
+/// PWM frequency for the inductance of the running settings [Hz], the
+/// current ripple there and at the running PWM frequency [A peak to peak]
+/// (settings::SuggestedPwmFrequency()).
+/// Type: real32[3] (read-only)
+inline constexpr const char* kTimingPwmSuggestion = "unimoc.timing.pwm_suggestion";
 
 // New statistics: ExecuteCommand cmd::kCmdResetTiming (the overrun counters keep counting).
 

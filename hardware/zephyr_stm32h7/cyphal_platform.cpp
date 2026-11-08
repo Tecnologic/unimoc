@@ -6,12 +6,12 @@
  *    \____/_/ |_/___/_/  /_/\____/\____/
  *
  *    @file cyphal_platform.cpp
- *    @brief Cyphal platform part of the battery case controller.
+ *    @brief Cyphal platform part of the STM32H7 platform.
  *
- *    The BCC has one CAN interface (FDCAN3, the chosen zephyr,canbus) and
- *    no platform registers. The transceiver is an SN65HVD230: its Rs pin
- *    (can-slope-gpios of zephyr,user) is driven low for high-speed mode
- *    before the controller starts. Not run on the board yet.
+ *    One CAN interface (the chosen zephyr,canbus, FDCAN1) and no platform
+ *    registers. An optional standby pin of the transceiver
+ *    (can-standby-gpios of zephyr,user) is driven inactive before the
+ *    controller starts. Not run on hardware yet.
  *
  *    SPDX-License-Identifier: GPL-3.0-or-later
  *
@@ -29,18 +29,20 @@ namespace unimoc::hardware {
 
 namespace {
 
-const struct gpio_dt_spec kCanSlope = GPIO_DT_SPEC_GET(DT_PATH(zephyr_user), can_slope_gpios);
+const struct gpio_dt_spec kCanStandby = GPIO_DT_SPEC_GET_OR(DT_PATH(zephyr_user), can_standby_gpios, {});
 
 }  // namespace
 
 void CyphalPlatformSettingsOverrides(settings::NvmSettings& /*settings*/) noexcept {}
 
 void CyphalPlatformInit() noexcept {
-  // Rs low: high-speed mode (high would be standby, the transceiver only listens).
-  if (!gpio_is_ready_dt(&kCanSlope) || gpio_pin_configure_dt(&kCanSlope, GPIO_OUTPUT_INACTIVE) != 0) {
+  if (kCanStandby.port == nullptr) {
+    return;  // transceiver without a standby pin
+  }
+  if (!gpio_is_ready_dt(&kCanStandby) || gpio_pin_configure_dt(&kCanStandby, GPIO_OUTPUT_INACTIVE) != 0) {
     // NOLINTBEGIN(cppcoreguidelines-pro-bounds-array-to-pointer-decay,cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays):
     // the arrays are inside the Zephyr LOG macro.
-    LOG_ERR("CAN transceiver Rs pin not configured");
+    LOG_ERR("CAN transceiver standby pin not configured");
     // NOLINTEND(cppcoreguidelines-pro-bounds-array-to-pointer-decay,cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
   }
 }

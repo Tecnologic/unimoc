@@ -1,5 +1,10 @@
 # Zephyr Port Plan
 
+> **2026-11-03:** the battery case controller (BCC, STM32G473) and its
+> platform `hardware/zephyr_bcc` are removed. BCC references below are
+> history; the STM32H7 platform (`hardware/zephyr_stm32h7`, Jacobi and the
+> NUCLEO-H743ZI) carries the same design.
+
 Status (2026-10-21): direction accepted. The Zephyr application (`app/`),
 the `native_sim` platform and the BCC platform code exist (see
 `docs/zephyr_workflow.md`). The Cyphal/CAN node (Phase 5) runs on
@@ -46,7 +51,7 @@ log is on RTT and on the bus. The phase order below is the plan.
 3. `hardware/host` uses `std::thread`, `<chrono>`, `<fstream>`, an environment
    variable for the settings file and zero-value stubs.
 4. `CurrentControlIsr` and `SlowUpdate` are singletons; `samples_ready` is a
-   `volatile bool`. `OnControlCycle()` only calls hardware callbacks, which
+   `volatile bool`. `OnSample()` only calls hardware callbacks, which
    fits a zero-latency IRQ, but those callbacks must not log or call kernel APIs.
 5. Cyphal: only identifiers, heartbeat serialization and the `Transport`
    interface existed. Resolved in Phase 5 (the old heartbeat serializer

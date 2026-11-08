@@ -3,7 +3,9 @@
 UNIMOC is a platform-independent C++ motor-control library and Zephyr firmware
 for field-oriented control (FOC) of multi-phase electric motors. One drive
 typically controls one motor; multiple drives can be networked through Cyphal
-(UAVCAN v1) over CAN-FD on the STM32G4 (`docs/system_plan.md`).
+(UAVCAN v1) over CAN-FD (`docs/system_plan.md`). Drive hardware is named
+after pioneers of electric drives; the first is Jacobi, a 48 V / 50 A drive
+on the STM32H743 (`docs/system_plan.md`, hardware names).
 
 Read `README.md` for the supported motor types and public features, and
 `CONTEXT.md` for the project's domain vocabulary. The port decisions are in
@@ -12,20 +14,23 @@ Read `README.md` for the supported motor types and public features, and
 
 ## Runtime Scope
 
-- **Zephyr is the primary OS.** Logging (RTT on the BCC), the Cyphal node,
+- **Zephyr is the primary OS.** Logging (RTT on Jacobi), the Cyphal node,
   settings storage, startup sequencing, and all other high-level code run in
   Zephyr threads. USB and the shell are not used (USB returns for DFU).
-  The same application runs on the battery case controller (BCC) and on
+  The same application runs on the Jacobi drive, the NUCLEO-H743ZI and on
   `native_sim` for host simulation.
 - **Only the FOC hot path runs in zero-latency IRQs.** The hot path is the
-  sample ISR (ADC end of injected sequence, once per half PWM period: raw copy
-  and overcurrent check) and the control cycle it runs every fourth sample
-  (16 kHz at 32 kHz PWM: PI once, four duties for the next four half periods,
-  entry 0 into the CCR preload and entries 1 to 3 by DMA). The observer
-  (`SlowUpdate`) runs after each control cycle in a software-pended
-  normal-priority interrupt, not at zero latency (`docs/hotpath_plan.md`).
-  The trace sampling (`trace::OnControlCycle()`, cymon `Tick()`) runs right
-  after the control cycle (`docs/cymon_integration_plan.md`).
+  sample ISR (ADC end of injected sequence, once per half PWM period: raw
+  overcurrent and overvoltage check) and the control step it runs every
+  `control_divider` half periods (at the factory 32 kHz PWM after every
+  sample, 64 kHz; at 64 kHz PWM after every valley: Park, PI, inverse Park,
+  SVM, the duties into the CCR preload, taken over at the next boundary or
+  the next peak). A power of two of steps forms a
+  control cycle (at most 16 kHz); the observer (`SlowUpdate`) runs after each
+  control cycle in a software-pended normal-priority interrupt, not at zero
+  latency (`docs/hotpath_plan.md`, `lib/settings/control_timing.hpp`). The trace sampling (`trace::OnControlCycle()`,
+  cymon `Tick()`) runs right after the last step of each control cycle
+  (`docs/cymon_integration_plan.md`).
   Do not add other work to a zero-latency context.
 
 ## Project Layout
@@ -62,15 +67,22 @@ Read `README.md` for the supported motor types and public features, and
   `native_sim` configuration. Platform sources are selected from the board's
   Kconfig symbol (`CONFIG_UNIMOC_PLATFORM_*`), not with `#ifdef`. `main()`
   sets the drive up and returns; the control runs in interrupts.
-- `boards/unimoc/bcc/` is the BCC board definition. `bcc.dts` (node `foc0`)
+- `boards/unimoc/jacobi/` is the Jacobi board definition (board
+  `unimoc_jacobi`, STM32H743VIT6, the H7 redesign of the hardware_4850 logic
+  board, `docs/drive4850_h7_plan.md`). `unimoc_jacobi.dts` (node `foc0`)
   holds the pinout, timers, ADC trigger, dead time, and sample times.
-- `hardware/zephyr_bcc/` is the BCC platform (STM32G4 hot-path bindings).
+- `hardware/zephyr_stm32h7/` is the STM32H7 platform (node `foc0`, compatible
+  `unimoc,foc-stm32h7`) of Jacobi, brought up first on a NUCLEO-H743ZI
+  (`app/boards/nucleo_h743zi.overlay`). Its hot path runs from ITCM:
+  `hot_path_itcm.ld` names the functions by mangled name, so check it when
+  renaming or adding a hot-path function (call-graph check,
+  `docs/hotpath_plan.md` section 8).
   `hardware/zephyr_sim/` is the `native_sim` platform. `hardware/zephyr_common/`
   is the shared Zephyr glue (system interface, settings storage and lock, the
   Cyphal thread, the CAN interface on the chosen `zephyr,canbus`, the log
   backend to `uavcan.diagnostic.Record`). All Cyphal code is shared between
-  the platforms except `cyphal_platform.cpp` of each platform (BCC:
-  transceiver pin; sim: slcan pseudo terminals, `unimoc.sim.*` registers,
+  the platforms except `cyphal_platform.cpp` of each platform (STM32H7:
+  transceiver standby pin; sim: slcan pseudo terminals, `unimoc.sim.*` registers,
   plant trace, the register description file `register_file.cpp` written by
   `--describe-registers`). `hardware/hardware_interface.hpp`,
   `hardware/power_stage_interface.hpp` and `hardware/cyphal_platform.hpp`
@@ -129,7 +141,7 @@ Run from the west workspace root, which contains `unimoc/` and `zephyr/`
 
 ```sh
 unimoc/scripts/check_format.sh     # clang-format check (--fix to apply) and the unit-escape ratchet
-unimoc/scripts/twister_sca.sh      # all scenarios, native_sim + bcc, with clang-tidy
+unimoc/scripts/twister_sca.sh      # all scenarios, native_sim + unimoc_jacobi + nucleo_h743zi, with clang-tidy
 ```
 
 These two are the standard validation and exactly what CI
@@ -138,7 +150,8 @@ These two are the standard validation and exactly what CI
 ```sh
 west twister -T unimoc/tests/lib/motor_control -p native_sim/native/64
 west build -b native_sim/native/64 unimoc/app -d unimoc/app/build/sim   # host simulation
-west build -b bcc unimoc/app -d unimoc/app/build/bcc                      # battery case controller
+west build -b unimoc_jacobi unimoc/app -d unimoc/app/build/jacobi         # Jacobi drive
+west build -b nucleo_h743zi unimoc/app -d unimoc/app/build/h743           # STM32H7 bring-up
 ```
 
 ### Getting it right in a new session
@@ -250,7 +263,7 @@ link time per platform, no function pointers); the thread context uses the
 Before finishing a change:
 
 1. Run `unimoc/scripts/check_format.sh` and `unimoc/scripts/twister_sca.sh`
-	 from the west workspace root (twister on `native_sim` and `bcc`, clang-tidy
+	 from the west workspace root (twister on `native_sim`, `unimoc_jacobi` and `nucleo_h743zi`, clang-tidy
 	 as Zephyr SCA). Use a focused `west twister -T ...` run while iterating.
 	 If a step cannot run, report the blocker and the checks that did run.
 2. Fix clang-tidy findings in the change, or add a `NOLINT` with the check

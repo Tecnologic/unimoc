@@ -65,8 +65,8 @@
 
 // The platform calls these directly (hot_path_interface.hpp). The control
 // thread runs synchronously here, every OuterLoop::kCyclesPerStep cycles.
-void unimoc::hardware::ControlCycleHandler() noexcept {
-  unimoc::current_control::CurrentControlIsr::Instance().OnControlCycle();
+bool unimoc::hardware::SampleHandler() noexcept {
+  return unimoc::current_control::CurrentControlIsr::Instance().OnSample();
 }
 void unimoc::hardware::ObserverHandler() noexcept {
   unimoc::current_control::SlowUpdate::Instance().RunOnce();

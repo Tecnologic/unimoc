@@ -18,7 +18,7 @@ of work (version over Cyphal `GetInfo`) already existed
   `main` merge commits only (branch rules).
 - `develop` ruleset: squash only, linear history, bypass for the owner of
   `RELEASE_TOKEN` (the bump commit is pushed directly), required checks
-  `twister`, `firmware / firmware (bcc)`, `firmware / firmware (sim)` and
+  `twister`, `firmware / firmware (jacobi)`, `firmware / firmware (sim)` and
   `conventional-title`. The context is the check run name (job name; a job of
   a reusable workflow is `<caller job> / <job>`), without the workflow name.
 - `main` ruleset: merge commits only and **no** linear-history rule (it
@@ -33,7 +33,7 @@ without manual steps:
 
 - the version is derived automatically and stored in the Zephyr `VERSION` file;
 - the change log is generated from the merged changes;
-- every firmware build is attached (BCC, `native_sim`, and any board or
+- every firmware build is attached (Jacobi, `native_sim`, and any board or
   simulator added later);
 - the release itself is a full CI run, so the CI badge on `main` shows it.
 
@@ -78,7 +78,7 @@ firmware can report what the release says.
 - PRs into `develop` stay squash-merged; the PR **title** is the commit. A
   `pull_request` job (`amannn/action-semantic-pull-request`) enforces
   `type(scope): subject`. Scopes follow the layout: `motor_control`, `cyphal`,
-  `dsdl`, `drive`, `startup`, `bcc`, `sim`, `ci`, `docs`.
+  `dsdl`, `drive`, `startup`, `jacobi`, `h7`, `sim`, `ci`, `docs`.
 - A DSDL or register/subject-ID change is always `feat!`/`fix!`, because it
   changes the bus protocol (`AGENTS.md`).
 - The `develop` to `main` PR is merged with a **merge commit** (not squash),
@@ -134,7 +134,7 @@ on `main` are queued so a release run is never cancelled.
 
   | target | board | files |
   |---|---|---|
-  | `bcc` | `bcc` | `.elf`, `.hex`, `.bin`, `.map` |
+  | `jacobi` | `unimoc_jacobi` | `.elf`, `.hex`, `.bin`, `.map` |
   | `sim` | `native_sim/native/64` | `unimoc-native_sim-<ver>.tar.gz` |
 
   A new board or simulator is one more matrix row (name, board, file list).

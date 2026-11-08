@@ -27,11 +27,12 @@ CodeChecker version       # pip install codechecker
 
 ```text
 unimoc/scripts/check_format.sh      # clang-format, all non-vendored C/C++ files
-unimoc/scripts/twister_sca.sh       # all twister scenarios on native_sim and bcc, with clang-tidy
+unimoc/scripts/twister_sca.sh       # all twister scenarios on native_sim, unimoc_jacobi and nucleo_h743zi, with clang-tidy
 ```
 
 `twister_sca.sh` builds every scenario under `unimoc/` (the application and
-all `tests/`), runs the ztest suites on `native_sim`, builds the `bcc` ones,
+all `tests/`), runs the ztest suites on `native_sim`, builds the `unimoc_jacobi` and
+`nucleo_h743zi` ones,
 and analyses each build with clang-tidy using the repository `.clang-tidy`.
 A clang-tidy finding in UNIMOC code fails that scenario's build; the report
 is in the console (`--inline-logs`) and in
@@ -42,9 +43,9 @@ for example `-p native_sim/native/64` or `-T unimoc/tests/lib/units`.
 
 ```text
 west twister -T unimoc/tests/lib/motor_control -p native_sim/native/64   # one suite, no SCA
-west twister -T unimoc -p native_sim/native/64 -p bcc                    # everything, no SCA
+west twister -T unimoc -p native_sim/native/64 -p unimoc_jacobi          # everything, no SCA
 west build -b native_sim/native/64 unimoc/app -d unimoc/app/build/sim
-west build -b bcc unimoc/app -d unimoc/app/build/bcc
+west build -b unimoc_jacobi unimoc/app -d unimoc/app/build/jacobi
 ```
 
 Use them while iterating; finish with the standard validation.
@@ -91,7 +92,7 @@ unimoc/scripts/check_format.sh --fix    # format in place
 ## Firmware boundary
 
 The simulation does not prove hardware behavior, PWM safety, startup behavior
-or NVM persistence. Build the `bcc` target for BCC changes and say what was
+or NVM persistence. Build the `unimoc_jacobi` target for hardware changes and say what was
 not run on the board.
 
 ## Completion

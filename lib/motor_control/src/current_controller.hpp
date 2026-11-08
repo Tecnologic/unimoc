@@ -162,7 +162,7 @@ struct CurrentController {
   /**
    * @brief Run one PI current control step.
    *
-   * Call once per PWM interrupt (or once per sub-step if running 4-step HFI).
+   * Call once per current sample (every PWM half period in the drive).
    *
    * @param i_ref   Rotor-frame d/q current reference [A].
    * @param i_meas  Rotor-frame d/q measured current [A].
