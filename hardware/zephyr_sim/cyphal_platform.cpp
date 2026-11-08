@@ -50,7 +50,7 @@
 #include "sim_control.hpp"
 #include "sim_ebike.hpp"
 #include "sim_excitation.hpp"
-#include "slcan_media.hpp"
+#include "slcan_ports.hpp"
 
 LOG_MODULE_DECLARE(unimoc_cyphal, CONFIG_UNIMOC_LOG_LEVEL);
 
@@ -630,18 +630,7 @@ class RiderRegisters final : public cyphal::RegisterProvider {
 
 RiderRegisters g_rider_registers;
 
-// The slcan pseudo terminals: the slcan-uarts phandles of zephyr,user (app overlay).
-#define UNIMOC_SLCAN_NODE DT_PATH(zephyr_user)
-#if defined(CONFIG_UNIMOC_CYPHAL_SLCAN) && DT_NODE_HAS_PROP(UNIMOC_SLCAN_NODE, slcan_uarts)
-// NOLINTNEXTLINE(cppcoreguidelines-macro-usage): DT_FOREACH_PROP_ELEM takes a macro.
-#define UNIMOC_SLCAN_UART(node_id, prop, idx) DEVICE_DT_GET(DT_PHANDLE_BY_IDX(node_id, prop, idx)),
-const std::array kSlcanUarts{DT_FOREACH_PROP_ELEM(UNIMOC_SLCAN_NODE, slcan_uarts, UNIMOC_SLCAN_UART)};
-#undef UNIMOC_SLCAN_UART
-sim::SlcanMedia g_slcan;
-std::array<cyphal::CanMedia*, 1> g_interfaces{};
-#else
-std::array<cyphal::CanMedia*, 0> g_interfaces{};
-#endif
+std::span<cyphal::CanMedia* const> g_interfaces;
 
 void SetPlantRate(const settings::NvmSettings& settings) noexcept {
   const float kRate = settings.telemetry_rate.Value();
@@ -724,16 +713,7 @@ void CyphalPlatformSettingsOverrides(settings::NvmSettings& settings) noexcept {
   }
 }
 
-void CyphalPlatformInit() noexcept {
-#if defined(CONFIG_UNIMOC_CYPHAL_SLCAN) && DT_NODE_HAS_PROP(UNIMOC_SLCAN_NODE, slcan_uarts)
-  const std::size_t kPorts = g_slcan.Init(kSlcanUarts);
-  if (kPorts > 0U) {
-    g_interfaces[0] = &g_slcan;
-    LOG_INF("slcan CAN interface on %u pseudo terminals (uart_1.. in the lines above)",
-            static_cast<unsigned>(kPorts));
-  }
-#endif
-}
+void CyphalPlatformInit() noexcept { g_interfaces = sim::StartSlcanPorts(); }
 
 std::span<cyphal::CanMedia* const> CyphalPlatformInterfaces() noexcept { return g_interfaces; }
 

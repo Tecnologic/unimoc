@@ -50,7 +50,9 @@ enum class Axle : uint8_t {
 };
 
 /// Index of @p wheel in the per-wheel arrays.
-[[nodiscard]] constexpr std::size_t Index(const Wheel wheel) noexcept { return static_cast<std::size_t>(wheel); }
+[[nodiscard]] constexpr std::size_t Index(const Wheel wheel) noexcept {
+  return static_cast<std::size_t>(wheel);
+}
 
 /// The wheel of index @p index (0 to kWheelCount - 1).
 [[nodiscard]] constexpr Wheel WheelAt(const std::size_t index) noexcept {

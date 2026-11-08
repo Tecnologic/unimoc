@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Options of the vehicle dynamics controller (VDC) application.
+
+config UNIMOC_VDC_NODE_ID
+	int "Node-ID of the VDC"
+	default 1
+	range 0 255
+	help
+	  Cyphal node-ID of the VDC; above 127 the node requests one by
+	  plug-and-play. The registers of the VDC are not stored yet, so the
+	  node-ID comes from the build (native_sim: --node-id=<n> overrides
+	  it). The drives have 10 and up (scripts/sim_cluster.sh).
+
+source "Kconfig.zephyr"

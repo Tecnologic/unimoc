@@ -51,9 +51,8 @@ namespace unimoc::vehicle {
   }
   const bool kForward = request > unit::Torque{};
   const unit::Torque kMagnitude = unit::Abs(request);
-  const unit::Ratio kShare = unit::IsFinite(front_share)
-                                 ? unit::Min(unit::Max(front_share, unit::Ratio{}), 1.0_ratio)
-                                 : 0.5_ratio;
+  const unit::Ratio kShare =
+      unit::IsFinite(front_share) ? unit::Min(unit::Max(front_share, unit::Ratio{}), 1.0_ratio) : 0.5_ratio;
 
   // Capacity of an axle in the requested direction: twice its smaller wheel window.
   const auto kCapacity = [&windows, kForward](const Axle axle) noexcept {
