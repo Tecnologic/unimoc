@@ -1,11 +1,12 @@
 /*
- * UNIMOC Jacobi: 48 V / 50 A drive, STM32H743VIT6 (LQFP100, 2 MB flash).
+ * UNIMOC Jacobi: 36 V / 45 A drive, STM32H743VIT6 (LQFP100, 2 MB flash).
  *
- * The H7 redesign of the hardware_4850 logic board on the unchanged 4850
- * power board (docs/drive4850_h7_plan.md), without the fourth half bridge.
- * The board is not drawn yet: every pin below follows the pin proposal of the
- * plan and has to be checked against the schematic once it exists. Not built
- * or run on hardware.
+ * The H7 redesign of the hardware_4850 logic board with its own power board
+ * (docs/drive4850_h7_plan.md, schematic in Tecnologic/unimoc_jacobi), without
+ * the fourth half bridge. Only the clock (20 MHz HSE) follows the drawn
+ * schematic yet; the other pins follow the older pin proposal of the plan and
+ * differ from the schematic (TODO.md, "Jacobi devicetree to the schematic").
+ * Not run on hardware.
  *
  * Pin and peripheral assignment of the power stage lives in the foc0 node
  * below; the platform (hardware/zephyr_stm32h7) derives timer, ADCs, pins and
@@ -167,18 +168,19 @@
 	status = "okay";
 };
 
-/* HSE crystal: 8 MHz assumed, to confirm in the schematic (no bypass). */
+/* HSE: 20 MHz oscillator X601 on PH0, bypass mode (unimoc_jacobi, mcu sheet). */
 &clk_hse {
-	clock-frequency = <DT_FREQ_M(8)>;
+	clock-frequency = <DT_FREQ_M(20)>;
+	hse-bypass;
 	status = "okay";
 };
 
 /*
- * 8 MHz / 2 * 200 / 2 = 400 MHz core (silicon rev. Y limit; rev. V would
+ * 20 MHz / 5 * 200 / 2 = 400 MHz core (silicon rev. Y limit; rev. V would
  * allow 480 MHz), HCLK 200 MHz, APB 100 MHz, TIM1 200 MHz.
  */
 &pll {
-	div-m = <2>;
+	div-m = <5>;
 	mul-n = <200>;
 	div-p = <2>;
 	div-q = <2>;
@@ -187,9 +189,9 @@
 	status = "okay";
 };
 
-/* 8 MHz / 4 * 120 = 240 MHz: P 120 MHz for the ADCs, Q 80 MHz for FDCAN1. */
+/* 20 MHz / 10 * 120 = 240 MHz: P 120 MHz for the ADCs, Q 80 MHz for FDCAN1. */
 &pll2 {
-	div-m = <4>;
+	div-m = <10>;
 	mul-n = <120>;
 	div-p = <2>;
 	div-q = <3>;

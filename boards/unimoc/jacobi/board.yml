@@ -2,7 +2,7 @@
 
 board:
   name: unimoc_jacobi
-  full_name: UNIMOC Jacobi (48 V / 50 A drive)
+  full_name: UNIMOC Jacobi (36 V / 45 A drive)
   vendor: unimoc
   socs:
     - name: stm32h743xx

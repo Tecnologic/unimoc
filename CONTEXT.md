@@ -21,7 +21,7 @@ external API requires different wording.
 | **unit type** | A `unit::Unit` of `lib/units/units.hpp` (`Current`, `Voltage`, ...): a `float` with a period and a **dimension**. Prefer it to a raw `float` for every physical quantity. |
 | **dimension** | The exponents of kg, m, s, A, K and rad of a unit type. Products and quotients derive it at compile time, so rad/s and Hz are different types and a gain has the type of its formula. Torque is N m/rad and inertia kg m^2/rad^2; the **electromechanical coupling** drops one radian where the electrical and the mechanical side meet (rad/s times Wb is V, Wb times A is N m/rad). |
 | **hardware layer** | Platform-specific code that connects the portable library to ADCs, PWM, timers, NVM, gate drivers, and other peripherals. Its platform is `zephyr_stm32h7` or `zephyr_sim`. |
-| **Jacobi** | The 48 V / 50 A drive: the STM32H743 redesign of the hardware_4850 logic board on the 4850 power board, built with `-b unimoc_jacobi`. Drive hardware is named after pioneers of electric drives (`docs/system_plan.md`). |
+| **Jacobi** | The 36 V / 45 A drive (100 A peak phase current, 60 V FETs): the STM32H743 redesign of the hardware_4850 logic board with its own power board (Tecnologic/unimoc_jacobi), built with `-b unimoc_jacobi`. Drive hardware is named after pioneers of electric drives (`docs/system_plan.md`). |
 | **plant** | The simulated motor with its inverter, shaft and position sensor (`MotorSimulation` in `lib/sim/`). The firmware controls it on `native_sim`, including the ztest scenarios in `tests/sim/`. |
 | **power stage** | The inverter output stage behind `PowerStageInterface`: enable, disable, trip, and a latched fault. |
 

@@ -81,7 +81,7 @@ struct EbikeOutput {
 };
 
 /**
- * @brief The e-bike on the battery case controller (docs/ebike_plan.md).
+ * @brief The pedal-assist e-bike control of a drive (docs/ebike_plan.md).
  *
  * Per update (at most every millisecond):
  *

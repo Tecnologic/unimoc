@@ -20,8 +20,8 @@
 >   controller (section 5.2.1).
 > - (2026-11-03) Hardware is named after pioneers of electric drives and
 >   computing (section 5.0). The H7 redesign of the 4850 logic board is
->   **Jacobi** (`boards/unimoc/jacobi/`, board `unimoc_jacobi`). The G4
->   battery case controller (BCC) is removed from the repository; the
+>   **Jacobi** (`boards/unimoc/jacobi/`, board `unimoc_jacobi`). All boards
+>   are STM32H7 based (one platform, `hardware/zephyr_stm32h7`); the
 >   NUCLEO-H743ZI is the bring-up board.
 > - (2026-10-23) Current focus: Cyphal/CAN-FD (cart messages, bus error
 >   handling, multi-node simulation; the order is in `TODO.md`, "Next").
@@ -64,14 +64,14 @@ record.
    IMU (SPI)   GNSS (UART)   Steering angle sensor   Display
         \          |                 |                 /
          +---------+-----------------+----------------+
-         |        Vehicle dynamics controller (VDC)    |   STM32G4 or H7, Zephyr
+         |        Vehicle dynamics controller (VDC)    |   STM32H7, Zephyr
          +----------------------+----------------------+
                                 |
      ======================= CAN FD (Cyphal/CAN) ========================
         |            |            |            |             |              |
    Drive FL      Drive FR     Drive RL     Drive RR      Pedal unit     BMS controller
    UNIMOC        UNIMOC       UNIMOC       UNIMOC        (drive + brake (cells, contactor,
-   Jacobi        Jacobi       Jacobi       Jacobi        pedal, G4)     brake chopper, G4)
+   Jacobi        Jacobi       Jacobi       Jacobi        pedal, H7)     brake chopper, H7)
 
    (later: steering assist as another UNIMOC node)
 
@@ -82,10 +82,10 @@ record.
 
 | Node | Hardware | Function |
 |---|---|---|
-| VDC | STM32G4 (or H7 if the display or logging need it), Zephyr | Driver inputs, vehicle state estimation (IMU, GNSS, wheel speeds, steering angle), torque distribution, torque vectoring, drift assist, display, logging |
+| VDC | STM32H7, Zephyr | Driver inputs, vehicle state estimation (IMU, GNSS, wheel speeds, steering angle), torque distribution, torque vectoring, drift assist, display, logging |
 | Wheel drives (2 or 4) | Jacobi: 4850 power stage + new H743 logic | Torque control per wheel (drive and regenerative braking), wheel speed, limp-home mode (section 7) |
-| Pedal unit | Small STM32G4 board | Publishes drive and brake pedal positions (two sensor channels per pedal); sends no commands |
-| BMS controller | STM32G4 board in the battery (section 5.5) | Cell monitoring, contactor and precharge, state of charge, charge and discharge current limits, brake chopper on the DC link |
+| Pedal unit | Small STM32H7 board | Publishes drive and brake pedal positions (two sensor channels per pedal); sends no commands |
+| BMS controller | STM32H7 board in the battery (section 5.5) | Cell monitoring, contactor and precharge, state of charge, charge and discharge current limits, brake chopper on the DC link |
 | Steering angle sensor | Standard sensor on the VDC (for example the AS5048 of the legacy firmware) | Steering angle for the vehicle dynamics; no bus node |
 | IMU, GNSS, display | Standard modules on the VDC | No bus node |
 | Steering assist | Later: UNIMOC | Out of scope until a steering concept exists |
@@ -105,13 +105,13 @@ record.
 | Message size | Every message fits in **one CAN FD frame** (at most 63 bytes payload). | No multi-frame transfers in the control loop; a later move to UDP or SPE only swaps the transport. |
 | Single Pair Ethernet | Later option, not in the first cart (section 6.5). | The Zephyr drivers and the Cyphal/UDP library are young. |
 | Simulation and PC transport | Cyphal/CAN-FD as well: `native_sim` on SocketCAN `vcan`, PC tools on a USB CAN FD adapter. Fallback if WSL2 has no `vcan`: Cyphal/UDP over the `native_sim` TAP driver (section 6.4). | One transport everywhere; the simulation tests the transport of the cart. |
-| Logic board MCU | **STM32H743VIT6** for the 4850 logic board (2026-11-01, section 5.2, `docs/drive4850_h7_plan.md`); replaces the earlier STM32G4 choice. | The 512 KB G4 parts are not available or far too expensive, and 128 KB does not hold the firmware (194 KB on the former BCC). Three ADCs for simultaneous phase currents, FDCAN, TIM1/TIM8 and DMAMUX as on the G4, 2 MB dual-bank flash, headroom for the control cycle on every sample. Costs a second hot-path platform (`hardware/zephyr_stm32h7`). |
-| VDC firmware | **In this repository**, as a second Zephyr application (`apps/vdc/`) with a portable `lib/vehicle/`. The MCU is a Zephyr-supported STM32 (G4 or H7, section 5.3); a Raspberry Pi or an ESP32-P4 are out, they do not run this repository's Zephyr build. | One toolchain, one CI, shared libraries and DSDL, the whole cart in the simulation. |
+| Logic board MCU | **STM32H743VIT6** for the 4850 logic board (2026-11-01, section 5.2, `docs/drive4850_h7_plan.md`); | The 512 KB G4 parts are not available or far too expensive, and 128 KB does not hold the firmware (194 KB on the former BCC). Three ADCs for simultaneous phase currents, FDCAN, TIM1/TIM8 and DMAMUX as on the G4, 2 MB dual-bank flash, headroom for the control cycle on every sample. Costs a second hot-path platform (`hardware/zephyr_stm32h7`). |
+| VDC firmware | **In this repository**, as a second Zephyr application (`apps/vdc/`) with a portable `lib/vehicle/`. The MCU is an STM32H7 (section 5.3); a Raspberry Pi or an ESP32-P4 are out, they do not run this repository's Zephyr build. | One toolchain, one CI, shared libraries and DSDL, the whole cart in the simulation. |
 | Cyphal/serial | Not used. | No maintained C implementation (libserard). |
 | USB | Firmware update (DFU) only, later. The CDC-ACM console and the shell were dropped (2026-10-21): the bench log is on RTT, the log also goes out as `uavcan.diagnostic.Record`. | One operating interface; USB stays the recovery path. |
 | Settings | Cyphal registers on the existing `SettingsStore` (`docs/settings_plan.md`). | Already designed that way. |
 | Fourth half bridge on the 4850 | ~~One auxiliary half bridge per drive~~ (2026-10-23). **Changed 2026-11-03: Jacobi has three phases only**; the EESM excitation is a second module on the bus, the brake chopper stays in the BMS (section 5.2.1). | Keeps the logic board and the power board connector simple. Costs the local chopper: above the back-EMF peak a PMSM keeps charging the DC link through the body diodes after a trip (section 7.1), so the BMS chopper must hold the DC link. |
-| Firmware update | Cyphal file service into flash bank 2 (dual-bank flash: 512 KB G4, 2 MB H743, `docs/settings_plan.md`); USB DFU as recovery. | Update all nodes over the bus without opening the cart. |
+| Firmware update | Cyphal file service into flash bank 2 (dual-bank flash: 2 MB H743, `docs/settings_plan.md`); USB DFU as recovery. | Update all nodes over the bus without opening the cart. |
 
 ## 5. Hardware Plan
 
@@ -125,7 +125,7 @@ documentation, not in the name. Only Jacobi exists; the others are proposals.
 
 | Name | Hardware | After |
 |---|---|---|
-| **Jacobi** | 48 V / 50 A drive, the H7 redesign of the 4850 logic board (section 5.2) | Moritz Hermann Jacobi, first practical electric motor (1834), electric boat on the Neva (1838) |
+| **Jacobi** | 36 V / 45 A drive (100 A peak phase current, 60 V FETs; Tecnologic/unimoc_jacobi), the H7 redesign of the 4850 logic board (section 5.2) | Moritz Hermann Jacobi, first practical electric motor (1834), electric boat on the Neva (1838) |
 | Barlow | small drive (steering, pedal generator) | Peter Barlow, Barlow's wheel (1822) |
 | Dolivo | high-power drive | Michail Dolivo-Dobrowolsky, three-phase motor and system (1889) |
 | Zuse | VDC | Konrad Zuse, first working programmable computer |
@@ -135,28 +135,17 @@ documentation, not in the name. Only Jacobi exists; the others are proposals.
 | Volta | BMS controller | Alessandro Volta, the voltaic pile (1800) |
 | Otto | throttle | Nikolaus Otto |
 
-### 5.1 G4 BCC (removed 2026-11-03)
+### 5.1 One MCU family
 
-The battery case controller (STM32G473) was the first development target of
-the hot path and of Cyphal/CAN-FD. The boards at hand carry an STM32G473CBT6
-(128 KB) that does not hold the firmware (194 KB in v0.4.0), and the 512 KB
-parts are not available. Its board definition, its platform
-`hardware/zephyr_bcc` and the e-bike inputs wired on it are removed; the
-STM32H7 platform took over its hot-path design. The code is in the git
-history before the removal.
-
-Decision 2026-11-03: when the BCC hardware is revived, it moves to the
-STM32H743 as well (no G4, H7A3, H723 or H745 variant): one MCU, one platform
-(`hardware/zephyr_stm32h7`) and one timing baseline for all drives. The
-control divider (`unimoc.control.divider`) stays portable but is not needed
-for a slower processor.
+Decision 2026-11-03: every board of the system is STM32H7 based (one
+platform, `hardware/zephyr_stm32h7`, one timing baseline). The earlier G4
+target is removed; its code is in the git history before 2026-11-03.
 
 ### 5.2 Jacobi: new 4850 logic board (STM32H743VIT6)
 
 Requirements for the redesign of [`logic/`](https://github.com/Tecnologic/hardware_4850/tree/master/logic):
 
-- **MCU:** STM32H743VIT6 (LQFP100, decided 2026-11-01; the earlier choice
-  was an STM32G473/G474 in LQFP64, whose 512 KB parts are not available).
+- **MCU:** STM32H743VIT6 (LQFP100, decided 2026-11-01).
   Pin proposal, flash layout and the firmware port in
   `docs/drive4850_h7_plan.md`: TIM1 for the phases with the break input,
   one phase current per ADC (ADC1 to ADC3) for simultaneous injected
@@ -209,7 +198,7 @@ Requirements to settle in the schematic (nothing is designed yet):
 - **Measurement:** the current of the half bridge (field current for the
   excitation loop, resistor current for the chopper energy), the DC-link
   voltage at the bridge.
-- **Chopper without the CPU:** like the BMS chopper (section 5.5), a G4
+- **Chopper without the CPU:** like the BMS chopper (section 5.5), an H7
   comparator with a DAC threshold drives the half bridge directly; the
   firmware sets the thresholds and watches the resistor energy and
   temperature in a thread. If the routing does not allow it, the chopper runs
@@ -232,16 +221,11 @@ The VDC has no zero-latency hot path: a 250 to 500 Hz control loop, sensor
 drivers, the display and logging. It runs Zephyr and its firmware lives in
 this repository.
 
-| | STM32G4 | STM32H7 |
-|---|---|---|
-| Hardware | The 4850 G4 logic board without power stage, or a small own board | Own board (or an evaluation board for a start) |
-| Compute | 170 MHz with FPU; enough for a 250 to 500 Hz vehicle dynamics loop | 480 to 550 MHz, more RAM |
-| Display and logging | Small display on SPI, logging to an SD card on SPI or to flash | Parallel display (LTDC on some parts), SDMMC |
-| Platform effort | Shares the G4 board support | A second MCU family to support |
-
-**Recommendation:** start with the G4 (the logic board design and board
-support are shared). Move to an H7 only if the display or the logging need
-it; the firmware is portable between both.
+**Decision 2026-11-08:** the VDC is an STM32H7 board, like every board of
+the system (section 5.1): a Jacobi logic board without power stage, a small
+own board, or an evaluation board for a start. It shares the platform
+`hardware/zephyr_stm32h7`; display and logging (LTDC on some parts, SDMMC)
+pick the part.
 
 **Impact on this repository:**
 
@@ -261,14 +245,14 @@ it; the firmware is portable between both.
 
 ### 5.4 Pedal unit
 
-- Small STM32G4 board with a CAN FD transceiver, two independent sensor
+- Small STM32H7 board with a CAN FD transceiver, two independent sensor
   channels per pedal (plausibility check as in automotive pedal modules).
 - Firmware in this repository (`apps/pedal/`), or a role of the VDC board
   placed at the pedals.
 
 ### 5.5 BMS controller with brake chopper
 
-- **Board:** STM32G4 with a CAN FD transceiver, a cell monitoring front end
+- **Board:** STM32H7 with a CAN FD transceiver, a cell monitoring front end
   (part to choose), current measurement in the battery path, contactor and
   precharge drivers, and a brake chopper switch (MOSFET or half bridge) with
   a resistor on the DC link. The drives have no chopper of their own
@@ -280,10 +264,10 @@ it; the firmware is portable between both.
 - **Brake chopper control:**
   - The chopper switches on the DC-link voltage measured on the BMS board,
     not on a bus message, so it also works without the VDC and the bus.
-  - First stage in hardware: a G4 comparator (COMP) with a DAC threshold
+  - First stage in hardware: an H7 comparator (COMP) with a DAC threshold
     drives the chopper timer directly (hysteresis or PWM without the CPU).
     The firmware sets the thresholds and monitors the resistor temperature
-    and energy. Whether this fits the G4 comparator and timer routing is to
+    and energy. Whether this fits the H7 comparator and timer routing is to
     be checked in the schematic.
   - The chopper is the backstop: the drives limit the regenerative torque to
     the charge limit the BMS publishes, so the chopper only takes what the
@@ -371,7 +355,7 @@ status at 50 to 100 Hz adds less than 1 % and is not in the table:
 | 500 Hz | about 30 % | about 45 % (tight) | about 60 % (too high) |
 
 - Start with 1 Mbit/s arbitration and 4 Mbit/s data on the cart (the TCAN334
-  and the STM32G4 FDCAN support it; transmitter delay compensation on), and
+  and the STM32H7 FDCAN support it; transmitter delay compensation on), and
   2 Mbit/s data as the fallback if the signal quality on the cart harness is
   not good enough.
 - 250 Hz for the vehicle dynamics loop as the start; 500 Hz if the
@@ -402,14 +386,14 @@ status at 50 to 100 Hz adds less than 1 % and is not in the table:
 | | 10BASE-T1S (SPE) | CAN FD |
 |---|---|---|
 | Maturity | Standard from 2019; first automotive designs now | In production cars for years |
-| Zephyr 4.4 | Young drivers: LAN865x only for Rev.B0/B1 and without multicast filtering; LAN867x on RMII without an in-tree STM32 board | Mature STM32 FDCAN driver (G4 and H7) |
+| Zephyr 4.4 | Young drivers: LAN865x only for Rev.B0/B1 and without multicast filtering; LAN867x on RMII without an in-tree STM32 board | Mature STM32 FDCAN driver (H7) |
 | Cyphal library | libudpard 2.x, while upstream rewrites it for v1.1 | libcanard 4.x, the most used Cyphal library |
 | Bandwidth | 10 Mbit/s shared, about 25 % load at 500 Hz | about 30 % at 500 Hz (1/4 Mbit/s) |
 | Payload | Up to about 1400 bytes | 63 bytes per frame |
 | Access | PLCA: round robin, all nodes equal; the coordinator node is a single point (fallback to CSMA/CD) | Priority arbitration; error counters and bus-off take a faulty node off the bus |
 | Next to 1.6 kW drives | Little field experience | Decades of experience |
 | Parts | PHY plus coupling network | Transceiver; the 4850 logic already has a TCAN334 |
-| MCU | Ethernet MAC (H7) or a MAC-PHY on SPI | Any STM32G4 |
+| MCU | Ethernet MAC (H7) or a MAC-PHY on SPI | Any STM32H7 |
 | PC tools | T1S USB adapter, Wireshark | Many USB CAN FD adapters, SavvyCAN, pycyphal |
 
 **Zephyr v4.4.0 SPE status (checked in the source tree, not on hardware),
@@ -538,7 +522,7 @@ the simulation, not on hardware):
 | AS5048 encoder ([`as5048b.cpp`](https://github.com/Tecnologic/unimoc_old_software/blob/electric_quad/src/as5048b.cpp)) | Steering angle sensor driver on the VDC |
 | FreeMASTER over USB | Cyphal registers and cymon traces |
 | EEPROM settings (24LC04) | Zephyr settings on ZMS (`docs/settings_plan.md`) |
-| Board pinning ([`logic/pinning`](https://github.com/Tecnologic/hardware_4850/tree/master/logic/pinning), [`hardware/4850`](https://github.com/Tecnologic/unimoc_old_software/tree/electric_quad/hardware/4850)) | Reference for the G4 pinout and the devicetree of the new board |
+| Board pinning ([`logic/pinning`](https://github.com/Tecnologic/hardware_4850/tree/master/logic/pinning), [`hardware/4850`](https://github.com/Tecnologic/unimoc_old_software/tree/electric_quad/hardware/4850)) | Reference for the old 4850 pinout (STM32F730); the Jacobi pins are in the unimoc_jacobi schematic |
 
 ## 10. Roadmap
 
@@ -548,10 +532,10 @@ Each phase keeps `check_format.sh` and `twister_sca.sh` green.
 |---|---|---|---|
 | A | Hot path M4 to M7 (`docs/hotpath_plan.md`), sim made interactive (motor parameters, setpoints, telemetry) | none | Sim tests: speed step, Hall failure |
 | B | Cyphal v1.0 spike: `native_sim` on `vcan` with pycyphal (fallback UDP over TAP); DSDL namespace; register service, heartbeat, GetInfo | none | One register exchange and one telemetry subject with pycyphal |
-| C | ~~G4 bring-up on the BCC~~ dropped 2026-11-03 with the BCC: M0 and M8, Cyphal/CAN-FD move to the NUCLEO-H743ZI and Jacobi (D) | NUCLEO-H743ZI | Closed current loop with the 50 A limit; registers over CAN FD |
+| C | ~~G4 bring-up~~ dropped 2026-11-03: M0 and M8, Cyphal/CAN-FD move to the NUCLEO-H743ZI and Jacobi (D) | NUCLEO-H743ZI | Closed current loop with the 50 A limit; registers over CAN FD |
 | C2 | CAN FD bus test: the NUCLEO-H743ZI and evaluation boards on a cart-length harness, 1/4 and 1/2 Mbit/s, bus load and latency at 250 and 500 Hz | NUCLEO-H743ZI, evaluation boards, USB CAN FD adapter | Measured load and latency; bit rate and cycle rate chosen |
 | D | Jacobi (4850 H743 logic board): schematic, layout, H7 platform (`hardware/zephyr_stm32h7`, bring-up on a NUCLEO-H743ZI, board `unimoc_jacobi`), regenerative braking with DC-link limits, simulated first | Jacobi, quad motor | Same tests as C on the 4850; braking into a full battery and with the battery disconnected on the bench |
-| E | VDC (G4) and pedal unit hardware, steering angle sensor; `apps/` split | VDC, pedal unit | Pedal and angle published on the bus, VDC commands a drive on the bench |
+| E | VDC (H7) and pedal unit hardware, steering angle sensor; `apps/` split | VDC, pedal unit | Pedal and angle published on the bus, VDC commands a drive on the bench |
 | E2 | BMS controller with brake chopper: board, `apps/bms/`, `lib/battery/`, chopper thresholds, contactor sequence | BMS board, battery, resistor | Regenerative braking into a full battery and with an open contactor on the bench, DC link held below the limit |
 | F | VDC firmware, multi-node sim with the vehicle model, fault reactions of section 7 in the sim | none, then VDC | All fault cases of section 7 pass in the sim |
 | G | Cart integration: two wheels first, then four; torque vectoring and drift assist | cart | Driving tests with the fault cases on a closed area |
@@ -579,15 +563,15 @@ Not a safety concept; a list of what one must cover.
 
 ## 12. Open Questions
 
-1. **VDC MCU:** STM32G4 (recommended start) or STM32H7.
+1. **VDC MCU:** STM32H7 (decided 2026-11-08: all boards are H7 based); the part is open.
 2. **4850 logic MCU:** decided 2026-11-01, STM32H743VIT6. Open: board size
    with the LQFP100 in the enclosure, the silicon revision of the bought
-   parts, the points of `docs/drive4850_h7_plan.md` section 7.
+   parts, the points of `docs/drive4850_h7_plan.md` section 8.
 3. **Bit rates and cycle rate:** 1/4 or 1/2 Mbit/s, 250 or 500 Hz; from the
    bus test C2.
 4. **`vcan` on WSL2:** available, or the UDP-over-TAP fallback for the
    simulation.
-5. **BMS board (Volta):** a new STM32G4 board; cell monitoring
+5. **BMS board (Volta):** a new STM32H7 board; cell monitoring
    front end; cell count and chemistry.
 6. **Display:** connection to the VDC and content.
 7. **Brake resistor:** power and energy rating from the cart mass, top speed
@@ -610,7 +594,7 @@ Not a safety concept; a list of what one must cover.
 - **Pure regenerative braking:** the service brake depends on the drives,
   the battery state and the bus; covered by the limp-home path, the brake
   chopper and the mechanical emergency brake (section 7.1).
-- **Chopper in hardware:** the comparator-to-timer path of the G4 and the H743 has to be
+- **Chopper in hardware:** the comparator-to-timer path of the H743 has to be
   confirmed in the schematic (BMS and the fourth half bridge of the drives);
   otherwise the chopper needs a fast interrupt.
 - **ASM and EESM without a plant model:** the libraries exist, but the

@@ -181,7 +181,9 @@ legacy firmware of the 4850 power board: BSC040N08 with LM5109B; to be tuned
 with the scope). Both power stages are designed for 200 ns: the Jacobi power
 stage, and the legacy 4850 power board is capable of it as well
 (2026-11-08). The devicetree keeps 1 us until 200 ns is confirmed on the
-scope (shoot-through margin, switching edges at the full phase current). The layer rounds it up to a DTG step
+scope (shoot-through margin, switching edges at the full phase current).
+The factory `unimoc.control.dtc.dead_time` of the STM32H7 profile is
+`dead-time-ns`; identification M1 measures the effective value. The layer rounds it up to a DTG step
 (`hardware/stm32_dead_time.hpp`, 5 ns steps at 200 MHz up to 635 ns, coarser
 above) and fails `Initialize()` if it is longer than the field can encode. Two parallel
 MOSFETs per switch would need roughly twice the value.
@@ -217,10 +219,11 @@ stage is no longer enabled (trip, external break, e-stop), and
 - The app board files of the simulation are named for the 64-bit target
   (`app/boards/native_sim_native_64.*`); the 32-bit `native_sim` build does
   not pick them up.
-- The Jacobi pins follow the proposal of `docs/drive4850_h7_plan.md`; the
-  board is not drawn yet. The HSE (8 MHz) is an assumption. The gate driver
-  enable `PWM_EN` (PE7) is in the devicetree but not driven by the platform
-  yet. Not run on hardware yet.
+- The Jacobi pins follow the older proposal of `docs/drive4850_h7_plan.md`,
+  not the drawn schematic (Tecnologic/unimoc_jacobi); only the 20 MHz HSE
+  (bypass) is taken over. `PWM_EN` is the break input PE15 in the schematic;
+  the `pwm-enable-gpios` (PE7) property has no hardware behind it. Not run on
+  hardware yet.
 - Limits (STM32H7 and sim profile): `max_phase_current` 60 A is the hard trip
   limit of the power stage (the INA240A2 chain saturates at about +-66 A, so
   it stays inside the sensor range), `max_motor_current` and the factory
