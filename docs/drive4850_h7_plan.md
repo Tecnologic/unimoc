@@ -167,7 +167,8 @@ module. The notes below stay for that module if it uses an H743.
 Started 2026-11-01 on a first-revision NUCLEO-H743ZI (silicon rev. Y), so
 the platform runs before the logic board is drawn. The board is Zephyr's
 `nucleo_h743zi`; `app/boards/nucleo_h743zi.overlay` and `.conf` add the
-UNIMOC parts. Built, not run on the board yet.
+UNIMOC parts. Running on the board since 2026-11-03 with the outputs off
+(M0 timings in `docs/hotpath_plan.md`, section 4); the bench steps below are tracked in `TODO.md`.
 
 - Clock: 400 MHz core (rev. Y limit), HCLK 200 MHz, TIM1 200 MHz; ADC
   kernel clock PLL2 P 120 MHz / 4 = 30 MHz; FDCAN1 from PLL2 Q (80 MHz).
@@ -214,8 +215,12 @@ module; (5) the 4850 power board through an adapter.
 4. ~~Whether the AC current paths stay~~: their pins take the phase voltage
    taps (2026-11-03); the AC paths could move to the spare inputs, the
    firmware does not sample them.
-6. Phase voltage dividers and their pins on the power board connector.
-7. HSE frequency (8 MHz assumed), LED polarity, and who drives `PWM_EN`.
 5. Hardware overcurrent: today the firmware checks every sample; a
    comparator path to BKIN needs one comparator per phase (only COMP1/2 on
    chip, COMP2 shares port E with TIM1 in this proposal).
+6. Phase voltage dividers and their pins on the power board connector.
+7. HSE frequency (8 MHz assumed), LED polarity, and who drives `PWM_EN`.
+8. Dead time: the Jacobi power stage is designed for 200 ns, and the legacy
+   4850 power board is capable of 200 ns too (2026-11-08). The devicetree
+   keeps 1 us until it is measured on the scope; 200 ns allows 64 kHz PWM
+   (`docs/hotpath_plan.md`, section 3).

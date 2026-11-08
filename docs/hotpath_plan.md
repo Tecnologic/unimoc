@@ -202,6 +202,9 @@ does not limit them. What remains:
   1 µs (devicetree `dead-time-ns`), which is why the factory frequency stays
   at 32 kHz; 64 kHz needs the dead time at or below about 300 ns. The
   dead-time compensation runs on every step from the current of its sample.
+  Both power stages (Jacobi, and the legacy 4850 power board) are designed for
+  200 ns (2026-11-08): 0.31 V at 32 kHz and 0.61 V at 64 kHz at 48 V. Not set
+  yet: `dead-time-ns` stays 1000 until it is checked on the scope.
 
 **Current bandwidth.** With pole-zero cancellation (kp = L·ω_c, ki = R·ω_c)
 the open loop is an integrator with the delay T_d from a sample to the middle

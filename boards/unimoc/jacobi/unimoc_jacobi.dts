@@ -78,7 +78,11 @@
 
 		timer = <&timers1>;
 
-		/* 4850 power board (BSC040N08, LM5109B): 1 us as in the legacy firmware. */
+		/*
+		 * 4850 power board (BSC040N08, LM5109B): 1 us as in the legacy
+		 * firmware. Both power stages are designed for 200 ns (Jacobi, and
+		 * the legacy board is capable of it); lower it after the scope check.
+		 */
 		dead-time-ns = <1000>;
 
 		pinctrl-0 = <&tim1_ch1_pe9 &tim1_ch1n_pe8
