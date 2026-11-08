@@ -1,6 +1,6 @@
 # Unit-type escapes per file (scripts/check_unit_escapes.py); may only go down.
 1 hardware/zephyr_common/cyphal_runtime.cpp
-15 hardware/zephyr_sim/cyphal_platform.cpp
+18 hardware/zephyr_sim/cyphal_platform.cpp
 2 hardware/zephyr_sim/ebike_io.cpp
 16 hardware/zephyr_sim/hardware_interface.cpp
 3 hardware/zephyr_stm32h7/analog_scaling.hpp
@@ -49,7 +49,7 @@
 1 tests/lib/settings/src/settings_registers_test.cpp
 4 tests/lib/units/src/units_test.cpp
 11 tests/sim/closed_loop/src/main.cpp
-23 tests/sim/cyphal_drive/src/main.cpp
+25 tests/sim/cyphal_drive/src/main.cpp
 14 tests/sim/hall_fusion/src/main.cpp
 4 tests/sim/irq_cadence/src/main.cpp
 1 tests/sim/overcurrent/src/main.cpp

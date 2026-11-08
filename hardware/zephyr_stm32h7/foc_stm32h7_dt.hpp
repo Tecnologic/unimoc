@@ -125,6 +125,41 @@ struct SignalLocation {
   return found == 1U;
 }
 
+/// The signal appears at most once (the optional board inputs).
+[[nodiscard]] consteval bool HasAtMostOnce(const std::string_view name) {
+  uint32_t found = 0U;
+  for (const ChannelEntry& entry : kChannels) {
+    found += (entry.name == name) ? 1U : 0U;
+  }
+  return found <= 1U;
+}
+
+/// Every io-channel names a signal of the binding.
+[[nodiscard]] consteval bool AllNamesKnown() {
+  constexpr std::array<std::string_view, 12> kKnown{"ia",
+                                                    "ib",
+                                                    "ic",
+                                                    "va",
+                                                    "vb",
+                                                    "vc",
+                                                    "vdc",
+                                                    "bridge-temperature",
+                                                    "motor-temperature",
+                                                    "gate-supply",
+                                                    "accelerator",
+                                                    "brake"};
+  for (const ChannelEntry& entry : kChannels) {
+    bool known = false;
+    for (const std::string_view kName : kKnown) {
+      known = known || entry.name == kName;
+    }
+    if (!known) {
+      return false;
+    }
+  }
+  return true;
+}
+
 [[nodiscard]] consteval SignalLocation LocationOf(const std::string_view name) {
   for (uint32_t adc = 0U; adc < kAdcs.size(); ++adc) {
     uint32_t rank = 0U;
@@ -157,6 +192,9 @@ static_assert(HasSignal("ia") && HasSignal("va") && HasSignal("bridge-temperatur
                   HasSignal("vb") && HasSignal("motor-temperature") && HasSignal("ic") && HasSignal("vdc") &&
                   HasSignal("vc"),
               "foc0 io-channel-names: every signal of the binding exactly once");
+static_assert(HasAtMostOnce("gate-supply") && HasAtMostOnce("accelerator") && HasAtMostOnce("brake"),
+              "foc0 io-channel-names: the optional board inputs at most once");
+static_assert(AllNamesKnown(), "foc0 io-channel-names: an unknown signal name");
 static_assert(kAdcPhaseA.base != kAdcPhaseB.base && kAdcPhaseA.base != kAdcPhaseC.base &&
                   kAdcPhaseB.base != kAdcPhaseC.base,
               "every phase current has its own ADC");
@@ -176,6 +214,35 @@ static_assert(SequenceHalfCycles(kAdcPhaseA) >= SequenceHalfCycles(kAdcPhaseB) &
               "the injected sequence of the phase A ADC must be the longest");
 
 inline constexpr SignalLocation kVdcLocation = LocationOf("vdc");
+
+// Optional board inputs, sampled with the injected sequences and read by the drive thread.
+inline constexpr bool kHasGateSupply = HasSignal("gate-supply");
+inline constexpr bool kHasAccelerator = HasSignal("accelerator");
+inline constexpr bool kHasBrake = HasSignal("brake");
+static_assert(!kHasGateSupply || (DT_NODE_HAS_PROP(UNIMOC_FOC, gate_supply_divider_ohms) &&
+                                  DT_NODE_HAS_PROP(UNIMOC_FOC, gate_supply_millivolts)),
+              "gate-supply needs gate-supply-divider-ohms and gate-supply-millivolts");
+#if DT_NODE_HAS_PROP(UNIMOC_FOC, gate_supply_divider_ohms)
+inline constexpr uint32_t kGateSupplyDividerTopOhm = DT_PROP_BY_IDX(UNIMOC_FOC, gate_supply_divider_ohms, 0);
+inline constexpr uint32_t kGateSupplyDividerBottomOhm =
+    DT_PROP_BY_IDX(UNIMOC_FOC, gate_supply_divider_ohms, 1);
+static_assert(DT_PROP_LEN(UNIMOC_FOC, gate_supply_divider_ohms) == 2,
+              "gate-supply-divider-ohms: <top bottom>");
+static_assert(kGateSupplyDividerBottomOhm > 0U, "gate-supply-divider-ohms: bottom resistor");
+#else
+inline constexpr uint32_t kGateSupplyDividerTopOhm = 0U;
+inline constexpr uint32_t kGateSupplyDividerBottomOhm = 1U;
+#endif
+#if DT_NODE_HAS_PROP(UNIMOC_FOC, gate_supply_millivolts)
+inline constexpr uint32_t kGateSupplyTripMillivolts = DT_PROP_BY_IDX(UNIMOC_FOC, gate_supply_millivolts, 0);
+inline constexpr uint32_t kGateSupplyEngageMillivolts = DT_PROP_BY_IDX(UNIMOC_FOC, gate_supply_millivolts, 1);
+static_assert(DT_PROP_LEN(UNIMOC_FOC, gate_supply_millivolts) == 2, "gate-supply-millivolts: <trip engage>");
+static_assert(kGateSupplyTripMillivolts < kGateSupplyEngageMillivolts,
+              "gate-supply-millivolts: trip below engage");
+#else
+inline constexpr uint32_t kGateSupplyTripMillivolts = 0U;
+inline constexpr uint32_t kGateSupplyEngageMillivolts = 0U;
+#endif
 
 inline constexpr uint32_t kDeadTimeNs = DT_PROP(UNIMOC_FOC, dead_time_ns);
 

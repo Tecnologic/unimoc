@@ -12,7 +12,8 @@
  *      next to the SocketCAN interface, for hosts without vcan.
  *    - Registers of the simulated plant (`unimoc.sim.*`, volatile): shaft
  *      mode, imposed speed, load torque, DC-link voltage, external enable,
- *      and whether the plant follows the motor settings.
+ *      and whether the plant follows the motor settings; the board inputs
+ *      (power board detect, gate supply, accelerator, brake; sim_board.hpp).
  *    - The plant state (unimoc.sim.Plant.0.1) on `uavcan.pub.sim_plant.id`
  *      at the telemetry rate, to compare with the controller's estimates.
  *    - With the e-bike (CONFIG_UNIMOC_EBIKE): the simulated rider and display
@@ -41,6 +42,7 @@
 #include "cyphal/register_value.hpp"
 #include "power_stage_interface.hpp"
 #include "register_file.hpp"
+#include "sim_board.hpp"
 #include "sim_cmdline.h"
 #include "sim_control.hpp"
 #include "sim_ebike.hpp"
@@ -54,9 +56,11 @@ namespace {
 
 using unit::operator""_Nm;
 using unit::operator""_rad_per_s;
+using unit::operator""_V;
 using cyphal::RegisterFlags;
 using cyphal::RegisterValue;
 using cyphal::RegisterWriteResult;
+using unit::Voltage;
 
 /// Volatile state of the simulated plant that the registers set.
 struct PlantInputs {
@@ -123,12 +127,16 @@ enum class SimRegister : uint8_t {
   kDcLinkCapacitance,
   kBatteryResistance,
   kContactorClosed,
+  kPowerBoard,
+  kGateSupply,
+  kAccelerator,
+  kBrake,
 };
 
 /// Most control cycles one write of `unimoc.sim.advance` runs (1 s of virtual time at 16 kHz).
 constexpr int64_t kMaxAdvanceCycles = 16000;
 
-constexpr std::array<std::string_view, 17> kNames{
+constexpr std::array<std::string_view, 21> kNames{
     "unimoc.sim.shaft_mode",
     "unimoc.sim.imposed_speed",
     "unimoc.sim.load_torque",
@@ -146,6 +154,10 @@ constexpr std::array<std::string_view, 17> kNames{
     "unimoc.sim.dc_link_capacitance",
     "unimoc.sim.battery_resistance",
     "unimoc.sim.contactor_closed",
+    "unimoc.sim.power_board",
+    "unimoc.sim.gate_supply",
+    "unimoc.sim.accelerator",
+    "unimoc.sim.brake",
 };
 
 constexpr float kInf = std::numeric_limits<float>::infinity();
@@ -212,6 +224,10 @@ constexpr std::array<cyphal::RegisterDescription, kNames.size()> kDescriptions{{
      kInf,
      RegisterEffect::kImmediate,
      "0 opens the contactor between battery and DC-link capacitor"},
+    {{}, -kInf, kInf, RegisterEffect::kImmediate, "Power board detect (PWR_DET); 0: no power board"},
+    {"V", 0.0F, 30.0F, RegisterEffect::kImmediate, "Gate driver supply +12P"},
+    {"V", 0.0F, 3.3F, RegisterEffect::kImmediate, "Output of the accelerator (throttle) sensor"},
+    {"V", 0.0F, 3.3F, RegisterEffect::kImmediate, "Output of the brake lever sensor"},
 }};
 
 /**
@@ -257,6 +273,32 @@ bool WriteDcLink(const bool capacitance, const float value) noexcept {
     return false;
   }
   return true;
+}
+
+/// Sets one of the simulated board inputs; the voltages within the limits of their descriptions.
+RegisterWriteResult WriteBoardInput(const SimRegister which, const float value) noexcept {
+  const cyphal::RegisterDescription& limits = kDescriptions[static_cast<std::size_t>(which)];
+  if (value < limits.minimum || value > limits.maximum) {
+    return RegisterWriteResult::kOutOfRange;
+  }
+  BoardInputs inputs = sim::SimBoardInputs();
+  const Voltage kVoltage = 1.0_V * value;
+  switch (which) {
+    case SimRegister::kPowerBoard:
+      inputs.power_board = value != 0.0F;
+      break;
+    case SimRegister::kGateSupply:
+      inputs.gate_supply = kVoltage;
+      break;
+    case SimRegister::kAccelerator:
+      inputs.accelerator = kVoltage;
+      break;
+    default:
+      inputs.brake = kVoltage;
+      break;
+  }
+  sim::SetBoardInputs(inputs);
+  return RegisterWriteResult::kAccepted;
 }
 
 /// Registers of the simulated plant; not persistent, the plant starts from the defaults.
@@ -324,6 +366,18 @@ class SimRegisters final : public cyphal::RegisterProvider {
         break;
       case SimRegister::kContactorClosed:
         cyphal::SetBit(value, g_inputs.contactor_closed);
+        break;
+      case SimRegister::kPowerBoard:
+        cyphal::SetBit(value, sim::SimBoardInputs().power_board.value_or(false));
+        break;
+      case SimRegister::kGateSupply:
+        cyphal::SetReal32(value, sim::SimBoardInputs().gate_supply.value_or(Voltage{}).Value());
+        break;
+      case SimRegister::kAccelerator:
+        cyphal::SetReal32(value, sim::SimBoardInputs().accelerator.value_or(Voltage{}).Value());
+        break;
+      case SimRegister::kBrake:
+        cyphal::SetReal32(value, sim::SimBoardInputs().brake.value_or(Voltage{}).Value());
         break;
     }
     return {true, false};
@@ -405,6 +459,11 @@ class SimRegisters final : public cyphal::RegisterProvider {
       case SimRegister::kContactorClosed:
         g_inputs.contactor_closed = kValue != 0.0F;
         break;
+      case SimRegister::kPowerBoard:
+      case SimRegister::kGateSupply:
+      case SimRegister::kAccelerator:
+      case SimRegister::kBrake:
+        return WriteBoardInput(static_cast<SimRegister>(index), kValue);
     }
     ApplyInputs();
     return RegisterWriteResult::kAccepted;

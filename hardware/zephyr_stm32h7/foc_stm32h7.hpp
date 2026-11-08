@@ -192,9 +192,11 @@ inline constexpr uint32_t kOvervoltageCheckOff = 0xFFFFFFFFU;
  */
 void SetOvervoltageCounts(uint32_t counts) noexcept;
 
-/// Raw injected results (12 bit, unsigned, right aligned) of the last sequence.
+/// Raw injected results (12 bit, unsigned, right aligned) of the last sequence; 0 for an optional board input
+/// the devicetree does not list.
 struct RawSamples {
   uint32_t ia, va, bridge_temperature, ib, vb, motor_temperature, ic, vdc, vc;
+  uint32_t gate_supply, accelerator, brake;
 };
 
 [[nodiscard]] RawSamples ReadRaw() noexcept;

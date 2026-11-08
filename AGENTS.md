@@ -85,15 +85,17 @@ Read `README.md` for the supported motor types and public features, and
   transceiver standby pin; sim: slcan pseudo terminals, `unimoc.sim.*` registers,
   plant trace, the register description file `register_file.cpp` written by
   `--describe-registers`). `hardware/hardware_interface.hpp`,
-  `hardware/power_stage_interface.hpp` and `hardware/cyphal_platform.hpp`
-  are the platform-independent boundaries.
+  `hardware/power_stage_interface.hpp`, `hardware/board_inputs_interface.hpp`
+  (power board detect, gate supply, accelerator, brake lever) and
+  `hardware/cyphal_platform.hpp` are the platform-independent boundaries.
 - `hardware/hot_path_interface.hpp` is the link-time bound hardware access of
   the zero-latency hot path.
 - `tests/` contains all tests, as ztest suites run by twister:
   `tests/lib/<library>/` covers `lib/<library>`, `tests/sim/<name>/` runs the
   application core against the `native_sim` platform and the motor plant
   (cycle cadence, overcurrent, closed loop, the Cyphal drive),
-  `tests/drive/<name>/` tests parts of `src/drive/` alone (the cart control).
+  `tests/drive/<name>/` tests parts of `src/drive/` alone (the cart control,
+  the accelerator control and the board input supervision).
   `tests/common/`
   holds the shared float checks and the in-memory CAN bus of the Cyphal
   tests. `tests/integration/cyphal_sim/` are pytest integration tests: twister

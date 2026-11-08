@@ -81,7 +81,10 @@ template <unit::UnitLike U>
          unit::IsFinite(settings.ebike_speed_taper) && unit::IsFinite(settings.ebike_rise_time) &&
          unit::IsFinite(settings.ebike_fall_time) && unit::IsFinite(settings.ebike_engage_hold) &&
          unit::IsFinite(settings.ebike_rearm_time) && unit::IsFinite(settings.ebike_display_timeout) &&
-         unit::IsFinite(settings.ebike_torque_offset);
+         unit::IsFinite(settings.ebike_torque_offset) && unit::IsFinite(settings.accel_throttle_min) &&
+         unit::IsFinite(settings.accel_throttle_max) && unit::IsFinite(settings.accel_brake_min) &&
+         unit::IsFinite(settings.accel_brake_max) && unit::IsFinite(settings.accel_torque_max) &&
+         unit::IsFinite(settings.accel_brake_torque_max) && unit::IsFinite(settings.accel_engage_hold);
 }
 
 [[nodiscard]] inline bool IsFinite(const NvmSettings& settings) noexcept {
@@ -180,6 +183,9 @@ inline constexpr float kMaxWheelCircumference = 4.0F;
 inline constexpr uint8_t kMaxBatteryCells = 30U;
 /// Largest torque sensor offset (the sensor reads 0 at its rest voltage; the observer trims a few N m).
 inline constexpr unit::Torque kMaxEbikeTorqueOffset = 10.0_Nm;
+inline constexpr uint8_t kMaxAccelMode = 2U;
+/// The accelerator and brake sensors run from the ADC reference (3.3 V).
+inline constexpr unit::Voltage kMaxAccelSensorVoltage = 3.3_V;
 
 /// True when two enabled ports in @p port_ids share one port-ID.
 template <std::size_t kCount>
@@ -358,6 +364,19 @@ template <std::size_t kCount>
       settings.ebike_rearm_time < ZeroOf(settings.ebike_rearm_time) ||
       settings.ebike_display_timeout <= ZeroOf(settings.ebike_display_timeout) ||
       unit::Abs(settings.ebike_torque_offset) > kMaxEbikeTorqueOffset) {
+    return SettingsStatus::kOutOfRange;
+  }
+
+  // Accelerator and brake lever: a released voltage below the pressed one, both within the sensor range.
+  const auto kIsSensorRange = [](const unit::Voltage released, const unit::Voltage pressed) {
+    return released >= ZeroOf(released) && released < pressed && pressed <= kMaxAccelSensorVoltage;
+  };
+  if (settings.accel_mode > kMaxAccelMode ||
+      !kIsSensorRange(settings.accel_throttle_min, settings.accel_throttle_max) ||
+      !kIsSensorRange(settings.accel_brake_min, settings.accel_brake_max) ||
+      settings.accel_torque_max < ZeroOf(settings.accel_torque_max) ||
+      settings.accel_brake_torque_max < ZeroOf(settings.accel_brake_torque_max) ||
+      settings.accel_engage_hold < ZeroOf(settings.accel_engage_hold)) {
     return SettingsStatus::kOutOfRange;
   }
 

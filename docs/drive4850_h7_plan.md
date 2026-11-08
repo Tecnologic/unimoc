@@ -139,6 +139,41 @@ trigger used by ADC1/2; the GS8632 output range against the ADC range.
 The power board connector stays unchanged (section 2.1 of the system plan).
 Only the MCU side of the traces moves.
 
+### 4.3 Board inputs (decided 2026-11-08)
+
+The slow inputs of the schematic and what the firmware does with them
+(`hardware/board_inputs_interface.hpp`, `src/drive/accelerator_control.hpp`):
+
+| Input | Pin | Front end (schematic) | Firmware |
+|---|---|---|---|
+| `PWR_DET` | PE4 | 10k pull-up R612, GND on the power board (J110 pin 9) | `power-board-gpios` of `zephyr,user`, active low |
+| +12P sense `V12P_SNS` | PC5, ADC2_INP8 | 10k / 2k2 (R109/R110) at the drivers, 4k7 / 10n | `foc0` io-channel `gate-supply`, `gate-supply-divider-ohms`, `gate-supply-millivolts` |
+| `AIN_ACC` (accelerator) | PC0, ADC3_INP10 | J601 pin 3, sensor on +3.3VADC, 11k / 100n | `foc0` io-channel `accelerator` |
+| `AIN_DCC` (brake lever) | PC4, ADC2_INP4 | J601 pin 2, sensor on +3.3VADC, 11k / 100n | `foc0` io-channel `brake` |
+
+The board inputs are injected conversions like the temperatures: Vdc moves
+to ADC3 (PC1 is on all three ADCs), so ADC2 takes +12P and the brake lever
+(ADC1/2-only pins) and ADC3 the accelerator. Each ADC has four conversions;
+ADC1 stays the longest sequence.
+
+Decisions (2026-11-08):
+
+- **Without the power board** the drive refuses the engage and reports it
+  (power stage `BLOCKED`, health `WARNING`, `unimoc.board.ready`, a record).
+  The loss while engaged trips the power stage (latched fault).
+- **+12P** gates the engage below 10.5 V and trips an engaged power stage
+  below 10 V (5 ms filter). The LM5109B lockout is at about 6.7 V; the
+  NCEP6080AG is specified at 10 V gate drive and the high side gets +12P
+  less the bootstrap diode.
+- **PC0 is the accelerator, PC4 the brake lever.** The brake lever is
+  proportional: regenerative braking up to `unimoc.accel.brake_torque_max`,
+  against the motion only, fading out below 10 rad/s (no reverse at
+  standstill); any travel of the brake lever zeroes the accelerator.
+- **The accelerator is a local torque setpoint** (`unimoc.accel.mode`, off
+  by factory default) with calibrated released/pressed voltages, engaged on
+  demand like the e-bike, and readable on the bus (`unimoc.board.*`).
+- **Separate from the e-bike:** the e-bike build ignores both inputs.
+
 ## 5. Fourth half bridge on the H743 (dropped 2026-11-03)
 
 Jacobi has no fourth half bridge; the EESM excitation becomes its own bus

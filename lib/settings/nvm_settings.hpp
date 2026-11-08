@@ -764,6 +764,42 @@ struct NvmSettings {
   /// Register: `unimoc.ebike.torque_offset`
   unit::Torque ebike_torque_offset;
 
+  // Accelerator and brake lever of the board (docs/drive4850_h7_plan.md, section 4.3): a local torque
+  // setpoint for drives without the e-bike.
+
+  /// 0 off, 1 accelerator (throttle), 2 accelerator and brake lever. Ignored in the e-bike build and on a
+  /// board without the inputs.
+  /// Register: `unimoc.accel.mode`
+  uint8_t accel_mode{0U};
+
+  /// Sensor voltage of the released accelerator (no torque) [V].
+  /// Register: `unimoc.accel.throttle_min`
+  unit::Voltage accel_throttle_min{0.8_V};
+
+  /// Sensor voltage of the fully pressed accelerator (accel_torque_max) [V].
+  /// Register: `unimoc.accel.throttle_max`
+  unit::Voltage accel_throttle_max{2.6_V};
+
+  /// Sensor voltage of the released brake lever [V].
+  /// Register: `unimoc.accel.brake_min`
+  unit::Voltage accel_brake_min{0.8_V};
+
+  /// Sensor voltage of the fully pulled brake lever (accel_brake_torque_max) [V].
+  /// Register: `unimoc.accel.brake_max`
+  unit::Voltage accel_brake_max{2.6_V};
+
+  /// Drive torque at the fully pressed accelerator.
+  /// Register: `unimoc.accel.torque_max`
+  unit::Torque accel_torque_max{10.0_Nm};
+
+  /// Regenerative braking torque at the fully pulled brake lever; it fades out towards standstill.
+  /// Register: `unimoc.accel.brake_torque_max`
+  unit::Torque accel_brake_torque_max{5.0_Nm};
+
+  /// The drive stays engaged this long after both inputs were released.
+  /// Register: `unimoc.accel.engage_hold`
+  unit::Time accel_engage_hold{2.0_s};
+
   /// Restore all fields to factory defaults.
   void ResetToDefaults() noexcept { *this = NvmSettings{}; }
 };

@@ -265,6 +265,14 @@ void ForEachRegister(const Visitor& visit, Settings&... settings) {
   visit(Setting(reg::kEbikeRearmTime, "E-bike: after a fault the pedals stand still this long before the drive engages again", AtLeast(0.0F)), settings.ebike_rearm_time...);
   visit(Setting(reg::kEbikeDisplayTimeout, "E-bike: without a display request for this long the display counts as lost", AtLeast(0.0F)), settings.ebike_display_timeout...);
   visit(Setting(reg::kEbikeTorqueOffset, "E-bike torque sensor reading at zero load; learned at standstill and stored by the drive", Between(-10.0F, 10.0F)), settings.ebike_torque_offset...);
+  visit(Setting(reg::kAccelMode, "Accelerator inputs: 0 off, 1 accelerator, 2 accelerator and brake lever (not in the e-bike build)", Between(0.0F, 2.0F)), settings.accel_mode...);
+  visit(Setting(reg::kAccelThrottleMin, "Accelerator sensor voltage when released", Between(0.0F, 3.3F)), settings.accel_throttle_min...);
+  visit(Setting(reg::kAccelThrottleMax, "Accelerator sensor voltage when fully pressed", Between(0.0F, 3.3F)), settings.accel_throttle_max...);
+  visit(Setting(reg::kAccelBrakeMin, "Brake lever sensor voltage when released", Between(0.0F, 3.3F)), settings.accel_brake_min...);
+  visit(Setting(reg::kAccelBrakeMax, "Brake lever sensor voltage when fully pulled", Between(0.0F, 3.3F)), settings.accel_brake_max...);
+  visit(Setting(reg::kAccelTorqueMax, "Drive torque at the fully pressed accelerator", AtLeast(0.0F)), settings.accel_torque_max...);
+  visit(Setting(reg::kAccelBrakeTorqueMax, "Regenerative braking torque at the fully pulled brake lever; fades out at standstill", AtLeast(0.0F)), settings.accel_brake_torque_max...);
+  visit(Setting(reg::kAccelEngageHold, "Accelerator: the drive stays engaged this long after both inputs were released", AtLeast(0.0F)), settings.accel_engage_hold...);
   // clang-format on
 }
 

@@ -743,6 +743,43 @@ inline constexpr const char* kEbikeDisplayTimeout = "unimoc.ebike.display_timeou
 /// Type: real32[1] (read/write, persistent)
 inline constexpr const char* kEbikeTorqueOffset = "unimoc.ebike.torque_offset";
 
+// ---- Accelerator and brake lever (docs/drive4850_h7_plan.md, section 4.3) ----
+
+/// 0 off, 1 accelerator, 2 accelerator and brake lever: the local torque setpoint of a drive without the
+/// e-bike. Type: natural8[1] (read/write, persistent)
+inline constexpr const char* kAccelMode = "unimoc.accel.mode";
+/// Accelerator sensor voltage when released [V]. Type: real32[1] (read/write, persistent)
+inline constexpr const char* kAccelThrottleMin = "unimoc.accel.throttle_min";
+/// Accelerator sensor voltage when fully pressed [V]. Type: real32[1] (read/write, persistent)
+inline constexpr const char* kAccelThrottleMax = "unimoc.accel.throttle_max";
+/// Brake lever sensor voltage when released [V]. Type: real32[1] (read/write, persistent)
+inline constexpr const char* kAccelBrakeMin = "unimoc.accel.brake_min";
+/// Brake lever sensor voltage when fully pulled [V]. Type: real32[1] (read/write, persistent)
+inline constexpr const char* kAccelBrakeMax = "unimoc.accel.brake_max";
+/// Drive torque at the fully pressed accelerator [N m]. Type: real32[1] (read/write, persistent)
+inline constexpr const char* kAccelTorqueMax = "unimoc.accel.torque_max";
+/// Regenerative braking torque at the fully pulled brake lever [N m]. Type: real32[1] (read/write,
+/// persistent)
+inline constexpr const char* kAccelBrakeTorqueMax = "unimoc.accel.brake_torque_max";
+/// The drive stays engaged this long after both inputs were released [s]. Type: real32[1] (read/write,
+/// persistent)
+inline constexpr const char* kAccelEngageHold = "unimoc.accel.engage_hold";
+
+// ---- Board inputs (read-only, board_inputs_interface.hpp) ----
+
+/// The power board is plugged in (Jacobi: PWR_DET); without the detect input always 1.
+/// Type: bit[1] (read-only)
+inline constexpr const char* kBoardPowerBoard = "unimoc.board.power_board";
+/// Gate driver supply +12P [V]; NaN without the input. Type: real32[1] (read-only)
+inline constexpr const char* kBoardGateSupply = "unimoc.board.gate_supply";
+/// Accelerator sensor voltage [V]; NaN without the input. Type: real32[1] (read-only)
+inline constexpr const char* kBoardAccelerator = "unimoc.board.accelerator";
+/// Brake lever sensor voltage [V]; NaN without the input. Type: real32[1] (read-only)
+inline constexpr const char* kBoardBrake = "unimoc.board.brake";
+/// The board inputs allow the engage (power board present, gate supply above its engage limit).
+/// Type: bit[1] (read-only)
+inline constexpr const char* kBoardReady = "unimoc.board.ready";
+
 /// Bus-off events of the CAN interfaces since start.
 /// Type: natural32[1] (read-only)
 inline constexpr const char* kCanBusOffCount = "unimoc.can.bus_off_count";

@@ -26,6 +26,7 @@
 #include <zephyr/sys/reboot.h>
 #include <algorithm>
 #include <array>
+#include "board_inputs_interface.hpp"
 #include "current_control_isr.hpp"
 #include "cyphal/canard_transport.hpp"
 #include "cyphal/node.hpp"
@@ -157,6 +158,7 @@ void CyphalThread(void* /*unused*/, void* /*unused*/, void* /*unused*/) {
   info.unique_id = g_unique_id;
   node.SetInfo(info);
 
+  StartBoardInputs();  // power board detect, gate supply, accelerator and brake (board_inputs_interface.hpp)
   static drive::DriveNode drive{node,
                                 *g_store,
                                 kMotors[0],

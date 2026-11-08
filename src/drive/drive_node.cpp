@@ -180,27 +180,88 @@ template <std::size_t kSize>
 
 // ----- DriveInfoRegisters ----------------------------------------------------
 
-// The info registers, then `unimoc.settings.pending` and `unimoc.can.bus_off_count`.
-std::size_t DriveInfoRegisters::Count() const noexcept { return kInfoRegisters.size() + 2U; }
+namespace {
+
+/// The registers after the port types: the pending settings, the bus-off count and the board inputs.
+enum class StateRegister : uint8_t {
+  kSettingsPending,
+  kBusOffCount,
+  kPowerBoard,
+  kGateSupply,
+  kAccelerator,
+  kBrake,
+  kBoardReady,
+};
+
+struct StateRegisterEntry {
+  const char* name;
+  const char* help;
+  const char* unit;
+};
+
+constexpr std::array<StateRegisterEntry, 7> kStateRegisters{{
+    {cyphal::reg::kSettingsPending, "1 while written settings wait for the disengage", nullptr},
+    {cyphal::reg::kCanBusOffCount, "CAN bus-off events since the start", nullptr},
+    {cyphal::reg::kBoardPowerBoard,
+     "1 while the power board is plugged in (always 1 without the detect)",
+     nullptr},
+    {cyphal::reg::kBoardGateSupply, "Gate driver supply +12P; NaN on a board without the input", "V"},
+    {cyphal::reg::kBoardAccelerator, "Accelerator sensor voltage; NaN on a board without the input", "V"},
+    {cyphal::reg::kBoardBrake, "Brake lever sensor voltage; NaN on a board without the input", "V"},
+    {cyphal::reg::kBoardReady,
+     "1 while the board inputs allow the engage (power board, gate supply)",
+     nullptr},
+}};
+
+[[nodiscard]] float VoltageOrNaN(const std::optional<unit::Voltage>& voltage) noexcept {
+  return voltage.has_value() ? voltage->Value() : std::numeric_limits<float>::quiet_NaN();
+}
+
+}  // namespace
+
+// The info registers, then the state registers (kStateRegisters).
+std::size_t DriveInfoRegisters::Count() const noexcept {
+  return kInfoRegisters.size() + kStateRegisters.size();
+}
 
 std::string_view DriveInfoRegisters::Name(const std::size_t index) const noexcept {
-  if (index == kInfoRegisters.size()) {
-    return cyphal::reg::kSettingsPending;
+  if (index >= kInfoRegisters.size()) {
+    const std::size_t kState = index - kInfoRegisters.size();
+    return kState < kStateRegisters.size() ? kStateRegisters[kState].name : std::string_view{};
   }
-  if (index == kInfoRegisters.size() + 1U) {
-    return cyphal::reg::kCanBusOffCount;
-  }
-  return index < kInfoRegisters.size() ? kInfoRegisters[index].name : std::string_view{};
+  return kInfoRegisters[index].name;
 }
 
 cyphal::RegisterFlags DriveInfoRegisters::Read(const std::size_t index,
                                                cyphal::RegisterValue& value) const noexcept {
-  if (index == kInfoRegisters.size()) {
-    cyphal::SetBit(value, *settings_pending_);
-  } else if (index == kInfoRegisters.size() + 1U) {
-    cyphal::SetNatural32(value, *bus_off_count_);
-  } else if (index >= kInfoRegisters.size()) {
-    cyphal::SetEmpty(value);
+  if (index >= kInfoRegisters.size()) {
+    const hardware::BoardInputs& inputs = board_->inputs;
+    switch (static_cast<StateRegister>(index - kInfoRegisters.size())) {
+      case StateRegister::kSettingsPending:
+        cyphal::SetBit(value, *settings_pending_);
+        break;
+      case StateRegister::kBusOffCount:
+        cyphal::SetNatural32(value, *bus_off_count_);
+        break;
+      case StateRegister::kPowerBoard:
+        cyphal::SetBit(value, inputs.power_board.value_or(true));
+        break;
+      case StateRegister::kGateSupply:
+        cyphal::SetReal32(value, VoltageOrNaN(inputs.gate_supply));
+        break;
+      case StateRegister::kAccelerator:
+        cyphal::SetReal32(value, VoltageOrNaN(inputs.accelerator));
+        break;
+      case StateRegister::kBrake:
+        cyphal::SetReal32(value, VoltageOrNaN(inputs.brake));
+        break;
+      case StateRegister::kBoardReady:
+        cyphal::SetBit(value, board_->verdict.ready);
+        break;
+      default:
+        cyphal::SetEmpty(value);
+        break;
+    }
   } else if (kInfoRegisters[index].type.empty()) {
     cyphal::SetUnstructured(value, unique_id_);
     return {false, true};
@@ -212,11 +273,15 @@ cyphal::RegisterFlags DriveInfoRegisters::Read(const std::size_t index,
 
 cyphal::RegisterDescription DriveInfoRegisters::Describe(const std::size_t index) const noexcept {
   cyphal::RegisterDescription description{};
-  if (index == kInfoRegisters.size()) {
-    description.help = "1 while written settings wait for the disengage";
-  } else if (index == kInfoRegisters.size() + 1U) {
-    description.help = "CAN bus-off events since the start";
-  } else if (index < kInfoRegisters.size()) {
+  if (index >= kInfoRegisters.size()) {
+    const std::size_t kState = index - kInfoRegisters.size();
+    if (kState < kStateRegisters.size()) {
+      description.help = kStateRegisters[kState].help;
+      if (kStateRegisters[kState].unit != nullptr) {
+        description.unit = kStateRegisters[kState].unit;
+      }
+    }
+  } else {
     description.help = kInfoRegisters[index].type.empty() ? "Unique-ID of the node (also in GetInfo)"
                                                           : "DSDL type of the port";
   }
@@ -240,7 +305,7 @@ DriveNode::DriveNode(cyphal::CyphalNode& node,
       motor_{&motor},
       hooks_{hooks},
       settings_registers_{store},
-      info_registers_{unique_id, settings_waiting_, bus_off_count_},
+      info_registers_{unique_id, settings_waiting_, bus_off_count_, board_},
       startup_{CurrentControlIsr::Instance(), store.GetOperations()},
       identification_{CurrentControlIsr::Instance(), current_control::SlowUpdate::Instance()},
       commissioning_{startup_, identification_, engaged_, emergency_stop_} {}
@@ -323,6 +388,7 @@ void DriveNode::Spin(const uint64_t now_us, const uint64_t drive_us) noexcept {
   drive_us_ = drive_us;
   node_->Spin(now_us);  // dispatches the received messages and commands
   WatchBus();
+  SpinBoard(drive_us);
   SpinLocalControl(drive_us);
 
   if (engage_requested_) {
@@ -363,7 +429,69 @@ void DriveNode::Spin(const uint64_t now_us, const uint64_t drive_us) noexcept {
   UpdateStatus();
 }
 
+void DriveNode::SpinBoard(const uint64_t now_us) noexcept {
+  board_.inputs = hardware::ReadBoardInputs();
+  board_.verdict =
+      board_supervision_.Update(now_us, board_.inputs, hardware::GetGateSupplyLimits(), engaged_);
+  std::array<char, 64> text{};
+  if (board_.verdict.trip && engaged_) {
+    kPowerStage.Trip();  // latched: the drive engages again only after a re-arm
+    rearm_required_ = true;
+    Disengage(board_.verdict.reason);
+    (void)node_->Log(cyphal::Severity::kError, Joined("power stage tripped: ", board_.verdict.reason, text));
+  }
+  if (!board_.verdict.ready && !board_announced_) {
+    board_announced_ = true;
+    (void)node_->Log(cyphal::Severity::kWarning, Joined("board not ready: ", board_.verdict.reason, text));
+  } else if (board_.verdict.ready && board_announced_) {
+    board_announced_ = false;
+    (void)node_->Log(cyphal::Severity::kInfo, "board ready");
+  }
+}
+
+hardware::PowerStageState DriveNode::ReportedPowerStage() const noexcept {
+  const PowerStageState kState = kPowerStage.GetState();
+  return (kState == PowerStageState::kDisabled && !board_.verdict.ready) ? PowerStageState::kBlocked : kState;
+}
+
+void DriveNode::SpinAccelerator(const uint64_t now_us) noexcept {
+  const current_control::OuterStatus kOuter = OuterLoop::Instance().Status();
+  AcceleratorVehicle vehicle;
+  vehicle.motor_speed = kOuter.speed;
+  vehicle.torque_min = kOuter.torque_min;
+  vehicle.torque_max = kOuter.torque_max;
+  vehicle.engaged = engaged_;
+  vehicle.faulted = rearm_required_;
+  const AcceleratorOutput kOutput =
+      accelerator_.Update(now_us, board_.inputs.accelerator, board_.inputs.brake, vehicle);
+  accelerator_engage_ = kOutput.engage;
+  accelerator_torque_ = kOutput.torque;
+  if (kOutput.sensor_fault != accelerator_fault_) {
+    accelerator_fault_ = kOutput.sensor_fault;
+    (void)node_->Log(kOutput.sensor_fault ? cyphal::Severity::kWarning : cyphal::Severity::kInfo,
+                     kOutput.sensor_fault ? "accelerator or brake sensor out of range"
+                                          : "accelerator sensors back");
+  }
+  if (kOutput.engage) {
+    last_readiness_us_ = now_us;  // the accelerator's readiness
+    if (!engaged_ && !rearm_required_) {
+      engage_requested_ = true;
+    }
+  } else {
+    rearm_required_ = false;
+    if (engaged_) {
+      Disengage("accelerator");
+    }
+  }
+}
+
 void DriveNode::SpinLocalControl(const uint64_t now_us) noexcept {
+  // The accelerator is the local control of a drive without the e-bike whose board has the input.
+  accelerator_active_ = ebike_ == nullptr && accelerator_.Active() && board_.inputs.accelerator.has_value();
+  if (accelerator_active_) {
+    SpinAccelerator(now_us);
+    return;
+  }
   if (ebike_ == nullptr) {
     return;
   }
@@ -446,6 +574,11 @@ void DriveNode::SpinEngagement(const uint64_t now_us) noexcept {
         (torque_constant_ > unit::MagneticFlux{}) ? ebike_torque_ / torque_constant_ : unit::Current{};
     SetCurrentSetpoint(unit::Current{}, kCurrent, now_us);
   }
+  if (engaged_ && accelerator_active_ && accelerator_engage_) {
+    const unit::Current kCurrent =
+        (torque_constant_ > unit::MagneticFlux{}) ? accelerator_torque_ / torque_constant_ : unit::Current{};
+    SetCurrentSetpoint(unit::Current{}, kCurrent, now_us);
+  }
   if (engaged_ && setpoint_active_ && now_us - last_setpoint_us_ > command_timeout_us_) {
     ClearSetpoint();
   }
@@ -463,6 +596,9 @@ void DriveNode::LoadParameters(const settings::NvmSettings& settings) noexcept {
   // disengage.
   if (ebike_ != nullptr && !engaged_) {
     ebike_->Configure(ebike::EbikeParameters::From(settings));
+  }
+  if (!engaged_) {
+    accelerator_.Configure(AcceleratorParameters::From(settings));
   }
   current_limit_ = settings.motor_i_max;
   // PMSM torque constant: T = 3/2 p psi_pm i_q.
@@ -571,8 +707,8 @@ void DriveNode::OnReadiness(const cyphal::Transfer& transfer, const uint64_t now
   }
   last_readiness_us_ = now_us;
   if (readiness.value == reg_udral_service_common_Readiness_0_1_ENGAGED) {
-    if (ebike_ != nullptr) {
-      return;  // the e-bike control engages the drive
+    if (HasLocalControl()) {
+      return;  // the e-bike or the accelerator engages the drive
     }
     if (!engaged_ && !rearm_required_) {
       engage_requested_ = true;  // engaged in Spin(), outside the dispatch
@@ -582,6 +718,7 @@ void DriveNode::OnReadiness(const cyphal::Transfer& transfer, const uint64_t now
     if (ebike_ != nullptr) {
       ebike_->Inhibit();  // the bus takes the drive off the e-bike until the pedals stood still
     }
+    accelerator_.Inhibit();  // and off the accelerator until both inputs are released
     if (engaged_) {
       Disengage("readiness");
     } else if (readiness.value == reg_udral_service_common_Readiness_0_1_STANDBY) {
@@ -776,6 +913,12 @@ void DriveNode::Engage() noexcept {
     (void)node_->Log(cyphal::Severity::kWarning, "engage refused: the identification is running");
     return;
   }
+  if (!board_.verdict.ready) {
+    rearm_required_ = true;
+    std::array<char, 64> text{};
+    (void)node_->Log(cyphal::Severity::kWarning, Joined("engage refused: ", board_.verdict.reason, text));
+    return;
+  }
   if (settings_pending_ || settings_registers_.WriteCount() != applied_writes_) {
     if (!ApplySettings()) {
       return;
@@ -901,7 +1044,7 @@ void DriveNode::PublishTelemetry() noexcept {
   telemetry.electrical_angle = observer::WrapAnglePositive(kAngle).Value();
   telemetry.electrical_speed = isr.mech_obs.omega.Value();
   telemetry.dc_link_voltage = state.dc_link.Value();
-  telemetry.power_stage = static_cast<uint8_t>(kPowerStage.GetState());
+  telemetry.power_stage = static_cast<uint8_t>(ReportedPowerStage());
   telemetry.overcurrent_tripped = state.overcurrent_tripped;
   telemetry.engaged = engaged_;
 
@@ -942,7 +1085,7 @@ void DriveNode::PublishDriveStatus() noexcept {
   status.power_stage_temperature = Kelvin(kTemperatures.bridge);
   status.motor_temperature = Kelvin(kTemperatures.motor);
   status.wheel = cart_wheel_;
-  status.power_stage = static_cast<uint8_t>(kPowerStage.GetState());
+  status.power_stage = static_cast<uint8_t>(ReportedPowerStage());
   status.engaged = engaged_;
   status.limp_home = cart_mode_ == CartMode::kLimpHome;
   status.regen_derated = kOuter.regen_derated;
@@ -1011,9 +1154,11 @@ void DriveNode::PublishCommissioning(const uint64_t now_us) noexcept {
 }
 
 void DriveNode::UpdateStatus() noexcept {
-  const PowerStageState kState = kPowerStage.GetState();
+  const PowerStageState kState = ReportedPowerStage();
   cyphal::Health health = cyphal::Health::kNominal;
-  if (emergency_stop_) {
+  if (!board_.verdict.ready) {
+    health = cyphal::Health::kWarning;  // the drive cannot run: no power board or gate supply
+  } else if (emergency_stop_) {
     health = cyphal::Health::kCaution;
   } else if (kState == PowerStageState::kFault || CurrentControlIsr::Instance().Tripped()) {
     health = cyphal::Health::kAdvisory;
@@ -1026,7 +1171,7 @@ void DriveNode::UpdateStatus() noexcept {
       (static_cast<uint8_t>(kState) & bits::kPowerStageMask) | kFlag(engaged_, bits::kEngaged) |
       kFlag(CurrentControlIsr::Instance().Tripped(), bits::kTripLatched) |
       kFlag(emergency_stop_, bits::kEmergencyStop) | kFlag(settings_waiting_, bits::kSettingsPending) |
-      kFlag(ebike_ != nullptr, bits::kLocalControl)));
+      kFlag(HasLocalControl(), bits::kLocalControl)));
 }
 
 }  // namespace unimoc::drive

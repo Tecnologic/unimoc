@@ -19,6 +19,8 @@
 #include <cstdint>
 #include <span>
 #include <string_view>
+#include "accelerator_control.hpp"
+#include "board_inputs_interface.hpp"
 #include "cart_control.hpp"
 #include "commissioning.hpp"
 #include "cyphal/node.hpp"
@@ -27,6 +29,7 @@
 #include "hw_startup.hpp"
 #include "motor_identification.hpp"
 #include "outer_loop.hpp"
+#include "power_stage_interface.hpp"
 #include "settings_register_provider.hpp"
 #include "settings_store.hpp"
 #include "timing_registers.hpp"
@@ -41,9 +44,16 @@ struct DriveHooks {
   void (*settings_applied)(const settings::NvmSettings& settings) noexcept {nullptr};
 };
 
+/// The board inputs as the drive last read them, with the verdict of its supervision.
+struct BoardState {
+  hardware::BoardInputs inputs{};
+  BoardVerdict verdict{};
+};
+
 /**
  * @brief Read-only registers of the drive: the data type names of its ports,
- *        the hardware unique-ID, the pending settings and the bus-off count.
+ *        the hardware unique-ID, the pending settings, the bus-off count and
+ *        the board inputs (`unimoc.board.*`).
  */
 class DriveInfoRegisters final : public cyphal::RegisterProvider {
  public:
@@ -51,11 +61,16 @@ class DriveInfoRegisters final : public cyphal::RegisterProvider {
    * @param unique_id Unique-ID reported by `uavcan.node.unique_id`; must outlive the provider.
    * @param settings_pending Reported by `unimoc.settings.pending`; must outlive the provider.
    * @param bus_off_count Reported by `unimoc.can.bus_off_count`; must outlive the provider.
+   * @param board Reported by `unimoc.board.*`; must outlive the provider.
    */
   DriveInfoRegisters(std::span<const uint8_t> unique_id,
                      const bool& settings_pending,
-                     const uint32_t& bus_off_count) noexcept
-      : unique_id_{unique_id}, settings_pending_{&settings_pending}, bus_off_count_{&bus_off_count} {}
+                     const uint32_t& bus_off_count,
+                     const BoardState& board) noexcept
+      : unique_id_{unique_id},
+        settings_pending_{&settings_pending},
+        bus_off_count_{&bus_off_count},
+        board_{&board} {}
 
   [[nodiscard]] std::size_t Count() const noexcept override;
   [[nodiscard]] std::string_view Name(std::size_t index) const noexcept override;
@@ -69,6 +84,7 @@ class DriveInfoRegisters final : public cyphal::RegisterProvider {
   std::span<const uint8_t> unique_id_;
   const bool* settings_pending_;
   const uint32_t* bus_off_count_;
+  const BoardState* board_;
 };
 
 /**
@@ -112,6 +128,16 @@ class DriveInfoRegisters final : public cyphal::RegisterProvider {
  * readiness other than ENGAGED (an explicit re-arm). STANDBY while
  * disengaged acknowledges a latched trip or fault without releasing the
  * outputs (a still missing external enable latches it again).
+ *
+ * Board inputs (BoardSupervision, read every spin): without the power board
+ * or with the gate driver supply below its engage limit the drive does not
+ * engage and reports the power stage BLOCKED and the health WARNING; while
+ * engaged, the loss of the power board or the gate supply below its trip
+ * limit trips the power stage (a latched fault, re-armed like a trip).
+ *
+ * Accelerator (AcceleratorControl, `unimoc.accel.mode`): in a drive without
+ * the e-bike and with the inputs on the board, the accelerator and the brake
+ * lever are the local control, as the e-bike is in the e-bike build.
  *
  * Cart (CartControl, docs/system_plan.md, section 7): the first wheel
  * command after the engage makes the drive a cart wheel drive; its torque
@@ -196,6 +222,12 @@ class DriveNode final : public cyphal::MessageListener,
    */
   void SetLocalControl(ebike::EbikeControl* control) noexcept { ebike_ = control; }
 
+  /// True while a local control (the e-bike, or the accelerator) engages the drive instead of the bus.
+  [[nodiscard]] bool HasLocalControl() const noexcept { return ebike_ != nullptr || accelerator_active_; }
+
+  /// The board inputs of the last spin and their verdict.
+  [[nodiscard]] const BoardState& Board() const noexcept { return board_; }
+
   /// The startup FSM of the drive (state and results).
   [[nodiscard]] const startup::HwStartup& Startup() const noexcept { return startup_; }
 
@@ -230,6 +262,12 @@ class DriveNode final : public cyphal::MessageListener,
   void SpinStartup() noexcept;
   /// The e-bike control: engagement on demand and its torque (only with a local control).
   void SpinLocalControl(uint64_t now_us) noexcept;
+  /// The accelerator as the local control (no e-bike, `unimoc.accel.mode` set, inputs on the board).
+  void SpinAccelerator(uint64_t now_us) noexcept;
+  /// Reads the board inputs; trips an engaged power stage on their loss and reports the changes.
+  void SpinBoard(uint64_t now_us) noexcept;
+  /// The power stage state for the bus: BLOCKED while the board inputs refuse the engage.
+  [[nodiscard]] hardware::PowerStageState ReportedPowerStage() const noexcept;
   /// Stores the torque offset the e-bike learned (unimoc.ebike.torque_offset), while disengaged.
   void StoreTorqueOffset(uint64_t now_us) noexcept;
   /// Cart torque, readiness and fault checks, setpoint timeout, battery limits.
@@ -256,6 +294,7 @@ class DriveNode final : public cyphal::MessageListener,
   const hardware::HardwareInterface* motor_;
   DriveHooks hooks_;
   SettingsRegisterProvider settings_registers_;
+  BoardState board_{};
   DriveInfoRegisters info_registers_;
   startup::HwStartup startup_;
   identification::MotorIdentification identification_;
@@ -303,8 +342,15 @@ class DriveNode final : public cyphal::MessageListener,
   ebike::EbikeControl* ebike_{nullptr};  ///< Local source of engagement and torque; null: the bus decides.
   bool ebike_engage_{false};             ///< The e-bike control asks for the drive.
   unit::Torque ebike_torque_;            ///< Its torque, rotor frame.
-  bool bus_lost_{false};                 ///< Bus-off seen and not yet back on the bus.
-  uint32_t bus_off_count_{0U};           ///< `unimoc.can.bus_off_count`.
+  AcceleratorControl accelerator_{};
+  bool accelerator_active_{false};   ///< The accelerator is the local control (SpinAccelerator()).
+  bool accelerator_engage_{false};   ///< The accelerator control asks for the drive.
+  unit::Torque accelerator_torque_;  ///< Its torque, rotor frame.
+  bool accelerator_fault_{false};    ///< Its sensor fault was reported.
+  BoardSupervision board_supervision_{};
+  bool board_announced_{false};  ///< A record said why the board is not ready.
+  bool bus_lost_{false};         ///< Bus-off seen and not yet back on the bus.
+  uint32_t bus_off_count_{0U};   ///< `unimoc.can.bus_off_count`.
 
   bool engaged_{false};
   bool rearm_required_{false};

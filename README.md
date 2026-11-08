@@ -195,7 +195,7 @@ takes effect after a restart.
 ### Settings via registers
 
 Every persistent setting (`ForEachRegister()` in
-`lib/settings/settings_registers.hpp`, 132 registers) is a Cyphal register
+`lib/settings/settings_registers.hpp`, 140 registers) is a Cyphal register
 under the same name; `yakut rl <node>` lists them.  Units and floats are
 `real32[1]`, counts and enums `natural8[1]`, `uavcan.node.id` and the port-IDs
 `natural16[1]`, the name a string; writes accept any numeric type.  A write is
@@ -325,6 +325,34 @@ it engages again only after a readiness other than `ENGAGED` (re-arm).
 `STANDBY` while disengaged acknowledges a latched trip or fault without
 releasing the outputs; the settings can only be stored without one.
 
+### Board inputs and the accelerator
+
+The drive reads the slow inputs of its board every spin
+(`hardware/board_inputs_interface.hpp`); a board without an input does not
+gate on it (the NUCLEO-H743ZI has none):
+
+- Power board detect (Jacobi: `PWR_DET` on PE4, low while the power board is plugged in) and the
+  gate driver supply +12P (Jacobi: PC5 through 10k / 2k2). Without the power board or below the engage
+  limit of the gate supply (Jacobi: 10.5 V) the drive does not engage, reports the power stage `BLOCKED`
+  (telemetry, drive status, heartbeat) and the health `WARNING`. While engaged, the loss of the power
+  board or a gate supply below the trip limit (10 V) for 5 ms trips the power stage: a latched fault,
+  re-armed like a trip. The limits are the devicetree property `gate-supply-millivolts` of `foc0`.
+- Read-only registers: `unimoc.board.power_board`, `unimoc.board.gate_supply` [V],
+  `unimoc.board.accelerator` [V], `unimoc.board.brake` [V] (NaN without the input) and `unimoc.board.ready`.
+- Accelerator and brake lever (Jacobi: J601, `AIN_ACC` on PC0 and `AIN_DCC` on PC4, sensors on 3.3 V):
+  with `unimoc.accel.mode` 1 (accelerator) or 2 (with the brake lever) a drive without the e-bike takes
+  its torque from them, as the e-bike does from the pedals. The accelerator gives up to
+  `unimoc.accel.torque_max`, the brake lever wins and brakes regeneratively up to
+  `unimoc.accel.brake_torque_max` against the motion, fading out below 10 rad/s; the travel is
+  calibrated by `unimoc.accel.throttle_min`/`throttle_max` and `brake_min`/`brake_max` [V]. The control
+  engages the drive on demand and holds it for `unimoc.accel.engage_hold`; the bus readiness `ENGAGED`
+  no longer engages it, `STANDBY` and `SLEEP` release it until both inputs read released, as a trip or
+  a refused engage do. A sensor voltage 0.3 V outside its calibrated range (a broken wire or a short)
+  drops the torque until both inputs read released again.
+- `native_sim`: the board inputs are registers (volatile): `unimoc.sim.power_board`,
+  `unimoc.sim.gate_supply` [V, 12 at the start], `unimoc.sim.accelerator` and `unimoc.sim.brake`
+  [V, 0.8 at the start].
+
 ### E-bike
 
 With `CONFIG_UNIMOC_EBIKE=y` (off by default) the drive becomes the motor of a
@@ -378,12 +406,12 @@ without any other subscription (`cyphal::vendor_status`,
 
 | Bits | Meaning |
 |---|---|
-| 0 to 2 | Power stage: 0 disabled, 1 enabled, 2 fault, 3 blocked (external enable missing) |
+| 0 to 2 | Power stage: 0 disabled, 1 enabled, 2 fault, 3 blocked (external enable missing, or the board inputs refuse the engage) |
 | 3 | Engaged |
 | 4 | Trip latched (overcurrent or overvoltage); `STANDBY` acknowledges it |
 | 5 | Emergency stop latched until a restart (health CAUTION as well) |
 | 6 | Settings wait for the disengage (`unimoc.settings.pending`) |
-| 7 | Local control: the e-bike control engages the drive, the bus readiness does not |
+| 7 | Local control: the e-bike or the accelerator engages the drive, the bus readiness does not |
 
 ### Commands (uavcan.node.ExecuteCommand)
 

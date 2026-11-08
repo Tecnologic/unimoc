@@ -55,6 +55,7 @@
 #include "settings_registers.hpp"
 #include "settings_save_gate.hpp"
 #include "settings_store.hpp"
+#include "sim_board.hpp"
 #include "sim_control.hpp"
 #include "sim_ebike.hpp"
 #include "sim_test_motor.hpp"
@@ -428,6 +429,7 @@ void Before(void* /*unused*/) {
   sim::ClearHallCodeOverride();
   sim::SetFreeRunning(false);
   sim::SetExternalEnable(true);
+  sim::SetBoardInputs(sim::DefaultBoardInputs());
   sim::ClearPhaseCurrentOverride();
   kPowerStage.ClearFault();
   CurrentControlIsr::Instance().ClearTrips();
@@ -1476,6 +1478,146 @@ ZTEST(sim_cyphal_drive, test_ebike_stores_the_learned_torque_offset) {
   const Torque kLearned = rig.store.GetSnapshot().Get().ebike_torque_offset;
   zexpect_true(kLearned > kSaved + 0.1_Nm);
   zexpect_equal(rig.store.GetOperations().UnsavedCount(), 2U);
+}
+
+// ----- Board inputs and the accelerator --------------------------------------------------------------
+
+namespace {
+
+/// The simulated board with @p power_board and @p gate_supply, the accelerator and brake at their voltages.
+void SetBoard(const bool power_board,
+              const Voltage gate_supply,
+              const Voltage accelerator = 0.8_V,
+              const Voltage brake = 0.8_V) {
+  sim::SetBoardInputs(unimoc::hardware::BoardInputs{power_board, gate_supply, accelerator, brake});
+}
+
+}  // namespace
+
+ZTEST(sim_cyphal_drive, test_without_the_power_board_the_drive_does_not_engage) {
+  Rig& rig = *g_rig;
+  SetBoard(false, 12.0_V);
+  rig.Hold(0.0F, 5.0F, 20U);
+  zexpect_false(rig.drive.IsEngaged());
+  zexpect_equal(Integer(rig.Access(reg::kBoardPowerBoard, Empty())), 0);
+  zexpect_equal(Integer(rig.Access(reg::kBoardReady, Empty())), 0);
+  unimoc_drive_Telemetry_0_1 telemetry{};
+  zassert_true(rig.Telemetry(telemetry));
+  zexpect_equal(telemetry.power_stage, unimoc_drive_Telemetry_0_1_POWER_STAGE_BLOCKED);
+
+  // Plugged in: the refused engage needs a re-arm, as a missing external enable.
+  SetBoard(true, 12.0_V);
+  rig.Hold(0.0F, 5.0F, 20U);
+  zexpect_false(rig.drive.IsEngaged());
+  rig.Readiness(reg_udral_service_common_Readiness_0_1_STANDBY);
+  rig.Run(5U);
+  rig.Hold(0.0F, 5.0F, 20U);
+  zexpect_true(rig.drive.IsEngaged());
+  zexpect_equal(Integer(rig.Access(reg::kBoardReady, Empty())), 1);
+}
+
+ZTEST(sim_cyphal_drive, test_a_gate_supply_undervoltage_trips_the_engaged_drive) {
+  Rig& rig = *g_rig;
+  rig.Hold(0.0F, 5.0F, 20U);
+  zassert_true(rig.drive.IsEngaged());
+  // Between the trip (10 V) and the engage limit (10.5 V) it keeps running.
+  SetBoard(true, 10.2_V);
+  rig.Hold(0.0F, 5.0F, 20U);
+  zexpect_true(rig.drive.IsEngaged());
+  zexpect_within(unimoc::cyphal::GetNumber(rig.Access(reg::kBoardGateSupply, Empty())).value_or(0.0F),
+                 10.2F,
+                 1e-4F);
+
+  SetBoard(true, 9.0_V);
+  rig.Hold(0.0F, 5.0F, 20U);
+  zexpect_false(rig.drive.IsEngaged());
+  zexpect_equal(kPowerStage.GetState(), PowerStageState::kFault, "latched");
+
+  // Back: no engage without a re-arm, then it runs again.
+  SetBoard(true, 12.0_V);
+  rig.Hold(0.0F, 5.0F, 50U);
+  zexpect_false(rig.drive.IsEngaged());
+  rig.Readiness(reg_udral_service_common_Readiness_0_1_STANDBY);
+  rig.Run(5U);
+  rig.Hold(0.0F, 5.0F, 20U);
+  zexpect_true(rig.drive.IsEngaged());
+}
+
+ZTEST(sim_cyphal_drive, test_a_low_gate_supply_refuses_the_engage) {
+  Rig& rig = *g_rig;
+  SetBoard(true, 10.2_V);
+  rig.Hold(0.0F, 5.0F, 20U);
+  zexpect_false(rig.drive.IsEngaged());
+  zexpect_equal(kPowerStage.GetState(), PowerStageState::kDisabled, "no fault latched");
+}
+
+ZTEST(sim_cyphal_drive, test_the_accelerator_engages_the_drive_and_sets_its_torque) {
+  Rig& rig = *g_rig;
+  const MagneticFlux kTorqueConstant = GiveTheMotorAMagnet(rig);
+  // 2 A of i_q at the full accelerator, the drive released 0.5 s after the release.
+  const Torque kFull = 2.0_A * kTorqueConstant;
+  (void)rig.Access(reg::kAccelTorqueMax, Real(kFull.Value()));
+  (void)rig.Access(reg::kAccelEngageHold, Real(0.5F));
+  (void)rig.Access(reg::kAccelMode, Natural8(1U));
+  rig.Run(5U);
+  zexpect_true(rig.drive.HasLocalControl());
+
+  // ENGAGED of the bus does not engage a drive with a local control.
+  rig.Hold(0.0F, 5.0F, 50U);
+  zexpect_false(rig.drive.IsEngaged());
+
+  SetBoard(true, 12.0_V, 2.6_V);
+  rig.Run(600U);
+  zassert_true(rig.drive.IsEngaged());
+  zexpect_within(CurrentControlIsr::Instance().state.i_ref.q, 2.0_A, 0.05_A);
+  zexpect_within(PlantCurrent().q, 2.0_A, 0.5_A);
+
+  // Released: the torque falls at once, the drive is released after the hold.
+  SetBoard(true, 12.0_V, 0.8_V);
+  rig.Run(200U);
+  zexpect_true(rig.drive.IsEngaged());
+  zexpect_within(CurrentControlIsr::Instance().state.i_ref.q, 0.0_A, 1e-3_A);
+  rig.Run(500U);
+  zexpect_false(rig.drive.IsEngaged());
+}
+
+ZTEST(sim_cyphal_drive, test_the_accelerator_waits_for_the_power_board) {
+  Rig& rig = *g_rig;
+  (void)GiveTheMotorAMagnet(rig);
+  (void)rig.Access(reg::kAccelMode, Natural8(1U));
+  rig.Run(5U);
+  SetBoard(false, 12.0_V, 2.6_V);
+  rig.Run(200U);
+  zexpect_false(rig.drive.IsEngaged());
+  // Plugged in with the accelerator still pressed: no engage until it was released.
+  SetBoard(true, 12.0_V, 2.6_V);
+  rig.Run(200U);
+  zexpect_false(rig.drive.IsEngaged());
+  SetBoard(true, 12.0_V, 0.8_V);
+  rig.Run(5U);
+  SetBoard(true, 12.0_V, 2.6_V);
+  rig.Run(5U);
+  zexpect_true(rig.drive.IsEngaged());
+}
+
+ZTEST(sim_cyphal_drive, test_the_brake_lever_brakes_a_turning_motor) {
+  Rig& rig = *g_rig;
+  const MagneticFlux kTorqueConstant = GiveTheMotorAMagnet(rig);
+  const Torque kFull = 2.0_A * kTorqueConstant;
+  (void)rig.Access(reg::kAccelBrakeTorqueMax, Real(kFull.Value()));
+  (void)rig.Access(reg::kAccelMode, Natural8(2U));
+  rig.Run(5U);
+  sim::Plant().SetShaftMode(unimoc::sim::ShaftMode::kImposedSpeed, 50.0_rad_per_s);
+  rig.Run(500U);  // the observer follows the turning shaft
+  SetBoard(true, 12.0_V, 0.8_V, 2.6_V);
+  rig.Run(600U);
+  zassert_true(rig.drive.IsEngaged());
+  // Against the motion the drive sees (the estimate; its sign follows the phase order of the plant), at
+  // the full brake torque well above the fade speed.
+  const AngularVelocity kSpeed = OuterLoop::Instance().Status().speed;
+  zassert_true(Abs(kSpeed) > 20.0_rad_per_s);
+  const Current kExpected = (kSpeed > AngularVelocity{}) ? -2.0_A : 2.0_A;
+  zexpect_within(CurrentControlIsr::Instance().state.i_ref.q, kExpected, 0.1_A);
 }
 
 ZTEST_SUITE(sim_cyphal_drive, nullptr, nullptr, Before, After, nullptr);

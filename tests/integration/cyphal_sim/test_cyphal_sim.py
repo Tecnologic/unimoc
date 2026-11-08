@@ -30,6 +30,7 @@ from sim_client import (
     STANDBY,
     VENDOR_EMERGENCY_STOP,
     VENDOR_ENGAGED,
+    VENDOR_LOCAL_CONTROL,
     VENDOR_SETTINGS_PENDING,
     VENDOR_TRIP_LATCHED,
     SimClient,
@@ -161,7 +162,7 @@ def test_registers_json_describes_every_register_on_the_bus(dut, sim: SimClient,
 
     # The persistent settings, among them the e-bike registers past the 128th.
     settings = [entry for entry in entries if entry["persistent"] and entry["mutable"]]
-    assert len(settings) == 132
+    assert len(settings) == 140
     assert "unimoc.ebike.display_timeout" in by_name
 
 
@@ -398,6 +399,55 @@ def test_dc_link_overvoltage_trips_the_drive(sim: SimClient):
     sim.hold(0.2, STANDBY)  # acknowledges the trip
     sim.expect(sim.telemetry, lambda t: t.power_stage == 0)  # DISABLED
     sim.expect(sim.heartbeat, lambda h: h.vendor_specific_status_code == 0 and h.health.value == 0)
+
+
+def test_board_inputs_gate_the_engage(sim: SimClient):
+    # Without the power board (PWR_DET): no engage, BLOCKED and WARNING.
+    mark = sim.record_mark()
+    assert sim.write("unimoc.sim.power_board", real(0.0)) == 0
+    sim.expect_record("board not ready: no power board", mark)
+    assert sim.read("unimoc.board.power_board") == 0
+    assert sim.read("unimoc.board.ready") == 0
+    sim.hold(0.3, ENGAGED, sim.current_setpoint(0.0, 1.0))
+    telemetry = sim.expect(sim.telemetry, lambda t: t.power_stage == 3)  # BLOCKED
+    assert not telemetry.engaged
+    assert sim.next(sim.heartbeat).health.value == 3  # WARNING
+    assert sim.write("unimoc.sim.power_board", real(1.0)) == 1
+    sim.hold(0.2, STANDBY)  # the refused engage needs a re-arm
+    sim.hold(0.2, ENGAGED, sim.current_setpoint(0.0, 1.0))
+    sim.expect(sim.telemetry, lambda t: t.engaged)
+
+    # The gate driver supply +12P below its trip limit (10 V) trips the engaged drive.
+    assert sim.read("unimoc.board.gate_supply") == pytest.approx(12.0)
+    mark = sim.record_mark()
+    assert sim.write("unimoc.sim.gate_supply", real(9.0)) == pytest.approx(9.0)
+    telemetry = sim.expect(sim.telemetry, lambda t: not t.engaged)
+    sim.expect_record("disengaged: gate supply undervoltage", mark)
+    assert sim.write("unimoc.sim.gate_supply", real(12.0)) == pytest.approx(12.0)
+    sim.hold(0.2, STANDBY)  # acknowledges the trip
+    sim.expect(sim.telemetry, lambda t: t.power_stage == 0)  # DISABLED
+    sim.expect(sim.heartbeat, lambda h: h.health.value == 0)
+    assert sim.read("unimoc.board.ready") == 1
+
+
+def test_accelerator_is_the_local_control(sim: SimClient):
+    assert sim.write("unimoc.accel.mode", natural8(1)) == 1
+    sim.expect(sim.heartbeat, lambda h: h.vendor_specific_status_code & VENDOR_LOCAL_CONTROL)
+    sim.hold(0.3, ENGAGED, sim.current_setpoint(0.0, 1.0))  # the bus no longer engages the drive
+    assert not sim.next(sim.telemetry).engaged
+    assert sim.write("unimoc.sim.accelerator", real(2.6)) == pytest.approx(2.6)
+    assert sim.read("unimoc.board.accelerator") == pytest.approx(2.6)
+    sim.expect(sim.telemetry, lambda t: t.engaged)
+    assert sim.write("unimoc.sim.accelerator", real(0.8)) == pytest.approx(0.8)
+    sim.expect(sim.telemetry, lambda t: not t.engaged, timeout=4.0)  # after the engage hold (2 s)
+    # A broken wire (below the released voltage by more than 0.3 V) is reported, no engage.
+    mark = sim.record_mark()
+    assert sim.write("unimoc.sim.accelerator", real(0.1)) == pytest.approx(0.1)
+    sim.expect_record("accelerator or brake sensor out of range", mark)
+    assert not sim.next(sim.telemetry).engaged
+    assert sim.write("unimoc.sim.accelerator", real(0.8)) == pytest.approx(0.8)
+    assert sim.write("unimoc.accel.mode", natural8(0)) == 0
+    sim.expect(sim.heartbeat, lambda h: not h.vendor_specific_status_code & VENDOR_LOCAL_CONTROL)
 
 
 def test_settings_that_need_a_restart_are_reported_while_engaged(sim: SimClient):
