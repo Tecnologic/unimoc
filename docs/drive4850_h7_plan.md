@@ -16,8 +16,8 @@ board. That choice no longer holds:
 
 - The 512 KB G4 parts (G473CE/RE, G474CE/RE, G483, G484) are not available or
   far too expensive.
-- The application does not fit into 128 KB: the former BCC image was 194 KB flash and
-  79 KB RAM (v0.4.0, `west build -b bcc`; with WRN log level, no asserts and
+- The application does not fit into 128 KB: the v0.4.0 image of the former G4 target was 194 KB
+  flash and 79 KB RAM ( with WRN log level, no asserts and
   LTO still 178 KB). About 45 KB of it is Zephyr, the rest is the
   application (drive node, settings registers, Cyphal). A port back to modm
   would not close the gap.
@@ -67,6 +67,19 @@ and the sheet labels of `logic/` and `power/` in hardware_4850:
   (`docs/system_plan.md`, section 5.2.1).
 
 ## 4. Pin proposal
+
+> **2026-11-08:** superseded by the drawn schematic,
+> [`docs/h743_logic_board.md`](https://github.com/Tecnologic/unimoc_jacobi/blob/main/docs/h743_logic_board.md)
+> in Tecnologic/unimoc_jacobi, section 5. The differences that the firmware
+> has to follow: PWM on PA8 to PA10 / PB13 to PB15; Ia PA2 (ADC1 INP14), Ib
+> PA3 (ADC2 INP15), Ic PC2_C; Va PB1 (ADC1 INP5), Vb PB0 (ADC2 INP9), Vc
+> PC3_C; Vdc PC1 (INP11, also COMP1 on PB2); both temperatures on ADC1 (PA0
+> motor, PA1 bridge); +12P on PC5; `PWM_EN` is the optocoupler on PE15
+> (TIM1_BKIN), there is no PE7 enable; LEDs PE0 RUN, PE1 ERROR, PE2 MODE, PE3
+> PWM; PWR_DET PE4; CAN STB PD2; HSE a 20 MHz oscillator in bypass. Jacobi
+> also has its own power board (NCEP6080AG 60 V FETs, two per switch, 0.5 mΩ
+> shunts with INA240A1, ±160 A), rated 36 V / 45 A and 100 A peak. The table
+> below is the earlier proposal.
 
 ### 4.1 Analog
 
@@ -119,7 +132,7 @@ trigger used by ADC1/2; the GS8632 output range against the ADC range.
 | LEDs RUN, PWM, MODE, ERROR | PD8, PD9, PD10, PD11 | GPIO outputs |
 | Angle sensor (later) | PC10 (SPI3_SCK), PC11 (MISO), PC12 (MOSI), PA15 (NSS) | Connector only |
 | I2C (optional) | PB6 (I2C1_SCL), PB7 (I2C1_SDA) | The EEPROM is dropped; keep the pins free |
-| HSE | PH0, PH1 | Crystal, 8 MHz assumed in the devicetree (to confirm); FDCAN1 from PLL2 Q |
+| HSE | PH0 | 20 MHz oscillator X601, bypass mode (schematic); FDCAN1 from PLL2 Q |
 | Log | SWD (SEGGER RTT) | No UART on the board |
 
 The power board connector stays unchanged (section 2.1 of the system plan).
@@ -145,7 +158,7 @@ module. The notes below stay for that module if it uses an H743.
 ## 6. Firmware work
 
 - New platform `hardware/zephyr_stm32h7/` (`CONFIG_UNIMOC_PLATFORM_*`); the
-  G4 platform of the BCC is removed (2026-11-03). Above `hardware/hot_path_interface.hpp` and
+  former G4 platform is removed (2026-11-03). Above `hardware/hot_path_interface.hpp` and
   `hardware/power_stage_interface.hpp` nothing changes.
 - Reused nearly as is: the TIM programming, `dead_time.hpp` (same BDTR
   coding, other timer clock), the break logic (the DMAMUX duty DMA was
@@ -219,8 +232,15 @@ module; (5) the 4850 power board through an adapter.
    comparator path to BKIN needs one comparator per phase (only COMP1/2 on
    chip, COMP2 shares port E with TIM1 in this proposal).
 6. Phase voltage dividers and their pins on the power board connector.
-7. HSE frequency (8 MHz assumed), LED polarity, and who drives `PWM_EN`.
-8. Dead time: the Jacobi power stage is designed for 200 ns, and the legacy
-   4850 power board is capable of 200 ns too (2026-11-08). The devicetree
-   keeps 1 us until it is measured on the scope; 200 ns allows 64 kHz PWM
-   (`docs/hotpath_plan.md`, section 3).
+7. ~~HSE frequency~~: a 20 MHz oscillator in bypass (2026-11-08). LED
+   polarity. `PWM_EN` is the break input PE15 on Jacobi; the PE7 property
+   in the devicetree has no hardware behind it.
+8. Dead time: the Jacobi power stage is designed for 200 ns (schematic,
+   phase sheet), and the legacy 4850 power board is capable of 200 ns too
+   (2026-11-08). The devicetree keeps 1 us until it is measured on the scope;
+   200 ns allows 64 kHz PWM (`docs/hotpath_plan.md`, section 3). The factory
+   dead-time compensation takes `dead-time-ns`.
+9. Voltage and current limits per board: the STM32H7 profile is the one of
+   the legacy 4850 power board (48 V, 80 V FETs, trip 58 V, ±66 A sensor
+   range, 60 A trip). Jacobi needs its own (36 V, 60 V FETs, ±160 A range,
+   trip 120 to 130 A).

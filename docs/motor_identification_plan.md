@@ -1,9 +1,7 @@
 # Motor Identification Plan
 
-> **2026-11-03:** the battery case controller (BCC, STM32G473) and its
-> platform `hardware/zephyr_bcc` are removed. BCC references below are
-> history; the STM32H7 platform (`hardware/zephyr_stm32h7`, Jacobi and the
-> NUCLEO-H743ZI) carries the same design.
+> The firmware targets the STM32H7 only (`hardware/zephyr_stm32h7`: Jacobi
+> and the NUCLEO-H743ZI) and `native_sim`.
 
 Status: plan (2026-10-29), nothing implemented. Decisions 1 to 5 of
 section 9 were taken on 2026-10-29; decision 6 (the startup aid on the same
@@ -126,11 +124,11 @@ forced angle (decision 4). M3 measures the back-EMF itself instead:
   i_q = 30 % of the limit) to the speed where the line-to-line back-EMF is
   about 25 % of the DC link, at most 50 % of the speed limit.
 - Coast: the outputs off (all switches open, `PowerStageInterface::Disable()`;
-  on the BCC MOE = 0 drives the idle levels OIS = 0 of active-high outputs, so
+  on the STM32H7 MOE = 0 drives the idle levels OIS = 0 of active-high outputs, so
   both gates of each leg are low: check the gate-driver polarity on the bench,
   a driven low side would short the motor instead of letting it coast).
   The motor terminals then carry the back-EMF alone; the phase-voltage sense
-  (`va`, `vb`, `vc` of the BCC, section 5.2) samples them at the PWM rate as
+  (`va`, `vb`, `vc` of the STM32H7 foc0 node) samples them at the PWM rate as
   before (the timer runs on, only the outputs are off).
 - Per electrical period: the frequency from the zero crossings of the line-to-
   line voltages (no pole pairs, no speed estimate needed) and the amplitude of
@@ -199,7 +197,7 @@ them (section 5.4).
 ### 4.8 Not measured
 
 Temperature dependence of R and psi, magnetic saturation beyond the M2
-option, cogging, the encoder (none on the BCC yet).
+option, cogging, the encoder (none on Jacobi yet; the SPI3 angle sensor pins are reserved).
 
 ### 4.9 ASM and EESM (later)
 
@@ -226,15 +224,15 @@ it, and its estimate can be compared with the forced angle).
 
 The estimators need per-cycle data (16 kHz): means of u and i (M1, M3), the
 Goertzel terms of u and i at f_inj (M2), w(t) (M6). A buffer of 2048 cycles
-of i_dq, u_dq, angle and DC link is 48 KB, too much next to the cymon buffer
-in the 128 KB of the STM32G473. So `SlowUpdate` accumulates them online (a few
+of i_dq, u_dq, angle and DC link is 48 KB, not worth it next to the cymon
+buffer even with the 1 MB of the STM32H743 (DTCM is for the hot path). So `SlowUpdate` accumulates them online (a few
 multiply-adds per cycle in the observer interrupt, not at zero latency) into a
 small result block the FSM reads in the Cyphal thread once the window is
 complete; M6 decimates w(t) to 1 kHz (2 s in 8 KB). cymon traces of the
 same signals show the run in cypilot's scope.
 
-**Phase voltages (M3).** The BCC samples `va`, `vb`, `vc` with every
-conversion (`foc_stm32g4::RawSamples`), but the platform interface does not
+**Phase voltages (M3).** The STM32H7 samples `va`, `vb`, `vc` with every
+conversion (`foc_stm32h7::RawSamples`), but the platform interface does not
 pass them on. M3 adds them to `ControlCycleSamples` (scaled like the DC link,
 33k/1k) and `SlowUpdate` evaluates them during the coast (zero crossings,
 Goertzel per period). Their gain is calibrated by the startup aid: in
@@ -382,7 +380,7 @@ status|apply]` is the same at the terminal.
 | I0 | Forced angle in `SlowUpdate`, the online accumulation, the identification FSM skeleton on C0, the result registers, the cypilot card and `cypilot-ctl identify` | C0 |
 | I1 | M1 R_s and dead-time voltage; dead time in the sim inverter | I0 |
 | I2 | M2 L_d, L_q | I0 |
-| I3 | Phase voltages in `ControlCycleSamples` (BCC and sim plant with open outputs), their calibration in the startup aid's DUTY_FORCE steps; M3 psi by coast-down | I0 |
+| I3 | Phase voltages in `ControlCycleSamples` (STM32H7 and sim plant with open outputs), their calibration in the startup aid's DUTY_FORCE steps; M3 psi by coast-down | I0 |
 | I4 | M4 pole pairs (measured, entered and checked); M5 Hall offset | I0 (the forced rotation) |
 | I5 | M6 J and friction (the coast of M3, the torque steps) | I3 |
 | I6 | M7 derived gains; review, approval and apply in cypilot; profile | I1 .. I5 |

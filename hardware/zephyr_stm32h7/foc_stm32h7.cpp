@@ -10,16 +10,16 @@
  *
  *    Direct register access (CMSIS, RM0433). All pin, timer and channel
  *    assignments come from the foc0 devicetree node, see foc_stm32h7_dt.hpp.
- *    The timing is the one of the former STM32G4 driver of the BCC; the
- *    differences are the H7 ADC (clock, boost, linearity calibration,
- *    channel preselection) and the M7 cycle counter. The ADCs sample at every
- *    peak and valley (the overcurrent and overvoltage checks); the current
- *    control runs after the valley sample and writes the CCR preload, which
- *    the timer takes over at the peak only (RCR = 1), or after every sample
- *    with an update at every boundary (RCR = 0). No duty DMA. With low-side
- *    shunts (current-sense = "low-side") the phases run in PWM mode 2: the
- *    low-side pulses are centered on the valley, the valley sample measures
- *    them, and the control runs after the valleys only.
+ *    The timing follows docs/hotpath_plan.md; the H7 specifics are the ADC
+ *    (clock, boost, linearity calibration, channel preselection) and the M7
+ *    cycle counter. The ADCs sample at every peak and valley (the overcurrent
+ *    and overvoltage checks); the current control runs after the valley
+ *    sample and writes the CCR preload, which the timer takes over at the
+ *    peak only (RCR = 1), or after every sample with an update at every
+ *    boundary (RCR = 0). No duty DMA. With low-side shunts (current-sense =
+ *    "low-side") the phases run in PWM mode 2: the low-side pulses are
+ *    centered on the valley, the valley sample measures them, and the control
+ *    runs after the valleys only.
  *
  *    Not run on hardware yet.
  *

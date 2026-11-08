@@ -55,6 +55,9 @@ const settings::SettingsProfile kSettingsProfile = [] {
   // supply of the LM5109B.
   profile.factory_settings.svm_duty_min = 0.04_ratio;
   profile.factory_settings.svm_duty_max = 0.96_ratio;
+  // The dead-time compensation starts from the devicetree dead time (foc0
+  // dead-time-ns); M1 of the identification measures the effective one.
+  profile.factory_settings.dtc_dead_time = 1.0e-9_s * static_cast<float>(foc_stm32h7::kDeadTimeNs);
   profile.factory_settings.battery_drive_current_max = 50.0_A;
   profile.factory_settings.battery_charge_current_max = 20.0_A;
   profile.capabilities.max_phase_current = 60.0_A;  // hard trip limit of the power stage

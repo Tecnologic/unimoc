@@ -1,23 +1,21 @@
-# Plan: Pedal Assist on the Battery Case Controller
+# Plan: Pedal Assist
 
-> **2026-11-03:** the BCC and its e-bike drivers (cadence capture, display
-> line, UART; `hardware/zephyr_bcc/ebike_io.cpp`) and the `unimoc,ebike`
-> binding are removed. The e-bike control runs in the simulation only;
-> `CONFIG_UNIMOC_EBIKE` depends on `native_sim`. A drive with a crank sensor
-> and a display port adds an `ebike_io.cpp` to its platform; the BCC wiring
-> below and the removed driver in the git history are the reference.
+> **2026-11-03:** no board carries the e-bike inputs. The e-bike control runs
+> in the simulation only; `CONFIG_UNIMOC_EBIKE` depends on `native_sim`. A
+> drive with a crank sensor and a display port adds an `ebike_io.cpp` to its
+> STM32H7 platform. The first driver (cadence capture, display line, UART) of
+> the removed G4 board is in the git history before 2026-11-03.
 
 Status: 2026-10-23. Steps 1 to 5 are implemented, tested under twister on `native_sim`
 (`lib/ebike/`, `src/ebike/`, `tests/lib/ebike/`, `tests/ebike/`, the e-bike tests of
-`tests/sim/cyphal_drive`) and compiled for the BCC (`unimoc.app.build.ebike`). Nothing is
-verified on the BCC hardware or on a real KT-LCD8.
+`tests/sim/cyphal_drive`; `unimoc.app.build.ebike`). Nothing is verified on hardware or on a
+real KT-LCD8.
 
 ## 1. Goal
 
-The battery case controller (BCC) drives a hub or mid-drive motor of an e-bike.
-Besides the drive, the BCC has the connectors of an E-Rider T9N torque and
-cadence sensor in the bottom bracket and of a KT-LCD8 display. The assist is
-computed on the BCC itself: pedal torque at low speed, pedal power at higher
+A drive runs a hub or mid-drive motor of an e-bike. Besides the motor, the
+drive reads an E-Rider T9N torque and cadence sensor in the bottom bracket
+and talks to a KT-LCD8 display. The assist is computed on the drive itself: pedal torque at low speed, pedal power at higher
 speed, with a gain that rises exponentially with the pedal power. The base
 assist level comes from the display.
 
@@ -29,12 +27,12 @@ assist level comes from the display.
   setpoint path the Cyphal setpoint uses. No Cyphal round trip to the own MCU.
   Cyphal stays for telemetry, registers and cymon.
 - **Portable logic in `lib/ebike/`** (no Zephyr, ztest coverage), drivers in
-  `hardware/zephyr_bcc/`, fake pedal and display inputs for `native_sim`.
+  the platform (`ebike_io.cpp`), fake pedal and display inputs for `native_sim`.
   `lib/motor_control` is not changed.
-- **Nothing in the hot path.** The crank torque is already part of the
-  injected ADC sequence (PB14, ADC4, `crank-torque`); the thread side
-  averages it. The cadence pulse (PA5, `PULSE_CRK`) is captured by a
-  normal-priority GPIO interrupt with a timestamp, like the Hall edges.
+- **Nothing in the hot path.** The crank torque is read by the thread side
+  (on Jacobi a spare ADC input such as `AIN_ACC`, PC0, would take it); the
+  cadence pulse is captured by a normal-priority GPIO interrupt with a
+  timestamp, like the Hall edges.
 - **The display stays a replaceable driver.** The KT-LCD8 (Kunteng UART
   protocol) first, behind an interface of telemetry out and user input in
   (assist level, light, wheel size, speed limit, current limit). The protocol
@@ -51,12 +49,10 @@ E-Rider T9N (ebikes.ca product page):
 | Cadence | single wire, 36 poles per revolution (10 degrees); a vendor text gives 18, so the pulse count is a parameter |
 | Direction | not available (single wire), so no back-pedal detection |
 
-BCC wiring (schematic, Tecnologic/battery-case-controller, connector J38 CRANK): pin 1 is +12 V (the sensor
-accepts 5 to 15 V), pin 2 the cadence pulse (a 1k pull-up to 3V3, 3k3 series, 2n2: PA5), pin 3 the torque
-(R84 || R85 in series with R86 to ground: a 2/3 divider, so 3.5 V at the sensor is 2.3 V at the ADC; PB14, a
-channel of the injected sequence), pin 4 ground. `analog_scaling.hpp` undoes the divider and converts to torque
-above the nominal 1.5 V rest voltage (it ignored the divider before). The offset of the individual sensor is
-trimmed by the observer.
+Wiring: pin 1 +12 V (the sensor accepts 5 to 15 V), the cadence pulse (pull-up to 3V3), the torque (through a
+2/3 divider, so 3.5 V at the sensor is 2.3 V at the ADC), ground. `analog_scaling.hpp` undoes the divider and
+converts to torque above the nominal 1.5 V rest voltage. The offset of the individual sensor is trimmed by the
+observer.
 
 ## 4. Pedal observer (`lib/ebike/src/pedal_observer.hpp`)
 
@@ -131,22 +127,12 @@ the pedals stood still for the re-arm time (1 s). A trip, a power stage fault or
 same way, so a persistent fault cannot re-engage the drive in a loop. A silent display (2 s) counts as level 0,
 so there is no assist without a display. The assist torque ramps up in 0.5 s and down in 0.15 s.
 
-**BCC hardware** (connector J32 Display: pin 1 +BATT, 2 DCDC_VIN, 3 GND, 4 DISP_TX, 5 DISP_RX):
+**Hardware:** the display needs a UART (9600 8N1). Without a free UART receive pin, `EdgeUartDecoder`
+rebuilds the bytes from timestamped edges of a GPIO in a thread. Not verified: the logic levels of the display
+(5 V on the receive line?), the interrupt latencies.
 
-- DISP_TX is PB10, USART3_TX (Zephyr UART driver, interrupt driven, 9600 8N1).
-- DISP_RX is PB15, which has **no UART receive function** on the STM32G473, and PB11, the receive pin of USART3,
-  is the second break input. The edges of PB15 are captured by TIM15 channel 2 (both edges, an interrupt each,
-  stamped with the DWT counter) and `EdgeUartDecoder` rebuilds the bytes in the Cyphal thread. EXTI is not used
-  for it: EXTI line 15 is also the line of Hall C (PC15) in the Hall fusion plan. A swap of the two display
-  lines on a later board revision would give a normal UART.
-- The cadence pulse PA5 is a GPIO interrupt (falling edge) that stamps the DWT counter.
-- The crank torque is read from the injected ADC results (a single reading per update, the observer averages).
-- Not verified on the board: the TIM15 both-edge capture (CC2NP on TIM15), the logic levels of the display
-  (5 V on DISP_RX?), the interrupt latencies.
-
-**Switch.** `CONFIG_UNIMOC_EBIKE` is off on the BCC by default, because the assist parameters are untuned and
-the control engages the power stage by itself; enable it in `app/boards/bcc.conf` for the bench
-(`unimoc.app.build.ebike` builds it for the BCC and the simulation). The simulation app keeps it off, so that
+**Switch.** `CONFIG_UNIMOC_EBIKE` is off by default, because the assist parameters are untuned and the control
+engages the power stage by itself (`unimoc.app.build.ebike` builds it for the simulation). The simulation app keeps it off, so that
 the pytest integration tests can still engage the drive over the bus; the e-bike tests of `sim_cyphal_drive`
 attach the control themselves.
 
@@ -156,9 +142,9 @@ attach the control themselves.
 2. `PedalObserver` with tests. **Done.**
 3. Assist law with tests. **Done.**
 4. Kunteng frame codec with tests. **Done.**
-5. BCC drivers, devicetree nodes, the drive hook, the registers and the native_sim rider. **Done**, except
+5. Drivers (removed with the G4 board), the drive hook, the registers and the native_sim rider. **Done**, except
    the open points below.
 
-Open: tuning on the bench and on the road; the display on a real KT-LCD8; the board check of the TIM15 capture and
-the logic levels; brake, light and throttle inputs (no pins on the BCC connectors); the `unimoc.sim.pedal_*`
+Open: tuning on the bench and on the road; the display on a real KT-LCD8; a board with the e-bike inputs and its
+`ebike_io.cpp`; the logic levels; brake, light and throttle inputs; the `unimoc.sim.pedal_*`
 registers for pytest and yakut; persisting the learned torque offset; the display's current limit code.

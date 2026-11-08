@@ -10,7 +10,7 @@
 C++ library and [Zephyr RTOS](https://zephyrproject.org/) firmware for
 Field-Oriented Control (FOC) of multi-phase electric motors.  It targets
 embedded micro-controllers (STM32 series, first the STM32H743 of the Jacobi
-48 V / 50 A drive).  The algorithm code is portable and tested with Zephyr's ztest
+36 V / 45 A drive).  The algorithm code is portable and tested with Zephyr's ztest
 and twister on `native_sim`.
 
 Zephyr is the primary OS: logging, Cyphal/CAN FD, and settings run in
@@ -151,7 +151,7 @@ hardware-specific parts are selected by the board and Kconfig, not by
 
 UNIMOC is configured, commanded and traced over
 [Cyphal](https://opencyphal.org/) v1.0 on CAN FD.  The same node code runs on
-the battery case controller (FDCAN3) and on `native_sim`; only the CAN
+the STM32H7 boards (FDCAN1) and on `native_sim`; only the CAN
 interfaces and the simulation registers are platform specific.
 
 > **Status:** integrated and tested on `native_sim` (ztest scenarios
@@ -324,7 +324,7 @@ it engages again only after a readiness other than `ENGAGED` (re-arm).
 `STANDBY` while disengaged acknowledges a latched trip or fault without
 releasing the outputs; the settings can only be stored without one.
 
-### E-bike (battery case controller)
+### E-bike
 
 With `CONFIG_UNIMOC_EBIKE=y` (off by default) the drive becomes the motor of a
 pedal-assist e-bike ([`docs/ebike_plan.md`](docs/ebike_plan.md)). The crank torque and cadence sensor (E-Rider
@@ -344,8 +344,7 @@ T9N) and the display (KT-LCD8, Kunteng protocol) feed the assist law (`lib/ebike
   `torque_deadband`, `min_cadence`, `speed_taper`, `rise_time`, `fall_time`, `engage_hold`, `rearm_time`,
   `display_timeout`; the direction is `unimoc.cart.reversed`. A change while engaged waits for the disengage. The
   defaults are untuned starting values: try them on the bench first.
-- Hardware: none at the moment. The e-bike inputs were wired on the battery case controller (BCC), which is
-  removed; a drive with a crank sensor and a display port adds an `ebike_io.cpp` to its platform.
+- Hardware: none at the moment; a drive with a crank sensor and a display port adds an `ebike_io.cpp` to its platform.
 - `native_sim`: a simulated rider and display (`hardware/zephyr_sim/sim_ebike.hpp`) drive the control in the
   tests (`sim_cyphal_drive` attaches the control itself); the simulation app keeps the bus readiness for the
   pytest integration tests, so `CONFIG_UNIMOC_EBIKE` is off there too.
@@ -1095,7 +1094,7 @@ Run these from the west workspace root, which contains `unimoc/` and `zephyr/`:
 # Linux host simulation (native_sim)
 west build -b native_sim/native/64 unimoc/app -d unimoc/app/build/sim
 
-# Jacobi, 48 V / 50 A drive (STM32H743VI)
+# Jacobi, 36 V / 45 A drive (STM32H743VI)
 west build -b unimoc_jacobi unimoc/app -d unimoc/app/build/jacobi
 
 # STM32H7 platform on a NUCLEO-H743ZI (bring-up for Jacobi)
