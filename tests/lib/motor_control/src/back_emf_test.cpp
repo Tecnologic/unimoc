@@ -97,7 +97,7 @@ ZTEST(back_emf_speed, test_below_the_band_the_motor_stands) {
   // 10 rad/s give 0.1 V, below the band of 0.3 V.
   const BackEmfSpeed::Measurement kSlow = RunSpeed(meter, 10.0F, 5U);
   zexpect_equal(kSlow.speed, AngularVelocity{});
-  const AngularVelocity kBand = (meter.min_back_emf / kFlux) * 1.0_rad;
+  const AngularVelocity kBand = (meter.GetParameters().min_back_emf / kFlux) * 1.0_rad;
   UNIMOC_EXPECT_FLOAT_EQ(kSlow.variance, kBand * kBand);
 }
 

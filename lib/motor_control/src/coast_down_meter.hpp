@@ -57,23 +57,26 @@ class CoastDownMeter {
     uint32_t periods{0U};               ///< Counted periods.
   };
 
-  /// Magnitude below which a sample carries no back-EMF.
-  unit::Voltage min_back_emf{0.3_V};
-  /// Periods count above this fraction of the speed of the first period.
-  float min_speed_fraction{0.1F};
-  /// Samples below min_back_emf that make a standstill.
-  uint32_t standstill_samples{1000U};
+  /// Tuning of the meter.
+  struct Parameters {
+    /// Magnitude below which a sample carries no back-EMF.
+    unit::Voltage min_back_emf{0.3_V};
+    /// Periods count above this fraction of the speed of the first period.
+    float min_speed_fraction{0.1F};
+    /// Samples below min_back_emf that make a standstill.
+    uint32_t standstill_samples{1000U};
+  };
+
+  /// With the default tuning.
+  constexpr CoastDownMeter() noexcept = default;
+  /// @param parameters Tuning of the meter; the meter starts a coast at once.
+  constexpr explicit CoastDownMeter(const Parameters& parameters) noexcept : parameters_{parameters} {}
+
+  /// The tuning of the meter.
+  [[nodiscard]] constexpr const Parameters& GetParameters() const noexcept { return parameters_; }
 
   /** @brief Starts a new coast; keeps the parameters. */
-  constexpr void Start() noexcept {
-    const unit::Voltage kMin = min_back_emf;
-    const float kFraction = min_speed_fraction;
-    const uint32_t kStandstill = standstill_samples;
-    *this = CoastDownMeter{};
-    min_back_emf = kMin;
-    min_speed_fraction = kFraction;
-    standstill_samples = kStandstill;
-  }
+  constexpr void Start() noexcept { *this = CoastDownMeter{parameters_}; }
 
   /**
    * @brief Adds one sample.
@@ -83,7 +86,7 @@ class CoastDownMeter {
   void Add(const system::Stator<unit::Voltage>& voltage, const unit::Time sample_period) noexcept {
     ++sample_;
     const unit::Voltage kMagnitude = Hypot(voltage.alpha, voltage.beta);
-    if (kMagnitude < min_back_emf) {
+    if (kMagnitude < parameters_.min_back_emf) {
       ++below_;
       armed_ = false;
       period_valid_ = false;
@@ -125,7 +128,9 @@ class CoastDownMeter {
   }
 
   /// True once the magnitude stayed below min_back_emf for standstill_samples samples.
-  [[nodiscard]] constexpr bool Standstill() const noexcept { return below_ >= standstill_samples; }
+  [[nodiscard]] constexpr bool Standstill() const noexcept {
+    return below_ >= parameters_.standstill_samples;
+  }
 
   /**
    * @brief Returns the result of the counted periods.
@@ -161,7 +166,7 @@ class CoastDownMeter {
     }
     last_speed_ = speed;
     // Slower than the fraction of the start, or the other way round (a load drives the shaft): not counted.
-    if (Abs(speed) < Abs(start_speed_) * min_speed_fraction ||
+    if (Abs(speed) < Abs(start_speed_) * parameters_.min_speed_fraction ||
         (speed < unit::AngularVelocity{}) != (start_speed_ < unit::AngularVelocity{})) {
       return;
     }
@@ -171,24 +176,25 @@ class CoastDownMeter {
     ++counted_;
   }
 
-  uint32_t sample_{0U};              ///< Samples since Start().
-  uint32_t below_{0U};               ///< Consecutive samples below min_back_emf.
-  bool armed_{false};                ///< Alpha was below the hysteresis since the last crossing.
-  bool has_last_alpha_{false};       ///< last_alpha_ is the previous sample's.
-  unit::Voltage last_alpha_{};       ///< Alpha of the previous sample.
-  unit::Voltage last_beta_{};        ///< Beta of the previous sample.
-  bool has_crossing_{false};         ///< A crossing was seen.
-  bool period_valid_{false};         ///< The period since the last crossing kept its magnitude.
-  uint32_t crossing_sample_{0U};     ///< Sample at (after) the last crossing.
-  unit::Ratio crossing_fraction_{};  ///< Its position within the step before it.
-  unit::Voltage magnitude_sum_{};    ///< Sum of the magnitudes since the last crossing.
-  uint32_t magnitude_count_{0U};     ///< Their count.
-  bool has_start_{false};            ///< start_speed_ is set.
-  unit::AngularVelocity start_speed_{};
-  unit::AngularVelocity last_speed_{};
-  unit::MagneticFlux flux_sum_{};
-  unit::MagneticFlux flux_min_{};
-  unit::MagneticFlux flux_max_{};
+  Parameters parameters_;          ///< Tuning of the meter.
+  uint32_t sample_{0U};            ///< Samples since Start().
+  uint32_t below_{0U};             ///< Consecutive samples below min_back_emf.
+  bool armed_{false};              ///< Alpha was below the hysteresis since the last crossing.
+  bool has_last_alpha_{false};     ///< last_alpha_ is the previous sample's.
+  unit::Voltage last_alpha_;       ///< Alpha of the previous sample.
+  unit::Voltage last_beta_;        ///< Beta of the previous sample.
+  bool has_crossing_{false};       ///< A crossing was seen.
+  bool period_valid_{false};       ///< The period since the last crossing kept its magnitude.
+  uint32_t crossing_sample_{0U};   ///< Sample at (after) the last crossing.
+  unit::Ratio crossing_fraction_;  ///< Its position within the step before it.
+  unit::Voltage magnitude_sum_;    ///< Sum of the magnitudes since the last crossing.
+  uint32_t magnitude_count_{0U};   ///< Their count.
+  bool has_start_{false};          ///< start_speed_ is set.
+  unit::AngularVelocity start_speed_;
+  unit::AngularVelocity last_speed_;
+  unit::MagneticFlux flux_sum_;
+  unit::MagneticFlux flux_min_;
+  unit::MagneticFlux flux_max_;
   uint32_t counted_{0U};
 };
 

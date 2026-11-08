@@ -54,14 +54,25 @@ class BackEmfSpeed {
     unit::AngularVelocityVariance variance;  ///< Its noise variance (Kalman R).
   };
 
-  /// Back-EMF below which the motor is taken to stand.
-  unit::Voltage min_back_emf{0.3_V};
-  /// Noise of the magnitude of the back-EMF (sensor noise, residual common mode).
-  unit::Voltage noise{0.1_V};
-  /// Relative noise of the speed: the uncertainty of psi.
-  float relative_noise{0.05F};
-  /// Weight of a new cycle in the direction filter (0 to 1).
-  float direction_weight{0.2F};
+  /// Tuning of the measurement.
+  struct Parameters {
+    /// Back-EMF below which the motor is taken to stand.
+    unit::Voltage min_back_emf{0.3_V};
+    /// Noise of the magnitude of the back-EMF (sensor noise, residual common mode).
+    unit::Voltage noise{0.1_V};
+    /// Relative noise of the speed: the uncertainty of psi.
+    float relative_noise{0.05F};
+    /// Weight of a new cycle in the direction filter (0 to 1).
+    float direction_weight{0.2F};
+  };
+
+  /// With the default tuning.
+  constexpr BackEmfSpeed() noexcept = default;
+  /// @param parameters Tuning of the measurement.
+  constexpr explicit BackEmfSpeed(const Parameters& parameters) noexcept : parameters_{parameters} {}
+
+  /// The tuning of the measurement.
+  [[nodiscard]] constexpr const Parameters& GetParameters() const noexcept { return parameters_; }
 
   /** @brief Forgets the previous sample and the direction. */
   constexpr void Reset() noexcept {
@@ -98,16 +109,17 @@ class BackEmfSpeed {
       has_last_ = true;
     }
     const unit::Voltage kMagnitude = Sqrt(magnitude_sum / static_cast<float>(samples.size()));
-    const unit::Voltage kBand = Max(min_back_emf, noise);
+    const unit::Voltage kBand = Max(parameters_.min_back_emf, parameters_.noise);
     if (kMagnitude < kBand) {
       rotation_ = unit::Ratio{};
       const unit::AngularVelocity kBandSpeed = (kBand / psi) * 1.0_rad;
       return Measurement{unit::AngularVelocity{}, kBandSpeed * kBandSpeed};
     }
-    rotation_ = (rotation_ * (1.0F - direction_weight)) + (turn * direction_weight);
+    rotation_ = (rotation_ * (1.0F - parameters_.direction_weight)) + (turn * parameters_.direction_weight);
     const unit::AngularVelocity kMagnitudeSpeed = (kMagnitude / psi) * 1.0_rad;
     const unit::AngularVelocity kSpeed = rotation_ < unit::Ratio{} ? -kMagnitudeSpeed : kMagnitudeSpeed;
-    const unit::AngularVelocity kNoiseSpeed = ((noise / psi) * 1.0_rad) + (kMagnitudeSpeed * relative_noise);
+    const unit::AngularVelocity kNoiseSpeed =
+        ((parameters_.noise / psi) * 1.0_rad) + (kMagnitudeSpeed * parameters_.relative_noise);
     return Measurement{kSpeed, kNoiseSpeed * kNoiseSpeed};
   }
 
@@ -115,10 +127,11 @@ class BackEmfSpeed {
   [[nodiscard]] constexpr unit::Ratio Rotation() const noexcept { return rotation_; }
 
  private:
-  system::Stator<unit::Voltage> last_{};                       ///< Last sample of the previous cycle.
-  decltype(unit::Voltage{} * unit::Voltage{}) last_square_{};  ///< Its squared magnitude.
-  bool has_last_{false};                                       ///< last_ is valid.
-  unit::Ratio rotation_{};                                     ///< Low-passed sense of rotation.
+  Parameters parameters_;                                    ///< Tuning of the measurement.
+  system::Stator<unit::Voltage> last_;                       ///< Last sample of the previous cycle.
+  decltype(unit::Voltage{} * unit::Voltage{}) last_square_;  ///< Its squared magnitude.
+  bool has_last_{false};                                     ///< last_ is valid.
+  unit::Ratio rotation_;                                     ///< Low-passed sense of rotation.
 };
 
 }  // namespace unimoc::observer

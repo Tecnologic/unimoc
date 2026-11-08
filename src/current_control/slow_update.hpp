@@ -226,14 +226,14 @@ class SlowUpdate {
    * @brief Starts the coast-down meter on the phase voltages (M3).
    *
    * From the next cycle on, every cycle with the outputs open feeds its phase
-   * voltages to a CoastDownMeter started with @p meter's parameters;
+   * voltages to a CoastDownMeter started with @p parameters;
    * GetCoast() returns its result. One thread starts, reads and stops.
    *
    * @return The generation of this coast: a status of GetCoast() with another
    *         generation is older (the observer has not run since).
    */
-  uint32_t StartCoast(const identification::CoastDownMeter& meter) noexcept {
-    coast_parameters_.Write(meter);
+  uint32_t StartCoast(const identification::CoastDownMeter::Parameters& parameters) noexcept {
+    coast_parameters_.Write(parameters);
     uint32_t generation = coast_generation_.fetch_add(1U, std::memory_order_release) + 1U;
     if (generation == 0U) {
       generation = coast_generation_.fetch_add(1U, std::memory_order_release) + 1U;  // 0 means none
@@ -308,14 +308,14 @@ class SlowUpdate {
   IdentificationWindowResult window_result_{};
 
   /// Speed of the coasting motor from its back-EMF (outputs open).
-  observer::BackEmfSpeed emf_speed_{};
+  observer::BackEmfSpeed emf_speed_;
 
   /// Coast-down meter of M3: started by generation, stopped when coast_stop_ equals it.
-  Mailbox<identification::CoastDownMeter> coast_parameters_{};
+  Mailbox<identification::CoastDownMeter::Parameters> coast_parameters_{};
   std::atomic<uint32_t> coast_generation_{0U};
   std::atomic<uint32_t> coast_stop_{0U};
   uint32_t coast_running_{0U};  ///< Observer only: the generation being measured.
-  identification::CoastDownMeter coast_meter_{};
+  identification::CoastDownMeter coast_meter_;
   SeqLock<CoastStatus> coast_status_{};
 
   /// Pointer to the ISR instance set by Init().

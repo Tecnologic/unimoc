@@ -268,8 +268,7 @@ void SlowUpdate::MeasureCoast(const CycleRecord& cycle, const bool outputs_open)
   }
   if (kGeneration != coast_running_) {
     coast_running_ = kGeneration;
-    coast_meter_ = coast_parameters_.Read();
-    coast_meter_.Start();
+    coast_meter_ = identification::CoastDownMeter{coast_parameters_.Read()};
   }
   if (outputs_open && cycle.phase_voltages_valid) {
     const uint8_t kSteps = isr_->state.timing.steps_per_cycle;

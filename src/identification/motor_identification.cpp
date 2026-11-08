@@ -403,7 +403,7 @@ void MotorIdentification::RunFluxLinkage() noexcept {
       }
       const bool kSlow = kCoast.result.periods > 0U &&
                          Abs(kCoast.result.last_speed) <
-                             Abs(kCoast.result.start_speed) * CoastDownMeter{}.min_speed_fraction;
+                             Abs(kCoast.result.start_speed) * CoastDownMeter::Parameters{}.min_speed_fraction;
       // A free coast does not reverse: a period the other way round means a load drives the shaft.
       const bool kReversed =
           kCoast.result.periods > 0U &&
@@ -446,7 +446,7 @@ void MotorIdentification::StartCoast() noexcept {
   hardware::kPowerStage.Disable();
   isr_->ClearIdentificationDrive();
   slow_->ReleaseForcedAngle();
-  CoastDownMeter meter{};
+  CoastDownMeter::Parameters meter{};
   meter.standstill_samples = kStandstillCycles * isr_->state.timing.steps_per_cycle;
   coast_generation_ = slow_->StartCoast(meter);
   phase_ = Phase::kCoast;
