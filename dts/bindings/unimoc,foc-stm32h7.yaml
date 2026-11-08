@@ -81,6 +81,35 @@ properties:
       Top and bottom resistor of the dividers of Vdc and the phase voltages,
       in Ohm, e.g. <47000 2200>.
 
+  voltage-divider-filter-pf:
+    type: int
+    default: 0
+    description: |
+      Capacitor across the bottom resistor of the voltage dividers, in pF
+      (0: none). With phase-voltage-filter it sets the delay of the phase
+      voltages the observer compensates.
+
+  phase-voltage-filter:
+    type: array
+    description: |
+      RC low pass between the phase-voltage dividers and the ADC: series
+      resistor in Ohm and capacitor to ground in pF, e.g. <220 2200>. Absent:
+      none (no delay compensated).
+
+  current-filter:
+    type: array
+    description: |
+      RC low pass between the current amplifier and the ADC: series resistor
+      in Ohm and capacitor to ground in pF, e.g. <220 2200>. Absent: none.
+
+  current-amplifier-bandwidth-hz:
+    type: int
+    default: 0
+    description: |
+      Small-signal bandwidth of the current amplifier in Hz (INA240A1:
+      400000); its delay 1 / (2 pi f) adds to that of current-filter. 0:
+      not compensated.
+
   gate-supply-divider-ohms:
     type: array
     description: |

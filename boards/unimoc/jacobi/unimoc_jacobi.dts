@@ -91,7 +91,12 @@
 		/* Front end: 0.5 mOhm shunt with INA240A1 (+-160 A), 47k / 2k2 dividers (73.8 V). */
 		shunt-nano-ohm = <500000>;
 		current-amplifier-gain = <20>;
+		current-amplifier-bandwidth-hz = <400000>;
 		voltage-divider-ohms = <47000 2200>;
+		/* Filters (schematic): 1n across the 2k2 on the power board, RC on the logic board. */
+		voltage-divider-filter-pf = <1000>;
+		phase-voltage-filter = <220 2200>;
+		current-filter = <220 2200>;
 		/* Trip 120 A (rating 120 to 130 A), 100 A peak phase current. */
 		max-phase-current-amps = <120>;
 		max-motor-current-amps = <100>;
@@ -133,7 +138,7 @@
 
 		/*
 		 * ADC clock cycles at 30 MHz (pll2_p 120 MHz / 4). Currents and phase
-		 * voltages through 220R / 2n2, Vdc and +12P through 4k7 / 10n, the
+		 * voltages behind their RC filters (above), Vdc and +12P through 4k7 / 10n, the
 		 * accelerator and brake through 11k / 100n: short, the filter capacitors
 		 * charge the sample capacitor. NTCs: longer. ADC1 stays the longest
 		 * sequence (84 against 52 cycles).

@@ -36,6 +36,7 @@ using startup::StartupNeeds;
 using startup::StartupStart;
 
 constexpr std::string_view kMotorConnected = "motor-connected";
+constexpr std::string_view kShaftFree = "shaft-free";
 
 /// Largest meter reading taken [V or A]: a plausibility bound, not a hardware limit.
 constexpr float kMaxReading = 1000.0F;
@@ -116,7 +117,7 @@ struct IdentifyRegister {
   const char* name{nullptr};
   cyphal::RegisterDescription description;
 };
-constexpr std::array<IdentifyRegister, 7> kIdentifyRegisters{{
+constexpr std::array<IdentifyRegister, 9> kIdentifyRegisters{{
     {cyphal::reg::kIdentifyResultR,
      {"Ohm",
       -kInf,
@@ -155,11 +156,24 @@ constexpr std::array<IdentifyRegister, 7> kIdentifyRegisters{{
       kInf,
       cyphal::RegisterEffect::kImmediate,
       "Resistance from the M2 impedance, a check of R (within 20 %)"}},
+    {cyphal::reg::kIdentifyResultFluxPm,
+     {"Wb",
+      -kInf,
+      kInf,
+      cyphal::RegisterEffect::kImmediate,
+      "Measured PM flux linkage by coast-down (M3), for unimoc.motor.pmsm.flux_pm; NaN: not measured"}},
+    {cyphal::reg::kIdentifyResultFluxPmSpread,
+     {"",
+      -kInf,
+      kInf,
+      cyphal::RegisterEffect::kImmediate,
+      "Largest relative deviation of one M3 period from the mean (passes within 0.03)"}},
 }};
 
 uint8_t IdentificationStateOf(const identification::Status& status) noexcept {
   if (status.active) {
-    return unimoc_drive_CommissioningStatus_0_1_STATE_MEASURING;
+    return status.needs_shaft_free ? unimoc_drive_CommissioningStatus_0_1_STATE_WAITING
+                                   : unimoc_drive_CommissioningStatus_0_1_STATE_MEASURING;
   }
   switch (status.step) {
     case identification::Step::kDone:
@@ -174,7 +188,8 @@ uint8_t IdentificationStateOf(const identification::Status& status) noexcept {
   }
 }
 
-/// The measurements of a START_IDENTIFICATION parameter: "M1", "M2", "M1,M2"; empty: all.
+/// The measurements of a START_IDENTIFICATION parameter: "M1", "M2", "M3" or a list such as "M1,M2,M3";
+/// empty: the standstill measurements M1 and M2 (M3 spins the motor, so only on request).
 std::optional<uint8_t> Measurements(std::string_view text) noexcept {
   if (text.empty()) {
     return identification::kMeasureResistance | identification::kMeasureInductance;
@@ -187,6 +202,8 @@ std::optional<uint8_t> Measurements(std::string_view text) noexcept {
       measurements |= identification::kMeasureResistance;
     } else if (kToken == "M2") {
       measurements |= identification::kMeasureInductance;
+    } else if (kToken == "M3") {
+      measurements |= identification::kMeasureFluxLinkage;
     } else {
       return std::nullopt;
     }
@@ -211,7 +228,7 @@ cyphal::CommandResult Commissioning::OnCommand(const uint16_t command,
       return StartIdentification(Text(parameter));
     case unimoc_drive_CommissioningStatus_0_1_COMMAND_CONTINUE:
       if (identification_->IsActive()) {
-        return {cyphal::cmd::kStatusBadState, "the identification takes no confirmation"};
+        return ContinueIdentification(Text(parameter));
       }
       return Continue(Text(parameter));
     case unimoc_drive_CommissioningStatus_0_1_COMMAND_SET_READING:
@@ -250,7 +267,7 @@ cyphal::CommandResult Commissioning::Start() noexcept {
 cyphal::CommandResult Commissioning::StartIdentification(const std::string_view measurements) noexcept {
   const std::optional<uint8_t> kMeasurements = Measurements(measurements);
   if (!kMeasurements.has_value()) {
-    return {cyphal::cmd::kStatusBadParameter, "expected M1, M2 or M1,M2"};
+    return {cyphal::cmd::kStatusBadParameter, "expected M1, M2, M3 or a list such as M1,M2,M3"};
   }
   if (*engaged_) {
     return {cyphal::cmd::kStatusBadState, "engaged: disengage first"};
@@ -270,7 +287,19 @@ cyphal::CommandResult Commissioning::StartIdentification(const std::string_view 
     case identification::StartResult::kNotReleased:
       return {cyphal::cmd::kStatusFailure, "outputs not released: external enable missing"};
     case identification::StartResult::kNoMeasurement:
-      return {cyphal::cmd::kStatusBadParameter, "expected M1, M2 or M1,M2"};
+      return {cyphal::cmd::kStatusBadParameter, "expected M1, M2, M3 or a list such as M1,M2,M3"};
+  }
+  return {cyphal::cmd::kStatusInternalError, ""};
+}
+
+cyphal::CommandResult Commissioning::ContinueIdentification(const std::string_view confirmation) noexcept {
+  switch (identification_->Confirm(confirmation == kShaftFree)) {
+    case identification::ConfirmResult::kAccepted:
+      return {cyphal::cmd::kStatusSuccess, "the motor spins up"};
+    case identification::ConfirmResult::kNotWaiting:
+      return {cyphal::cmd::kStatusBadState, "the step is still measuring"};
+    case identification::ConfirmResult::kWrongConfirmation:
+      return {cyphal::cmd::kStatusBadParameter, "confirm shaft-free"};
   }
   return {cyphal::cmd::kStatusInternalError, ""};
 }
@@ -281,7 +310,8 @@ StatusMessage Commissioning::IdentificationStatus() const noexcept {
   status.procedure = unimoc_drive_CommissioningStatus_0_1_PROCEDURE_IDENTIFICATION;
   status.step = static_cast<uint8_t>(kStatus.step);
   status.state = IdentificationStateOf(kStatus);
-  status.needs = unimoc_drive_CommissioningStatus_0_1_NEEDS_NONE;
+  status.needs = kStatus.needs_shaft_free ? unimoc_drive_CommissioningStatus_0_1_NEEDS_SHAFT_FREE
+                                          : unimoc_drive_CommissioningStatus_0_1_NEEDS_NONE;
   status.progress = kStatus.progress;
   status.passed = kStatus.passed;
   status.failed = kStatus.failed;
@@ -398,6 +428,7 @@ cyphal::RegisterFlags Commissioning::Read(const std::size_t index,
     const float kNan = std::numeric_limits<float>::quiet_NaN();
     const bool kResistance = results.resistance_valid;
     const bool kInductance = results.inductance_valid;
+    const bool kFlux = results.flux_valid;
     const std::array<float, kIdentifyRegisters.size()> kValues{
         kResistance ? results.resistance.Value() : kNan,
         kResistance ? results.dead_time.Value() : kNan,
@@ -406,6 +437,8 @@ cyphal::RegisterFlags Commissioning::Read(const std::size_t index,
         kInductance ? results.l_q.Value() : kNan,
         kInductance ? results.l_mean.Value() : kNan,
         kInductance ? results.resistance_ac.Value() : kNan,
+        kFlux ? results.flux_pm.Value() : kNan,
+        kFlux ? results.flux_spread.Value() : kNan,
     };
     cyphal::SetReal32(value, kValues[index - 1U]);
     return {false, false};

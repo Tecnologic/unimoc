@@ -116,6 +116,9 @@ void PowerStageClearFault() noexcept;
 
 [[nodiscard]] uint32_t TimerClockFrequency() noexcept;
 
+/// Clock of the ADC conversions in Hz: the prescaled kernel clock, halved once more on rev. V.
+[[nodiscard]] uint32_t AdcClockFrequency() noexcept;
+
 /// Auto-reload value of the running timer (full scale of the duty compare values).
 [[nodiscard]] uint32_t TimerAutoReload() noexcept;
 
@@ -145,6 +148,7 @@ void SetDutyTicks(const PhaseTicks& ticks) noexcept;
 struct SampleRaw {
   uint16_t ia, ib, ic;  ///< phase currents, 12 bit, right aligned
   uint32_t vdc;         ///< DC link
+  uint16_t va, vb, vc;  ///< phase voltages (terminals against the negative rail)
   bool overcurrent;     ///< a phase left the window, in this or an unreported sample
   bool overvoltage;     ///< the DC link reached the limit, in this or an unreported sample
   uint32_t timestamp;   ///< Timestamp() at the sample interrupt

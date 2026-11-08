@@ -18,6 +18,8 @@
 #include <cstddef>
 #include <cstdint>
 #include "asm_flux_observer.hpp"
+#include "back_emf_speed.hpp"
+#include "coast_down_meter.hpp"
 #include "current_control_isr.hpp"
 #include "hall_fusion.hpp"
 #include "hardware_interface.hpp"
@@ -75,6 +77,15 @@ namespace unimoc::current_control {
  *    observer only carries (its shaft model does not describe the field).
  *    Until the flux reaches half its reference the frame stands. The Hall
  *    sensors measure the rotor, not the field: they are not fused.
+ *
+ * Outputs open (PMSM, EESM; disengaged, tripped, the coast of M3): the voltage demand
+ * does not reach the motor, but on a platform with a phase-voltage sense
+ * the terminals carry the back-EMF. The flux observer then integrates the
+ * measured voltages instead of the demand, and `BackEmfSpeed` measures the
+ * speed (magnitude and sense of rotation of the back-EMF), so the estimate
+ * follows a coasting motor and the drive engages on it without a jump
+ * (docs/hotpath_plan.md, "Outputs open"). Without the sense the flux
+ * observer starts anew on every such cycle, as before.
  *
  * Execution model
  * ---------------
@@ -189,11 +200,20 @@ class SlowUpdate {
    *
    * @param angle Electrical angle from the next cycle on.
    * @param speed Electrical speed of the forced angle.
+   * @param acceleration Change of @p speed per second (the I/f ramp of M3); zero: a constant speed.
    */
-  void SetForcedAngle(unit::Angle angle, unit::AngularVelocity speed) noexcept {
-    forced_.Write(ForcedAngle{angle, speed});
+  void SetForcedAngle(unit::Angle angle,
+                      unit::AngularVelocity speed,
+                      unit::AngularAcceleration acceleration = unit::AngularAcceleration{}) noexcept {
+    forced_.Write(ForcedAngle{angle, speed, acceleration});
     forced_state_.store(kForcedNew, std::memory_order_release);
   }
+
+  /// Ends the ramp of the forced angle: it turns on at the speed it has reached.
+  void HoldForcedSpeed() noexcept { forced_hold_.store(true, std::memory_order_release); }
+
+  /// Speed of the forced angle of the last cycle (zero while it is off).
+  [[nodiscard]] unit::AngularVelocity ForcedSpeed() const noexcept { return forced_published_.Read().speed; }
 
   /// Back to the observer's angle from the next cycle on.
   void ReleaseForcedAngle() noexcept { forced_state_.store(kForcedOff, std::memory_order_release); }
@@ -227,6 +247,39 @@ class SlowUpdate {
     window_cycles_ = 0U;
     window_generation_.fetch_add(1U, std::memory_order_release);
   }
+
+  /// State of the coast-down meter of M3 (StartCoast()).
+  struct CoastStatus {
+    uint32_t generation{0U};                          ///< The StartCoast() this status belongs to.
+    bool running{false};                              ///< The meter takes the samples of the open outputs.
+    bool standstill{false};                           ///< The back-EMF stayed below its minimum.
+    identification::CoastDownMeter::Result result{};  ///< The periods measured so far.
+  };
+
+  /**
+   * @brief Starts the coast-down meter on the phase voltages (M3).
+   *
+   * From the next cycle on, every cycle with the outputs open feeds its phase
+   * voltages to a CoastDownMeter started with @p parameters;
+   * GetCoast() returns its result. One thread starts, reads and stops.
+   *
+   * @return The generation of this coast: a status of GetCoast() with another
+   *         generation is older (the observer has not run since).
+   */
+  uint32_t StartCoast(const identification::CoastDownMeter::Parameters& parameters) noexcept {
+    coast_parameters_.Write(parameters);
+    uint32_t generation = coast_generation_.fetch_add(1U, std::memory_order_release) + 1U;
+    if (generation == 0U) {
+      generation = coast_generation_.fetch_add(1U, std::memory_order_release) + 1U;  // 0 means none
+    }
+    return generation;
+  }
+
+  /// Stops the coast-down meter; its last result stays readable.
+  void StopCoast() noexcept { coast_stop_.store(coast_generation_.load(std::memory_order_relaxed)); }
+
+  /// The coast-down meter's state, last published by the observer.
+  [[nodiscard]] CoastStatus GetCoast() const noexcept { return coast_status_.Read(); }
 
   // =========================================================================
   // Observer instance (public so outer loop can read psi_pm_d etc.)
@@ -264,17 +317,27 @@ class SlowUpdate {
   /// Adds the cycle to the requested measurement window; completes it after its cycles.
   void AccumulateWindow(const CycleRecord& cycle) noexcept;
 
+  /// Outputs open: flux observer and speed from the phase voltages of the cycle.
+  void TrackBackEmf(const CycleRecord& cycle, const system::Rotor<unit::Current>& current_dq) noexcept;
+
+  /// Feeds the phase voltages of an open-output cycle to the coast-down meter.
+  void MeasureCoast(const CycleRecord& cycle, bool outputs_open) noexcept;
+
   /// The angle of the next cycle, the observer's or the forced one.
   struct ForcedAngle {
     unit::Angle angle;
     unit::AngularVelocity speed;
+    unit::AngularAcceleration acceleration;
   };
   static constexpr uint8_t kForcedOff = 0U;
   static constexpr uint8_t kForcedNew = 1U;
   static constexpr uint8_t kForcedOn = 2U;
   Mailbox<ForcedAngle> forced_{};
   std::atomic<uint8_t> forced_state_{kForcedOff};
-  ForcedAngle forced_now_{};  ///< Observer only: the forced angle of the next cycle.
+  std::atomic<bool> forced_hold_{false};
+  ForcedAngle forced_now_{};                 ///< Observer only: the forced angle of the next cycle.
+  bool forced_last_{false};                  ///< Observer only: the last cycle used the forced angle.
+  SeqLock<ForcedAngle> forced_published_{};  ///< forced_now_ for the identification thread.
 
   /// Measurement window: requested by generation, done when window_done_ equals it.
   uint32_t window_cycles_{0U};
@@ -284,11 +347,30 @@ class SlowUpdate {
   IdentificationWindowResult window_sums_{};
   IdentificationWindowResult window_result_{};
 
+  /// Speed of the coasting motor from its back-EMF (outputs open).
+  observer::BackEmfSpeed emf_speed_;
+
+  /// Outputs open: after a restart of the flux observer its angle is used
+  /// only after this time (about three time constants of its feedback C_d).
+  static constexpr unit::Time kFluxSettleTime = unit::operator""_s(0.05L);
+  unit::Time flux_settle_;  ///< Observer only: settling time left.
+
+  /// Coast-down meter of M3: started by generation, stopped when coast_stop_ equals it.
+  Mailbox<identification::CoastDownMeter::Parameters> coast_parameters_{};
+  std::atomic<uint32_t> coast_generation_{0U};
+  std::atomic<uint32_t> coast_stop_{0U};
+  uint32_t coast_running_{0U};  ///< Observer only: the generation being measured.
+  identification::CoastDownMeter coast_meter_;
+  SeqLock<CoastStatus> coast_status_{};
+
   /// Pointer to the ISR instance set by Init().
   CurrentControlIsr* isr_{nullptr};
 
   /// Hardware of the motor set by Init().
   const hardware::HardwareInterface* hardware_{nullptr};
+
+  /// Delays of the measured currents and phase voltages, compensated (from the hardware at Init()).
+  hardware::SenseDelays sense_delays_;
 
   /// Speed weighting k of the flux measurement noise (R + k / omega^2).
   unit::AngleVarianceSpeedWeight flux_r_speed_;

@@ -6,7 +6,7 @@
  *    \____/_/ |_/___/_/  /_/\____/\____/
  *
  *    @file motor_identification.hpp
- *    @brief Motor identification FSM: stator resistance, dead time, L_d and L_q.
+ *    @brief Motor identification FSM: stator resistance, dead time, L_d, L_q and psi_PM.
  *
  *    SPDX-License-Identifier: GPL-3.0-or-later
  *
@@ -34,12 +34,14 @@ enum class Step : uint8_t {
   kInductanceQ = 3,  ///< M2: L_q by a sine on the q axis (standstill).
   kDone = 4,         ///< All requested measurements ended; the results are valid.
   kFault = 5,        ///< Ended early: aborted, an emergency stop, a trip or a lost enable.
+  kFluxLinkage = 6,  ///< M3: psi_PM by a coast-down (shaft free; after DONE and FAULT, a later step).
 };
 
 /// The measurements a run takes (bits of the START_IDENTIFICATION parameter).
 enum Measurement : uint8_t {
-  kMeasureResistance = 1U << 0U,  ///< "M1"
-  kMeasureInductance = 1U << 1U,  ///< "M2"
+  kMeasureResistance = 1U << 0U,   ///< "M1"
+  kMeasureInductance = 1U << 1U,   ///< "M2"
+  kMeasureFluxLinkage = 1U << 2U,  ///< "M3" (spins the motor: only on request)
 };
 
 /// Why a run ended in Step::kFault (the fault of the commissioning status message).
@@ -60,6 +62,13 @@ enum class StartResult : uint8_t {
   kNoMeasurement,  ///< No known measurement was requested.
 };
 
+/// Answer to a confirmation (CONTINUE).
+enum class ConfirmResult : uint8_t {
+  kAccepted,           ///< The step waited for it and goes on.
+  kNotWaiting,         ///< No step waits for a confirmation.
+  kWrongConfirmation,  ///< The step waits for another confirmation.
+};
+
 /// Results of the last run; valid flags per measurement.
 struct Results {
   bool resistance_valid{false};     ///< M1 ended with a fit.
@@ -71,6 +80,11 @@ struct Results {
   unit::Inductance l_q;             ///< q-axis inductance.
   unit::Inductance l_mean;          ///< Mean of L_d and L_q (`unimoc.motor.stator.L`).
   unit::Resistance resistance_ac;   ///< Mean real part of the M2 impedances (a check of R_s).
+  bool flux_valid{false};           ///< M3 measured at least one period.
+  unit::MagneticFlux flux_pm;       ///< Permanent-magnet flux linkage psi_PM (`unimoc.motor.pmsm.flux_pm`).
+  unit::Ratio flux_spread;          ///< Largest relative deviation of a period's psi from the mean.
+  unit::AngularVelocity coast_speed;  ///< Electrical speed at the start of the coast.
+  uint32_t flux_periods{0U};          ///< Electrical periods in the result.
 };
 
 /// State of the run for the commissioning status message.
@@ -81,7 +95,8 @@ struct Status {
   uint32_t passed{0U};   ///< One bit per step that passed its checks.
   uint32_t failed{0U};   ///< One bit per step that failed a check (the run goes on).
   Fault fault{Fault::kNone};
-  uint32_t counter{0U};  ///< Operating points measured in the present step.
+  uint32_t counter{0U};          ///< Operating points measured in the present step.
+  bool needs_shaft_free{false};  ///< The step waits for the confirmation "shaft-free" (CONTINUE).
 };
 
 /**
@@ -103,6 +118,17 @@ struct Status {
  *   on the q axis; its amplitude is scaled until the current answers with 10 %
  *   of the limit. The impedance U / I gives L from its imaginary part; its
  *   real part must agree with R_s of M1 within 20 %.
+ *
+ * - M3 (shaft free, only on request) waits for the operator's confirmation
+ *   that the shaft turns freely, aligns the rotor with a q current of 30 %
+ *   of the limit at a forced angle and spins it up by I/f (the forced angle
+ *   ramps up at that current) until the back-EMF estimate |u - R i| reaches
+ *   25 % of the DC link line to line, at most half the speed limit. Then it
+ *   opens the outputs: the motor coasts and the phase-voltage sense measures
+ *   its back-EMF (CoastDownMeter): psi = |e| / omega per electrical period,
+ *   the frequency from the zero crossings. It passes with at least three
+ *   periods within 3 % of their mean. It needs a platform with a
+ *   phase-voltage sense.
  *
  * The outputs are released by the run and never while the drive is engaged;
  * a trip, a lost enable, the abort command or the emergency stop end it with
@@ -132,6 +158,29 @@ class MotorIdentification {
   static constexpr float kSlopeTolerance = 0.10F;
   /// Relative difference of the M2 resistance from M1 that passes.
   static constexpr float kAcResistanceTolerance = 0.20F;
+  /// q current of the M3 spin-up, as a fraction of the motor current limit.
+  static constexpr float kSpinUpCurrent = 0.3F;
+  /// Line-to-line back-EMF peak at the end of the spin-up, as a fraction of the DC link.
+  static constexpr float kSpinUpBackEmf = 0.25F;
+  /// Highest spin-up speed, as a fraction of the forward speed limit.
+  static constexpr float kSpinUpSpeedFraction = 0.5F;
+  /// Time of the ramp from standstill to the highest spin-up speed [s].
+  static constexpr float kSpinUpRampSeconds = 5.0F;
+  /// Alignment before the ramp, and the hold at the spin-up speed [control cycles].
+  static constexpr uint32_t kAlignCycles = 8000U;
+  static constexpr uint32_t kHoldCycles = 3200U;
+  /// Window of the spin-up checks [control cycles].
+  /// A light rotor swings about the forced angle (I/f has no damping but the
+  /// friction): the window averages the swing, and the target must hold in
+  /// kSpinUpHits windows in a row (about 0.1 s at 16 kHz), so a peak of the
+  /// swing does not end the ramp.
+  static constexpr uint32_t kRampWindowCycles = 512U;
+  static constexpr uint8_t kSpinUpHits = 3U;
+  /// Longest coast [control cycles] (60 s at 16 kHz).
+  static constexpr uint32_t kCoastTimeoutCycles = 960000U;
+  /// Fewest periods and their spread that pass M3.
+  static constexpr uint32_t kMinFluxPeriods = 3U;
+  static constexpr unit::Ratio kFluxSpreadTolerance = unit::operator""_ratio(0.03L);
 
   /**
    * @param isr Current-control ISR; must outlive the FSM.
@@ -157,6 +206,12 @@ class MotorIdentification {
   /// Ends a running identification with the outputs off; no-op otherwise.
   void Abort(Fault reason = Fault::kAborted) noexcept;
 
+  /**
+   * @brief The operator's confirmation that the shaft turns freely (M3).
+   * @param shaft_free True for the confirmation "shaft-free", false for any other.
+   */
+  [[nodiscard]] ConfirmResult Confirm(bool shaft_free) noexcept;
+
   /// True while a run is active.
   [[nodiscard]] bool IsActive() const noexcept {
     return step_ != Step::kIdle && step_ != Step::kDone && step_ != Step::kFault;
@@ -177,9 +232,14 @@ class MotorIdentification {
  private:
   /// What the present measurement window is for.
   enum class Phase : uint8_t {
-    kBias,     ///< M2: the PI sets up the d bias; the result is ignored.
-    kSettle,   ///< Waits for the controller and the rotor; the result is ignored.
-    kMeasure,  ///< The window is the measurement of the operating point.
+    kBias,           ///< M2: the PI sets up the d bias; the result is ignored.
+    kSettle,         ///< Waits for the controller and the rotor; the result is ignored.
+    kMeasure,        ///< The window is the measurement of the operating point.
+    kWaitShaftFree,  ///< M3: outputs on at zero current until the operator confirms a free shaft.
+    kAlign,          ///< M3: the q current at a fixed angle aligns the rotor.
+    kRamp,           ///< M3: the forced angle ramps up at the q current.
+    kHold,           ///< M3: the spin-up speed holds.
+    kCoast,          ///< M3: the outputs are open, the coast-down meter runs.
   };
 
   void Finish(Step step, Fault fault) noexcept;
@@ -189,6 +249,12 @@ class MotorIdentification {
   void OnInductanceWindow(const current_control::IdentificationWindowResult& window) noexcept;
   void FinishResistance() noexcept;
   void FinishInductance() noexcept;
+  void StartFluxLinkage() noexcept;
+  void RunFluxLinkage() noexcept;
+  void OnSpinUpWindow(const current_control::IdentificationWindowResult& window) noexcept;
+  void StartCoast() noexcept;
+  void FinishFluxLinkage() noexcept;
+  void DriveSpin(unit::Angle angle, unit::AngularAcceleration acceleration) noexcept;
   void Next() noexcept;
   void Drive(
       unit::Current d_current, unit::Angle angle, bool hold, unit::Voltage amplitude, uint8_t axis) noexcept;
@@ -208,6 +274,9 @@ class MotorIdentification {
   Step step_{Step::kIdle};
   Phase phase_{Phase::kSettle};
   uint8_t requested_{0U};
+  unit::AngularVelocity speed_limit_;
+  uint8_t spin_up_hits_{0U};       ///< M3: windows in a row at the back-EMF target.
+  uint32_t coast_generation_{0U};  ///< M3: SlowUpdate::StartCoast() of the running coast.
   bool started_{false};
   Fault fault_{Fault::kNone};
   uint32_t passed_{0U};

@@ -47,15 +47,21 @@ struct AngleReference {
   /// Sample counter (CurrentControlState::samples) of the sample `sc` belongs to.
   uint32_t sample{0U};
 
-  /// Park angle at that sample.
+  /// Park angle at that sample: the angle its measured currents show (the
+  /// estimate less the rotation over the current filter delay).
   system::SinCos<unit::Ratio> sc;
 
   /// Rotation over one control step (omega x dt_fast).
   system::SinCos<unit::Ratio> step;
 
-  /// Rotation from a sample to the middle of the interval its duties apply
-  /// to (omega x output delay, docs/hotpath_plan.md D4).
+  /// Rotation from the Park angle to the middle of the interval the duties
+  /// apply to (omega x (output delay + current filter delay), docs/hotpath_plan.md D4).
   system::SinCos<unit::Ratio> out;
+
+  /// Electrical speed of the reference: the observer's estimate, or the
+  /// speed of the identification's forced angle. The decoupling feedforward
+  /// of the current PI works in this frame, so it takes this speed.
+  unit::AngularVelocity speed;
 };
 
 /**
@@ -93,6 +99,14 @@ struct CycleRecord {
 
   /// Stator-frame (α/β) current samples of the cycle.
   std::array<system::Stator<unit::Current>, kMaxSubSteps> i_ab_samples{};
+
+  /// Stator-frame (α/β) phase voltages of the cycle: Clarke of the measured
+  /// terminal voltages (the common mode drops out); the back-EMF while the
+  /// outputs are open.
+  std::array<system::Stator<unit::Voltage>, kMaxSubSteps> u_ab_samples{};
+
+  /// The platform measures the phase voltages (u_ab_samples are valid).
+  bool phase_voltages_valid{false};
 
   /// Mean rotor-frame current of the cycle.
   system::Rotor<unit::Current> i_dq_mean;

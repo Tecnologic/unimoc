@@ -95,6 +95,9 @@ ADC_TypeDef* const kAdcFast = reinterpret_cast<ADC_TypeDef*>(kAdcPhaseA.base);
 ADC_TypeDef* const kAdcB = reinterpret_cast<ADC_TypeDef*>(kAdcPhaseB.base);
 ADC_TypeDef* const kAdcC = reinterpret_cast<ADC_TypeDef*>(kAdcPhaseC.base);
 ADC_TypeDef* const kAdcVdc = reinterpret_cast<ADC_TypeDef*>(kAdcs[kVdcLocation.adc]->base);
+ADC_TypeDef* const kAdcVa = reinterpret_cast<ADC_TypeDef*>(kAdcs[kVaLocation.adc]->base);
+ADC_TypeDef* const kAdcVb = reinterpret_cast<ADC_TypeDef*>(kAdcs[kVbLocation.adc]->base);
+ADC_TypeDef* const kAdcVc = reinterpret_cast<ADC_TypeDef*>(kAdcs[kVcLocation.adc]->base);
 
 // Injected result of a rank (0 = JDR1).
 uint32_t InjectedResult(const ADC_TypeDef* const adc, const uint32_t rank) noexcept {
@@ -335,6 +338,10 @@ ISR_DIRECT_DECLARE(SampleIsr) {
   g_sample.ib = static_cast<uint16_t>(kIb);
   g_sample.ic = static_cast<uint16_t>(kIc);
   g_sample.vdc = kVdc;
+  // The phase voltages of the same trigger: the back-EMF while the outputs are open.
+  g_sample.va = static_cast<uint16_t>(InjectedResult(kAdcVa, kVaLocation.rank));
+  g_sample.vb = static_cast<uint16_t>(InjectedResult(kAdcVb, kVbLocation.rank));
+  g_sample.vc = static_cast<uint16_t>(InjectedResult(kAdcVc, kVcLocation.rank));
   g_sample.overcurrent = g_pending_overcurrent;
   g_sample.overvoltage = g_pending_overvoltage;
   g_sample.timestamp = DWT->CYCCNT;  // in the clock of the Hall events
@@ -568,6 +575,8 @@ PowerStageState GetPowerStageState() noexcept {
 }
 
 uint32_t TimerClockFrequency() noexcept { return kTimerClockHz; }
+
+uint32_t AdcClockFrequency() noexcept { return IsRevisionY() ? kAdcClockHz : kAdcClockHz / 2U; }
 
 uint32_t TimerAutoReload() noexcept { return g_auto_reload; }
 

@@ -40,6 +40,7 @@ void SlowUpdate::Init(const settings::NvmSettings& settings,
                       const hardware::HardwareInterface& hardware) noexcept {
   isr_ = &isr;
   hardware_ = &hardware;
+  sense_delays_ = hardware.GetSenseDelays();
 
   // --- PMSM flux observer parameters ---
   flux_obs.Init(settings);
@@ -117,27 +118,34 @@ bool SlowUpdate::RunOnce() noexcept {
   //    estimate the cycle used.
   // -------------------------------------------------------------------------
   mech_obs.PredictCovariance(kDtSlow);
-  // The voltage demand reaches the motor only while the outputs are released;
-  // otherwise the flux observer has nothing to integrate and starts anew.
-  const bool kPowered = hardware::kPowerStage.GetState() == hardware::PowerStageState::kEnabled;
+  // The voltage demand reaches the motor only while the outputs are released.
+  // With the outputs open the terminals carry the back-EMF: where the platform
+  // measures them, the flux observer integrates those voltages instead and the
+  // speed follows from them; otherwise it has nothing to integrate and starts anew.
+  const bool kOutputsOpen = hardware::kPowerStage.GetState() != hardware::PowerStageState::kEnabled;
   if (motor_type_ == system::MotorType::kAsm) {
-    UpdateAsm(cycle, kPowered);
+    UpdateAsm(cycle, !kOutputsOpen);
   } else {
     if (motor_type_ == system::MotorType::kEesm) {
       const unit::MagneticFlux kField = field_flux_.Read();
       flux_setpoint_ = {kField, unit::MagneticFlux{}};
       mech_obs.psi = kField;
     }
-    if (kPowered) {
+    if (!kOutputsOpen) {
+      emf_speed_.Reset();
       const std::optional<unit::Angle> kFluxError =
           flux_obs.Calculate(cycle.u_dq, kCurrentDqMean, flux_setpoint_, kDtSlow, mech_obs);
       if (kFluxError.has_value()) {
         mech_obs.UpdateAngle(*kFluxError, FluxNoise(mech_obs.omega));
       }
+    } else if (cycle.phase_voltages_valid && flux_setpoint_.d > unit::MagneticFlux{}) {
+      TrackBackEmf(cycle, kCurrentDqMean);  // an EESM only with its field on
     } else {
+      emf_speed_.Reset();
       flux_obs.Reset();
     }
   }
+  MeasureCoast(cycle, kOutputsOpen);
   FuseHall(cycle);
 
   // -------------------------------------------------------------------------
@@ -160,19 +168,39 @@ bool SlowUpdate::RunOnce() noexcept {
   // The identification's forced angle replaces the estimate (plan section 5.1).
   const uint8_t kForced = forced_state_.load(std::memory_order_acquire);
   if (kForced == kForcedNew) {
+    forced_hold_.store(false, std::memory_order_relaxed);
     forced_now_ = forced_.Read();
     forced_state_.store(kForcedOn, std::memory_order_relaxed);
   } else if (kForced == kForcedOn) {
-    forced_now_.angle = forced_now_.angle + (forced_now_.speed * kDtSlow);
+    if (forced_hold_.exchange(false, std::memory_order_acquire)) {
+      forced_now_.acceleration = unit::AngularAcceleration{};
+    }
+    forced_now_.angle = observer::WrapAngle(forced_now_.angle + (forced_now_.speed * kDtSlow) +
+                                            (forced_now_.acceleration * kDtSlow * kDtSlow * 0.5F));
+    forced_now_.speed = forced_now_.speed + (forced_now_.acceleration * kDtSlow);
   }
   const bool kUseForced = kForced != kForcedOff;
+  if (!kUseForced && forced_last_) {
+    // Back from a forced angle: the estimate ran in the background on currents
+    // in a frame that was not its own (and learned a load torque from them). It
+    // restarts where the forced angle left the rotor, the flux observer anew.
+    mech_obs.Reset(observer::WrapAngle(forced_now_.angle + (forced_now_.speed * kDtSlow)), forced_now_.speed);
+    flux_obs.Reset();
+    emf_speed_.Reset();
+  }
+  forced_last_ = kUseForced;
+  forced_published_.Write(kUseForced ? forced_now_ : ForcedAngle{});
   const unit::AngularVelocity kOmega = kUseForced ? forced_now_.speed : mech_obs.omega;
   const unit::Angle kStep = kOmega * kDtFast;
 
   next.sample = cycle.first_sample + state.timing.steps_per_cycle;
-  next.sc = system::SinCos<unit::Ratio>(kUseForced ? forced_now_.angle : mech_obs.theta);
+  // The measured currents lag by their filter delay: the Park angle is the
+  // angle they show, and the rotation to the output interval longer by as much.
+  const unit::Angle kCurrentLag = kOmega * sense_delays_.current;
+  next.sc = system::SinCos<unit::Ratio>((kUseForced ? forced_now_.angle : mech_obs.theta) - kCurrentLag);
   next.step = system::SinCos<unit::Ratio>(kStep);
-  next.out = system::SinCos<unit::Ratio>(kStep * state.output_delay_steps);
+  next.out = system::SinCos<unit::Ratio>((kStep * state.output_delay_steps) + kCurrentLag);
+  next.speed = kOmega;
 
   // -------------------------------------------------------------------------
   // 5. Publish: the control steps take the new reference.
@@ -274,6 +302,94 @@ void SlowUpdate::AccumulateWindow(const CycleRecord& cycle) noexcept {
   window_result_.voltage_mean = window_sums_.voltage_mean * kInverse;
   window_result_.dc_link_mean = window_sums_.dc_link_mean * kInverse;
   window_done_.store(kGeneration, std::memory_order_release);
+}
+
+// =============================================================================
+// track_back_emf — outputs open: the observer follows the coasting motor
+// =============================================================================
+
+void SlowUpdate::TrackBackEmf(const CycleRecord& cycle,
+                              const system::Rotor<unit::Current>& current_dq) noexcept {
+  auto& mech_obs = isr_->mech_obs;
+  const uint8_t kSteps = isr_->state.timing.steps_per_cycle;
+  const std::span<const system::Stator<unit::Voltage>> kSamples{cycle.u_ab_samples.data(), kSteps};
+
+  // The flux observer turns its voltage into the stator frame with the
+  // estimate it reads now, the angle at the cycle's first sample, and compares
+  // the integrated flux with that angle. The samples are in the stator frame
+  // already: their sum is the flux change of the cycle up to half a step after
+  // its last sample, (N - 1/2) steps after the first. Their mean turned into
+  // the frame of the estimate at that instant makes the flux the observer
+  // integrates the flux at the first sample, so the estimate settles on the
+  // angle at the samples. The measured voltages lag by their filter delay:
+  // their flux is that much earlier.
+  system::Stator<unit::Voltage> voltage_sum{0.0F, 0.0F};
+  for (const auto& sample : kSamples) {
+    voltage_sum = voltage_sum + sample;
+  }
+  const unit::Time kFluxTime =
+      (isr_->state.dt_fast * (static_cast<float>(kSteps) - 0.5F)) - sense_delays_.phase_voltage;
+  const system::Rotor<unit::Voltage> kVoltageDq =
+      (voltage_sum / static_cast<float>(kSteps))
+          .ToRotor(system::SinCos<unit::Ratio>(mech_obs.theta + (mech_obs.omega * kFluxTime)));
+  const std::optional<unit::Angle> kFluxError =
+      flux_obs.Calculate(kVoltageDq, current_dq, flux_setpoint_, isr_->state.dt_slow, mech_obs);
+
+  const std::optional<observer::BackEmfSpeed::Measurement> kSpeed =
+      emf_speed_.Update(kSamples, flux_setpoint_.d);
+  if (!kSpeed.has_value()) {
+    return;
+  }
+  if (kSpeed->upper_bound) {
+    // Too little back-EMF for an angle: the flux observer starts anew (its
+    // state would drift against the estimate) and settles once the motor is
+    // faster; the voltages still bound the speed, so an estimate beyond the
+    // bound is pulled to it.
+    flux_obs.Reset();
+    flux_settle_ = kFluxSettleTime;
+    if (Abs(mech_obs.omega) > kSpeed->speed) {
+      const unit::AngularVelocity kBound =
+          mech_obs.omega > unit::AngularVelocity{} ? kSpeed->speed : -kSpeed->speed;
+      mech_obs.UpdateSpeed(kBound - mech_obs.omega, kSpeed->variance);
+    }
+    return;
+  }
+  mech_obs.UpdateSpeed(kSpeed->speed - mech_obs.omega, kSpeed->variance);
+  if (flux_settle_ > unit::Time{}) {
+    flux_settle_ = flux_settle_ - isr_->state.dt_slow;  // its start-up transient is no angle
+    return;
+  }
+  if (kFluxError.has_value()) {
+    mech_obs.UpdateAngle(*kFluxError, FluxNoise(mech_obs.omega));
+  }
+}
+
+// =============================================================================
+// measure_coast — the coast-down meter of M3
+// =============================================================================
+
+void SlowUpdate::MeasureCoast(const CycleRecord& cycle, const bool outputs_open) noexcept {
+  const uint32_t kGeneration = coast_generation_.load(std::memory_order_acquire);
+  if (kGeneration == 0U || coast_stop_.load(std::memory_order_relaxed) == kGeneration) {
+    if (coast_running_ != 0U) {
+      CoastStatus status = coast_status_.Read();
+      status.running = false;
+      coast_status_.Write(status);
+      coast_running_ = 0U;
+    }
+    return;
+  }
+  if (kGeneration != coast_running_) {
+    coast_running_ = kGeneration;
+    coast_meter_ = identification::CoastDownMeter{coast_parameters_.Read()};
+  }
+  if (outputs_open && cycle.phase_voltages_valid) {
+    const uint8_t kSteps = isr_->state.timing.steps_per_cycle;
+    for (uint8_t k = 0U; k < kSteps; ++k) {
+      coast_meter_.Add(cycle.u_ab_samples[k], isr_->state.dt_fast);
+    }
+  }
+  coast_status_.Write(CoastStatus{kGeneration, true, coast_meter_.Standstill(), coast_meter_.GetResult()});
 }
 
 // =============================================================================

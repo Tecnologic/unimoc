@@ -15,6 +15,7 @@
  */
 #include "motor_identification.hpp"
 #include <algorithm>
+#include <numbers>
 #include "power_stage_interface.hpp"
 
 namespace unimoc::identification {
@@ -24,6 +25,9 @@ using current_control::IdentificationDrive;
 using current_control::IdentificationWindowResult;
 using current_control::InjectionAngularFrequency;
 using current_control::InjectionAxis;
+
+/// Below the minimum back-EMF this long the coasting motor stands [control cycles].
+constexpr uint32_t kStandstillCycles = 1600U;
 
 namespace {
 
@@ -43,6 +47,23 @@ constexpr uint8_t InductanceProgress(const P phase) noexcept {
   }
 }
 
+/// Progress of M3 in its phases [%].
+template <typename P>
+constexpr uint8_t FluxLinkageProgress(const P phase) noexcept {
+  switch (phase) {
+    case P::kAlign:
+      return 10U;
+    case P::kRamp:
+      return 30U;
+    case P::kHold:
+      return 50U;
+    case P::kCoast:
+      return 75U;
+    default:
+      return 0U;
+  }
+}
+
 constexpr uint32_t Bit(const Step step) noexcept { return 1U << static_cast<uint8_t>(step); }
 
 /// |a - b| <= tolerance * |b|.
@@ -58,6 +79,7 @@ void MotorIdentification::Configure(const settings::NvmSettings& settings) noexc
     return;
   }
   current_max_ = settings.motor_i_max;
+  speed_limit_ = settings.motor_omega_max;
   resistance_prior_ = settings.stator_r;
   inductance_prior_ = Max(settings.l_d, settings.l_q);
 }
@@ -66,7 +88,7 @@ StartResult MotorIdentification::Start(const uint8_t measurements) noexcept {
   if (IsActive()) {
     return StartResult::kRunning;
   }
-  const uint8_t kRequested = measurements & (kMeasureResistance | kMeasureInductance);
+  const uint8_t kRequested = measurements & (kMeasureResistance | kMeasureInductance | kMeasureFluxLinkage);
   if (kRequested == 0U) {
     return StartResult::kNoMeasurement;
   }
@@ -107,6 +129,7 @@ void MotorIdentification::Finish(const Step step, const Fault fault) noexcept {
   isr_->ClearIdentificationDrive();
   slow_->ReleaseForcedAngle();
   slow_->CancelWindow();
+  slow_->StopCoast();
   step_ = step;
   fault_ = fault;
 }
@@ -164,7 +187,11 @@ void MotorIdentification::Next() noexcept {
         StartResistancePoint();
         return;
       }
-      StartInductanceAxis(Step::kInductanceD);
+      if ((requested_ & kMeasureInductance) != 0U) {
+        StartInductanceAxis(Step::kInductanceD);
+        return;
+      }
+      StartFluxLinkage();
       return;
     case Step::kResistance:
       FinishResistance();
@@ -172,16 +199,23 @@ void MotorIdentification::Next() noexcept {
         StartInductanceAxis(Step::kInductanceD);
         return;
       }
-      Finish(Step::kDone, Fault::kNone);
-      return;
+      break;
     case Step::kInductanceD:
       StartInductanceAxis(Step::kInductanceQ);
       return;
     case Step::kInductanceQ:
       FinishInductance();
+      break;
+    case Step::kFluxLinkage:
       Finish(Step::kDone, Fault::kNone);
       return;
   }
+  // The standstill measurements ended: the coast-down needs the free shaft.
+  if ((requested_ & kMeasureFluxLinkage) != 0U) {
+    StartFluxLinkage();
+    return;
+  }
+  Finish(Step::kDone, Fault::kNone);
 }
 
 // ----- M1 --------------------------------------------------------------------
@@ -297,10 +331,157 @@ void MotorIdentification::FinishInductance() noexcept {
   }
 }
 
+// ----- M3 --------------------------------------------------------------------
+
+void MotorIdentification::StartFluxLinkage() noexcept {
+  step_ = Step::kFluxLinkage;
+  point_ = 0U;
+  phase_ = Phase::kWaitShaftFree;
+  // The outputs stay on at zero current until the operator confirms the free shaft.
+  slow_->CancelWindow();
+  Drive(Current{}, Angle{}, false, Voltage{}, 0U);
+}
+
+ConfirmResult MotorIdentification::Confirm(const bool shaft_free) noexcept {
+  if (!IsActive() || step_ != Step::kFluxLinkage || phase_ != Phase::kWaitShaftFree) {
+    return ConfirmResult::kNotWaiting;
+  }
+  if (!shaft_free) {
+    return ConfirmResult::kWrongConfirmation;
+  }
+  DriveSpin(Angle{}, AngularAcceleration{});
+  phase_ = Phase::kAlign;
+  slow_->RequestWindow(kAlignCycles);
+  return ConfirmResult::kAccepted;
+}
+
+void MotorIdentification::DriveSpin(const Angle angle, const AngularAcceleration acceleration) noexcept {
+  IdentificationDrive drive{};
+  drive.current_ref = system::Rotor<Current>{Current{}, current_max_ * kSpinUpCurrent};
+  drive.dead_time_compensation = true;
+  isr_->SetIdentificationDrive(drive);
+  slow_->SetForcedAngle(angle, AngularVelocity{}, acceleration);
+}
+
+void MotorIdentification::RunFluxLinkage() noexcept {
+  if (phase_ != Phase::kCoast && hardware::kPowerStage.GetState() != hardware::PowerStageState::kEnabled) {
+    Fault fault = Fault::kEnableLost;
+    if (isr_->state.overcurrent_tripped) {
+      fault = Fault::kOvercurrent;
+    } else if (isr_->Tripped()) {
+      fault = Fault::kTrip;
+    }
+    Finish(Step::kFault, fault);
+    return;
+  }
+  IdentificationWindowResult window{};
+  switch (phase_) {
+    case Phase::kAlign:
+      if (slow_->TakeWindow(window)) {
+        // The rotor stands at the current: the forced angle ramps up from there.
+        DriveSpin(Angle{}, (speed_limit_ * kSpinUpSpeedFraction) / (1.0_s * kSpinUpRampSeconds));
+        spin_up_hits_ = 0U;
+        phase_ = Phase::kRamp;
+        slow_->RequestWindow(kRampWindowCycles);
+      }
+      return;
+    case Phase::kRamp:
+      if (slow_->TakeWindow(window)) {
+        OnSpinUpWindow(window);
+      }
+      return;
+    case Phase::kHold:
+      if (slow_->TakeWindow(window)) {
+        StartCoast();
+      }
+      return;
+    case Phase::kCoast: {
+      const bool kTimedOut = slow_->TakeWindow(window);
+      const current_control::SlowUpdate::CoastStatus kCoast = slow_->GetCoast();
+      if (kCoast.generation != coast_generation_ && !kTimedOut) {
+        return;  // the observer has not started this coast's meter yet
+      }
+      const bool kSlow = kCoast.result.periods > 0U &&
+                         Abs(kCoast.result.last_speed) <
+                             Abs(kCoast.result.start_speed) * CoastDownMeter::Parameters{}.min_speed_fraction;
+      // A free coast does not reverse: a period the other way round means a load drives the shaft.
+      const bool kReversed =
+          kCoast.result.periods > 0U &&
+          (kCoast.result.last_speed < AngularVelocity{}) != (kCoast.result.start_speed < AngularVelocity{});
+      if (kTimedOut || kCoast.standstill || kSlow || kReversed) {
+        FinishFluxLinkage();
+      }
+      return;
+    }
+    default:
+      return;  // waits for the confirmation
+  }
+}
+
+void MotorIdentification::OnSpinUpWindow(const IdentificationWindowResult& window) noexcept {
+  // The back-EMF in the forced frame: the demand less the drop of R and L at the forced speed.
+  const AngularVelocity kSpeed = slow_->ForcedSpeed();
+  const Resistance kResistance = results_.resistance_valid ? results_.resistance : resistance_prior_;
+  const Inductance kInductance = results_.inductance_valid ? results_.l_mean : inductance_prior_;
+  const Voltage kBackEmfD = window.voltage_mean.d - (kResistance * window.current_mean.d) +
+                            (kSpeed * (kInductance * window.current_mean.q));
+  const Voltage kBackEmfQ = window.voltage_mean.q - (kResistance * window.current_mean.q) -
+                            (kSpeed * (kInductance * window.current_mean.d));
+  // The line-to-line peak is sqrt(3) times the phase peak (the amplitude-invariant magnitude).
+  const Voltage kTarget = window.dc_link_mean * (kSpinUpBackEmf / std::numbers::sqrt3_v<float>);
+  spin_up_hits_ = Hypot(kBackEmfD, kBackEmfQ) < kTarget ? 0U : static_cast<uint8_t>(spin_up_hits_ + 1U);
+  const bool kSpeedReached = !(Abs(kSpeed) < Abs(speed_limit_ * kSpinUpSpeedFraction));
+  ++point_;
+  if (spin_up_hits_ >= kSpinUpHits || kSpeedReached) {
+    slow_->HoldForcedSpeed();
+    phase_ = Phase::kHold;
+    slow_->RequestWindow(kHoldCycles);
+    return;
+  }
+  slow_->RequestWindow(kRampWindowCycles);
+}
+
+void MotorIdentification::StartCoast() noexcept {
+  // All switches open: the terminals carry the back-EMF alone.
+  hardware::kPowerStage.Disable();
+  isr_->ClearIdentificationDrive();
+  slow_->ReleaseForcedAngle();
+  CoastDownMeter::Parameters meter{};
+  meter.standstill_samples = kStandstillCycles * isr_->state.timing.steps_per_cycle;
+  coast_generation_ = slow_->StartCoast(meter);
+  phase_ = Phase::kCoast;
+  slow_->RequestWindow(kCoastTimeoutCycles);
+}
+
+void MotorIdentification::FinishFluxLinkage() noexcept {
+  const current_control::SlowUpdate::CoastStatus kCoast = slow_->GetCoast();
+  const CoastDownMeter::Result kResult =
+      kCoast.generation == coast_generation_ ? kCoast.result : CoastDownMeter::Result{};
+  slow_->StopCoast();
+  results_.flux_periods = kResult.periods;
+  if (kResult.periods > 0U) {
+    results_.flux_valid = true;
+    results_.flux_pm = kResult.flux;
+    results_.flux_spread = kResult.spread;
+    results_.coast_speed = kResult.start_speed;
+  }
+  if (kResult.periods >= kMinFluxPeriods && !(kResult.spread > kFluxSpreadTolerance)) {
+    passed_ |= Bit(Step::kFluxLinkage);
+  } else {
+    failed_ |=
+        Bit(Step::kFluxLinkage);  // no back-EMF (no phase-voltage sense, a stalled spin-up) or a noisy one
+  }
+  Next();
+}
+
 // ----- the run ---------------------------------------------------------------
 
 void MotorIdentification::RunOnce() noexcept {
   if (!IsActive()) {
+    return;
+  }
+  if (step_ == Step::kFluxLinkage) {
+    RunFluxLinkage();
     return;
   }
   if (hardware::kPowerStage.GetState() != hardware::PowerStageState::kEnabled) {
@@ -335,6 +516,8 @@ void MotorIdentification::RunOnce() noexcept {
         OnInductanceWindow(window);
       }
       return;
+    default:
+      return;  // the phases of M3 run in RunFluxLinkage()
   }
 }
 
@@ -350,6 +533,13 @@ Status MotorIdentification::GetStatus() const noexcept {
     status.progress = static_cast<uint8_t>((100U * point_) / kResistancePoints);
   } else if (step_ == Step::kInductanceD || step_ == Step::kInductanceQ) {
     status.progress = InductanceProgress(phase_);
+  } else if (step_ == Step::kFluxLinkage) {
+    status.needs_shaft_free = phase_ == Phase::kWaitShaftFree;
+    status.progress = FluxLinkageProgress(phase_);
+    const current_control::SlowUpdate::CoastStatus kCoast = slow_->GetCoast();
+    if (phase_ == Phase::kCoast && kCoast.generation == coast_generation_) {
+      status.counter = kCoast.result.periods;
+    }
   } else if (step_ == Step::kDone) {
     status.progress = 100U;
   }

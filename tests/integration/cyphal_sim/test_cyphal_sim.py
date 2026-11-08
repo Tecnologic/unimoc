@@ -683,7 +683,8 @@ def test_identification_measures_the_simulated_motor(sim: SimClient):
     assert sim.write("unimoc.sim.shaft_mode", natural8(1)) == 1  # standstill on a held shaft
     assert sim.write("unimoc.sim.imposed_speed", real(0.0)) == 0
     sim.hold(0.2, SLEEP)
-    assert sim.command_output(status_type.COMMAND_START_IDENTIFICATION, "M3") == (4, "expected M1, M2 or M1,M2")
+    assert sim.command_output(status_type.COMMAND_START_IDENTIFICATION, "M4") == (
+        4, "expected M1, M2, M3 or a list such as M1,M2,M3")
     assert sim.command(status_type.COMMAND_START_IDENTIFICATION, "M1,M2") == 0
     try:
         # The first status of the run; the status of the startup aid before may still be on its way.
@@ -705,6 +706,57 @@ def test_identification_measures_the_simulated_motor(sim: SimClient):
     assert sim.read("unimoc.identify.result.dead_time") == pytest.approx(0.0, abs=2e-8)
 
 
+def test_identification_m3_measures_the_flux_by_a_coast_down(sim: SimClient):
+    status_type = unimoc.drive.CommissioningStatus_0_1
+    # The test motor (one pole pair, earlier tests leave seven) with a magnet (the plant follows the
+    # settings while disengaged).
+    pole_pairs_before = sim.read("unimoc.motor.pole_pairs")
+    current_before = sim.read("unimoc.motor.limits.i_max")
+    assert sim.write("unimoc.sim.shaft_mode", natural8(1)) == 1  # at rest first
+    assert sim.write("unimoc.sim.imposed_speed", real(0.0)) == 0
+    assert sim.write("unimoc.sim.shaft_mode", natural8(0)) == 0  # then free
+    try:
+        assert sim.write("unimoc.motor.pole_pairs", natural8(1)) == 1
+        assert sim.write("unimoc.motor.limits.i_max", real(50.0)) == pytest.approx(50.0)
+        assert sim.write("unimoc.motor.pmsm.flux_pm", real(0.01)) == pytest.approx(0.01)
+        sim.hold(0.2, SLEEP)
+        assert sim.command(status_type.COMMAND_START_IDENTIFICATION, "M3") == 0
+        # The step waits with the outputs on at zero current for the free shaft.
+        status = sim.expect(sim.commissioning, lambda s: s.procedure == status_type.PROCEDURE_IDENTIFICATION
+                            and s.state == status_type.STATE_WAITING)
+        assert status.step == 6
+        assert status.needs == status_type.NEEDS_SHAFT_FREE
+        assert sim.command_output(status_type.COMMAND_CONTINUE, "motor-connected") == (4, "confirm shaft-free")
+        assert sim.command(status_type.COMMAND_CONTINUE, "shaft-free") == 0
+        # I/f spin-up, then the coast with the outputs open: the observer follows the plant.
+        sim.expect(sim.telemetry, lambda t: t.power_stage == 0, timeout=20.0)
+        # The sim has no friction: a load of 1e-2 N m on the 1e-4 kg m^2 slows the coast down at
+        # 100 rad/s^2 (a constant torque, so only once the motor coasts: it would turn the free
+        # shaft backwards before the spin-up).
+        assert sim.write("unimoc.sim.load_torque", real(0.01)) == pytest.approx(0.01)
+        sim.hold(0.3, SLEEP)  # the estimate settles on the back-EMF of the open terminals
+        telemetry = sim.next(sim.telemetry)
+        plant = sim.next(sim.plant)
+        assert plant.mechanical_speed > 150.0
+        assert telemetry.electrical_speed == pytest.approx(plant.mechanical_speed, rel=0.1)
+        status = sim.expect(sim.commissioning, lambda s: s.state not in (status_type.STATE_MEASURING,
+                                                                         status_type.STATE_WAITING), timeout=30.0)
+        assert status.state == status_type.STATE_DONE, status
+        assert status.failed == 0
+        assert status.passed & (1 << 6)
+        assert sim.read("unimoc.identify.result.flux_pm") == pytest.approx(0.01, rel=0.03)
+        assert sim.read("unimoc.identify.result.flux_pm_spread") < 0.03
+    finally:
+        assert sim.command(status_type.COMMAND_ABORT) == 0
+        assert sim.write("unimoc.sim.load_torque", real(0.0)) == 0.0
+        assert sim.write("unimoc.sim.shaft_mode", natural8(1)) == 1  # stop the shaft again
+        assert sim.write("unimoc.sim.shaft_mode", natural8(0)) == 0
+        # The settings of the session again.
+        assert sim.write("unimoc.motor.pmsm.flux_pm", real(0.0)) == 0.0
+        assert sim.write("unimoc.motor.pole_pairs", natural8(pole_pairs_before)) == pole_pairs_before
+        assert sim.write("unimoc.motor.limits.i_max", real(current_before)) == pytest.approx(current_before)
+        sim.hold(0.2, STANDBY)  # acknowledges a trip of a failed run
+        sim.hold(0.2, SLEEP)
 def test_the_register_description_file_is_served_over_file_read(sim: SimClient):
     served = json.loads(sim.read_file("registers.json", timeout=10.0))
     assert served["schema"] == 1

@@ -1641,16 +1641,16 @@ ZTEST(sim_cyphal_drive, test_the_brake_lever_brakes_a_turning_motor) {
   (void)rig.Access(reg::kAccelMode, Natural8(2U));
   rig.Run(5U);
   sim::Plant().SetShaftMode(unimoc::sim::ShaftMode::kImposedSpeed, 50.0_rad_per_s);
-  rig.Run(500U);  // the observer follows the turning shaft
+  rig.Run(500U);  // disengaged, the observer follows the turning shaft from its phase voltages
+  zexpect_within(CurrentControlIsr::Instance().mech_obs.omega, 50.0_rad_per_s, 5.0_rad_per_s);
   SetBoard(true, 12.0_V, 0.8_V, 2.6_V);
-  rig.Run(600U);
+  rig.Run(3U);
   zassert_true(rig.drive.IsEngaged());
-  // Against the motion the drive sees (the estimate; its sign follows the phase order of the plant), at
-  // the full brake torque well above the fade speed.
-  const AngularVelocity kSpeed = OuterLoop::Instance().Status().speed;
-  zassert_true(Abs(kSpeed) > 20.0_rad_per_s);
-  const Current kExpected = (kSpeed > AngularVelocity{}) ? -2.0_A : 2.0_A;
-  zexpect_within(CurrentControlIsr::Instance().state.i_ref.q, kExpected, 0.1_A);
+  // At once against the motion, at the full brake torque well above the fade speed. (The shaft of the
+  // plant is imposed: the observer's model, which the brake torque decelerates, then drifts off it at
+  // this low back-EMF, so the check is right after the engage.)
+  zassert_true(OuterLoop::Instance().Status().speed > 20.0_rad_per_s);
+  zexpect_within(CurrentControlIsr::Instance().state.i_ref.q, -2.0_A, 0.1_A);
 }
 
 // ----- Motor types: ASM (sensorless) and EESM (with the simulated excitation module) ---------------

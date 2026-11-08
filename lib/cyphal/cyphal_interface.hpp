@@ -441,6 +441,8 @@ inline constexpr const char* kIdentifyResultLd = "unimoc.identify.result.L_d";
 inline constexpr const char* kIdentifyResultLq = "unimoc.identify.result.L_q";
 inline constexpr const char* kIdentifyResultL = "unimoc.identify.result.L";
 inline constexpr const char* kIdentifyResultRAc = "unimoc.identify.result.R_ac";
+inline constexpr const char* kIdentifyResultFluxPm = "unimoc.identify.result.flux_pm";
+inline constexpr const char* kIdentifyResultFluxPmSpread = "unimoc.identify.result.flux_pm_spread";
 
 /// Computed phase-A current-sense gain correction factor [dimensionless].
 /// Type: real32[1] (read-only after CURRENT_SENSE_CALIBRATION step)

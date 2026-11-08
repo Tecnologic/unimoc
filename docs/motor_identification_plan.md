@@ -141,6 +141,50 @@ forced angle (decision 4). M3 measures the back-EMF itself instead:
 - Check: no current flows while coasting (the body diodes conduct only above
   the DC link: the spin-up speed keeps the back-EMF at 25 % of it).
 
+**As built (I3, 2026-11-08).** `MotorIdentification` step 6 (after DONE and
+FAULT, which stay 4 and 5 on the bus), only when "M3" is requested (an empty
+START_IDENTIFICATION parameter stays M1,M2):
+
+- The step first waits with the outputs on at zero current for CONTINUE
+  "shaft-free" (state WAITING, needs SHAFT_FREE). Then the q current aligns
+  the rotor at angle 0 for 0.5 s, and the forced angle ramps (a ramp of
+  `SlowUpdate`'s forced angle, `SetForcedAngle(angle, speed, acceleration)`)
+  at half the forward speed limit per 5 s. Every 32 ms the window of the
+  observer gives the back-EMF estimate |u - R i - j omega L i| (R and L from
+  M1/M2 when they ran, else the settings); at the target in three windows in
+  a row (a light rotor swings about the forced angle, I/f has no damping but
+  the friction: a single peak of the swing must not end the ramp), or at half
+  the speed limit, the speed holds for 0.2 s and the outputs open. The
+  current PI's decoupling takes the forced speed (docs/hotpath_plan.md,
+  "Handover from a forced angle").
+- `CoastDownMeter` (lib/motor_control) evaluates the Clarke vector of the
+  phase voltages instead of the line-to-line voltages: the common mode drops
+  out the same way. The period comes from the rising zero crossings of its
+  alpha component (30 % hysteresis, interpolated between the samples), the
+  amplitude is the mean magnitude of the vector over the period, so no
+  Goertzel is needed (the 5th and 7th harmonics ripple the magnitude at
+  6 omega and drop out of the mean: 5 % of 5th harmonic changes psi by less
+  than 0.1 % in the test).
+- The run ends when a period is slower than 10 % of the first one, when a
+  period turns the other way (a load drives the shaft: a free coast does not
+  reverse; such periods are not counted), at standstill (the back-EMF below
+  0.3 V for 1600 cycles) or after 60 s; it does not wait for standstill after
+  the 10 %. The outputs stay off. I/f does not catch a shaft that turns
+  already: the step expects it at rest (an I/f that loses the rotor ends in
+  an overcurrent fault or without periods, a failed M3). The result registers
+  are `unimoc.identify.result.flux_pm` and `.flux_pm_spread`.
+- During the coast the observer follows the motor from the same voltages
+  (docs/hotpath_plan.md, "Outputs open"), so a later engage starts from the
+  right angle.
+- Simulation: psi within 0.01 % of the plant (163 periods, spread 9 ppm);
+  over the bus (pycyphal, `test_identification_m3_measures_the_flux_by_a_coast_down`)
+  within 3 %, with the estimate on the plant's speed during the coast. The
+  plant gives the terminal voltages of the open bridge: the back-EMF with
+  its lowest phase at the negative rail (the low-side body diode carries the
+  divider current; its drop is not modelled). On the board the lowest
+  terminal may sit a diode drop below 0 V, where the ADC clips: a bench item,
+  with the gate-driver polarity above.
+
 ### 4.4 M4: pole pairs, measured or entered and checked (shaft free, operator assisted)
 
 Both ways (decision 3); the operator chooses in cypilot:
@@ -232,10 +276,11 @@ complete; M6 decimates w(t) to 1 kHz (2 s in 8 KB). cymon traces of the
 same signals show the run in cypilot's scope.
 
 **Phase voltages (M3).** The STM32H7 samples `va`, `vb`, `vc` with every
-conversion (`foc_stm32h7::RawSamples`), but the platform interface does not
-pass them on. M3 adds them to `ControlCycleSamples` (scaled like the DC link,
-33k/1k) and `SlowUpdate` evaluates them during the coast (zero crossings,
-Goertzel per period). Their gain is calibrated by the startup aid: in
+conversion; since I3 the sample interrupt reads them with the currents
+(`foc_stm32h7::SampleRaw`) and the sample carries them
+(`CurrentSample::phase_voltages`, scaled like the DC link, 33k/1k, with its
+calibration gain); the control step puts their Clarke vector into the cycle
+record and `SlowUpdate` evaluates it during the coast (`CoastDownMeter`). Their gain is calibrated by the startup aid: in
 DUTY_FORCE_LOW/MID/HIGH the phase voltage must be the duty times the
 calibrated DC link, which also turns the manual scope check of those steps
 into a measured one (`unimoc.startup.gain_va/vb/vc`, new persistent
@@ -380,7 +425,7 @@ status|apply]` is the same at the terminal.
 | I0 | Forced angle in `SlowUpdate`, the online accumulation, the identification FSM skeleton on C0, the result registers, the cypilot card and `cypilot-ctl identify` | C0 |
 | I1 | M1 R_s and dead-time voltage; dead time in the sim inverter | I0 |
 | I2 | M2 L_d, L_q | I0 |
-| I3 | Phase voltages in `ControlCycleSamples` (STM32H7 and sim plant with open outputs), their calibration in the startup aid's DUTY_FORCE steps; M3 psi by coast-down | I0 |
+| I3 | Phase voltages in the sample (`CurrentSample::phase_voltages`, STM32H7 and sim plant with open outputs) and M3 psi by coast-down: done in the firmware 2026-11-08; open: their calibration in the startup aid's DUTY_FORCE steps | I0 |
 | I4 | M4 pole pairs (measured, entered and checked); M5 Hall offset | I0 (the forced rotation) |
 | I5 | M6 J and friction (the coast of M3, the torque steps) | I3 |
 | I6 | M7 derived gains; review, approval and apply in cypilot; profile | I1 .. I5 |

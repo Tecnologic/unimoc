@@ -39,6 +39,13 @@ struct CurrentSample {
   system::ThreePhase<unit::Current> phase_currents;
   /// DC-link voltage of the sample.
   unit::Voltage dc_link;
+  /// Terminal voltages of the phases against the negative DC rail, converted
+  /// with the same trigger. Only the line-to-line part carries information: the
+  /// common mode depends on the switch state. With the outputs open they are the
+  /// back-EMF of the spinning motor (plus a common mode).
+  system::ThreePhase<unit::Voltage> phase_voltages;
+  /// The platform measures phase_voltages (a phase-voltage sense is fitted).
+  bool phase_voltages_valid{false};
   /// This sample or one not read since (a peak, a skipped valley) exceeded the
   /// overcurrent limit. The hardware layer has already tripped the power stage
   /// when this is set.
@@ -59,6 +66,20 @@ enum class ControlSampling : uint8_t {
   /// Every peak and every valley; the duties take effect at the next
   /// boundary (RCR = 0).
   kEveryHalfPeriod = 1,
+};
+
+/**
+ * @brief How long the measured signals lag the motor at the sample instant.
+ *
+ * The sample instant is the boundary at which the currents are sampled. A
+ * low pass delays its signal by its time constant (the group delay well below
+ * its corner); a signal converted later in the ADC sequence lags less by that
+ * time. The observer compensates both delays: the current delay in the Park
+ * angle of the control step, the phase-voltage delay in the coast tracking.
+ */
+struct SenseDelays {
+  unit::Time current;        ///< Amplifier and RC filter of the phase currents.
+  unit::Time phase_voltage;  ///< Divider and RC filters of the phase voltages, less their later sampling.
 };
 
 /**
@@ -127,6 +148,7 @@ class HardwareInterface {
   using SetAdcTriggerOffsetCallback = void (*)(uint32_t) noexcept;
   using GetTimerClockFrequencyCallback = uint32_t (*)() noexcept;
   using PopHallEventCallback = bool (*)(observer::HallEvent&) noexcept;
+  using GetSenseDelaysCallback = SenseDelays (*)() noexcept;
 
   /**
    * @brief Constructs a motor hardware interface.
@@ -141,6 +163,7 @@ class HardwareInterface {
    * @param set_adc_trigger_offset Updates the ADC trigger compare value.
    * @param get_timer_clock_frequency Returns the timer input clock in Hz.
    * @param pop_hall_event Takes the oldest captured change of the Hall code.
+   * @param get_sense_delays Returns the delays of the measured signals.
    */
   HardwareInterface(InitializeCallback initialize,
                     StopCallback stop,
@@ -151,7 +174,8 @@ class HardwareInterface {
                     SetOvervoltageLimitCallback set_overvoltage_limit,
                     SetAdcTriggerOffsetCallback set_adc_trigger_offset,
                     GetTimerClockFrequencyCallback get_timer_clock_frequency,
-                    PopHallEventCallback pop_hall_event)
+                    PopHallEventCallback pop_hall_event,
+                    GetSenseDelaysCallback get_sense_delays)
       : initialize_(initialize),
         stop_(stop),
         get_phase_currents_(get_phase_currents),
@@ -161,7 +185,11 @@ class HardwareInterface {
         set_overvoltage_limit_(set_overvoltage_limit),
         set_adc_trigger_offset_(set_adc_trigger_offset),
         get_timer_clock_frequency_(get_timer_clock_frequency),
-        pop_hall_event_(pop_hall_event) {}
+        pop_hall_event_(pop_hall_event),
+        get_sense_delays_(get_sense_delays) {}
+
+  /// The delays of the measured signals (read when the controller starts).
+  [[nodiscard]] SenseDelays GetSenseDelays() const noexcept { return get_sense_delays_(); }
 
   /**
    * @brief Initializes the hardware and starts its interrupts.
@@ -272,6 +300,7 @@ class HardwareInterface {
   SetAdcTriggerOffsetCallback set_adc_trigger_offset_;
   GetTimerClockFrequencyCallback get_timer_clock_frequency_;
   PopHallEventCallback pop_hall_event_;
+  GetSenseDelaysCallback get_sense_delays_;
 };
 
 /**

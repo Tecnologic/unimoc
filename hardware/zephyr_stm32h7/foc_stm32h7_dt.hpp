@@ -176,17 +176,38 @@ struct SignalLocation {
   return SignalLocation{0U, kMaxRanks};
 }
 
-/// Length of an injected sequence in half ADC clock cycles (sampling plus the 6.5 cycles of a 12 bit
-/// conversion).
+/// Sampling time of each SMP code in half ADC clock cycles.
+inline constexpr std::array<uint32_t, 8> kSampleHalfCycles{3U, 5U, 17U, 33U, 65U, 129U, 775U, 1621U};
+/// The 6.5 cycles of a 12 bit conversion.
+inline constexpr uint32_t kConversionHalfCycles = 13U;
+
+/// Length of an injected sequence in half ADC clock cycles (sampling plus conversion of every rank).
 [[nodiscard]] consteval uint32_t SequenceHalfCycles(const AdcDescription& adc) {
-  constexpr std::array<uint32_t, 8> kSampleHalfCycles{3U, 5U, 17U, 33U, 65U, 129U, 775U, 1621U};
-  constexpr uint32_t kConversionHalfCycles = 13U;
   uint32_t total = 0U;
   for (uint32_t rank = 0U; rank < adc.ranks; ++rank) {
     total += kSampleHalfCycles.at(adc.sample_times.at(rank)) + kConversionHalfCycles;
   }
   return total;
 }
+
+/// When a signal is held, in half ADC clock cycles after the trigger: the end of its sampling time.
+[[nodiscard]] consteval uint32_t SampleEndHalfCycles(const std::string_view name) {
+  const SignalLocation kLocation = LocationOf(name);
+  const AdcDescription& adc = *kAdcs.at(kLocation.adc);
+  uint32_t total = 0U;
+  for (uint32_t rank = 0U; rank < kLocation.rank; ++rank) {
+    total += kSampleHalfCycles.at(adc.sample_times.at(rank)) + kConversionHalfCycles;
+  }
+  return total + kSampleHalfCycles.at(adc.sample_times.at(kLocation.rank));
+}
+
+/// The phase voltages are held this much after the phase currents (the means of the three), in half
+/// ADC clock cycles; negative when before.
+inline constexpr int32_t kVoltageSampleLagHalfCycles =
+    (static_cast<int32_t>(SampleEndHalfCycles("va") + SampleEndHalfCycles("vb") + SampleEndHalfCycles("vc")) -
+     static_cast<int32_t>(SampleEndHalfCycles("ia") + SampleEndHalfCycles("ib") +
+                          SampleEndHalfCycles("ic"))) /
+    3;
 
 static_assert(HasSignal("ia") && HasSignal("va") && HasSignal("bridge-temperature") && HasSignal("ib") &&
                   HasSignal("vb") && HasSignal("motor-temperature") && HasSignal("ic") && HasSignal("vdc") &&
@@ -214,6 +235,10 @@ static_assert(SequenceHalfCycles(kAdcPhaseA) >= SequenceHalfCycles(kAdcPhaseB) &
               "the injected sequence of the phase A ADC must be the longest");
 
 inline constexpr SignalLocation kVdcLocation = LocationOf("vdc");
+/// The phase voltages, converted with the same trigger as the currents (the coast of an open bridge).
+inline constexpr SignalLocation kVaLocation = LocationOf("va");
+inline constexpr SignalLocation kVbLocation = LocationOf("vb");
+inline constexpr SignalLocation kVcLocation = LocationOf("vc");
 
 // Optional board inputs, sampled with the injected sequences and read by the drive thread.
 inline constexpr bool kHasGateSupply = HasSignal("gate-supply");
@@ -259,6 +284,18 @@ inline constexpr uint32_t kBatteryChargeCurrentAmps = DT_PROP_BY_IDX(UNIMOC_FOC,
 inline constexpr uint32_t kDcLinkDerateMillivolts = DT_PROP_BY_IDX(UNIMOC_FOC, dc_link_millivolts, 0);
 inline constexpr uint32_t kDcLinkTripMillivolts = DT_PROP_BY_IDX(UNIMOC_FOC, dc_link_millivolts, 1);
 inline constexpr uint32_t kDcLinkMaxMillivolts = DT_PROP_BY_IDX(UNIMOC_FOC, dc_link_millivolts, 2);
+// The analog filters (foc0, optional: absent means none, no delay compensated).
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage): element of an optional devicetree array
+#define UNIMOC_FOC_PROP_BY_IDX_OR(prop, idx) \
+  COND_CODE_1(DT_NODE_HAS_PROP(UNIMOC_FOC, prop), (DT_PROP_BY_IDX(UNIMOC_FOC, prop, idx)), (0))
+inline constexpr uint32_t kDividerFilterPf = DT_PROP(UNIMOC_FOC, voltage_divider_filter_pf);
+inline constexpr uint32_t kPhaseVoltageFilterOhm = UNIMOC_FOC_PROP_BY_IDX_OR(phase_voltage_filter, 0);
+inline constexpr uint32_t kPhaseVoltageFilterPf = UNIMOC_FOC_PROP_BY_IDX_OR(phase_voltage_filter, 1);
+inline constexpr uint32_t kCurrentFilterOhm = UNIMOC_FOC_PROP_BY_IDX_OR(current_filter, 0);
+inline constexpr uint32_t kCurrentFilterPf = UNIMOC_FOC_PROP_BY_IDX_OR(current_filter, 1);
+inline constexpr uint32_t kCurrentAmplifierBandwidthHz = DT_PROP(UNIMOC_FOC, current_amplifier_bandwidth_hz);
+static_assert(DT_PROP_LEN_OR(UNIMOC_FOC, phase_voltage_filter, 2) == 2, "phase-voltage-filter: <ohm pF>");
+static_assert(DT_PROP_LEN_OR(UNIMOC_FOC, current_filter, 2) == 2, "current-filter: <ohm pF>");
 static_assert(DT_PROP_LEN(UNIMOC_FOC, voltage_divider_ohms) == 2, "voltage-divider-ohms: <top bottom>");
 static_assert(DT_PROP_LEN(UNIMOC_FOC, dc_link_millivolts) == 3, "dc-link-millivolts: <derate trip max>");
 static_assert(kDcLinkDerateMillivolts < kDcLinkTripMillivolts &&
