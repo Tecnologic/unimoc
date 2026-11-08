@@ -143,6 +143,10 @@ static hardware::CurrentSample Calibrated(const hardware::CurrentSample& raw,
   sample.phase_currents.b = (raw.phase_currents.b - calibration.offset_b) * calibration.gain_b;
   sample.phase_currents.c = (raw.phase_currents.c - calibration.offset_c) * calibration.gain_c;
   sample.dc_link = raw.dc_link * calibration.gain_vdc;
+  // The phase voltages use the divider and the reference of the DC link.
+  sample.phase_voltages = {raw.phase_voltages.a * calibration.gain_vdc,
+                           raw.phase_voltages.b * calibration.gain_vdc,
+                           raw.phase_voltages.c * calibration.gain_vdc};
   return sample;
 }
 
@@ -201,7 +205,21 @@ bool CurrentControlIsr::OnSample() noexcept {
   }
 
   // -------------------------------------------------------------------------
-  // 2. Hard overcurrent limit. The hardware has checked the sample and
+  // 2. Clarke and Park with the angle of the sample, and the phase voltages
+  //    (the back-EMF while the outputs are open, which the observer tracks).
+  // -------------------------------------------------------------------------
+  const system::Stator<unit::Current> kCurrentAlphaBeta = kSample.phase_currents.ToStator();
+  const system::Rotor<unit::Current> kCurrentDq = kCurrentAlphaBeta.ToRotor(angle_);
+  record.sc[kStep] = angle_;
+  record.i_ab_samples[kStep] = kCurrentAlphaBeta;
+  record.u_ab_samples[kStep] = kSample.phase_voltages.ToStator();
+  record.phase_voltages_valid = kSample.phase_voltages_valid;
+  i_dq_sum_.d += kCurrentDq.d;
+  i_dq_sum_.q += kCurrentDq.q;
+  state.i_dq_last = kCurrentDq;
+
+  // -------------------------------------------------------------------------
+  // 3. Hard overcurrent limit. The hardware has checked the sample and
   //    tripped the stage already; this repeats the check on the calibrated
   //    currents. The loop stays frozen at neutral duties until the trip is
   //    acknowledged. DC-link overvoltage: no braking current can be taken any
@@ -217,8 +235,11 @@ bool CurrentControlIsr::OnSample() noexcept {
     state.overvoltage_tripped = true;
   }
   if (state.overcurrent_tripped || state.overvoltage_tripped) {
+    // The outputs are off: no voltage demand, the observer keeps tracking the
+    // coasting motor from the phase voltages of the record.
     SetDuties(system::ThreePhase<unit::Ratio>{0.5_ratio, 0.5_ratio, 0.5_ratio});
-    return FinishStepWithoutControl(kCycleEnd);
+    state.u_dq_last = system::Rotor<unit::Voltage>{0.0F, 0.0F};
+    return kCycleEnd && FinishCycle(record, kSample);
   }
 
   // Force-duty mode: fixed duties, no control loop.
@@ -226,17 +247,6 @@ bool CurrentControlIsr::OnSample() noexcept {
     SetDuties(forced_duties_.Read());
     return FinishStepWithoutControl(kCycleEnd);
   }
-
-  // -------------------------------------------------------------------------
-  // 3. Clarke and Park with the angle of the sample.
-  // -------------------------------------------------------------------------
-  const system::Stator<unit::Current> kCurrentAlphaBeta = kSample.phase_currents.ToStator();
-  const system::Rotor<unit::Current> kCurrentDq = kCurrentAlphaBeta.ToRotor(angle_);
-  record.sc[kStep] = angle_;
-  record.i_ab_samples[kStep] = kCurrentAlphaBeta;
-  i_dq_sum_.d += kCurrentDq.d;
-  i_dq_sum_.q += kCurrentDq.q;
-  state.i_dq_last = kCurrentDq;
 
   // -------------------------------------------------------------------------
   // 4. Current PI with decoupling feedforward over one control step; frozen

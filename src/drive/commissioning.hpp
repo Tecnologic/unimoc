@@ -98,6 +98,8 @@ class Commissioning final : public cyphal::RegisterProvider {
  private:
   [[nodiscard]] cyphal::CommandResult Start() noexcept;
   [[nodiscard]] cyphal::CommandResult StartIdentification(std::string_view measurements) noexcept;
+  /// CONTINUE during the identification: the confirmation "shaft-free" of M3.
+  [[nodiscard]] cyphal::CommandResult ContinueIdentification(std::string_view confirmation) noexcept;
   [[nodiscard]] unimoc_drive_CommissioningStatus_0_1 IdentificationStatus() const noexcept;
   [[nodiscard]] cyphal::CommandResult Continue(std::string_view confirmation) noexcept;
   [[nodiscard]] cyphal::CommandResult SetReading(std::string_view reading) noexcept;

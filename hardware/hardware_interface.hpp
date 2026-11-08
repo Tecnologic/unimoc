@@ -39,6 +39,13 @@ struct CurrentSample {
   system::ThreePhase<unit::Current> phase_currents;
   /// DC-link voltage of the sample.
   unit::Voltage dc_link;
+  /// Terminal voltages of the phases against the negative DC rail, converted
+  /// with the same trigger. Only the line-to-line part carries information: the
+  /// common mode depends on the switch state. With the outputs open they are the
+  /// back-EMF of the spinning motor (plus a common mode).
+  system::ThreePhase<unit::Voltage> phase_voltages;
+  /// The platform measures phase_voltages (a phase-voltage sense is fitted).
+  bool phase_voltages_valid{false};
   /// This sample or one not read since (a peak, a skipped valley) exceeded the
   /// overcurrent limit. The hardware layer has already tripped the power stage
   /// when this is set.

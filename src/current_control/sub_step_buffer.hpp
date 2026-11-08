@@ -94,6 +94,14 @@ struct CycleRecord {
   /// Stator-frame (α/β) current samples of the cycle.
   std::array<system::Stator<unit::Current>, kMaxSubSteps> i_ab_samples{};
 
+  /// Stator-frame (α/β) phase voltages of the cycle: Clarke of the measured
+  /// terminal voltages (the common mode drops out); the back-EMF while the
+  /// outputs are open.
+  std::array<system::Stator<unit::Voltage>, kMaxSubSteps> u_ab_samples{};
+
+  /// The platform measures the phase voltages (u_ab_samples are valid).
+  bool phase_voltages_valid{false};
+
   /// Mean rotor-frame current of the cycle.
   system::Rotor<unit::Current> i_dq_mean;
 

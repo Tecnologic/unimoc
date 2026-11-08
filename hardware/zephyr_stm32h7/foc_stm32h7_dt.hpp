@@ -176,6 +176,10 @@ static_assert(SequenceHalfCycles(kAdcPhaseA) >= SequenceHalfCycles(kAdcPhaseB) &
               "the injected sequence of the phase A ADC must be the longest");
 
 inline constexpr SignalLocation kVdcLocation = LocationOf("vdc");
+/// The phase voltages, converted with the same trigger as the currents (the coast of an open bridge).
+inline constexpr SignalLocation kVaLocation = LocationOf("va");
+inline constexpr SignalLocation kVbLocation = LocationOf("vb");
+inline constexpr SignalLocation kVcLocation = LocationOf("vc");
 
 inline constexpr uint32_t kDeadTimeNs = DT_PROP(UNIMOC_FOC, dead_time_ns);
 

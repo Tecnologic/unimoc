@@ -93,11 +93,23 @@ class InverterModel {
     if (!enabled_) {
       return {};
     }
-    const unit::Voltage kTerminalA = dc_link_voltage * (duties_.a - DeadTimeError(currents.a));
-    const unit::Voltage kTerminalB = dc_link_voltage * (duties_.b - DeadTimeError(currents.b));
-    const unit::Voltage kTerminalC = dc_link_voltage * (duties_.c - DeadTimeError(currents.c));
-    const unit::Voltage kCommonMode = (kTerminalA + kTerminalB + kTerminalC) / 3.0F;
-    return {kTerminalA - kCommonMode, kTerminalB - kCommonMode, kTerminalC - kCommonMode};
+    const system::ThreePhase<unit::Voltage> kTerminal = TerminalVoltages(dc_link_voltage, currents);
+    const unit::Voltage kCommonMode = (kTerminal.a + kTerminal.b + kTerminal.c) / 3.0F;
+    return {kTerminal.a - kCommonMode, kTerminal.b - kCommonMode, kTerminal.c - kCommonMode};
+  }
+
+  /**
+   * @brief Returns the averaged terminal voltages against the negative DC rail.
+   * @param dc_link_voltage DC-link voltage.
+   * @param currents Phase currents into the winding; their signs set the dead-time error.
+   * @return Each phase's duty (less its dead-time error) times the DC link, as
+   *         the bridge drives it; the switch state alone, whether or not it is enabled.
+   */
+  [[nodiscard]] constexpr system::ThreePhase<unit::Voltage> TerminalVoltages(
+      unit::Voltage dc_link_voltage, const system::ThreePhase<unit::Current>& currents = {}) const noexcept {
+    return {dc_link_voltage * (duties_.a - DeadTimeError(currents.a)),
+            dc_link_voltage * (duties_.b - DeadTimeError(currents.b)),
+            dc_link_voltage * (duties_.c - DeadTimeError(currents.c))};
   }
 
   /**

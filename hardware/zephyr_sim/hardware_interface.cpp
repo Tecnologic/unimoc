@@ -306,6 +306,8 @@ void RunCycle() noexcept {
     sample.overcurrent = g_pending_overcurrent;
     sample.overvoltage = g_pending_overvoltage;
     sample.dc_link = g_plant.Output().dc_link_voltage;
+    sample.phase_voltages = g_plant.Output().terminal_voltages;
+    sample.phase_voltages_valid = true;
     sample.timestamp = static_cast<uint32_t>(kBoundaryNs);
     g_sample = sample;
     RunHandlers();
@@ -393,7 +395,8 @@ void Stop() noexcept {
 
 system::ThreePhase<Current> GetPhaseCurrents() noexcept { return MeasuredCurrents(); }
 
-system::ThreePhase<Voltage> GetPhaseVoltages() noexcept { return g_plant.Output().phase_voltages; }
+// The terminals against the negative rail, as the phase-voltage sense of the STM32H7 boards.
+system::ThreePhase<Voltage> GetPhaseVoltages() noexcept { return g_plant.Output().terminal_voltages; }
 
 TemperatureMeasurements GetTemperatureMeasurements() noexcept { return {}; }
 

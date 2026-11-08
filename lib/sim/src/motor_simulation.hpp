@@ -91,6 +91,12 @@ struct SimulationOutput {
   system::ThreePhase<unit::Current> phase_currents;
   /// Phase-to-star-point voltages averaged over the last step.
   system::ThreePhase<unit::Voltage> phase_voltages;
+  /// Terminal voltages against the negative DC rail at the end of the step, as
+  /// the phase-voltage sense measures them: the averaged bridge or diode output
+  /// while the stator is connected; with the bridge open the back-EMF, its
+  /// lowest phase at the negative rail (the low-side body diode carries the
+  /// small current of the voltage dividers; its drop is not modelled).
+  system::ThreePhase<unit::Voltage> terminal_voltages;
   /// DC-link voltage.
   unit::Voltage dc_link_voltage;
   /// Mean current the bridge took from the DC link over the last step; negative while it charges it.
@@ -378,6 +384,7 @@ class MotorSimulation {
     mechanics_.Step(kElectrical.torque, input_.load_torque, time_step);
 
     UpdateOutput();
+    output_.terminal_voltages = TerminalVoltages(conduction, connected, kDcLink);
     // The DC link carries the mean of the phase currents through the conducting switches.
     const auto kMean = [](unit::Current start, unit::Current end) { return (start + end) * 0.5F; };
     const unit::Current kDcCurrent = (conduction.a * kMean(kStartCurrents.a, output_.phase_currents.a)) +
@@ -504,6 +511,34 @@ class MotorSimulation {
     const system::ThreePhase<unit::Current> kEnd = kElectrical.rotor_current.ToStator(angle).ToThreePhase();
     return (conduction.a * (start.a + kEnd.a) * 0.5F) + (conduction.b * (start.b + kEnd.b) * 0.5F) +
            (conduction.c * (start.c + kEnd.c) * 0.5F);
+  }
+
+  /**
+   * @brief Terminal voltages against the negative rail at the end of the step.
+   * @param conduction Duties of the conducting body diodes (used when the bridge is off).
+   * @param connected The bridge or the diodes connect the stator to the DC link.
+   * @param dc_link DC-link voltage of the step.
+   */
+  [[nodiscard]] constexpr system::ThreePhase<unit::Voltage> TerminalVoltages(
+      const system::ThreePhase<unit::Ratio>& conduction,
+      bool connected,
+      unit::Voltage dc_link) const noexcept {
+    if (inverter_.Enabled()) {
+      return inverter_.TerminalVoltages(dc_link, output_.phase_currents);
+    }
+    if (connected) {
+      return {dc_link * conduction.a, dc_link * conduction.b, dc_link * conduction.c};
+    }
+    if (parameters_.motor_type != system::MotorType::kPmsm) {
+      return {};
+    }
+    // Open stator, no current: the windings carry the back-EMF alone.
+    const system::Rotor<unit::Voltage> kBackEmf{unit::Voltage{},
+                                                output_.electrical_speed * parameters_.pmsm.flux_pm};
+    const system::ThreePhase<unit::Voltage> kPhases =
+        kBackEmf.ToStator(output_.electrical_angle).ToThreePhase();
+    const unit::Voltage kLowest = unit::Min(kPhases.a, unit::Min(kPhases.b, kPhases.c));
+    return {kPhases.a - kLowest, kPhases.b - kLowest, kPhases.c - kLowest};
   }
 
   /** @brief Recomputes the output sample from the states. */

@@ -308,6 +308,10 @@ CurrentSample GetSample() noexcept {
   CurrentSample sample{};
   sample.phase_currents = SampleCurrents(raw);
   sample.dc_link = analog::CountsToVoltage(raw.vdc);
+  sample.phase_voltages = {analog::CountsToVoltage(raw.va),
+                           analog::CountsToVoltage(raw.vb),
+                           analog::CountsToVoltage(raw.vc)};
+  sample.phase_voltages_valid = true;
   sample.overcurrent = raw.overcurrent;
   sample.overvoltage = raw.overvoltage;
   sample.timestamp = raw.timestamp;
