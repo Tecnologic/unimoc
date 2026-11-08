@@ -281,9 +281,10 @@ struct NvmSettings {
   /// Register: `unimoc.observer.asm_flux.g_i`
   unit::InverseTime asm_obs_g_i{500.0_per_s};
 
-  /// Rotor-flux correction gain g_flux [Wb/(A·s)].
+  /// Rotor-flux correction gain g_flux [Wb/(A·s)]. 0 (2026-11-08): with the speed adaptation of the drive
+  /// the correction pulled the rotor speed estimate off (sim: -6 to -20 rad/s at 50 rad/s); 5000 diverged.
   /// Register: `unimoc.observer.asm_flux.g_flux`
-  unit::MagneticFluxPerCurrentTime asm_obs_g_flux{5000.0_Wb_per_A_s};
+  unit::MagneticFluxPerCurrentTime asm_obs_g_flux{0.0_Wb_per_A_s};
 
   // =========================================================================
   // ASM flux controller
@@ -304,6 +305,10 @@ struct NvmSettings {
   /// Maximum d-axis current [A].
   /// Register: `unimoc.control.asm_flux.i_d_max`
   unit::Current asm_flux_i_d_max{10.0_A};
+
+  /// Rotor flux reference |psi_r*| of the flux controller [Wb]; with L_m 47 mH about 4.3 A of i_d.
+  /// Register: `unimoc.control.asm_flux.psi_r`
+  unit::MagneticFlux asm_flux_psi_r{0.2_Wb};
 
   // =========================================================================
   // Field weakening
@@ -636,6 +641,18 @@ struct NvmSettings {
   /// Homing state publication (uavcan.primitive.scalar.Natural8.1.0).
   /// Register: `uavcan.pub.homing_state.id`
   uint16_t pub_homing_state_id{cyphal::kPubHomingState};
+
+  /// EESM: field current command to the excitation module (unimoc.excitation.Command.0.1).
+  /// Register: `uavcan.pub.excitation_command.id`
+  uint16_t pub_excitation_command_id{cyphal::kPubExcitationCommand};
+
+  /// EESM: status of the excitation module (unimoc.excitation.Status.0.1).
+  /// Register: `uavcan.sub.excitation_status.id`
+  uint16_t sub_excitation_status_id{cyphal::kSubExcitationStatus};
+
+  /// EESM: field current setpoint of the bus (uavcan.si.unit.electric_current.Scalar.1.0).
+  /// Register: `uavcan.sub.excitation_setpoint.id`
+  uint16_t sub_excitation_setpoint_id{cyphal::kSubExcitationSetpoint};
 
   /// Wheel of this drive (unimoc.cart.WheelCommand.WHEEL_*), 0 to 3.
   /// Register: `unimoc.cart.wheel`

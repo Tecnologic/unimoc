@@ -72,15 +72,27 @@ Control path: MechanicalObserver (back-EMF PLL) → MTPA → FieldWeakening → 
 Low speed and standstill: Hall sensors (edges and sector) fused with the back-EMF observer.
 
 ### ASM — Asynchronous (Induction) Motor
-Squirrel-cage induction motors.
-Control path: AsmFluxObserver (Luenberger) → AsmFluxController (PI) → MechanicalObserver (shared PLL) → SVM.
+Squirrel-cage induction motors, sensorless (`unimoc.motor.type` 1, decided 2026-11-08: sensorless first).
+Control path: AsmFluxObserver (full-order, current model with the stator current correction
+`unimoc.observer.asm_flux.g_i`; `g_flux` is 0 by default) with a speed adaptation (current error
+crossed with the rotor flux) → the rotor flux angle (libm-free `Atan2`) is the field frame and the
+adapted rotor speed plus the slip its speed → AsmFluxController (`unimoc.control.asm_flux.*`, flux
+reference `psi_r`) sets i_d → SVM. Until the flux reaches half its reference the frame stands. The Hall
+sensors are not fused (they see the rotor, not the field). The outer loop reports the rotor speed.
 
 ### EESM — Electrically Excited Synchronous Machine
-Wound-rotor synchronous motors with external excitation (slip-rings or brushless exciter).
-Stator control path identical to PMSM.  Additionally:
-- **ExcitationController** — PI loop on rotor current I_f (CurrentMode) or flux ψ_f = L_m · I_f (FluxMode).
-- **ExcitationObserver** — first-order low-pass filter on measured I_f → adaptive ψ_f estimate fed into MTPA.
-- Excitation setpoint and mode received via Cyphal subject.
+Wound-rotor synchronous motors (`unimoc.motor.type` 2). The field winding is fed by a separate
+excitation module on the bus (docs/system_plan.md, section 5.2.1), which runs the field current loop:
+- The drive publishes `unimoc.excitation.Command.0.1` (`uavcan.pub.excitation_command.id`, 100 Hz):
+  the field current of its operating point (`unimoc.control.excitation.i_f_max`, reduced where the
+  field's back-EMF reaches 0.95 V_dc / sqrt(3), at least `i_f_min`), enabled while engaged.
+- A field current setpoint on `uavcan.sub.excitation_setpoint.id`
+  (`uavcan.si.unit.electric_current.Scalar.1.0`) overrides it while fresh.
+- The module's `unimoc.excitation.Status.0.1` (`uavcan.sub.excitation_status.id`) gives the measured
+  field current: psi_f = L_m i_f (`unimoc.control.excitation.L_m`) is the flux of the observer and the
+  torque constant. Without a fresh status the drive does not engage; a lost status or a module fault
+  disengages it.
+- `native_sim` runs a simulated module in process (`hardware/zephyr_sim/sim_excitation.hpp`).
 
 ---
 
@@ -195,7 +207,7 @@ takes effect after a restart.
 ### Settings via registers
 
 Every persistent setting (`ForEachRegister()` in
-`lib/settings/settings_registers.hpp`, 140 registers) is a Cyphal register
+`lib/settings/settings_registers.hpp`, 144 registers) is a Cyphal register
 under the same name; `yakut rl <node>` lists them.  Units and floats are
 `real32[1]`, counts and enums `natural8[1]`, `uavcan.node.id` and the port-IDs
 `natural16[1]`, the name a string; writes accept any numeric type.  A write is
@@ -345,9 +357,8 @@ gate on it (the NUCLEO-H743ZI has none):
   `unimoc.accel.torque_max`, the brake lever wins and brakes regeneratively up to
   `unimoc.accel.brake_torque_max` against the motion, fading out below 10 rad/s; the travel is
   calibrated by `unimoc.accel.throttle_min`/`throttle_max` and `brake_min`/`brake_max` [V]. The control
-  engages the drive on demand and holds it for `unimoc.accel.engage_hold`; the bus readiness `ENGAGED`
-  no longer engages it, `STANDBY` and `SLEEP` release it until both inputs read released, as a trip or
-  a refused engage do. A sensor voltage 0.3 V outside its calibrated range (a broken wire or a short)
+  engages the drive on demand and holds it for `unimoc.accel.engage_hold`; `STANDBY` and `SLEEP`
+  release it until both inputs read released, as a trip or a refused engage do. A sensor voltage 0.3 V outside its calibrated range (a broken wire or a short)
   drops the torque until both inputs read released again.
 - `native_sim`: the board inputs are registers (volatile): `unimoc.sim.power_board`,
   `unimoc.sim.gate_supply` [V, 12 at the start], `unimoc.sim.accelerator` and `unimoc.sim.brake`

@@ -30,6 +30,7 @@ target_sources(app PRIVATE
   ${UNIMOC_ROOT}/hardware/zephyr_common/zephyr_settings_storage.cpp
   ${UNIMOC_ROOT}/hardware/zephyr_sim/board_inputs.cpp
   ${UNIMOC_ROOT}/hardware/zephyr_sim/ebike_io.cpp
+  ${UNIMOC_ROOT}/hardware/zephyr_sim/sim_excitation.cpp
   ${UNIMOC_ROOT}/hardware/zephyr_sim/hardware_interface.cpp
   ${UNIMOC_ROOT}/hardware/zephyr_sim/slcan_media.cpp)
 target_include_directories(app PRIVATE

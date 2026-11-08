@@ -15,6 +15,7 @@
  */
 #include "outer_loop.hpp"
 #include "angle_wrap.hpp"
+#include "slow_update.hpp"
 
 namespace unimoc::current_control {
 
@@ -33,7 +34,17 @@ void OuterLoop::Init(const settings::NvmSettings& settings, CurrentControlIsr& i
   parameters.pole_pairs = settings.pole_pairs;
   parameters.dt = isr.state.dt_slow * static_cast<float>(kCyclesPerStep);
   parameters.current_limit = settings.motor_i_max;
-  parameters.torque_constant = settings.flux_pm * (1.5F * kPolePairs);
+  parameters.torque_constant = MotorTorqueConstant(settings, MagneticFlux{});
+  parameters.motor_type = settings.motor_type;
+  parameters.asm_flux.R_r = settings.asm_r_r;
+  parameters.asm_flux.L_r = settings.asm_l_r;
+  parameters.asm_flux.L_m = settings.asm_l_m;
+  parameters.asm_flux.kp = settings.asm_flux_kp;
+  parameters.asm_flux.ki = settings.asm_flux_ki;
+  parameters.asm_flux.i_d_min = settings.asm_flux_i_d_min;
+  parameters.asm_flux.i_d_max = settings.asm_flux_i_d_max;
+  parameters.asm_flux_reference = settings.asm_flux_psi_r;
+  field_flux_.Write(MagneticFlux{});
   parameters.dc_link = control::DcLinkLimit{.drive_current_max = settings.battery_drive_current_max,
                                             .charge_current_max = settings.battery_charge_current_max,
                                             .regen_derate_start = settings.dc_link_regen_derate_start,
@@ -45,6 +56,22 @@ void OuterLoop::Init(const settings::NvmSettings& settings, CurrentControlIsr& i
   parameters.gains = GainsFrom(settings);
   parameters_.Write(parameters);
   SetGains(parameters.gains);  // live gains handed over before are older than these
+}
+
+MagneticFlux OuterLoop::MotorTorqueConstant(const settings::NvmSettings& settings,
+                                            const MagneticFlux field_flux) noexcept {
+  const float kTorqueFactor = 1.5F * static_cast<float>(settings.pole_pairs);
+  switch (settings.motor_type) {
+    case system::MotorType::kAsm:
+      return (settings.asm_l_r > Inductance{})
+                 ? settings.asm_flux_psi_r * ((settings.asm_l_m / settings.asm_l_r) * kTorqueFactor)
+                 : MagneticFlux{};
+    case system::MotorType::kEesm:
+      return field_flux * kTorqueFactor;
+    case system::MotorType::kPmsm:
+    default:
+      return settings.flux_pm * kTorqueFactor;
+  }
 }
 
 OuterLoop::Gains OuterLoop::GainsFrom(const settings::NvmSettings& settings) noexcept {
@@ -106,6 +133,11 @@ void OuterLoop::Step() noexcept {
     dc_link.charge_current_max = kBattery.charge_current;
   }
   const Voltage kDcLink = isr_->state.dc_link;
+  if (active_.motor_type == system::MotorType::kEesm) {
+    // The torque constant follows the field current the excitation module measures.
+    active_.torque_constant = field_flux_.Read() * (1.5F * static_cast<float>(active_.pole_pairs));
+    speed_.torque_limit = active_.torque_constant * active_.current_limit;
+  }
 
   // -------------------------------------------------------------------------
   // 1. Mechanical position and speed from the electrical estimate. The
@@ -122,7 +154,12 @@ void OuterLoop::Step() noexcept {
     tracking_ = true;
   }
   last_angle_ = kObserver.electrical_angle;
-  const AngularVelocity kSpeed = kObserver.electrical_speed / static_cast<float>(active_.pole_pairs);
+  // ASM: the observer tracks the rotor flux frame; the rotor turns slower by the slip.
+  const AngularVelocity kElectricalSpeed =
+      (active_.motor_type == system::MotorType::kAsm)
+          ? kObserver.electrical_speed - SlowUpdate::Instance().SlipSpeed()
+          : kObserver.electrical_speed;
+  const AngularVelocity kSpeed = kElectricalSpeed / static_cast<float>(active_.pole_pairs);
 
   OuterStatus status{};
   status.steps = ++steps_;
@@ -171,6 +208,17 @@ void OuterLoop::Step() noexcept {
         current = TorqueToCurrent(PositionTorque(kSetpoint.position, kSpeed, kTorqueRange));
         status.in_position = position_.in_position;
         break;
+    }
+  }
+  if (active_.motor_type == system::MotorType::kAsm) {
+    // The d current magnetizes an induction motor: the flux controller sets it while engaged.
+    if (kSetpoint.active) {
+      current.d = active_.asm_flux.Update(active_.asm_flux_reference,
+                                          SlowUpdate::Instance().RotorFlux(),
+                                          current.q,
+                                          active_.dt);
+    } else {
+      active_.asm_flux.integrator = Current{};
     }
   }
   current = dc_link.Limit(LimitCurrent(current), active_.torque_constant, kSpeed, kDcLink);

@@ -171,6 +171,7 @@ void ForEachRegister(const Visitor& visit, Settings&... settings) {
   visit(Setting(reg::kAsmFluxKi, "Integral gain of the ASM flux controller", kAny, "A/(Wb s)"), settings.asm_flux_ki...);
   visit(Setting(reg::kAsmFluxIDMin, "Smallest d-axis current of the ASM flux controller", AtLeast(0.0F)), settings.asm_flux_i_d_min...);
   visit(Setting(reg::kAsmFluxIDMax, "Largest d-axis current of the ASM flux controller, at least i_d_min", AtLeast(0.0F)), settings.asm_flux_i_d_max...);
+  visit(Setting(reg::kAsmFluxPsiR, "Rotor flux reference of the ASM flux controller", AtLeast(0.0F)), settings.asm_flux_psi_r...);
   visit(Setting(reg::kFwVMax, "Voltage vector magnitude from which field weakening starts", AtLeast(0.0F)), settings.fw_v_max...);
   visit(Setting(reg::kFwKi, "Integral gain of the field weakening", kAny, "A/(V s)"), settings.fw_ki...);
   visit(Setting(reg::kFwIDMin, "Most negative d-axis current of the field weakening"), settings.fw_i_d_min...);
@@ -235,6 +236,9 @@ void ForEachRegister(const Visitor& visit, Settings&... settings) {
   visit(AfterRestart(reg::kPubDriveStatusId, "Cart drive status subject; 65535: off", kPortId), settings.pub_drive_status_id...);
   visit(AfterRestart(reg::kPubCommissioningId, "Commissioning status subject (startup aid); 65535: off", kPortId), settings.pub_commissioning_id...);
   visit(AfterRestart(reg::kPubHomingStateId, "Homing state subject; 65535: off", kPortId), settings.pub_homing_state_id...);
+  visit(AfterRestart(reg::kPubExcitationCommandId, "EESM field current command subject to the excitation module; 65535: off", kPortId), settings.pub_excitation_command_id...);
+  visit(AfterRestart(reg::kSubExcitationStatusId, "EESM excitation module status subject; 65535: off", kPortId), settings.sub_excitation_status_id...);
+  visit(AfterRestart(reg::kSubExcitationSetpointId, "EESM field current setpoint subject (overrides the drive's field current); 65535: off", kPortId), settings.sub_excitation_setpoint_id...);
   visit(Setting(reg::kCartWheel, "Cart wheel of this drive (WheelCommand.WHEEL_*)", Between(0.0F, 3.0F)), settings.cart_wheel...);
   visit(Setting(reg::kCartReversed, "1: positive rotor torque drives the cart backward", Between(0.0F, 1.0F)), settings.cart_reversed...);
   visit(Setting(reg::kCartTimeout, "Timeout of wheel command, pedal state and battery status; at most the command timeout", AtLeast(0.0F)), settings.cart_timeout...);

@@ -86,6 +86,18 @@ bool CurrentControlIsr::Init(const settings::NvmSettings& settings,
   cc.L_d = settings.l_d;
   cc.L_q = settings.l_q;
   cc.psi = settings.flux_pm;
+  if (settings.motor_type == system::MotorType::kAsm && settings.asm_l_r > unit::Inductance{} &&
+      settings.asm_l_s > unit::Inductance{}) {
+    // In the rotor flux frame the stator sees its transient inductance sigma L_s on both axes and the
+    // back-EMF of (L_m / L_r) psi_r, at the flux reference.
+    const unit::Inductance kTransient =
+        settings.asm_l_s - (settings.asm_l_m * (settings.asm_l_m / settings.asm_l_r));
+    cc.L_d = kTransient;
+    cc.L_q = kTransient;
+    cc.psi = settings.asm_flux_psi_r * (settings.asm_l_m / settings.asm_l_r);
+  } else if (settings.motor_type == system::MotorType::kEesm) {
+    cc.psi = unit::MagneticFlux{};  // the field builds up after the engage: the integrators take its back-EMF
+  }
   cc.v_max = settings.current_v_max;
 
   // --- Mechanical observer parameters ---

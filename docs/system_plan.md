@@ -185,7 +185,7 @@ Decided 2026-11-08 for the drive-to-module link:
 
 - **The field current loop runs in the excitation module**
   (`ExcitationController`, `ExcitationObserver`). The drive publishes a
-  field current setpoint (`unimoc.excitation.Setpoint.0.1`: field current,
+  field current command (`unimoc.excitation.Command.0.1`: field current,
   enable) and subscribes the module's status (`unimoc.excitation.Status.0.1`:
   measured field current, field voltage, fault). The `native_sim` platform
   runs a simulated module that feeds the field voltage of the EESM plant.
@@ -193,6 +193,9 @@ Decided 2026-11-08 for the drive-to-module link:
   rated field current, reduced in field weakening, within
   `unimoc.excitation.i_f_min`/`i_f_max`); an excitation setpoint on the bus
   overrides it while fresh, like the other setpoints (tests, the VDC).
+- **ASM sensorless first:** the induction motor runs without a rotor sensor
+  (an adaptive full-order flux observer, implemented 2026-11-08); a sensored
+  path (Hall or encoder) is a later option.
 
 The role of the extra half bridge follows the motor type (`unimoc.motor.type`):
 
@@ -614,9 +617,10 @@ Not a safety concept; a list of what one must cover.
   confirmed in the schematic (BMS and the separate excitation and chopper
   board);
   otherwise the chopper needs a fast interrupt.
-- **ASM and EESM without a plant model:** the libraries exist, but the
-  simulation and the runtime run the PMSM only; the EESM is first tested in
-  the sim once its plants exist (its excitation comes from a separate board).
+- **ASM and EESM only in the sim:** plants and runtime paths exist since
+  2026-11-08 (sensorless ASM, EESM with a simulated excitation module); no
+  real machine has run on them, and the sensorless ASM at standstill depends
+  on exact motor parameters.
 - **H743 logic board:** the LQFP100 needs more board area than the LQFP64,
   a second hot-path platform is to maintain, and the H7 adds cache, MPU and
   power-supply details (`docs/drive4850_h7_plan.md`).

@@ -328,6 +328,9 @@ class MotorSimulation {
    */
   constexpr void SetInput(const SimulationInput& input) noexcept { input_ = input; }
 
+  /// The external inputs of the last SetInput().
+  [[nodiscard]] constexpr const SimulationInput& Input() const noexcept { return input_; }
+
   /**
    * @brief Selects how the shaft speed is determined.
    * @param mode Free shaft or imposed speed.

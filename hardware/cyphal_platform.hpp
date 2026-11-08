@@ -29,6 +29,10 @@
 #include "nvm_settings.hpp"
 #include "settings_store.hpp"
 
+namespace unimoc::drive {
+struct DriveHooks;
+}  // namespace unimoc::drive
+
 namespace unimoc::hardware {
 
 /**
@@ -92,6 +96,10 @@ void CyphalPlatformSpin(cyphal::CyphalNode& node, uint64_t now_us) noexcept;
 
 /// Called after the drive applied new settings to the controller.
 void CyphalPlatformSettingsApplied(const settings::NvmSettings& settings) noexcept;
+
+/// Adds the platform's excitation module in process to the drive's hooks (native_sim); the boards leave
+/// them null, their module is on the bus.
+void CyphalPlatformExcitationHooks(drive::DriveHooks& hooks) noexcept;
 
 /// @}
 

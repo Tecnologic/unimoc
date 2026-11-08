@@ -21,6 +21,7 @@
 #include <uavcan/primitive/scalar/Natural8_1_0.h>
 #include <uavcan/si/unit/angle/Scalar_1_0.h>
 #include <uavcan/si/unit/angular_velocity/Scalar_1_0.h>
+#include <uavcan/si/unit/electric_current/Scalar_1_0.h>
 #include <uavcan/si/unit/torque/Scalar_1_0.h>
 #include <unimoc/cart/BatteryStatus_0_1.h>
 #include <unimoc/cart/DriveStatus_0_1.h>
@@ -29,9 +30,12 @@
 #include <unimoc/drive/CommissioningStatus_0_1.h>
 #include <unimoc/drive/CurrentSetpoint_0_1.h>
 #include <unimoc/drive/Telemetry_0_1.h>
+#include <unimoc/excitation/Command_0_1.h>
+#include <unimoc/excitation/Status_0_1.h>
 #include <array>
 #include <cmath>
 #include <limits>
+#include <numbers>
 #include <optional>
 #include <string_view>
 #include <utility>
@@ -43,6 +47,7 @@
 #include "settings_registers.hpp"
 #include "settings_store.hpp"
 #include "sin_cos.hpp"
+#include "slow_update.hpp"
 
 namespace unimoc::drive {
 
@@ -53,13 +58,14 @@ using current_control::OuterLoop;
 using current_control::OuterSetpoint;
 using hardware::kPowerStage;
 using hardware::PowerStageState;
+using unit::operator""_rad;
 
 struct InfoRegister {
   std::string_view name;
   std::string_view type;  ///< Empty: the unique-ID register.
 };
 
-constexpr std::array<InfoRegister, 21> kInfoRegisters{{
+constexpr std::array<InfoRegister, 24> kInfoRegisters{{
     {cyphal::reg::kSubReadinessType, "reg.udral.service.common.Readiness.0.1"},
     {cyphal::reg::kSubCurrentSetpointType, "unimoc.drive.CurrentSetpoint.0.1"},
     {cyphal::reg::kSubTorqueSetpointType, "uavcan.si.unit.torque.Scalar.1.0"},
@@ -73,6 +79,9 @@ constexpr std::array<InfoRegister, 21> kInfoRegisters{{
     {cyphal::reg::kPubDriveStatusType, "unimoc.cart.DriveStatus.0.1"},
     {cyphal::reg::kPubCommissioningType, "unimoc.drive.CommissioningStatus.0.1"},
     {cyphal::reg::kPubHomingStateType, "uavcan.primitive.scalar.Natural8.1.0"},
+    {cyphal::reg::kPubExcitationCommandType, "unimoc.excitation.Command.0.1"},
+    {cyphal::reg::kSubExcitationStatusType, "unimoc.excitation.Status.0.1"},
+    {cyphal::reg::kSubExcitationSetpointType, "uavcan.si.unit.electric_current.Scalar.1.0"},
     {cyphal::reg::kSrvCymonVariablesType, "cymon.GetVariableList.0.1"},
     {cyphal::reg::kSrvCymonBufferInfoType, "cymon.GetBufferInfo.0.1"},
     {cyphal::reg::kSrvCymonSetupType, "cymon.SetupCapture.0.1"},
@@ -327,6 +336,9 @@ bool DriveNode::Start(const uint64_t now_us) noexcept {
   wheel_command_port_ = live.sub_wheel_command_id;
   pedal_state_port_ = live.sub_pedal_state_id;
   battery_status_port_ = live.sub_battery_status_id;
+  excitation_status_port_ = live.sub_excitation_status_id;
+  excitation_setpoint_port_ = live.sub_excitation_setpoint_id;
+  excitation_command_ = cyphal::Publisher{live.pub_excitation_command_id, cyphal::Priority::kFast, 0U};
   telemetry_ = cyphal::Publisher{live.pub_telemetry_id, cyphal::Priority::kHigh, 0U};
   // After the wheel command (VDC) and with the pedal state (system plan section 6.2).
   drive_status_ = cyphal::Publisher{live.pub_drive_status_id, cyphal::Priority::kFast, 0U};
@@ -368,10 +380,19 @@ bool DriveNode::Start(const uint64_t now_us) noexcept {
       node_->Subscribe(pedal_state_port_, unimoc_cart_PedalState_0_1_EXTENT_BYTES_, *this) && subscribed;
   subscribed = node_->Subscribe(battery_status_port_, unimoc_cart_BatteryStatus_0_1_EXTENT_BYTES_, *this) &&
                subscribed;
+  // The excitation ports of an EESM; subscribed for every motor type, so a change of the type needs no
+  // restart.
+  subscribed = node_->Subscribe(excitation_status_port_, unimoc_excitation_Status_0_1_EXTENT_BYTES_, *this) &&
+               subscribed;
+  subscribed = node_->Subscribe(excitation_setpoint_port_,
+                                uavcan_si_unit_electric_current_Scalar_1_0_EXTENT_BYTES_,
+                                *this) &&
+               subscribed;
   subscribed = node_->AddPublisher(telemetry_) && subscribed;
   subscribed = node_->AddPublisher(drive_status_) && subscribed;
   subscribed = node_->AddPublisher(commissioning_publisher_) && subscribed;
   subscribed = node_->AddPublisher(homing_publisher_) && subscribed;
+  subscribed = node_->AddPublisher(excitation_command_) && subscribed;
   node_->SetCommandHandler(*this);
   node_->SetNodeIdListener(*this);
 
@@ -397,6 +418,7 @@ void DriveNode::Spin(const uint64_t now_us, const uint64_t drive_us) noexcept {
   }
   SpinStartup();
   PublishCommissioning(now_us);
+  SpinExcitation(drive_us);
   SpinEngagement(drive_us);
   // The outer loop commands zero current while the drive is disengaged.
   OuterSetpoint setpoint = setpoint_;
@@ -485,10 +507,20 @@ void DriveNode::SpinAccelerator(const uint64_t now_us) noexcept {
   }
 }
 
+bool DriveNode::BusOwnsDrive(const uint64_t now_us) const noexcept {
+  return bus_engaged_seen_ && now_us - bus_engaged_us_ <= command_timeout_us_;
+}
+
 void DriveNode::SpinLocalControl(const uint64_t now_us) noexcept {
   // The accelerator is the local control of a drive without the e-bike whose board has the input.
   accelerator_active_ = ebike_ == nullptr && accelerator_.Active() && board_.inputs.accelerator.has_value();
   if (accelerator_active_) {
+    if (BusOwnsDrive(now_us)) {
+      // A Cyphal setpoint overrides the accelerator; it waits for a release once the bus is gone.
+      accelerator_.Inhibit();
+      accelerator_engage_ = false;
+      return;
+    }
     SpinAccelerator(now_us);
     return;
   }
@@ -574,7 +606,7 @@ void DriveNode::SpinEngagement(const uint64_t now_us) noexcept {
         (torque_constant_ > unit::MagneticFlux{}) ? ebike_torque_ / torque_constant_ : unit::Current{};
     SetCurrentSetpoint(unit::Current{}, kCurrent, now_us);
   }
-  if (engaged_ && accelerator_active_ && accelerator_engage_) {
+  if (engaged_ && accelerator_active_ && accelerator_engage_ && !BusOwnsDrive(now_us)) {
     const unit::Current kCurrent =
         (torque_constant_ > unit::MagneticFlux{}) ? accelerator_torque_ / torque_constant_ : unit::Current{};
     SetCurrentSetpoint(unit::Current{}, kCurrent, now_us);
@@ -601,8 +633,14 @@ void DriveNode::LoadParameters(const settings::NvmSettings& settings) noexcept {
     accelerator_.Configure(AcceleratorParameters::From(settings));
   }
   current_limit_ = settings.motor_i_max;
-  // PMSM torque constant: T = 3/2 p psi_pm i_q.
-  torque_constant_ = settings.flux_pm * (1.5F * static_cast<float>(settings.pole_pairs));
+  motor_type_ = settings.motor_type;
+  field_l_m_ = settings.excitation_l_m;
+  field_min_ = settings.excitation_i_f_min;
+  field_max_ = settings.excitation_i_f_max;
+  // T = 3/2 p psi i_q; the EESM's psi follows the measured field current (SpinExcitation()).
+  const unit::MagneticFlux kFieldFlux =
+      (ExcitationFresh(drive_us_) ? excitation_.field_current : unit::Current{}) * field_l_m_;
+  torque_constant_ = OuterLoop::MotorTorqueConstant(settings, kFieldFlux);
 }
 
 void DriveNode::SpinStartup() noexcept {
@@ -695,6 +733,10 @@ void DriveNode::OnMessage(const cyphal::Transfer& transfer, uint64_t /*now_us*/)
     OnPedalState(transfer, kDriveUs);
   } else if (transfer.port_id == battery_status_port_) {
     OnBatteryStatus(transfer, kDriveUs);
+  } else if (transfer.port_id == excitation_status_port_) {
+    OnExcitationStatus(transfer, kDriveUs);
+  } else if (transfer.port_id == excitation_setpoint_port_) {
+    OnExcitationSetpoint(transfer, kDriveUs);
   }
 }
 
@@ -707,8 +749,16 @@ void DriveNode::OnReadiness(const cyphal::Transfer& transfer, const uint64_t now
   }
   last_readiness_us_ = now_us;
   if (readiness.value == reg_udral_service_common_Readiness_0_1_ENGAGED) {
-    if (HasLocalControl()) {
-      return;  // the e-bike or the accelerator engages the drive
+    if (ebike_ != nullptr) {
+      return;  // the e-bike engages the drive
+    }
+    if (accelerator_active_) {
+      // The bus overrides the accelerator: from now on the drive follows its setpoints.
+      if (!BusOwnsDrive(now_us)) {
+        ClearSetpoint();
+      }
+      bus_engaged_us_ = now_us;
+      bus_engaged_seen_ = true;
     }
     if (!engaged_ && !rearm_required_) {
       engage_requested_ = true;  // engaged in Spin(), outside the dispatch
@@ -840,6 +890,92 @@ void DriveNode::OnBatteryStatus(const cyphal::Transfer& transfer, const uint64_t
                         now_us);
 }
 
+void DriveNode::OnExcitationStatus(const cyphal::Transfer& transfer, const uint64_t now_us) noexcept {
+  unimoc_excitation_Status_0_1 status{};
+  std::size_t size = transfer.payload.size();
+  if (unimoc_excitation_Status_0_1_deserialize_(&status, InputBytes(transfer.payload), &size) < 0 ||
+      hooks_.excitation_status != nullptr) {
+    return;  // the simulated module answers in process
+  }
+  excitation_ = ExcitationState{.field_current = unit::Current{status.field_current},
+                                .field_voltage = unit::Voltage{status.field_voltage},
+                                .enabled = status.enabled,
+                                .fault = status.fault};
+  excitation_us_ = now_us;
+  excitation_seen_ = true;
+}
+
+void DriveNode::OnExcitationSetpoint(const cyphal::Transfer& transfer, const uint64_t now_us) noexcept {
+  uavcan_si_unit_electric_current_Scalar_1_0 setpoint{};
+  std::size_t size = transfer.payload.size();
+  if (uavcan_si_unit_electric_current_Scalar_1_0_deserialize_(&setpoint,
+                                                              InputBytes(transfer.payload),
+                                                              &size) < 0 ||
+      !std::isfinite(setpoint.ampere)) {
+    return;
+  }
+  field_setpoint_ = unit::Current{setpoint.ampere};
+  field_setpoint_us_ = now_us;
+  field_setpoint_seen_ = true;
+}
+
+bool DriveNode::ExcitationFresh(const uint64_t now_us) const noexcept {
+  return excitation_seen_ && now_us - excitation_us_ <= command_timeout_us_;
+}
+
+unit::Current DriveNode::FieldCurrentReference(const uint64_t now_us) const noexcept {
+  if (field_setpoint_seen_ && now_us - field_setpoint_us_ <= command_timeout_us_) {
+    return field_setpoint_.Clamp(field_min_, field_max_);
+  }
+  // The rated field, reduced where its back-EMF |omega_e| L_m i_f reaches the voltage the inverter can
+  // apply (0.95 Vdc / sqrt(3)), so the current loop keeps its headroom.
+  const auto& isr = CurrentControlIsr::Instance();
+  const unit::AngularVelocity kSpeed = unit::Abs(isr.mech_obs.omega);
+  unit::Current field = field_max_;
+  if (kSpeed > unit::AngularVelocity{} && field_l_m_ > unit::Inductance{}) {
+    constexpr float kHeadroom = 0.95F / std::numbers::sqrt3_v<float>;
+    const unit::Current kBackEmfLimit = (isr.state.dc_link * kHeadroom) / ((kSpeed / 1.0_rad) * field_l_m_);
+    field = unit::Min(field, kBackEmfLimit);
+  }
+  return unit::Max(field, field_min_);
+}
+
+void DriveNode::SpinExcitation(const uint64_t now_us) noexcept {
+  if (motor_type_ != system::MotorType::kEesm) {
+    return;
+  }
+  const unit::Current kReference = engaged_ ? FieldCurrentReference(now_us) : unit::Current{};
+  if (hooks_.excitation_command != nullptr) {
+    hooks_.excitation_command(kReference, engaged_, now_us);
+  }
+  if (hooks_.excitation_status != nullptr && hooks_.excitation_status(excitation_)) {
+    excitation_us_ = now_us;
+    excitation_seen_ = true;
+  }
+  if (Due(kExcitationPeriodUs, now_us_, next_excitation_us_)) {
+    unimoc_excitation_Command_0_1 command{};
+    command.field_current = kReference.Value();
+    command.enable = engaged_;
+    std::array<std::byte, unimoc_excitation_Command_0_1_SERIALIZATION_BUFFER_SIZE_BYTES_> buffer{};
+    std::size_t size = buffer.size();
+    if (unimoc_excitation_Command_0_1_serialize_(&command,
+                                                 reinterpret_cast<uint8_t*>(buffer.data()),
+                                                 &size) >= 0) {
+      (void)node_->Publish(excitation_command_, std::span<const std::byte>{buffer.data(), size});
+    }
+  }
+  // The measured field is the flux of the observer and the torque constant.
+  const bool kFresh = ExcitationFresh(now_us);
+  const unit::MagneticFlux kFieldFlux = (kFresh ? excitation_.field_current : unit::Current{}) * field_l_m_;
+  current_control::SlowUpdate::Instance().SetFieldFlux(kFieldFlux);
+  OuterLoop::Instance().SetFieldFlux(kFieldFlux);
+  torque_constant_ = kFieldFlux * (1.5F * static_cast<float>(applied_settings_.pole_pairs));
+  if (engaged_ && (!kFresh || excitation_.fault)) {
+    rearm_required_ = true;
+    Disengage(kFresh ? "excitation fault" : "excitation lost");
+  }
+}
+
 void DriveNode::WatchBus() noexcept {
   const cyphal::CanBusStatus kBus = node_->BusStatus();
   const bool kWentOff = kBus.state == cyphal::CanBusState::kBusOff || kBus.bus_off_count != bus_off_count_;
@@ -911,6 +1047,11 @@ void DriveNode::Engage() noexcept {
   if (identification_.IsActive()) {
     rearm_required_ = true;
     (void)node_->Log(cyphal::Severity::kWarning, "engage refused: the identification is running");
+    return;
+  }
+  if (motor_type_ == system::MotorType::kEesm && (!ExcitationFresh(drive_us_) || excitation_.fault)) {
+    rearm_required_ = true;
+    (void)node_->Log(cyphal::Severity::kWarning, "engage refused: no excitation module or a module fault");
     return;
   }
   if (!board_.verdict.ready) {

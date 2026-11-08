@@ -10,7 +10,7 @@ set(UNIMOC_ROOT ${ZEPHYR_UNIMOC_MODULE_DIR})
 # --- Platform selection (Kconfig symbol chosen by the board) ----------------
 if(CONFIG_UNIMOC_PLATFORM_SIM)
   set(UNIMOC_PLATFORM_DIR ${UNIMOC_ROOT}/hardware/zephyr_sim)
-  set(UNIMOC_PLATFORM_EXTRA_SOURCES cyphal_platform.cpp register_file.cpp slcan_media.cpp sim_cmdline.c ebike_io.cpp board_inputs.cpp)
+  set(UNIMOC_PLATFORM_EXTRA_SOURCES cyphal_platform.cpp register_file.cpp slcan_media.cpp sim_cmdline.c ebike_io.cpp board_inputs.cpp sim_excitation.cpp)
   set(UNIMOC_PLATFORM_LIBRARIES unimoc_sim)
 elseif(CONFIG_UNIMOC_PLATFORM_STM32H7)
   set(UNIMOC_PLATFORM_DIR ${UNIMOC_ROOT}/hardware/zephyr_stm32h7)

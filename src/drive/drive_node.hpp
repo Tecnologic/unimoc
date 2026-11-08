@@ -25,6 +25,7 @@
 #include "commissioning.hpp"
 #include "cyphal/node.hpp"
 #include "ebike_control.hpp"
+#include "excitation_state.hpp"
 #include "hardware_interface.hpp"
 #include "hw_startup.hpp"
 #include "motor_identification.hpp"
@@ -42,6 +43,11 @@ struct DriveHooks {
   void (*restart)() noexcept {nullptr};
   /// Called after new settings were applied to the controller (native_sim: the plant follows); may be null.
   void (*settings_applied)(const settings::NvmSettings& settings) noexcept {nullptr};
+  /// native_sim: the simulated excitation module takes the field current command in process (it goes
+  /// out on the bus as well); null on the boards.
+  void (*excitation_command)(unit::Current field_current, bool enable, uint64_t now_us) noexcept {nullptr};
+  /// native_sim: the state of the simulated excitation module; null on the boards (the bus status counts).
+  bool (*excitation_status)(ExcitationState& state) noexcept {nullptr};
 };
 
 /// The board inputs as the drive last read them, with the verdict of its supervision.
@@ -137,7 +143,21 @@ class DriveInfoRegisters final : public cyphal::RegisterProvider {
  *
  * Accelerator (AcceleratorControl, `unimoc.accel.mode`): in a drive without
  * the e-bike and with the inputs on the board, the accelerator and the brake
- * lever are the local control, as the e-bike is in the e-bike build.
+ * lever are the local control, as the e-bike is in the e-bike build. A
+ * Cyphal readiness ENGAGED overrides it: while it is fresh the drive follows
+ * the bus setpoints; afterwards the accelerator takes over again once both
+ * inputs were released.
+ *
+ * Motor types (`unimoc.motor.type`): the torque setpoints use the torque
+ * constant of the type (OuterLoop::MotorTorqueConstant()). An EESM drive
+ * commands its excitation module (`uavcan.pub.excitation_command.id`, 100 Hz):
+ * the field current of its operating point (`unimoc.control.excitation.i_f_max`,
+ * reduced above the speed where the field's back-EMF reaches the DC link, at
+ * least `i_f_min`), or the bus setpoint (`uavcan.sub.excitation_setpoint.id`)
+ * while fresh; enabled while engaged, de-excited otherwise. The measured field
+ * current of the module's status (`uavcan.sub.excitation_status.id`) is the
+ * field flux L_m i_f of the observer and the torque constant. Without a fresh
+ * status the drive does not engage; a lost status or a module fault disengages it.
  *
  * Cart (CartControl, docs/system_plan.md, section 7): the first wheel
  * command after the engage makes the drive a cart wheel drive; its torque
@@ -223,7 +243,9 @@ class DriveNode final : public cyphal::MessageListener,
   void SetLocalControl(ebike::EbikeControl* control) noexcept { ebike_ = control; }
 
   /// True while a local control (the e-bike, or the accelerator) engages the drive instead of the bus.
-  [[nodiscard]] bool HasLocalControl() const noexcept { return ebike_ != nullptr || accelerator_active_; }
+  [[nodiscard]] bool HasLocalControl() const noexcept {
+    return ebike_ != nullptr || (accelerator_active_ && !BusOwnsDrive(drive_us_));
+  }
 
   /// The board inputs of the last spin and their verdict.
   [[nodiscard]] const BoardState& Board() const noexcept { return board_; }
@@ -251,6 +273,14 @@ class DriveNode final : public cyphal::MessageListener,
   void OnWheelCommand(const cyphal::Transfer& transfer, uint64_t now_us) noexcept;
   void OnPedalState(const cyphal::Transfer& transfer, uint64_t now_us) noexcept;
   void OnBatteryStatus(const cyphal::Transfer& transfer, uint64_t now_us) noexcept;
+  void OnExcitationStatus(const cyphal::Transfer& transfer, uint64_t now_us) noexcept;
+  void OnExcitationSetpoint(const cyphal::Transfer& transfer, uint64_t now_us) noexcept;
+  /// EESM: the field current command, the module's status, the field flux and the torque constant.
+  void SpinExcitation(uint64_t now_us) noexcept;
+  /// EESM: the field current the drive asks for at its operating point (or the bus setpoint).
+  [[nodiscard]] unit::Current FieldCurrentReference(uint64_t now_us) const noexcept;
+  /// EESM: a fresh status of the excitation module.
+  [[nodiscard]] bool ExcitationFresh(uint64_t now_us) const noexcept;
   /// Follows the bus state; a bus-off drops the cart inputs.
   void WatchBus() noexcept;
   void SetCurrentSetpoint(unit::Current i_d, unit::Current i_q, uint64_t now_us) noexcept;
@@ -264,6 +294,8 @@ class DriveNode final : public cyphal::MessageListener,
   void SpinLocalControl(uint64_t now_us) noexcept;
   /// The accelerator as the local control (no e-bike, `unimoc.accel.mode` set, inputs on the board).
   void SpinAccelerator(uint64_t now_us) noexcept;
+  /// A fresh readiness ENGAGED of the bus: it overrides the accelerator (Cyphal before the board's ADC).
+  [[nodiscard]] bool BusOwnsDrive(uint64_t now_us) const noexcept;
   /// Reads the board inputs; trips an engaged power stage on their loss and reports the changes.
   void SpinBoard(uint64_t now_us) noexcept;
   /// The power stage state for the bus: BLOCKED while the board inputs refuse the engage.
@@ -312,12 +344,27 @@ class DriveNode final : public cyphal::MessageListener,
   uint16_t wheel_command_port_{cyphal::kUnsetPortId};
   uint16_t pedal_state_port_{cyphal::kUnsetPortId};
   uint16_t battery_status_port_{cyphal::kUnsetPortId};
+  uint16_t excitation_status_port_{cyphal::kUnsetPortId};
+  uint16_t excitation_setpoint_port_{cyphal::kUnsetPortId};
   uint64_t command_timeout_us_{500'000U};
   uint64_t telemetry_period_us_{0U};
   uint64_t drive_status_period_us_{0U};
   uint8_t cart_wheel_{0U};
   unit::Current current_limit_;
-  unit::MagneticFlux torque_constant_;  ///< PMSM 3/2 p psi_pm [N m/A = Wb]
+  unit::MagneticFlux torque_constant_;  ///< 3/2 p psi of the motor type [N m/A = Wb]
+  system::MotorType motor_type_{system::MotorType::kPmsm};
+  unit::Inductance field_l_m_;    ///< EESM: L_m of psi_f = L_m i_f.
+  unit::Current field_min_;       ///< EESM: unimoc.control.excitation.i_f_min.
+  unit::Current field_max_;       ///< EESM: unimoc.control.excitation.i_f_max.
+  ExcitationState excitation_{};  ///< EESM: the last status of the module.
+  uint64_t excitation_us_{0U};    ///< When it arrived.
+  bool excitation_seen_{false};
+  unit::Current field_setpoint_;  ///< EESM: the bus setpoint.
+  uint64_t field_setpoint_us_{0U};
+  bool field_setpoint_seen_{false};
+  cyphal::Publisher excitation_command_{};
+  uint64_t next_excitation_us_{0U};
+  static constexpr uint64_t kExcitationPeriodUs = 10'000U;  ///< 100 Hz commands.
   uint32_t applied_writes_{0U};
   uint32_t checked_writes_{0U};             ///< Register writes looked at for live tuning.
   settings::NvmSettings applied_settings_;  ///< What the controller runs with.
@@ -346,7 +393,9 @@ class DriveNode final : public cyphal::MessageListener,
   bool accelerator_active_{false};   ///< The accelerator is the local control (SpinAccelerator()).
   bool accelerator_engage_{false};   ///< The accelerator control asks for the drive.
   unit::Torque accelerator_torque_;  ///< Its torque, rotor frame.
-  bool accelerator_fault_{false};    ///< Its sensor fault was reported.
+  bool accelerator_fault_{false};
+  uint64_t bus_engaged_us_{0U};   ///< Last readiness ENGAGED of the bus while the accelerator is active.
+  bool bus_engaged_seen_{false};  ///< Its sensor fault was reported.
   BoardSupervision board_supervision_{};
   bool board_announced_{false};  ///< A record said why the board is not ready.
   bool bus_lost_{false};         ///< Bus-off seen and not yet back on the bus.

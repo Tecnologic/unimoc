@@ -40,12 +40,14 @@
 #include <tuple>
 #include "current_control_runtime.hpp"
 #include "cyphal/register_value.hpp"
+#include "drive_node.hpp"
 #include "power_stage_interface.hpp"
 #include "register_file.hpp"
 #include "sim_board.hpp"
 #include "sim_cmdline.h"
 #include "sim_control.hpp"
 #include "sim_ebike.hpp"
+#include "sim_excitation.hpp"
 #include "slcan_media.hpp"
 
 LOG_MODULE_DECLARE(unimoc_cyphal, CONFIG_UNIMOC_LOG_LEVEL);
@@ -86,7 +88,9 @@ void ApplyInputs() noexcept {
   const unsigned int kKey = irq_lock();
   auto& plant = sim::Plant();
   plant.SetShaftMode(g_inputs.shaft_mode, unit::AngularVelocity{g_inputs.imposed_speed});
-  plant.SetInput(::unimoc::sim::SimulationInput{unit::Torque{g_inputs.load_torque}, unit::Voltage{}});
+  // The field voltage stays with the simulated excitation module (sim_excitation.hpp).
+  plant.SetInput(
+      ::unimoc::sim::SimulationInput{unit::Torque{g_inputs.load_torque}, plant.Input().field_voltage});
   plant.SetDcLinkVoltage(unit::Voltage{g_inputs.dc_link_voltage});
   plant.SetContactorClosed(g_inputs.contactor_closed);
   irq_unlock(kKey);
@@ -773,6 +777,11 @@ uint64_t CyphalPlatformDriveTimeUs(const uint64_t now_us) noexcept {
   clock.real_us = now_us;
   clock.virtual_ns = kVirtualNs;
   return clock.drive_ns / 1000U;
+}
+
+void CyphalPlatformExcitationHooks(drive::DriveHooks& hooks) noexcept {
+  hooks.excitation_command = sim::ExcitationCommand;
+  hooks.excitation_status = sim::ExcitationStatus;
 }
 
 void CyphalPlatformSettingsApplied(const settings::NvmSettings& settings) noexcept {

@@ -198,8 +198,8 @@ class CyphalNode {
   /// timing; the platform: one more).
   static constexpr std::size_t kMaxRegisterProviders = 6U;
   /// Largest number of application subscriptions (drive: 6 setpoint and
-  /// readiness subjects, 3 cart subjects; traces: the trigger).
-  static constexpr std::size_t kMaxListeners = 12U;
+  /// readiness subjects, 3 cart subjects, 2 excitation subjects; traces: the trigger).
+  static constexpr std::size_t kMaxListeners = 16U;
   /// Largest number of application publishers reported in the port list.
   static constexpr std::size_t kMaxPublishers = 8U;
   /// Largest number of application services.

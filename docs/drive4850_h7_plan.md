@@ -173,6 +173,9 @@ Decisions (2026-11-08):
   by factory default) with calibrated released/pressed voltages, engaged on
   demand like the e-bike, and readable on the bus (`unimoc.board.*`).
 - **Separate from the e-bike:** the e-bike build ignores both inputs.
+- **Cyphal before the board's ADC:** a readiness `ENGAGED` on the bus
+  overrides the accelerator; while it is fresh the drive follows the bus
+  setpoints, afterwards the accelerator takes over again once released.
 
 ## 5. Fourth half bridge on the H743 (dropped 2026-11-03)
 

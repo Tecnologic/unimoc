@@ -25,8 +25,8 @@ modules) and no access to cypilot's branches beyond its own repository.
 
 ### Tier 1: in the development container, in this order
 
-Items 1 to 5 are done (2026-10-31, one pull request); 6 is dropped and 7 is
-done (2026-11-08); 8 is next.
+Items 1 to 5 are done (2026-10-31, one pull request); 6 is dropped, 7 and 8
+are done (2026-11-08); 9 is next.
 
 1. Done: **Zephyr 4.5 update** ("Hot path and Zephyr port"). First, so every later
    change lands on the new baseline while the diff against 4.4 is still only
@@ -238,7 +238,7 @@ no motor-type selection and runs the PMSM path only, and `lib/sim` has only
  - [x] (2026-11-08) ASM plant in `lib/sim` (`AsmModel`: stator and rotor flux d/q model with rotor resistance and magnetizing inductance) behind the `MotorModel` concept; plant tests (slip, torque direction, flux build-up).
  - [x] (2026-11-08) EESM plant in `lib/sim` (`EesmModel`: d/q model with saliency and a field winding, psi_f = L_m i_f, field voltage from `ElectricalInput::field_voltage`); plant tests (field build-up and decay, torque with and without excitation).
  - [x] DC-link model in the sim (2026-10-31, `lib/sim/src/dc_link_model.hpp`): capacitor, battery with internal resistance and a contactor (`unimoc.sim.dc_link_capacitance`, `.battery_resistance`, `.contactor_closed`; the ideal source stays the default), the body-diode charging of the open bridge as an averaged six-step rectifier (decision 2), the dead time of the bridge. Open: the chopper (with the fourth half bridge), a test of the regenerative derating against the capacitor.
- - [ ] Motor-type selection in the runtime: ASM path (flux observer and controller; the `atan2` of `asm_flux_observer::flux_angle` must go without libm before it enters the control cycle) and EESM path (excitation controller and observer, excitation setpoint over Cyphal, the open "excitation" of the SIL setpoint item); closed-loop sim tests per motor type.
+ - [x] (2026-11-08) Motor-type selection in the runtime (sensorless ASM with speed adaptation, EESM with the excitation module link and a simulated module; sim tests `sim_cyphal_drive`). Was: ASM path (flux observer and controller; the `atan2` of `asm_flux_observer::flux_angle` must go without libm before it enters the control cycle) and EESM path (excitation controller and observer, excitation setpoint over Cyphal, the open "excitation" of the SIL setpoint item); closed-loop sim tests per motor type.
  - [ ] Hardware: the excitation and chopper board (separate module, not the drive) on the bench, after it exists.
 
 ## Hot path and Zephyr port
@@ -278,7 +278,9 @@ down. The boundaries are documented in `CONTEXT.md` ("Unit Boundaries").
  - [ ] P2: One-process simulator coordinator with N independent motor nodes and one shared virtual clock; a barriered multi-motor step with coherent timestamps and deterministic ordering.
  - [ ] P2: Independent constant/viscous load models and tests for isolated motors, unique node IDs, reset and repeatability; a shared load interface for shaft, wheel, battery, differential and torque-vectoring models.
  - [ ] P2: Host simulator executable around the coordinator.
- - [ ] P2: Excitation setpoints into the normal controller input path (torque, d/q current, speed, position and the UDRAL servo done); depends on the EESM runtime path.
+ - [x] (2026-11-08) P2: Excitation setpoints into the normal controller input path: `uavcan.sub.excitation_setpoint.id` overrides the drive's field current while fresh.
+ - [ ] Hardware: the excitation module (a bus node, separate board) itself: firmware for `unimoc.excitation.Command.0.1` / `Status.0.1`, command timeout, fault latching.
+ - [ ] Sensored ASM (Hall or encoder plus the slip), and a check of the sensorless ASM at low speed with parameter errors (R_r drifts with temperature).
  - [ ] P2: Telemetry and heartbeat with explicit virtual-time semantics (published in real time today; the telemetry carries the control-cycle count).
  - [ ] P2: Simulation-control command snapshot (pause, fixed-cycle advance, reset, run-until and clock status done).
  - [ ] P2: Protocol and localhost end-to-end tests for multi-node operation (single node done: `unimoc.app.cyphal_integration`).

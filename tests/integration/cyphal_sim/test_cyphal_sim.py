@@ -162,7 +162,7 @@ def test_registers_json_describes_every_register_on_the_bus(dut, sim: SimClient,
 
     # The persistent settings, among them the e-bike registers past the 128th.
     settings = [entry for entry in entries if entry["persistent"] and entry["mutable"]]
-    assert len(settings) == 140
+    assert len(settings) == 144
     assert "unimoc.ebike.display_timeout" in by_name
 
 
@@ -431,15 +431,20 @@ def test_board_inputs_gate_the_engage(sim: SimClient):
 
 
 def test_accelerator_is_the_local_control(sim: SimClient):
+    sim.wait(1.2)  # the STANDBY of the test before must not release the accelerator's engage
     assert sim.write("unimoc.accel.mode", natural8(1)) == 1
     sim.expect(sim.heartbeat, lambda h: h.vendor_specific_status_code & VENDOR_LOCAL_CONTROL)
-    sim.hold(0.3, ENGAGED, sim.current_setpoint(0.0, 1.0))  # the bus no longer engages the drive
-    assert not sim.next(sim.telemetry).engaged
     assert sim.write("unimoc.sim.accelerator", real(2.6)) == pytest.approx(2.6)
     assert sim.read("unimoc.board.accelerator") == pytest.approx(2.6)
     sim.expect(sim.telemetry, lambda t: t.engaged)
+    # A Cyphal setpoint overrides the accelerator while the readiness is fresh.
+    sim.hold(0.3, ENGAGED, sim.current_setpoint(0.0, 1.5))
+    telemetry = sim.next(sim.telemetry)
+    assert telemetry.engaged and telemetry.i_q_ref == pytest.approx(1.5, abs=1e-3)
+    assert not sim.next(sim.heartbeat).vendor_specific_status_code & VENDOR_LOCAL_CONTROL
     assert sim.write("unimoc.sim.accelerator", real(0.8)) == pytest.approx(0.8)
-    sim.expect(sim.telemetry, lambda t: not t.engaged, timeout=4.0)  # after the engage hold (2 s)
+    sim.wait(0.1)  # ends the readiness stream of hold(): the bus falls silent
+    sim.expect(sim.telemetry, lambda t: not t.engaged, timeout=5.0)  # the readiness timeout
     # A broken wire (below the released voltage by more than 0.3 V) is reported, no engage.
     mark = sim.record_mark()
     assert sim.write("unimoc.sim.accelerator", real(0.1)) == pytest.approx(0.1)
