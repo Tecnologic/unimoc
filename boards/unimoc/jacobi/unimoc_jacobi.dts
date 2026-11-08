@@ -39,39 +39,42 @@
 		unimoc-led-error = &led_error;
 	};
 
-	/* Status LEDs as on the 4850 logic board. Polarity to check in the schematic. */
+	/*
+	 * Status LEDs LED_RUN PE0, LED_ERROR PE1, LED_MODE PE2, LED_PWM PE3
+	 * (schematic, interfaces sheet). Polarity: active high assumed, to check.
+	 */
 	leds {
 		compatible = "gpio-leds";
 		led_run: led-run {
-			gpios = <&gpiod 8 GPIO_ACTIVE_HIGH>;
+			gpios = <&gpioe 0 GPIO_ACTIVE_HIGH>;
 			label = "RUN";
 		};
-		led_pwm: led-pwm {
-			gpios = <&gpiod 9 GPIO_ACTIVE_HIGH>;
-			label = "PWM";
+		led_error: led-error {
+			gpios = <&gpioe 1 GPIO_ACTIVE_HIGH>;
+			label = "ERROR";
 		};
 		led_mode: led-mode {
-			gpios = <&gpiod 10 GPIO_ACTIVE_HIGH>;
+			gpios = <&gpioe 2 GPIO_ACTIVE_HIGH>;
 			label = "MODE";
 		};
-		led_error: led-error {
-			gpios = <&gpiod 11 GPIO_ACTIVE_HIGH>;
-			label = "ERROR";
+		led_pwm: led-pwm {
+			gpios = <&gpioe 3 GPIO_ACTIVE_HIGH>;
+			label = "PWM";
 		};
 	};
 
 	/*
-	 * Three-phase power stage on the 4850 power board.
+	 * Three-phase power stage on the Jacobi power board: NCEP6080AG (60 V),
+	 * two in parallel per switch, LM5109B gate drivers, one 0.5 mOhm shunt
+	 * with an INA240A1 per phase, 47k / 2k2 dividers for Va, Vb, Vc and Vdc
+	 * (schematic in Tecnologic/unimoc_jacobi, docs/h743_logic_board.md).
 	 *
-	 * TIM1 generates centre-aligned PWM on CH1..CH3 + CH1N..CH3N (PE8..PE13).
-	 * TRGO2 (rising OC4REF / OC6REF) starts the injected sequences of
-	 * ADC1..ADC3 at the same instant. The end of the ADC1 sequence is the
-	 * sample interrupt (zero latency), the TIM1 update vector the observer
-	 * interrupt.
-	 *
-	 * The phase voltages need taps on the power board connector (dividers to
-	 * be added in the redesign); they take the pins of the former AC current
-	 * paths PA7, PB1 and PC3_C.
+	 * TIM1 generates centre-aligned PWM on CH1..CH3 (PA8..PA10) and
+	 * CH1N..CH3N (PB13..PB15). TRGO2 (rising OC4REF / OC6REF) starts the
+	 * injected sequences of ADC1..ADC3 at the same instant. The end of the
+	 * ADC1 sequence is the sample interrupt (zero latency), the TIM1 update
+	 * vector the observer interrupt. ADC1 has the longest sequence (both
+	 * temperatures are on ADC1-only pins), so ADC2 and ADC3 are done by then.
 	 */
 	foc0: foc-power-stage {
 		compatible = "unimoc,foc-stm32h7";
@@ -80,56 +83,66 @@
 		timer = <&timers1>;
 
 		/*
-		 * 4850 power board (BSC040N08, LM5109B): 1 us as in the legacy
-		 * firmware. Both power stages are designed for 200 ns (Jacobi, and
-		 * the legacy board is capable of it); lower it after the scope check.
+		 * The Jacobi power stage is designed for 200 ns (schematic, phase
+		 * sheet). 1 us until 200 ns is checked on the scope.
 		 */
 		dead-time-ns = <1000>;
 
-		pinctrl-0 = <&tim1_ch1_pe9 &tim1_ch1n_pe8
-			     &tim1_ch2_pe11 &tim1_ch2n_pe10
-			     &tim1_ch3_pe13 &tim1_ch3n_pe12
+		/* Front end: 0.5 mOhm shunt with INA240A1 (+-160 A), 47k / 2k2 dividers (73.8 V). */
+		shunt-nano-ohm = <500000>;
+		current-amplifier-gain = <20>;
+		voltage-divider-ohms = <47000 2200>;
+		/* Trip 120 A (rating 120 to 130 A), 100 A peak phase current. */
+		max-phase-current-amps = <120>;
+		max-motor-current-amps = <100>;
+		/* 60 V FETs, 36 V systems up to 44 V: derate 45 V, trip 48 V, at most 50 V. */
+		dc-link-millivolts = <45000 48000 50000>;
+
+		pinctrl-0 = <&tim1_ch1_pa8 &tim1_ch1n_pb13
+			     &tim1_ch2_pa9 &tim1_ch2n_pb14
+			     &tim1_ch3_pa10 &tim1_ch3n_pb15
 			     &tim1_bkin_pe15
-			     &analog_pa6 &analog_pa7 &analog_pa0
-			     &analog_pb0 &analog_pb1 &analog_pc5
-			     &analog_pc2_c &analog_pc0 &analog_pc3_c>;
+			     &analog_pa2 &analog_pb1 &analog_pa0 &analog_pa1
+			     &analog_pa3 &analog_pb0 &analog_pc1
+			     &analog_pc2_c &analog_pc3_c>;
 		pinctrl-names = "default";
 
-		/* Three injected conversions per ADC, the phase current first. */
-		io-channels = <&adc1 3>, <&adc1 7>, <&adc1 16>,  /* PA6 ia, PA7 va, PA0 bridge temp  */
-			      <&adc2 9>, <&adc2 5>, <&adc2 8>,   /* PB0 ib, PB1 vb, PC5 motor temp   */
-			      <&adc3 0>, <&adc3 10>, <&adc3 1>;  /* PC2_C ic, PC0 vdc, PC3_C vc      */
-		io-channel-names = "ia", "va", "bridge-temperature",
-				   "ib", "vb", "motor-temperature",
-				   "ic", "vdc", "vc";
+		/* Injected sequences in this order, the phase current first on each ADC. */
+		io-channels = <&adc1 14>, <&adc1 5>, <&adc1 16>, <&adc1 17>, /* PA2 ia, PB1 va, PA0, PA1 */
+			      <&adc2 15>, <&adc2 9>, <&adc2 11>,            /* PA3 ib, PB0 vb, PC1 vdc   */
+			      <&adc3 0>, <&adc3 1>;                         /* PC2_C ic, PC3_C vc        */
+		io-channel-names = "ia", "va", "motor-temperature", "bridge-temperature",
+				   "ib", "vb", "vdc",
+				   "ic", "vc";
 
 		/*
-		 * ADC clock cycles at 30 MHz (pll2_p 120 MHz / 4). Currents from
-		 * the INA240 outputs through the GS8632 filters (low impedance):
-		 * short. Dividers and NTCs: longer.
+		 * ADC clock cycles at 30 MHz (pll2_p 120 MHz / 4). Currents and phase
+		 * voltages through 220R / 2n2, Vdc through 4k7 / 10n: short, the
+		 * filter capacitors charge the sample capacitor. NTCs: longer.
 		 */
-		sample-times = "2.5", "16.5", "32.5",
-			       "2.5", "16.5", "32.5",
-			       "2.5", "16.5", "32.5";
+		sample-times = "2.5", "16.5", "32.5", "32.5",
+			       "2.5", "16.5", "16.5",
+			       "2.5", "16.5";
 	};
 
 	/*
-	 * Further board signals. Names are the net names of the 4850 logic board.
+	 * Further board signals, named after the nets of the schematic.
 	 */
 	zephyr,user {
-		/* External enable on the net PWM_BREAK: PE15 is also TIM1_BKIN. */
+		/*
+		 * PWM_EN: the optocoupler U1102 (12 to 40 V on J501) on PE15, which
+		 * is also TIM1_BKIN: low breaks the outputs in hardware. There is no
+		 * separate gate driver enable.
+		 */
 		break-gpios = <&gpioe 15 GPIO_ACTIVE_HIGH>;
-		/* Hall sensors A, B, C (one port; TIM4 CH1..CH3 for a later capture). */
+		/* Hall sensors A, B, C (TIM4 CH1..CH3 for a later capture). */
 		hall-gpios = <&gpiod 12 GPIO_ACTIVE_HIGH>,
 			     <&gpiod 13 GPIO_ACTIVE_HIGH>,
 			     <&gpiod 14 GPIO_ACTIVE_HIGH>;
-		/* TCAN334 STB: high = standby. Driven low by the Cyphal platform. */
+		/* TCAN334 STB on PD2: high = standby. Driven low by the Cyphal platform. */
 		can-standby-gpios = <&gpiod 2 GPIO_ACTIVE_HIGH>;
-		/*
-		 * Gate driver enable PWM_EN of the power board. Not driven by the
-		 * platform yet: it has to be before the power board is connected.
-		 */
-		pwm-enable-gpios = <&gpioe 7 GPIO_ACTIVE_HIGH>;
+		/* PWR_DET on PE4 (10k pull-up): low while the power board is plugged in. Not read yet. */
+		power-board-gpios = <&gpioe 4 GPIO_ACTIVE_LOW>;
 	};
 };
 
@@ -216,12 +229,12 @@
 };
 
 /*
- * CAN: TCAN334 on FDCAN1 (PB8 RX, PB9 TX). The transceiver handles CAN FD
+ * CAN: TCAN334 on FDCAN1 (PD0 RX, PD1 TX). The transceiver handles CAN FD
  * data rates, but the bus runs 1 Mbit/s in both phases like the other nodes
  * (app/boards/unimoc_jacobi.conf turns the bit rate switch off).
  */
 &fdcan1 {
-	pinctrl-0 = <&fdcan1_rx_pb8 &fdcan1_tx_pb9>;
+	pinctrl-0 = <&fdcan1_rx_pd0 &fdcan1_tx_pd1>;
 	pinctrl-names = "default";
 	clocks = <&rcc STM32_CLOCK(APB1_2, 8)>,
 		 <&rcc STM32_SRC_PLL2_Q FDCAN_SEL(2)>;

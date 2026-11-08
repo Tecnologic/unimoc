@@ -18,7 +18,8 @@ of work (version over Cyphal `GetInfo`) already existed
   `main` merge commits only (branch rules).
 - `develop` ruleset: squash only, linear history, bypass for the owner of
   `RELEASE_TOKEN` (the bump commit is pushed directly), required checks
-  `twister`, `firmware / firmware (jacobi)`, `firmware / firmware (sim)` and
+  `twister`, `firmware / firmware (jacobi)`, `firmware / firmware (nucleo_h743zi)`,
+  `firmware / firmware (sim)` and
   `conventional-title`. The context is the check run name (job name; a job of
   a reusable workflow is `<caller job> / <job>`), without the workflow name.
 - `main` ruleset: merge commits only and **no** linear-history rule (it

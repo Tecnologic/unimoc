@@ -46,13 +46,12 @@ constexpr Time kLowSideSampleWindow = 2.0e-6_s;
 const settings::SettingsProfile kSettingsProfile = [] {
   settings::SettingsProfile profile{};
   // 32 kHz PWM, a control step every half period (divider automatic, 64 kHz),
-  // the observer at 16 kHz. With the 1 us dead time of the 4850 power board higher
+  // the observer at 16 kHz. With the 1 us dead time of the devicetree higher
   // frequencies cost too much voltage (docs/hotpath_plan.md, section 3).
   profile.factory_settings.pwm_frequency = 32.0_kHz;
   // Duty range: the minimum off/on time per PWM period is 4 % of 31.25 us =
-  // 1.25 us, above the 1 us dead time of the 4850 power board (legacy
-  // firmware). Estimate, to be checked on the scope with the bootstrap
-  // supply of the LM5109B.
+  // 1.25 us, above the 1 us dead time of the devicetree. Estimate, to be
+  // checked on the scope with the bootstrap supply of the LM5109B.
   profile.factory_settings.svm_duty_min = 0.04_ratio;
   profile.factory_settings.svm_duty_max = 0.96_ratio;
   // The dead-time compensation starts from the devicetree dead time (foc0
@@ -60,17 +59,18 @@ const settings::SettingsProfile kSettingsProfile = [] {
   profile.factory_settings.dtc_dead_time = 1.0e-9_s * static_cast<float>(foc_stm32h7::kDeadTimeNs);
   profile.factory_settings.battery_drive_current_max = 50.0_A;
   profile.factory_settings.battery_charge_current_max = 20.0_A;
-  profile.capabilities.max_phase_current = 60.0_A;  // hard trip limit of the power stage
-  profile.capabilities.max_motor_current = 50.0_A;
+  // Hard trip limit and motor current limit of the power stage: foc0 of the board.
+  profile.capabilities.max_phase_current = 1.0_A * static_cast<float>(foc_stm32h7::kMaxPhaseCurrentAmps);
+  profile.capabilities.max_motor_current = 1.0_A * static_cast<float>(foc_stm32h7::kMaxMotorCurrentAmps);
   profile.capabilities.max_battery_drive_current = 50.0_A;
   profile.capabilities.max_battery_charge_current = 20.0_A;
-  // DC link: 48 V battery (13s, 54.6 V full). Regenerative braking derates
-  // from 55 V and the drive trips at 58 V. The 4850 power board uses the
-  // BSC040N08 (80 V); the capacitor rating is not checked yet. Currents:
-  // the 4850 is a 50 A drive.
-  profile.factory_settings.dc_link_regen_derate_start = 55.0_V;
-  profile.factory_settings.dc_link_trip = 58.0_V;
-  profile.capabilities.max_dc_link_voltage = 60.0_V;
+  // DC link from foc0 dc-link-millivolts of the board (derate, trip, max):
+  // Jacobi and the legacy 4850 power board both carry 60 V FETs (NCEP6080AG),
+  // so both are 36 V drives (lead-acid up to 44 V while charging, 10S Li-ion).
+  profile.factory_settings.dc_link_regen_derate_start =
+      1.0e-3_V * static_cast<float>(foc_stm32h7::kDcLinkDerateMillivolts);
+  profile.factory_settings.dc_link_trip = 1.0e-3_V * static_cast<float>(foc_stm32h7::kDcLinkTripMillivolts);
+  profile.capabilities.max_dc_link_voltage = 1.0e-3_V * static_cast<float>(foc_stm32h7::kDcLinkMaxMillivolts);
   // Control steps up to 64 kHz: a step every half period at 32 kHz PWM, every
   // period at 64 kHz; about 2070 cycles worst at 400 MHz from ITCM
   // (docs/hotpath_plan.md, section 4).

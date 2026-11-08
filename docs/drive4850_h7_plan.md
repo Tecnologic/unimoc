@@ -79,7 +79,8 @@ and the sheet labels of `logic/` and `power/` in hardware_4850:
 > PWM; PWR_DET PE4; CAN STB PD2; HSE a 20 MHz oscillator in bypass. Jacobi
 > also has its own power board (NCEP6080AG 60 V FETs, two per switch, 0.5 mΩ
 > shunts with INA240A1, ±160 A), rated 36 V / 45 A and 100 A peak. The table
-> below is the earlier proposal.
+> below is the earlier proposal. The devicetree follows the schematic since
+> 2026-11-08 (vdc on ADC2, both temperatures on ADC1).
 
 ### 4.1 Analog
 
@@ -188,7 +189,8 @@ UNIMOC parts. Running on the board since 2026-11-03 with the outputs off
 - Platform `hardware/zephyr_stm32h7/` (binding `unimoc,foc-stm32h7`): the
   G4 driver ported to the H7 ADC (asynchronous clock, boost by silicon
   revision, linearity calibration, channel preselection `PCSEL`, 12 bit),
-  three injected conversions per ADC, the unlocked M7 cycle counter. Since
+  one to four injected conversions per ADC (by signal name, 2026-11-08), the
+  unlocked M7 cycle counter. Since
   2026-11-03 the control step runs in every sample interrupt and writes the
   CCR preload (no duty DMA); measured on the Nucleo in `docs/hotpath_plan.md`,
   section 4. The hot path runs from ITCM (`hot_path_itcm.ld`, both H7 boards
@@ -203,7 +205,6 @@ the 4850 proposal):
 |---|---|---|
 | PWM CH1..CH3, CH1N..CH3N | PE9, PE11, PE13, PE8, PE10, PE12 | TIM1 |
 | Break (external enable) | PE15 | TIM1_BKIN, pull-down: tie to 3V3 to release |
-| Gate driver enable `PWM_EN` | PE7 | `pwm-enable-gpios` in `zephyr,user` (as on Jacobi), not driven by the platform yet |
 | ia, va, bridge temperature | PA6, PF11, PF12 | ADC1 INP3, INP2, INP6 |
 | ib, vb, motor temperature | PB1, PF13, PF14 | ADC2 INP5, INP2, INP6 |
 | ic, vdc, vc | PC2_C, PC3_C, PF10 | ADC3 INP0, INP1, INP6 |
@@ -233,14 +234,14 @@ module; (5) the 4850 power board through an adapter.
    chip, COMP2 shares port E with TIM1 in this proposal).
 6. Phase voltage dividers and their pins on the power board connector.
 7. ~~HSE frequency~~: a 20 MHz oscillator in bypass (2026-11-08). LED
-   polarity. `PWM_EN` is the break input PE15 on Jacobi; the PE7 property
-   in the devicetree has no hardware behind it.
+   polarity (active high assumed). `PWM_EN` is the break input PE15
+   (2026-11-08, devicetree without a PE7 enable).
 8. Dead time: the Jacobi power stage is designed for 200 ns (schematic,
    phase sheet), and the legacy 4850 power board is capable of 200 ns too
    (2026-11-08). The devicetree keeps 1 us until it is measured on the scope;
    200 ns allows 64 kHz PWM (`docs/hotpath_plan.md`, section 3). The factory
    dead-time compensation takes `dead-time-ns`.
-9. Voltage and current limits per board: the STM32H7 profile is the one of
-   the legacy 4850 power board (48 V, 80 V FETs, trip 58 V, ±66 A sensor
-   range, 60 A trip). Jacobi needs its own (36 V, 60 V FETs, ±160 A range,
-   trip 120 to 130 A).
+9. ~~Voltage and current limits per board~~ (2026-11-08): foc0 carries the
+   front end and the limits (`docs/zephyr_workflow.md`, "Limits per
+   board"). Open: whether the legacy board has the INA240A1 (BOM value)
+   or the A2 (its order number), and the battery current rating of Jacobi.

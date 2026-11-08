@@ -45,9 +45,11 @@ connect to the VDC directly (IMU, GNSS, steering angle sensor, display).
 
 ### 2.1 What the 4850 hardware is (from the KiCad schematics)
 
-- **Power stage (`power/phase.sch`, three sheets):** per phase BSC040N08
-  MOSFETs (80 V), an LM5109B half-bridge driver, 2 mΩ shunts with an
-  INA240A1 inline current amplifier, NTC on the heat sink. Proven over years
+- **Power stage (`power/phase.sch`, three sheets):** per phase MOSFETs
+  (the ordered boards: NCEP6080AG, 60 V, per the BOM in
+  `unimoc_jacobi/production/legacy_kicad5/power`; one prototype carries the
+  BSC040N08NS5, 80 V), an LM5109B half-bridge driver, three 2 mΩ shunts in
+  parallel with an INA240A1 inline current amplifier, NTC on the heat sink. Proven over years
   in the quad (1.6 kW) and kept as it is.
 - **Logic (`logic/`):** STM32F730R8 (LQFP64), TCAN334 CAN transceiver
   (CAN FD capable), USB mini-B, 24LC04 EEPROM, Hall and motor temperature
@@ -191,7 +193,7 @@ Requirements to settle in the schematic (nothing is designed yet):
 
 - **Placement:** on the new logic board or as an addition to the power board,
   which otherwise stays unchanged (section 2.1). Same parts as the phases
-  (BSC040N08, LM5109B) where the rating fits.
+  (LM5109B) where the rating fits.
 - **PWM:** a fourth channel synchronized with the phase timer (for example a
   spare channel of TIM1/TIM8; on the H743 TIM8 CH2/CH2N slaved to TIM1), with the same break
   input, so the E-stop and the overcurrent break also stop it.
@@ -478,11 +480,12 @@ the simulation, not on hardware):
   chopper of the BMS takes what is left (section 5.5); the mechanical brake
   covers the rest.
 - **DC-link overvoltage:** with the battery disconnected during braking the
-  DC link rises fast; the BSC040N08 are 80 V parts on a 48 V system. The
+  DC link rises fast; the H7 power stages carry 60 V FETs (NCEP6080AG) and run 36 V systems. The
   chopper limits the voltage, and each drive still needs its own
   overvoltage limit in the current controller and a hard trip, verified on
   the bench with the chopper disconnected. Implemented in the drive
-  (2026-10-22): regenerative derating from 55 V, trip at 58 V (Jacobi). The
+  (2026-10-22): regenerative derating from 55 V, trip at 58 V (since 2026-11-08 per board
+  from the devicetree: 45 V / 48 V on the 60 V H7 power stages). The
   trip switches all transistors off, so at high speed the motor still
   charges the DC link through the body diodes; accepted as a known risk on
   Jacobi. The brake chopper of the BMS (section 5.5) and, with an EESM, the

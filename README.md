@@ -276,8 +276,9 @@ it from the mechanical power of the q current (k_t i_q ω / V_dc, losses
 ignored) and scales i_q to `unimoc.battery.limits.drive_current` when
 motoring and to `unimoc.battery.limits.charge_current` when braking.  The
 charge limit falls linearly from `unimoc.battery.limits.regen_derate_voltage`
-(55 V) to zero at `unimoc.battery.limits.trip_voltage` (58 V, at most the
-hardware's 60 V), where the control cycle trips the power stage.  The trip
+(factory values from the board: 45 V on Jacobi and the NUCLEO-H743ZI, 55 V in
+the simulation) to zero at `unimoc.battery.limits.trip_voltage` (48 V on the
+H7 boards, at most 50 V; 58 V in the simulation), where the control cycle trips the power stage.  The trip
 switches all transistors off: above the line-to-line back-EMF peak the
 motor still feeds the DC link through the body diodes, so the trip level
 must stay above the battery voltage and a brake chopper has to hold the
@@ -894,7 +895,8 @@ y cmd 42 514 motor-connected
 > over-current (OC) trip limit equal to `oc_fraction × max_phase_current_A`
 > (default 10 %) is active throughout.  The FSM transitions immediately to
 > FAULT if this limit is exceeded.  Independently, the fast ISR trips the power
-> stage at the hard limit `max_phase_current` (60 A on Jacobi) and latches a
+> stage at the hard limit `max_phase_current` (foc0 `max-phase-current-amps`: 120 A on Jacobi, 60 A
+> with the legacy 4850 power board on the NUCLEO-H743ZI) and latches a
 > fault until it is cleared.
 
 ---
@@ -1135,7 +1137,8 @@ west twister -T unimoc/app -p native_sim/native/64 --scenario unimoc.app.cyphal_
 west twister -T unimoc/tests/lib/motor_control -p native_sim/native/64
 ```
 
-Prebuilt firmware: every CI run uploads the Jacobi image (`unimoc-jacobi`) and the
+Prebuilt firmware: every CI run uploads the Jacobi image (`unimoc-jacobi`), the NUCLEO-H743ZI
+image (`unimoc-nucleo_h743zi`) and the
 `native_sim` executable (`unimoc-native_sim`) as artifacts of the
 [Zephyr workflow](https://github.com/Tecnologic/unimoc/actions/workflows/ci-zephyr.yml).
 Releases (below) attach the same files with checksums, the twister report and

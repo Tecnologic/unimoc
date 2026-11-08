@@ -94,6 +94,21 @@ TIM_TypeDef* const kTim = reinterpret_cast<TIM_TypeDef*>(kTimerBase);
 ADC_TypeDef* const kAdcFast = reinterpret_cast<ADC_TypeDef*>(kAdcPhaseA.base);
 ADC_TypeDef* const kAdcB = reinterpret_cast<ADC_TypeDef*>(kAdcPhaseB.base);
 ADC_TypeDef* const kAdcC = reinterpret_cast<ADC_TypeDef*>(kAdcPhaseC.base);
+ADC_TypeDef* const kAdcVdc = reinterpret_cast<ADC_TypeDef*>(kAdcs[kVdcLocation.adc]->base);
+
+// Injected result of a rank (0 = JDR1).
+uint32_t InjectedResult(const ADC_TypeDef* const adc, const uint32_t rank) noexcept {
+  switch (rank) {
+    case 0U:
+      return adc->JDR1;
+    case 1U:
+      return adc->JDR2;
+    case 2U:
+      return adc->JDR3;
+    default:
+      return adc->JDR4;
+  }
+}
 
 // Observer interrupt: the timer update vector, pended by software after each
 // control cycle. The timer never pends it itself: DIER stays 0.
@@ -199,7 +214,7 @@ bool WaitWhile(const volatile uint32_t& reg, const uint32_t mask, const bool unt
 // The clock mode of a common block may only change while all its ADCs are
 // disabled: set both before the first ADC is enabled.
 bool InitAdcClocks() noexcept {
-  for (const AdcDescription* description : {&kAdcPhaseA, &kAdcPhaseB, &kAdcPhaseC}) {
+  for (const AdcDescription* description : kAdcs) {
     struct stm32_pclken pclken = description->pclken;
     if (clock_control_on(kRcc, reinterpret_cast<clock_control_subsys_t>(&pclken)) != 0) {
       return false;
@@ -242,17 +257,21 @@ bool InitAdc(const AdcDescription& description, const bool fast_interrupt) noexc
   kAdc->ISR = ADC_ISR_ADRDY;
 
   uint32_t preselection = 0U;
-  for (uint32_t rank = 0U; rank < kRanks; ++rank) {
+  constexpr std::array<uint32_t, kMaxRanks> kSequencePositions{ADC_JSQR_JSQ1_Pos,
+                                                               ADC_JSQR_JSQ2_Pos,
+                                                               ADC_JSQR_JSQ3_Pos,
+                                                               ADC_JSQR_JSQ4_Pos};
+  uint32_t sequence = 0U;
+  for (uint32_t rank = 0U; rank < description.ranks; ++rank) {
     SetSampleTime(kAdc, description.channels[rank], description.sample_times[rank]);
     preselection |= 1U << description.channels[rank];
+    sequence |= static_cast<uint32_t>(description.channels[rank]) << kSequencePositions[rank];
   }
   kAdc->PCSEL = preselection;  // the H7 ADC converts only preselected channels
 
-  kAdc->JSQR = ((kRanks - 1U) << ADC_JSQR_JL_Pos) | (kInjectedTrigger << ADC_JSQR_JEXTSEL_Pos) |
+  kAdc->JSQR = ((description.ranks - 1U) << ADC_JSQR_JL_Pos) | (kInjectedTrigger << ADC_JSQR_JEXTSEL_Pos) |
                (1U << ADC_JSQR_JEXTEN_Pos) |  // rising edge
-               (static_cast<uint32_t>(description.channels[0]) << ADC_JSQR_JSQ1_Pos) |
-               (static_cast<uint32_t>(description.channels[1]) << ADC_JSQR_JSQ2_Pos) |
-               (static_cast<uint32_t>(description.channels[2]) << ADC_JSQR_JSQ3_Pos);
+               sequence;
 
   kAdc->ISR = ADC_ISR_JEOC | ADC_ISR_JEOS | ADC_ISR_JQOVF;
   kAdc->IER = fast_interrupt ? ADC_IER_JEOSIE : 0U;
@@ -294,15 +313,15 @@ ISR_DIRECT_DECLARE(SampleIsr) {
   // after the peak, the one of a valley in the lower half (lead and sequence
   // shorter than a quarter period).
   g_sample_at_peak = kTim->CNT > g_auto_reload / 2U;
-  kAdcFast->ISR = ADC_ISR_JEOS;  // the sequence is complete, JDR1..JDR3 are valid
+  kAdcFast->ISR = ADC_ISR_JEOS;  // the longest sequence is complete: all injected results are valid
   const uint32_t kIa = kAdcFast->JDR1;
   const uint32_t kIb = kAdcB->JDR1;
   const uint32_t kIc = kAdcC->JDR1;
   const uint32_t kWindow = g_overcurrent_window.load(std::memory_order_relaxed);
   const bool kOvercurrent =
       OutsideWindow(kIa, kWindow) || OutsideWindow(kIb, kWindow) || OutsideWindow(kIc, kWindow);
-  // The DC link of every sample: rank 2 of the phase C ADC, converted with the same trigger and sample times.
-  const uint32_t kVdc = kAdcC->JDR2;
+  // The DC link of every sample, converted with the same trigger (rank and ADC from the devicetree).
+  const uint32_t kVdc = InjectedResult(kAdcVdc, kVdcLocation.rank);
   const bool kOvervoltage = kVdc >= g_overvoltage_counts.load(std::memory_order_relaxed);
   if (kOvercurrent || kOvervoltage) {
     kTim->EGR = TIM_EGR_BG;  // break: outputs off at once, BIF latched
@@ -600,18 +619,18 @@ void SetOvervoltageCounts(const uint32_t counts) noexcept {
 }
 
 RawSamples ReadRaw() noexcept {
-  const ADC_TypeDef* const kRegA = Adc(kAdcPhaseA);
-  const ADC_TypeDef* const kRegB = Adc(kAdcPhaseB);
-  const ADC_TypeDef* const kRegC = Adc(kAdcPhaseC);
-  return RawSamples{kRegA->JDR1,
-                    kRegA->JDR2,
-                    kRegA->JDR3,
-                    kRegB->JDR1,
-                    kRegB->JDR2,
-                    kRegB->JDR3,
-                    kRegC->JDR1,
-                    kRegC->JDR2,
-                    kRegC->JDR3};
+  const auto kRead = [](const SignalLocation location) noexcept {
+    return InjectedResult(Adc(*kAdcs[location.adc]), location.rank);
+  };
+  return RawSamples{kRead(LocationOf("ia")),
+                    kRead(LocationOf("va")),
+                    kRead(LocationOf("bridge-temperature")),
+                    kRead(LocationOf("ib")),
+                    kRead(LocationOf("vb")),
+                    kRead(LocationOf("motor-temperature")),
+                    kRead(LocationOf("ic")),
+                    kRead(LocationOf("vdc")),
+                    kRead(LocationOf("vc"))};
 }
 
 }  // namespace unimoc::hardware::foc_stm32h7
