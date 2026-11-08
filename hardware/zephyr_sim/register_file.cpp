@@ -154,15 +154,10 @@ void PutRegister(std::FILE* file,
 
 }  // namespace
 
-bool WriteRegisterFile(const cyphal::CyphalNode& node,
+bool WriteRegisterJson(const cyphal::CyphalNode& node,
                        const cyphal::NodeInfo& info,
-                       const char* const path) noexcept {
-  // NOLINTNEXTLINE(cppcoreguidelines-owning-memory): a stdio file, closed at the end of this function.
-  std::FILE* const kFile = std::fopen(path, "w");
-  if (kFile == nullptr) {
-    return false;
-  }
-  (void)std::fprintf(kFile,
+                       std::FILE* const file) noexcept {
+  (void)std::fprintf(file,
                      "{\n  \"schema\": %d,\n  \"firmware\": {\"name\": \"unimoc\", \"version\": \"%s\", "
                      "\"vcs_revision\": \"%016" PRIx64
                      "\", \"target\": \"native_sim\"},\n  \"registers\": [\n",
@@ -174,13 +169,24 @@ bool WriteRegisterFile(const cyphal::CyphalNode& node,
     for (std::size_t index = 0U; index < kProvider->Count(); ++index) {
       cyphal::RegisterValue value{};
       const cyphal::RegisterFlags kFlags = kProvider->Read(index, value);
-      (void)std::fputs(first ? "" : ",\n", kFile);
+      (void)std::fputs(first ? "" : ",\n", file);
       first = false;
-      PutRegister(kFile, kProvider->Name(index), kFlags, value, kProvider->Describe(index));
+      PutRegister(file, kProvider->Name(index), kFlags, value, kProvider->Describe(index));
     }
   }
-  (void)std::fputs("\n  ]\n}\n", kFile);
-  const bool kWritten = std::ferror(kFile) == 0;
+  (void)std::fputs("\n  ]\n}\n", file);
+  return (std::fflush(file) == 0) && (std::ferror(file) == 0);
+}
+
+bool WriteRegisterFile(const cyphal::CyphalNode& node,
+                       const cyphal::NodeInfo& info,
+                       const char* const path) noexcept {
+  // NOLINTNEXTLINE(cppcoreguidelines-owning-memory): a stdio file, closed at the end of this function.
+  std::FILE* const kFile = std::fopen(path, "w");
+  if (kFile == nullptr) {
+    return false;
+  }
+  const bool kWritten = WriteRegisterJson(node, info, kFile);
   // NOLINTNEXTLINE(cppcoreguidelines-owning-memory): the stdio file opened above.
   return (std::fclose(kFile) == 0) && kWritten;
 }

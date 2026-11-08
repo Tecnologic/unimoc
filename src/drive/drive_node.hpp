@@ -23,6 +23,7 @@
 #include "board_inputs_interface.hpp"
 #include "cart_control.hpp"
 #include "commissioning.hpp"
+#include "cyphal/file_service.hpp"
 #include "cyphal/node.hpp"
 #include "ebike_control.hpp"
 #include "excitation_state.hpp"
@@ -48,6 +49,10 @@ struct DriveHooks {
   void (*excitation_command)(unit::Current field_current, bool enable, uint64_t now_us) noexcept {nullptr};
   /// native_sim: the state of the simulated excitation module; null on the boards (the bus status counts).
   bool (*excitation_status)(ExcitationState& state) noexcept {nullptr};
+  /// The bank a firmware update is written into (native_sim: RAM); null: the board refuses updates.
+  const cyphal::FirmwareBank* firmware_bank{nullptr};
+  /// Board name an update image must carry (CONFIG_BOARD); must outlive the drive.
+  std::string_view board{};
 };
 
 /// The board inputs as the drive last read them, with the verdict of its supervision.
@@ -320,6 +325,8 @@ class DriveNode final : public cyphal::MessageListener,
   /// The homing state on every change, at 2 Hz while searching and 0.5 Hz otherwise.
   void PublishHoming(uint64_t now_us) noexcept;
   void UpdateStatus() noexcept;
+  /// Sends the next file read of a running firmware update and reports its end.
+  void SpinUpdate(uint64_t now_us) noexcept;
 
   cyphal::CyphalNode* node_;
   settings::SettingsStore* store_;
@@ -332,6 +339,8 @@ class DriveNode final : public cyphal::MessageListener,
   identification::MotorIdentification identification_;
   Commissioning commissioning_;
   TimingRegisters timing_registers_{};
+  cyphal::FirmwareUpdateService update_;
+  cyphal::FirmwareUpdate::State update_state_{cyphal::FirmwareUpdate::State::kIdle};
   bool startup_active_{false};
 
   // Settings captured at start or at the last apply.

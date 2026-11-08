@@ -62,11 +62,17 @@ are done (2026-11-08); 9 is next.
    current loop runs in the excitation module, the drive sends it a field
    current setpoint and decides that setpoint itself, a bus setpoint
    overrides it (`docs/system_plan.md` section 5.2.1).
-9. **Cyphal file service and firmware update, sim part**: `uavcan.file.Read`
-   and `BEGIN_SOFTWARE_UPDATE` into a simulated bank 2; serving the register
-   description file over it (F3). The bank swap and the bootloader wait for
-   the board. Decided 2026-11-08: a UNIMOC image header (magic, version,
-   size, board name, CRC32) checked before the swap.
+9. Done (2026-11-08): **Cyphal file service and firmware update, sim part**:
+   service clients in `CyphalNode` (`AddClient()`, `Request()`, the source of
+   an ExecuteCommand), `lib/cyphal/file_service.*` (a `uavcan.file.Read`
+   server, the download client with the `unimoc.update.*` registers),
+   `BEGIN_SOFTWARE_UPDATE` downloads from the commanding node into a
+   simulated 1 MiB bank 2 and checks the UNIMOC image header (magic,
+   version, size, board name, CRC32; `scripts/make_firmware_image.py`);
+   the simulation serves `registers.json` over it (F3). ztests
+   (`firmware_update` suite of `unimoc.lib.cyphal`) and pytests with the
+   pycyphal file server. Open: flash bank 2 on the STM32H7 (the boards
+   refuse the command), the bank swap and the bootloader.
 10. **Structure for the cart**: split `app/` into `apps/drive/` and
     `apps/vdc/` with `lib/vehicle/` (the VDC, pedal unit and BMS boards are
     STM32H7 based and share `hardware/zephyr_stm32h7`). Decided 2026-11-08:
@@ -178,7 +184,7 @@ In this order; all without hardware unless marked.
  - [x] E-bike pedal assist (2026-10-23, `docs/ebike_plan.md`): `lib/ebike/` (pedal observer, assist law, Kunteng codec, software UART receiver), `src/ebike/` (control), `unimoc.ebike.*` registers, the drive hook, the BCC drivers (cadence pulse PA5, display line on PB15 through TIM15 capture, USART3 transmit on PB10) behind `CONFIG_UNIMOC_EBIKE`, the simulated rider and display. Open: tune the assist (bench, then ride), check the display protocol on a real KT-LCD8 (temperature offset, checksum constant, wheel size mapping, error codes), check the TIM15 both-edge capture and the 5 V levels of the display lines on the board, an assist level on the bus (a pedal-unit node), brake and light inputs (not on the BCC connectors). Done 2026-11-08: the pytest of the simulated rider (`unimoc.sim.pedal_*`, `unimoc.sim.display_*`, scenario `unimoc.app.cyphal_integration.ebike`) and the learned torque offset stored in `unimoc.ebike.torque_offset`.
  - [ ] Multi-node simulation: check `vcan` (CAN FD MTU) on WSL2; one `native_sim` process per node on `vcan`, pycyphal on the same interface; multi-node pycyphal tests in CI. A single node already works over the slcan pseudo terminals (classic CAN). Fallback: Cyphal/UDP over the `native_sim` TAP driver (NSOS passes no multicast socket options in 4.4).
  - [ ] CAN FD bit timing per board in the devicetree: 1 Mbit/s arbitration and 4 Mbit/s data with transmitter delay compensation for the 4850 (TCAN334), 2 Mbit/s data as the fallback; Jacobi and the NUCLEO-H743ZI run 1/1 Mbit/s until then (`boards/unimoc/jacobi/unimoc_jacobi.dts`).
- - [ ] Firmware update over Cyphal: `ExecuteCommand BEGIN_SOFTWARE_UPDATE`, `uavcan.file.Read` into flash bank 2, bootloader swap; USB DFU as recovery.
+ - [ ] Firmware update over Cyphal: `ExecuteCommand BEGIN_SOFTWARE_UPDATE`, `uavcan.file.Read` into flash bank 2, bootloader swap; USB DFU as recovery. Done 2026-11-08 on `native_sim` (tier 1 item 9): the download into a RAM bank and the image check. Open: the flash bank 2 writer of the STM32H7 (erase by sector, 32-byte flash words, the cache), the bootloader with the swap and signatures, refusing the swap of an image older than the running one.
  - [ ] Extend the pycyphal integration tests with every new bus feature (done: the commissioning commands and status message of the startup aid, START_HOMING and the homing state, RESET_TIMING, speed, position and servo setpoints, timing registers, simulation pause and advance).
  - [ ] Hardware: Cyphal on the NUCLEO-H743ZI, then Jacobi: FDCAN1 bit timing at 1 Mbit/s with CAN FD frames, the TCAN334 standby pin, heartbeat, registers and the log with a USB CAN FD adapter and yakut; plug-and-play with `yakut monitor --plug-and-play`.
  - [ ] Hardware: CAN FD bus test (phase C2): NUCLEO-H743ZI and evaluation boards on a cart-length harness, 1/4 and 1/2 Mbit/s, bus load and latency at 250 and 500 Hz; choose the bit rate and the cycle rate.
@@ -224,7 +230,7 @@ contract with the firmware. The firmware side, in this repository:
  - [x] F1 (2026-10-24): vendor status bits 4 to 7 (trip latched, E-stop latched, settings pending, local control) in the heartbeat; the readiness subject follows the node-ID (65534: 1024 + node-ID) until written; ztest and pytest. The GetInfo name convention was dropped (the name is the user's role label, `docs/gui_plan.md`, section 6).
  - [x] F2 (2026-10-24): register description file: unit, limits, effect (live-tunable, disengaged, restart) and help next to each register, `--describe-registers` of the simulation, ztests of the descriptions, a pytest against the registers on the bus, the CI and release asset `unimoc-registers-<version>.json`; `scripts/sim_cluster.sh` for N drives on `vcan0` (`--cart-wheel`). Fixed with it: the register list ended at 128 settings, so `unimoc.ebike.rearm_time` and `unimoc.ebike.display_timeout` were not on the bus.
  - [x] Startup aid from cypilot (2026-10-29, cypilot branch `ccr-03adfb43-5avw34`): a Startup aid card in the Control view on the existing `unimoc.startup.*` registers; STOP ALL, the E-stop and the operator's lease abort a run (readiness does not stop it). Firmware side: the abort is a no-op outside a run, the aid reaches DONE. The CONNECT_MOTOR barrier holds the outputs off instead of asking for a power cycle (which restarted the drive and ended the run, 2026-10-29).
- - [ ] F3: serve the description file over `uavcan.file.Read` (with the Cyphal file service of the firmware update).
+ - [x] F3 (2026-11-08, simulation): the simulation serves its description file as `registers.json` over `uavcan.file.Read` (written into a host temporary file at the start, so it carries the values of the fresh node). Open on the boards: the compressed file in flash (`unimoc/registers.json.gz`, `docs/gui_plan.md` section 4).
  - [ ] Decide the license of `dsdl/unimoc/` (proposed: permissive, so the GUI repository can carry it; plan section 2.1).
 
 ## Motor types: ASM and EESM in the simulation and the firmware

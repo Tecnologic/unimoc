@@ -49,7 +49,9 @@ Read `README.md` for the supported motor types and public features, and
   (`cmake/UnimocZephyr.cmake`). `lib/cyphal/` is the portable Cyphal stack:
   libcanard and O1Heap (west projects, `modules/lib/`), the C serialization
   that Nunavut generates at configure time from the public regulated data
-  types and `dsdl/unimoc/`, the transport and the node services.
+  types and `dsdl/unimoc/`, the transport, the node services (servers and
+  clients) and the file service with the firmware update
+  (`file_service.*`, `firmware_update.hpp`, `firmware_image.hpp`).
 - `dsdl/unimoc/` is the UNIMOC DSDL namespace (every message fits in one CAN
   FD frame). Changing a type there changes the bus protocol.
 - `src/` contains the application core: `current_control/` (hot-path ISR and
@@ -84,7 +86,8 @@ Read `README.md` for the supported motor types and public features, and
   the platforms except `cyphal_platform.cpp` of each platform (STM32H7:
   transceiver standby pin; sim: slcan pseudo terminals, `unimoc.sim.*` registers,
   plant trace, the register description file `register_file.cpp` written by
-  `--describe-registers`). `hardware/hardware_interface.hpp`,
+  `--describe-registers` and served as `registers.json` over `uavcan.file.Read`;
+  the RAM bank of the firmware update). `hardware/hardware_interface.hpp`,
   `hardware/power_stage_interface.hpp`, `hardware/board_inputs_interface.hpp`
   (power board detect, gate supply, accelerator, brake lever) and
   `hardware/cyphal_platform.hpp` are the platform-independent boundaries.

@@ -59,8 +59,9 @@ uint64_t CyphalPlatformDriveTimeUs(const uint64_t now_us) noexcept { return now_
 
 void CyphalPlatformSettingsApplied(const settings::NvmSettings& /*settings*/) noexcept {}
 
-void CyphalPlatformExcitationHooks(drive::DriveHooks& /*hooks*/) noexcept {}  // the module is on the bus
+// The excitation module is on the bus; flash bank 2 waits for the bootloader.
+void CyphalPlatformDriveHooks(drive::DriveHooks& /*hooks*/) noexcept {}
 
-void CyphalPlatformReady(const cyphal::CyphalNode& /*node*/, const cyphal::NodeInfo& /*info*/) noexcept {}
+void CyphalPlatformReady(cyphal::CyphalNode& /*node*/, const cyphal::NodeInfo& /*info*/) noexcept {}
 
 }  // namespace unimoc::hardware

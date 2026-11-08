@@ -160,7 +160,8 @@ void CyphalThread(void* /*unused*/, void* /*unused*/, void* /*unused*/) {
 
   StartBoardInputs();  // power board detect, gate supply, accelerator and brake (board_inputs_interface.hpp)
   drive::DriveHooks hooks{Restart, SettingsApplied};
-  CyphalPlatformExcitationHooks(hooks);
+  hooks.board = CONFIG_BOARD;  // the board name an update image must carry
+  CyphalPlatformDriveHooks(hooks);
   static drive::DriveNode drive{node, *g_store, kMotors[0], hooks, std::span<const uint8_t>{g_unique_id}};
   // The e-bike control engages the drive and sets its torque (docs/ebike_plan.md).
   static ebike::EbikeControl ebike_control{GetEbikeIo()};

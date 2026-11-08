@@ -3,13 +3,16 @@
 # The native_sim drive as a Cyphal node, tested from pycyphal over the slcan
 # pseudo terminal: node services, registers, arming, setpoints, telemetry,
 # the simulation registers, diagnostics, traces (cymon), persistence across
-# a restart and the register description file (--describe-registers).
+# a restart, the register description file (--describe-registers and over
+# uavcan.file.Read) and the firmware update into the simulated bank.
 # The tests share one simulation process and run in file order.
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import math
+import os
 import subprocess
 from pathlib import Path
 
@@ -57,6 +60,19 @@ def value_type(value) -> tuple[str, int]:
         if field is not None:
             return name, (0 if name == "empty" else len(field.value))
     raise AssertionError(f"unknown register value {value}")
+
+
+def load_image_script():
+    """scripts/make_firmware_image.py, the tool that wraps a binary into an update image."""
+    path = Path(__file__).resolve().parents[3] / "scripts" / "make_firmware_image.py"
+    spec = importlib.util.spec_from_file_location("make_firmware_image", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+BEGIN_SOFTWARE_UPDATE = 65533
+UPDATE_DOWNLOADING, UPDATE_READY, UPDATE_FAILED = 1, 2, 3
 
 
 def describe_registers(dut, directory: Path) -> dict:
@@ -687,6 +703,51 @@ def test_identification_measures_the_simulated_motor(sim: SimClient):
     assert sim.read("unimoc.identify.result.L_d") == pytest.approx(sim.read("unimoc.motor.pmsm.L_d"), rel=0.03)
     assert sim.read("unimoc.identify.result.L_q") == pytest.approx(sim.read("unimoc.motor.pmsm.L_q"), rel=0.03)
     assert sim.read("unimoc.identify.result.dead_time") == pytest.approx(0.0, abs=2e-8)
+
+
+def test_the_register_description_file_is_served_over_file_read(sim: SimClient):
+    served = json.loads(sim.read_file("registers.json", timeout=10.0))
+    assert served["schema"] == 1
+    assert [entry["name"] for entry in served["registers"]] == sim.register_names()
+    assert "unimoc.update.state" in {entry["name"] for entry in served["registers"]}
+    with pytest.raises(Exception):  # NOT_FOUND
+        sim.read_file("nothing.json")
+
+
+def test_firmware_update_downloads_a_checked_image_into_the_bank(sim: SimClient):
+    images = load_image_script()
+    payload = os.urandom(3000)
+    image = images.make_image(payload, "native_sim", 7, 3, 0x0123ABCD)
+    (sim.file_root / "unimoc.bin").write_bytes(image)
+    assert sim.read("unimoc.update.state") == 0  # idle
+
+    status, output = sim.command_output(BEGIN_SOFTWARE_UPDATE, "unimoc.bin")
+    assert status == 0, output
+    sim.expect_register("unimoc.update.state", lambda state: state == UPDATE_READY, timeout=20.0)
+    assert sim.read("unimoc.update.result") == 0
+    assert sim.read("unimoc.update.received") == len(image)
+    assert list(sim.access("unimoc.update.version").value.natural8.value) == [7, 3]
+    assert sim.next(sim.heartbeat).mode.value == 0  # OPERATIONAL again after the download
+
+
+def test_firmware_update_refuses_a_bad_image(sim: SimClient):
+    images = load_image_script()
+    payload = os.urandom(1500)
+    corrupt = bytearray(images.make_image(payload, "native_sim", 7, 4, 0))
+    corrupt[-1] ^= 0x01
+    (sim.file_root / "corrupt.bin").write_bytes(bytes(corrupt))
+    (sim.file_root / "jacobi.bin").write_bytes(images.make_image(payload, "unimoc_jacobi", 7, 4, 0))
+
+    assert sim.command(BEGIN_SOFTWARE_UPDATE, "corrupt.bin") == 0
+    sim.expect_register("unimoc.update.state", lambda state: state == UPDATE_FAILED, timeout=20.0)
+    assert sim.read("unimoc.update.result") == 7  # CRC
+    assert sim.command(BEGIN_SOFTWARE_UPDATE, "jacobi.bin") == 0
+    sim.expect_register("unimoc.update.state", lambda state: state == UPDATE_FAILED, timeout=20.0)
+    assert sim.read("unimoc.update.result") == 4  # board
+    assert sim.command(BEGIN_SOFTWARE_UPDATE, "missing.bin") == 0
+    sim.expect_register("unimoc.update.state", lambda state: state == UPDATE_FAILED, timeout=20.0)
+    assert sim.read("unimoc.update.file_error") == 2  # NOT_FOUND
+    assert sim.command(BEGIN_SOFTWARE_UPDATE, "") == 4  # BAD_PARAMETER: no path
 
 
 def test_emergency_stop_latches_until_the_restart(sim: SimClient):

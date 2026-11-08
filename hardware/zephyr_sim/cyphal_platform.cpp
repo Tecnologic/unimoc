@@ -34,11 +34,13 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdio>
 #include <limits>
 #include <numbers>
 #include <string_view>
 #include <tuple>
 #include "current_control_runtime.hpp"
+#include "cyphal/file_service.hpp"
 #include "cyphal/register_value.hpp"
 #include "drive_node.hpp"
 #include "power_stage_interface.hpp"
@@ -646,6 +648,67 @@ void SetPlantRate(const settings::NvmSettings& settings) noexcept {
   g_plant_period_us = (kRate > 0.0F) ? static_cast<uint64_t>(1.0e6F / kRate) : 0U;
 }
 
+// ----- Firmware update and the register description file (docs/system_plan.md) -----
+
+/// The simulated flash bank 2: 1 MiB of RAM, as the second bank of the STM32H743.
+constexpr uint32_t kUpdateBankSize = 1024U * 1024U;
+std::array<std::byte, kUpdateBankSize> g_update_bank{};
+
+bool EraseUpdateBank() noexcept {
+  g_update_bank.fill(std::byte{0xFF});
+  return true;
+}
+
+bool WriteUpdateBank(const uint32_t offset, const std::span<const std::byte> data) noexcept {
+  if (offset > g_update_bank.size() || data.size() > g_update_bank.size() - offset) {
+    return false;
+  }
+  std::copy(data.begin(), data.end(), g_update_bank.begin() + offset);
+  return true;
+}
+
+bool ReadUpdateBank(const uint32_t offset, const std::span<std::byte> data) noexcept {
+  if (offset > g_update_bank.size() || data.size() > g_update_bank.size() - offset) {
+    return false;
+  }
+  std::copy_n(g_update_bank.begin() + offset, data.size(), data.begin());
+  return true;
+}
+
+constexpr cyphal::FirmwareBank kUpdateBank{EraseUpdateBank, WriteUpdateBank, ReadUpdateBank, kUpdateBankSize};
+
+/// Serves the register description file, written into a host temporary file at the start.
+class RegisterFileSource final : public cyphal::FileSource {
+ public:
+  static constexpr std::string_view kPath = "registers.json";
+
+  /// @param file The written file; stays open for the run.
+  void SetFile(std::FILE* const file) noexcept { file_ = file; }
+
+  [[nodiscard]] cyphal::FileReadResult Read(const std::string_view path,
+                                            const uint64_t offset,
+                                            const std::span<std::byte> data) noexcept override {
+    if (file_ == nullptr || path != kPath) {
+      return {cyphal::file_error::kNotFound, 0U};
+    }
+    if (std::fseek(file_, static_cast<long>(offset), SEEK_SET) != 0) {
+      return {cyphal::file_error::kIoError, 0U};
+    }
+    const std::size_t kSize = std::fread(data.data(), 1U, data.size(), file_);
+    if (std::ferror(file_) != 0) {
+      std::clearerr(file_);
+      return {cyphal::file_error::kIoError, 0U};
+    }
+    return {cyphal::file_error::kOk, kSize};
+  }
+
+ private:
+  std::FILE* file_{nullptr};
+};
+
+RegisterFileSource g_register_file;
+cyphal::FileServer g_file_server{g_register_file};
+
 }  // namespace
 
 void CyphalPlatformSettingsOverrides(settings::NvmSettings& settings) noexcept {
@@ -685,9 +748,18 @@ void CyphalPlatformStart(cyphal::CyphalNode& node, const settings::NvmSettings& 
   ApplyInputs();
 }
 
-void CyphalPlatformReady(const cyphal::CyphalNode& node, const cyphal::NodeInfo& info) noexcept {
+void CyphalPlatformReady(cyphal::CyphalNode& node, const cyphal::NodeInfo& info) noexcept {
   const char* const kPath = UnimocSimDescribeRegistersOption();
   if (kPath == nullptr) {
+    // F3: the description file of the fresh node over uavcan.file.Read (`registers.json`).
+    // NOLINTNEXTLINE(cppcoreguidelines-owning-memory): open for the run, removed by the host at exit.
+    std::FILE* const kFile = std::tmpfile();
+    if (kFile == nullptr || !sim::WriteRegisterJson(node, info, kFile) ||
+        !node.AddServer(cyphal::port::kFileRead, cyphal::FileServer::kRequestExtent, g_file_server)) {
+      LOG_WRN("register description file not served");
+      return;
+    }
+    g_register_file.SetFile(kFile);
     return;
   }
   const bool kWritten = sim::WriteRegisterFile(node, info, kPath);
@@ -779,9 +851,10 @@ uint64_t CyphalPlatformDriveTimeUs(const uint64_t now_us) noexcept {
   return clock.drive_ns / 1000U;
 }
 
-void CyphalPlatformExcitationHooks(drive::DriveHooks& hooks) noexcept {
+void CyphalPlatformDriveHooks(drive::DriveHooks& hooks) noexcept {
   hooks.excitation_command = sim::ExcitationCommand;
   hooks.excitation_status = sim::ExcitationStatus;
+  hooks.firmware_bank = &kUpdateBank;
 }
 
 void CyphalPlatformSettingsApplied(const settings::NvmSettings& settings) noexcept {

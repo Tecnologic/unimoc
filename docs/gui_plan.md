@@ -100,7 +100,8 @@ text. The firmware owns that knowledge, so the firmware owns the file:
 - **Delivery, step 2:** the node serves it compressed through
   `uavcan.file.Read` (path `unimoc/registers.json.gz`, a few KB in flash) once
   the Cyphal file service exists (it comes with the firmware update). Then the
-  description always matches the running firmware.
+  description always matches the running firmware. The simulation serves it
+  uncompressed as `registers.json` since 2026-11-08.
 - **The schema** is documented in this repository (`docs/settings_plan.md`)
   and versioned; the GUI accepts the versions it knows and falls back to the
   bare scan otherwise.
@@ -170,7 +171,8 @@ Each its own PR with ztest and pytest coverage:
    simulation, ztests of the descriptions and their limits, the pytest
    against the registers on the bus, the CI and release asset
    `unimoc-registers-<version>.json`; schema in `docs/settings_plan.md`.
-   Open (F3): the served file after the Cyphal file service.
+   F3 (2026-11-08): the simulation serves the file as `registers.json` over
+   `uavcan.file.Read`; open: the compressed file in the flash of the boards.
 6. Done (F2, 2026-10-24): **`scripts/sim_cluster.sh`**: starts N
    `native_sim` drives on `vcan0` with their own flash files, node-IDs (10,
    11, ...), unique-IDs and wheel indices (`--cart-wheel`). Not run on `vcan`

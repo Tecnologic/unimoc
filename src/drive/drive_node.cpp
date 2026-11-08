@@ -304,6 +304,13 @@ cyphal::RegisterWriteResult DriveInfoRegisters::Write(std::size_t /*index*/,
 
 // ----- DriveNode ---------------------------------------------------------------
 
+namespace {
+
+/// The bank of a board without one: every update is refused.
+constexpr cyphal::FirmwareBank kNoFirmwareBank{};
+
+}  // namespace
+
 DriveNode::DriveNode(cyphal::CyphalNode& node,
                      settings::SettingsStore& store,
                      const hardware::HardwareInterface& motor,
@@ -317,7 +324,8 @@ DriveNode::DriveNode(cyphal::CyphalNode& node,
       info_registers_{unique_id, settings_waiting_, bus_off_count_, board_},
       startup_{CurrentControlIsr::Instance(), store.GetOperations()},
       identification_{CurrentControlIsr::Instance(), current_control::SlowUpdate::Instance()},
-      commissioning_{startup_, identification_, engaged_, emergency_stop_} {}
+      commissioning_{startup_, identification_, engaged_, emergency_stop_},
+      update_{(hooks.firmware_bank != nullptr) ? *hooks.firmware_bank : kNoFirmwareBank, hooks.board} {}
 
 bool DriveNode::Start(const uint64_t now_us) noexcept {
   now_us_ = now_us;
@@ -354,6 +362,7 @@ bool DriveNode::Start(const uint64_t now_us) noexcept {
   subscribed = node_->AddRegisterProvider(info_registers_) && subscribed;
   subscribed = node_->AddRegisterProvider(commissioning_) && subscribed;
   subscribed = node_->AddRegisterProvider(timing_registers_) && subscribed;
+  subscribed = update_.Start(*node_) && subscribed;
   subscribed =
       node_->Subscribe(readiness_port_, reg_udral_service_common_Readiness_0_1_EXTENT_BYTES_, *this) &&
       subscribed;
@@ -442,6 +451,7 @@ void DriveNode::Spin(const uint64_t now_us, const uint64_t drive_us) noexcept {
     PublishDriveStatus();
   }
   PublishHoming(now_us);
+  SpinUpdate(now_us);
 
   if (restart_requested_ && now_us >= restart_at_us_ && hooks_.restart != nullptr) {
     restart_requested_ = false;
@@ -449,6 +459,21 @@ void DriveNode::Spin(const uint64_t now_us, const uint64_t drive_us) noexcept {
   }
   settings_waiting_ = settings_pending_ || settings_registers_.WriteCount() != applied_writes_;
   UpdateStatus();
+}
+
+void DriveNode::SpinUpdate(const uint64_t now_us) noexcept {
+  update_.Spin(now_us);
+  const cyphal::FirmwareUpdate::State kState = update_.Update().GetState();
+  if (kState == update_state_) {
+    return;
+  }
+  update_state_ = kState;
+  node_->SetMode(update_.Downloading() ? cyphal::Mode::kSoftwareUpdate : cyphal::Mode::kOperational);
+  if (kState == cyphal::FirmwareUpdate::State::kReady) {
+    (void)node_->Log(cyphal::Severity::kNotice, "update: checked image in the bank");
+  } else if (kState == cyphal::FirmwareUpdate::State::kFailed) {
+    (void)node_->Log(cyphal::Severity::kWarning, "update failed: see unimoc.update.*");
+  }
 }
 
 void DriveNode::SpinBoard(const uint64_t now_us) noexcept {
@@ -1049,6 +1074,11 @@ void DriveNode::Engage() noexcept {
     (void)node_->Log(cyphal::Severity::kWarning, "engage refused: the identification is running");
     return;
   }
+  if (update_.Downloading()) {
+    rearm_required_ = true;
+    (void)node_->Log(cyphal::Severity::kWarning, "engage refused: a firmware update runs");
+    return;
+  }
   if (motor_type_ == system::MotorType::kEesm && (!ExcitationFresh(drive_us_) || excitation_.fault)) {
     rearm_required_ = true;
     (void)node_->Log(cyphal::Severity::kWarning, "engage refused: no excitation module or a module fault");
@@ -1115,6 +1145,11 @@ cyphal::CommandResult DriveNode::OnCommand(const uint16_t command,
       identification_.Abort(identification::Fault::kEmergencyStop);
       Disengage("emergency stop");
       return {cyphal::cmd::kStatusSuccess, ""};
+    case cyphal::cmd::kCommandBeginSoftwareUpdate:
+      if (engaged_ || commissioning_.Active()) {
+        return {cyphal::cmd::kStatusBadState, "disengage first"};
+      }
+      return update_.Begin(node_->CommandSource(), parameter);
     case cyphal::cmd::kCmdResetTiming:
       TimingRegisters::ResetStatistics();
       return {cyphal::cmd::kStatusSuccess, ""};

@@ -170,8 +170,12 @@ interfaces and the simulation registers are platform specific.
 > `unimoc.lib.cyphal` and `unimoc.sim.cyphal_drive`, and by hand with yakut).
 > Jacobi and the NUCLEO-H743ZI build with the node on FDCAN1 but have not
 > run on a board; CAN FD frames run at 1 Mbit/s without bit rate switch
-> (`boards/unimoc/jacobi/unimoc_jacobi.dts`).  Not implemented
-> yet: firmware update over Cyphal.  Speed, position and UDRAL servo
+> (`boards/unimoc/jacobi/unimoc_jacobi.dts`).  The firmware update over
+> Cyphal (`BEGIN_SOFTWARE_UPDATE`, `uavcan.file.Read` from the commanding
+> node, the UNIMOC image header checked, `unimoc.update.*`) runs on
+> `native_sim` into a RAM bank; the boards refuse it until flash bank 2 and
+> the bootloader exist.  The simulation serves its register description
+> file as `registers.json` over `uavcan.file.Read`.  Speed, position and UDRAL servo
 > setpoints run the outer loop in the control thread; the startup FSM runs
 > over the commissioning commands and status message (Hardware Bring-Up Guide).  The cymon traces run on both
 > platforms; their cost in the control cycle is not yet measured on the board.
