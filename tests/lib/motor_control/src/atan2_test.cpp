@@ -49,10 +49,10 @@ ZTEST(atan2, test_it_matches_std_atan2_at_random_points) {
   uint32_t state = 12345U;
   for (int i = 0; i < 1000; ++i) {
     state = state * 1664525U + 1013904223U;
-    const float kX = static_cast<float>(static_cast<int32_t>(state >> 8U) % 2001 - 1000) * 0.01F;
+    const float kXValue = static_cast<float>(static_cast<int32_t>(state >> 8U) % 2001 - 1000) * 0.01F;
     state = state * 1664525U + 1013904223U;
-    const float kY = static_cast<float>(static_cast<int32_t>(state >> 8U) % 2001 - 1000) * 0.01F;
-    const Angle kExpected = std::atan2(kY, kX) * 1.0_rad;
-    UNIMOC_EXPECT_NEAR(Atan2(kY * 1.0_V, kX * 1.0_V), kExpected, 2e-5_rad);
+    const float kYValue = static_cast<float>(static_cast<int32_t>(state >> 8U) % 2001 - 1000) * 0.01F;
+    const Angle kExpected = std::atan2(kYValue, kXValue) * 1.0_rad;
+    UNIMOC_EXPECT_NEAR(Atan2(kYValue * 1.0_V, kXValue * 1.0_V), kExpected, 2e-5_rad);
   }
 }
