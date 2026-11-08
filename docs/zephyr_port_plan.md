@@ -32,7 +32,7 @@ log is on RTT and on the bus. The phase order below is the plan.
 |---|---|
 | Zephyr version | 4.5.0, pinned in `west.yml` (from 4.4.0 on 2026-10-31, see "Zephyr 4.5 migration" below). |
 | Legacy firmware | Removed: the modm firmware, `cmake/Modm.cmake`, `cmake/ToolChain.cmake`, `requirements.txt` and `.github/workflows/ci-firmware.yml` were deleted in `6ca28d1`. The last legacy release stays on `main` until `develop` is merged there. |
-| Repository layout | Same repository. Zephyr application in `app/`, `lib/` consumed via `add_subdirectory`. |
+| Repository layout | Same repository. Zephyr application in `app/` (since 2026-11-08 `apps/drive/`, with `apps/vdc/` next to it), `lib/` consumed via `add_subdirectory`. |
 | Language standard | C++20 (`CONFIG_STD_CPP20`). `AGENTS.md`, `README.md` and the root `CMakeLists.txt` say C++20. |
 | Runtime scope | Zephyr is the primary OS. Only the FOC hot path runs at zero latency. Logging, Cyphal, settings and startup run in threads. |
 | Operating interface | Cyphal/CAN-FD only (decided 2026-10-21). No shell, no USB console: registers, commands and telemetry over Cyphal, the bench log on RTT. USB comes back for DFU recovery. |

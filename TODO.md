@@ -25,8 +25,8 @@ modules) and no access to cypilot's branches beyond its own repository.
 
 ### Tier 1: in the development container, in this order
 
-Items 1 to 5 are done (2026-10-31, one pull request); 6 is dropped, 7 and 8
-are done (2026-11-08); 9 is next.
+Items 1 to 5 are done (2026-10-31, one pull request); 6 is dropped, 7 to 10
+are done (2026-11-08); 11 is next.
 
 1. Done: **Zephyr 4.5 update** ("Hot path and Zephyr port"). First, so every later
    change lands on the new baseline while the diff against 4.4 is still only
@@ -74,13 +74,24 @@ are done (2026-11-08); 9 is next.
    (`firmware_update` suite of `unimoc.lib.cyphal`) and pytests with the
    pycyphal file server. Open: flash bank 2 on the STM32H7 (the boards
    refuse the command), the bank swap and the bootloader.
-10. **Structure for the cart**: split `app/` into `apps/drive/` and
-    `apps/vdc/` with `lib/vehicle/` (the VDC, pedal unit and BMS boards are
-    STM32H7 based and share `hardware/zephyr_stm32h7`). Decided 2026-11-08:
-    a skeleton VDC with it (node, heartbeat, the readiness of the four
-    drives, wheel commands from a torque request register, the drive status
-    collected; `lib/vehicle/` with the torque split), on `native_sim` and
-    the NUCLEO-H743ZI.
+10. Done (2026-11-08): **Structure for the cart**: `app/` split into
+    `apps/drive/` and `apps/vdc/` with `lib/vehicle/` (the VDC, pedal unit
+    and BMS boards are STM32H7 based and share `hardware/zephyr_stm32h7`;
+    scenarios `unimoc.app.drive.*` and `unimoc.app.vdc.*`, one release
+    version in `apps/*/VERSION`). The skeleton VDC on `native_sim` and the
+    NUCLEO-H743ZI (build only): node and heartbeat (`org.unimoc.vdc`,
+    node-ID 1), the readiness of the four drives on 1024 + node-ID
+    (`unimoc.vdc.drive_node_ids`, `unimoc.vdc.engage`), wheel commands at
+    250 Hz from `unimoc.vdc.torque_request` (`vehicle::SplitTorque()`:
+    front share, equal wheels of an axle, a lost drive takes its axle
+    out), the drive status collected (`vehicle::DriveMonitor`,
+    `unimoc.vdc.drive_available` and friends, ADVISORY health). ztests
+    `unimoc.lib.vehicle` and `unimoc.vdc.vdc_node`, pytest
+    `unimoc.app.vdc.cyphal_integration` (pycyphal plays the drives). Open:
+    the registers in RAM only (no settings storage, no ExecuteCommand, no
+    plug-and-play, no firmware update), no release artifact of the VDC, not
+    run on the board; the control loop of the VDC in its own thread
+    (system plan section 5.3).
 11. **SIL coordinator** (one process, N motor nodes, shared virtual clock,
     load models, the host executable; SIL P2) and the simulator chapter of
     `README.md`. Multi-node over `vcan` cannot run in the container.
@@ -217,7 +228,8 @@ Plan: [docs/motor_identification_plan.md](docs/motor_identification_plan.md) (al
  - [ ] NUCLEO-H743ZI on the bench (plan section 7, steps 1 to 5): boot, settings, PWM and break, ADC, timing, Cyphal, then the 4850 power board through an adapter.
  - [x] H7 hot path in ITCM and the control cycle on every sample (2026-11-03, `hardware/zephyr_stm32h7/hot_path_itcm.ld`, `docs/hotpath_plan.md` section 4); the Jacobi board exists (`boards/unimoc/jacobi/`).
  - [ ] Regenerative braking, open parts (the drive side, the BMS limits and the reporting to the VDC are done): the estimated speed in the limit on a dyno (the observer's torque model expects the shaft to slow; settles within some 300 ms in the sim), the Jacobi voltage ratings from the schematic. Done 2026-10-31: the per-sample overvoltage check in the sample interrupt (raw DC-link counts, `SetOvervoltageCounts()`; not run on the board).
- - [ ] Split `app/` into `apps/drive/` and `apps/vdc/` (later `apps/pedal/` and `apps/bms/`) and add `lib/vehicle/`; update `AGENTS.md`, `README.md` and `docs/zephyr_workflow.md`. The VDC firmware lives in this repository (decided); the VDC MCU is an STM32H7.
+ - [x] (2026-11-08, tier 1 item 10) Split `app/` into `apps/drive/` and `apps/vdc/` (later `apps/pedal/` and `apps/bms/`) and add `lib/vehicle/`; `AGENTS.md`, `README.md` and `docs/zephyr_workflow.md` updated. The VDC firmware lives in this repository (decided); the VDC MCU is an STM32H7. The skeleton VDC: system plan section 5.3.
+ - [ ] VDC beyond the skeleton (system plan sections 5.3 and 7): the pedal state as the torque request (pedal map), the speed limit and the fault display of a lost drive, the battery status, stored registers (settings storage, ExecuteCommand, plug-and-play), the firmware update, a release artifact (`build-firmware.yml`), the control loop in its own thread, yaw-rate control and state estimation in `lib/vehicle/`, a VDC board (Zuse).
  - [ ] BMS controller as `apps/bms/` with `lib/battery/` (system plan section 5.5): board (a new STM32H7 board, Volta), cell monitoring front end, contactor and precharge, battery status message. It needs its own brake chopper: the drives have none (system plan section 5.2.1).
 
 ## GUI

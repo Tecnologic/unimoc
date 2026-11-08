@@ -247,19 +247,53 @@ pick the part.
 
 **Impact on this repository:**
 
-- `app/` becomes `apps/drive/` and `apps/vdc/` (two Zephyr applications,
-  decided), later `apps/pedal/` and `apps/bms/`. The applications share `lib/units`,
+- `app/` became `apps/drive/` and `apps/vdc/` (two Zephyr applications,
+  done 2026-11-08), later `apps/pedal/` and `apps/bms/`. The applications share `lib/units`,
   `lib/settings`, `lib/cyphal`, the DSDL namespace, `hardware/zephyr_common`
-  and CI.
-- New portable library `lib/vehicle/` (torque distribution, yaw-rate
-  control, vehicle state estimation) with ztest suites in `tests/lib/vehicle/`.
+  and CI; one release version (`apps/*/VERSION`, `scripts/release_version.py`).
+- New portable library `lib/vehicle/` with ztest suites in `tests/lib/vehicle/`:
+  done for the skeleton (wheels, the drive monitor, the torque split);
+  yaw-rate control and vehicle state estimation follow.
 - New board definition for the VDC (or a devicetree variant of the 4850
-  logic board) and a VDC platform layer.
+  logic board) and a VDC platform layer: the platform layer is
+  `hardware/vdc_platform.hpp` with a `vdc_platform.cpp` per platform; the
+  board is a NUCLEO-H743ZI for now (`apps/vdc/boards/`).
 - `lib/sim` needs the vehicle model (four wheels, tyres, steering angle,
   shared battery); P4 item in `TODO.md`.
-- `AGENTS.md`, `README.md` and `docs/zephyr_workflow.md` describe one
-  application today; they need updating.
-- More twister scenarios and CI time.
+- `AGENTS.md`, `README.md` and `docs/zephyr_workflow.md` describe both
+  applications (2026-11-08).
+- More twister scenarios and CI time: `unimoc.app.vdc.*`, `unimoc.vdc.*`,
+  `unimoc.lib.vehicle`.
+
+**Skeleton (2026-11-08, decided the same day, TODO tier 1 item 10).** The
+VDC on `native_sim` and the NUCLEO-H743ZI (README, "Vehicle dynamics
+controller"; not run on the board):
+
+- Node with heartbeat and GetInfo (`org.unimoc.vdc`), node-ID 1 from the
+  build (`CONFIG_UNIMOC_VDC_NODE_ID`, `--node-id` in the simulation). Its
+  registers live in RAM; settings storage, plug-and-play, ExecuteCommand
+  and the firmware update of the VDC are open.
+- The readiness of the four drives on 1024 + their node-ID
+  (`unimoc.vdc.drive_node_ids`, default 10 to 13 as `scripts/sim_cluster.sh`),
+  ENGAGED while `unimoc.vdc.engage` is set, STANDBY otherwise, at 10 Hz.
+- The wheel command at 250 Hz from the torque request register
+  `unimoc.vdc.torque_request`: `vehicle::SplitTorque()` puts
+  `unimoc.vdc.front_share` on the front axle, the same torque on both
+  wheels of an axle within the smaller torque window, the rest to the other
+  axle. An unavailable wheel takes its axle out (section 7, "one drive
+  lost": the variant without a yaw moment). The torque windows come from
+  the drive torque and brake torque limits of the drive status, relative to
+  the direction of motion.
+- The drive status of each wheel collected (`vehicle::DriveMonitor`, only
+  from the node configured for the wheel): available while fresh
+  (`unimoc.vdc.status_timeout`, 0.1 s), engaged with the power stage on,
+  without a trip and not in limp-home; reported in read-only registers and
+  as ADVISORY health while a configured drive is missing.
+- Open: the pedal state as the torque request (pedal map), the speed
+  limit and the fault display of a lost drive, the battery status, the
+  control loop in a thread of its own (the skeleton publishes from the Cyphal
+  thread, woken at least every millisecond), the vehicle model and the
+  multi-node simulation (tier 1 item 11).
 
 ### 5.4 Pedal unit
 
@@ -315,8 +349,9 @@ The DSDL namespace is `dsdl/unimoc/` (2026-10-21: `unimoc.drive.CurrentSetpoint`
 defaults in `lib/cyphal/cyphal_interface.hpp`). The cart messages are
 defined in `dsdl/unimoc/cart/` (2026-10-23, version 0.1). The drive
 subscribes the wheel command, the pedal state and the battery status and
-publishes the drive status (README, "Cart wheel drive"); the VDC, the pedal
-unit and the BMS do not exist yet. Every message fits in one CAN FD frame; a
+publishes the drive status (README, "Cart wheel drive"); the VDC skeleton
+(section 5.3) publishes the wheel command and subscribes the drive status;
+the pedal unit and the BMS do not exist yet. Every message fits in one CAN FD frame; a
 ztest in `unimoc.lib.cyphal` checks it for every type of the namespace.
 
 | Message | Type | From → to | Rate | Payload | Content |
@@ -482,7 +517,8 @@ the simulation, not on hardware):
   battery. With the contactor open or precharging the drive takes no
   battery current; an announced opening (`CONTACTOR_OPENING`) keeps the
   published limits, which the BMS ramps down itself.
-- Open: the VDC reaction to a lost drive, and the limp-home with a
+- Open: the VDC reaction to a lost drive beyond the torque split of the
+  skeleton (section 5.3: speed limit, fault display), and the limp-home with a
   direction selector (the drive pedal only drives forward).
 
 ### 7.1 Consequences of pure regenerative braking

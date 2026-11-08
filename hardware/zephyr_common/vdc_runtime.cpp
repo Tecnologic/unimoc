@@ -37,9 +37,10 @@ LOG_MODULE_REGISTER(unimoc_cyphal, CONFIG_UNIMOC_LOG_LEVEL);
 
 namespace unimoc::hardware {
 
-// NOLINTBEGIN(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays,cppcoreguidelines-pro-bounds-array-to-pointer-decay,clang-diagnostic-vla-cxx-extension):
+// NOLINTBEGIN(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays,cppcoreguidelines-pro-bounds-array-to-pointer-decay,clang-diagnostic-vla-cxx-extension,readability-function-size):
 // LOG_* packs its arguments into a stack buffer (a VLA in deferred mode) and
-// K_THREAD_STACK_DEFINE / K_SEM_DEFINE declare C arrays, inside the Zephyr macros.
+// K_THREAD_STACK_DEFINE / K_SEM_DEFINE declare C arrays, inside the Zephyr macros; the
+// expanded LOG_* statements also count towards the function size.
 
 namespace {
 
@@ -152,6 +153,6 @@ void StartVdc() noexcept {
   k_thread_name_set(&g_cyphal_thread, "cyphal");
 }
 
-// NOLINTEND(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays,cppcoreguidelines-pro-bounds-array-to-pointer-decay,clang-diagnostic-vla-cxx-extension)
+// NOLINTEND(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays,cppcoreguidelines-pro-bounds-array-to-pointer-decay,clang-diagnostic-vla-cxx-extension,readability-function-size)
 
 }  // namespace unimoc::hardware

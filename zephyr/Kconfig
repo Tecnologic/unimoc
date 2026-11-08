@@ -129,17 +129,19 @@ config UNIMOC_CONTROL_THREAD_STACK_SIZE
 	default 2048
 
 config UNIMOC_CYPHAL
-	bool "Cyphal/CAN node of the drive"
+	bool "Cyphal/CAN node of the application (drive or VDC)"
 	depends on UNIMOC_PLATFORM_SIM || UNIMOC_PLATFORM_STM32H7
 	select CAN
 	select HWINFO
 	select REBOOT
 	help
-	  Runs the Cyphal node of the drive in a Zephyr thread
-	  (hardware/zephyr_common/cyphal_runtime.cpp): heartbeat, GetInfo,
-	  registers on the settings store, ExecuteCommand, plug-and-play,
-	  readiness and setpoints, telemetry and the log as
-	  uavcan.diagnostic.Record. The CAN interface is the chosen
+	  Runs the Cyphal node of the application in a Zephyr thread. The
+	  drive (hardware/zephyr_common/cyphal_runtime.cpp): heartbeat,
+	  GetInfo, registers on the settings store, ExecuteCommand,
+	  plug-and-play, readiness and setpoints, telemetry and the log as
+	  uavcan.diagnostic.Record. The VDC (vdc_runtime.cpp): heartbeat,
+	  GetInfo, its registers, the readiness of the drives, the wheel
+	  command and the log. The CAN interface is the chosen
 	  zephyr,canbus; native_sim adds a serial-line CAN interface.
 
 if UNIMOC_CYPHAL
@@ -199,7 +201,7 @@ config UNIMOC_CYPHAL_SLCAN
 	select SERIAL
 	select UART_INTERRUPT_DRIVEN
 	help
-	  A second CAN interface of the simulated drive in the Lawicel
+	  A second CAN interface of the simulated drive or VDC in the Lawicel
 	  (slcan) ASCII protocol on the pseudo terminals listed in the
 	  slcan-uarts property of zephyr,user, with classic 8 byte frames.
 	  One tool process per terminal; the terminals form one bus. It lets

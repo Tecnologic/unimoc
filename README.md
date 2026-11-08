@@ -142,16 +142,23 @@ lib/
 │   ├── rotor_system.hpp          # d/q rotating reference frame
 │   ├── stator_system.hpp         # α/β stationary reference frame
 │   └── three_phase_system.hpp    # Three-phase (a/b/c) vector
-└── units/
-    └── units.hpp                 # SI units with dimension exponents
+├── units/
+│   └── units.hpp                 # SI units with dimension exponents
+└── vehicle/                      # VDC: vehicle dynamics of the cart (apps/vdc)
+    └── src/
+        ├── wheel.hpp             # Wheels, axles and sides of the cart
+        ├── drive_monitor.hpp     # Drive status of the four wheels: fresh, available, torque window
+        └── torque_split.hpp      # Torque request onto the wheels, without a yaw moment
 ```
 
 ---
 
 ## Firmware Architecture
 
-The firmware is one Zephyr application (`app/`). At 32 kHz PWM the execution
-contexts are (details in [`docs/hotpath_plan.md`](docs/hotpath_plan.md)):
+The firmware of the bus nodes is one Zephyr application each in `apps/`:
+`apps/drive/` (the motor drive, described here) and `apps/vdc/` (the vehicle
+dynamics controller, below). At 32 kHz PWM the execution contexts of the drive
+are (details in [`docs/hotpath_plan.md`](docs/hotpath_plan.md)):
 
 | Context | Runs | Latency |
 |---|---|---|
@@ -346,6 +353,37 @@ An overcurrent or overvoltage trip or a power stage fault while engaged disengag
 it engages again only after a readiness other than `ENGAGED` (re-arm).
 `STANDBY` while disengaged acknowledges a latched trip or fault without
 releasing the outputs; the settings can only be stored without one.
+
+### Vehicle dynamics controller (VDC)
+
+`apps/vdc/` is the second application: the central node of the cart
+(`docs/system_plan.md`, section 5.3), on `native_sim` and the NUCLEO-H743ZI
+for now. It has no hot path; its Cyphal node runs in a Zephyr thread
+(`hardware/zephyr_common/vdc_runtime.cpp`, application core
+`src/vdc/vdc_node.cpp`, portable logic in `lib/vehicle/`). The skeleton:
+
+- **Readiness.** For each wheel drive of `unimoc.vdc.drive_node_ids`
+  (default 10, 11, 12, 13; 255: no drive) the readiness on 1024 + its
+  node-ID at `unimoc.vdc.readiness_rate` (10 Hz): `ENGAGED` while
+  `unimoc.vdc.engage` is 1, `STANDBY` otherwise.
+- **Drive status.** The `unimoc.cart.DriveStatus` of each wheel, from the
+  node configured for it. A wheel is available while its status is not
+  older than `unimoc.vdc.status_timeout` (0.1 s), the drive is engaged with
+  its power stage on, without a trip and not in limp-home.
+- **Wheel command.** At `unimoc.vdc.cycle_rate` (250 Hz) the torque
+  request `unimoc.vdc.torque_request` (N m, positive forward) split onto the
+  available wheels: `unimoc.vdc.front_share` (0.5) on the front axle, both
+  wheels of an axle the same torque within the smaller torque window of the
+  two, so a lost drive takes its axle out and the other axle takes the
+  request (no yaw moment). Zero for every wheel while not engaged.
+- **State.** `unimoc.vdc.drive_available`, `.wheel_speed`,
+  `.estimated_torque` and `.wheel_torque` (per wheel, read-only); the
+  heartbeat health is ADVISORY while a configured drive is not available.
+
+The registers live in RAM: every start begins with the defaults; the
+node-ID is `CONFIG_UNIMOC_VDC_NODE_ID` (1; `--node-id=<n>` in the
+simulation). The port-IDs are the ones of the drives (wheel command 110,
+drive status 214) and read-only.
 
 ### Board inputs and the accelerator
 
@@ -1182,6 +1220,10 @@ west build -b unimoc_jacobi unimoc/apps/drive -d unimoc/apps/drive/build/jacobi
 # STM32H7 platform on a NUCLEO-H743ZI (bring-up for Jacobi)
 west build -b nucleo_h743zi unimoc/apps/drive -d unimoc/apps/drive/build/h743
 
+# The vehicle dynamics controller (VDC): simulation and NUCLEO-H743ZI
+west build -b native_sim/native/64 unimoc/apps/vdc -d unimoc/apps/vdc/build/sim
+west build -b nucleo_h743zi unimoc/apps/vdc -d unimoc/apps/vdc/build/h743
+
 ```
 
 Jacobi (`boards/unimoc/jacobi/`) is the H7 redesign of the hardware_4850 logic
@@ -1199,9 +1241,10 @@ to release the outputs. The log is on the ST-LINK virtual COM port.
 
 All tests run under twister on `native_sim`; there is no hosted test build.
 `tests/lib/<library>/` (ztest) covers the libraries, `tests/sim/` (ztest) runs
-the application core against the simulated drive, and
-`tests/integration/cyphal_sim/` (pytest with pycyphal) drives the running
-simulation over Cyphal. From the west workspace root:
+the application core against the simulated drive, `tests/vdc/` the VDC node on
+an in-memory bus, and `tests/integration/cyphal_sim/` and `vdc_sim/` (pytest
+with pycyphal) drive the running simulations of the drive and the VDC over
+Cyphal. From the west workspace root:
 
 ```bash
 # All scenarios on native_sim, unimoc_jacobi and nucleo_h743zi, with clang-tidy as static analysis (as in CI)
@@ -1212,6 +1255,7 @@ unimoc/scripts/check_format.sh
 
 # pycyphal integration tests of the simulation (needs scripts/requirements-cyphal-tools.txt)
 west twister -T unimoc/apps/drive -p native_sim/native/64 --scenario unimoc.app.drive.cyphal_integration
+west twister -T unimoc/apps/vdc -p native_sim/native/64 --scenario unimoc.app.vdc.cyphal_integration
 
 # One suite without static analysis, while iterating
 west twister -T unimoc/tests/lib/motor_control -p native_sim/native/64

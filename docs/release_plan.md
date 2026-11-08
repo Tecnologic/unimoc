@@ -60,6 +60,12 @@ Zephyr derives `APP_VERSION_STRING`, `APP_VERSION_NUMBER` and
 `APP_VERSION_TWEAK_STRING` from it (`<app>/VERSION`, `app_version.h`), so the
 firmware can report what the release says.
 
+Since 2026-11-08 there are two applications (`apps/drive/`, `apps/vdc/`).
+Zephyr reads the version file of each application, so `apps/vdc/VERSION`
+is a copy: `release_version.py apply` writes every `apps/*/VERSION`, and
+every command of the script fails when the copies differ from
+`apps/drive/VERSION`.
+
 - `VERSION_MAJOR/MINOR/PATCHLEVEL` are set by the release tooling only.
 - `VERSION_TWEAK` stays 0. `EXTRAVERSION` carries a pre-release (`rc1`) when
   one is wanted.
@@ -98,7 +104,7 @@ PR instead:
 - Workflow `release-prepare.yml` runs on `pull_request` (base `main`, head
   `develop`) and on pushes to `develop` while such a PR is open. It runs
   `scripts/release_version.py`, which calls `git cliff --bumped-version`,
-  rewrites `apps/drive/VERSION` and `CHANGELOG.md`, and commits
+  rewrites `apps/*/VERSION` and `CHANGELOG.md`, and commits
   `chore(release): vX.Y.Z` to `develop`. It is idempotent: the version is
   always computed from the last tag, never from the previous bump.
 - It posts or updates one PR comment with the proposed version and the change
@@ -167,7 +173,7 @@ on `main` are queued so a release run is never cancelled.
 |---|---|
 | `cliff.toml` | commit parsers, bump rules, release-note template |
 | `CHANGELOG.md` | generated, committed by `release-prepare` |
-| `scripts/release_version.py` | run git-cliff, write `apps/drive/VERSION` and the change log (testable without GitHub) |
+| `scripts/release_version.py` | run git-cliff, write `apps/*/VERSION` and the change log (testable without GitHub) |
 | `.github/workflows/release-prepare.yml` | bump commit and PR comment on the `develop` to `main` PR |
 | `.github/workflows/pr-title.yml` | Conventional Commit check of PR titles |
 | `.github/workflows/ci-zephyr.yml` | matrix, `APP_VERSION` file names, new `release` job, concurrency, no `v*` trigger |

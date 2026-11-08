@@ -39,6 +39,15 @@ CMake >= 3.28 (Zephyr's minimum since 4.5) and Ninja are required. The CI job
     west build -b native_sim/native/64 unimoc/apps/drive -d unimoc/apps/drive/build/sim   # host simulation (Cyphal: README.md)
     west build -b unimoc_jacobi unimoc/apps/drive -d unimoc/apps/drive/build/jacobi         # Jacobi drive (STM32H743VI)
     west build -b nucleo_h743zi unimoc/apps/drive -d unimoc/apps/drive/build/h743           # STM32H7 platform on a NUCLEO-H743ZI
+    west build -b native_sim/native/64 unimoc/apps/vdc -d unimoc/apps/vdc/build/sim       # VDC simulation (node-ID 1)
+    west build -b nucleo_h743zi unimoc/apps/vdc -d unimoc/apps/vdc/build/h743             # VDC on a NUCLEO-H743ZI
+
+`apps/drive/` is the motor drive, `apps/vdc/` the vehicle dynamics controller
+of the cart (`docs/system_plan.md`, section 5.3; README, "Vehicle dynamics
+controller"). Both share `lib/`, `hardware/zephyr_common` and the platforms;
+twister builds both with `-T unimoc` (scenarios `unimoc.app.drive.*` and
+`unimoc.app.vdc.*`). The VDC on the Nucleo is flashed like the drive, with
+the OpenOCD configuration of `apps/drive/boards/`.
 
 The Nucleo's on-board ST-LINK (ST firmware) is flashed and debugged through
 OpenOCD's DAP interface (`apps/drive/boards/nucleo_h743zi_openocd.cfg`; the VS Code
