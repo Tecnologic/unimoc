@@ -25,7 +25,8 @@ modules) and no access to cypilot's branches beyond its own repository.
 
 ### Tier 1: in the development container, in this order
 
-Items 1 to 5 are done (2026-10-31, one pull request); 6 is next.
+Items 1 to 5 are done (2026-10-31, one pull request); 6 is dropped
+(2026-11-08); 7 is next.
 
 1. Done: **Zephyr 4.5 update** ("Hot path and Zephyr port"). First, so every later
    change lands on the new baseline while the diff against 4.4 is still only
@@ -45,10 +46,10 @@ Items 1 to 5 are done (2026-10-31, one pull request); 6 is next.
    in the sim inverter, M2). The next feature line; the decisions are taken
    (plan section 9). I3 (phase-voltage sense in the sim) follows; the
    cypilot side (C0) is in its own repository.
-6. **Fourth half bridge**: in the sim inverter, then the platform-independent
-   auxiliary output with the chopper role for the PMSM ("Cart system",
-   "Motor types"; electrical design still open, so the firmware stays behind
-   an interface and the thresholds in registers).
+6. Dropped (2026-11-08): **Fourth half bridge**. It leaves the drive plan:
+   the EESM excitation and the brake chopper become a separate board (a bus
+   module; decisions 9 and 12), so neither the sim inverter nor the drive
+   firmware gets an auxiliary output.
 7. **Small bus items**: `.type` registers for every port (`docs/gui_plan.md`
    section 6.4), `unimoc.sim.pedal_*` registers with a pytest of the
    simulated rider, persisting the learned pedal torque offset
@@ -127,6 +128,8 @@ I7, regenerative braking on a dyno.
    resistor on the DC link, so each drive can hold its own DC link when the
    overvoltage trip opens the phases (mitigates decision 2). Details in
    section 5.2 of `docs/system_plan.md`; the electrical design is open.
+   Superseded 2026-11-03 (decision 12) and 2026-11-08: the drive has three
+   phases only; excitation and brake chopper are a separate board.
 10. Work focuses on Cyphal/CAN-FD. The plans and this list were consolidated
     around it; the next steps are under "Next".
 
@@ -193,7 +196,6 @@ Plan: [docs/motor_identification_plan.md](docs/motor_identification_plan.md) (al
  - [x] H7 platform `hardware/zephyr_stm32h7` on a NUCLEO-H743ZI rev. Y (2026-11-01, `docs/drive4850_h7_plan.md` section 7): H7 ADC and calibration, non-cacheable duty DMA buffer, dual-bank flash layout, 400 MHz; builds and passes clang-tidy, not run on the board.
  - [ ] NUCLEO-H743ZI on the bench (plan section 7, steps 1 to 5): boot, settings, PWM and break, ADC, timing, Cyphal, then the 4850 power board through an adapter.
  - [x] H7 hot path in ITCM and the control cycle on every sample (2026-11-03, `hardware/zephyr_stm32h7/hot_path_itcm.ld`, `docs/hotpath_plan.md` section 4); the Jacobi board exists (`boards/unimoc/jacobi/`).
- - [ ] Fourth half bridge in the firmware: a platform-independent auxiliary output next to `hardware/power_stage_interface.hpp` with two roles selected by the motor type, excitation (EESM: `ExcitationController` sets the duty) and brake chopper (PMSM: DC-link threshold with hysteresis, on together with the overvoltage trip; resistor energy and temperature limit in a thread). The chopper reacts in hardware (H7 comparator to timer) where the routing allows it, the firmware sets the thresholds. Simulated first (see "Motor types").
  - [ ] Regenerative braking, open parts (the drive side, the BMS limits and the reporting to the VDC are done): the estimated speed in the limit on a dyno (the observer's torque model expects the shaft to slow; settles within some 300 ms in the sim), the Jacobi voltage ratings from the schematic. Done 2026-10-31: the per-sample overvoltage check in the sample interrupt (raw DC-link counts, `SetOvervoltageCounts()`; not run on the board).
  - [ ] Split `app/` into `apps/drive/` and `apps/vdc/` (later `apps/pedal/` and `apps/bms/`) and add `lib/vehicle/`; update `AGENTS.md`, `README.md` and `docs/zephyr_workflow.md`. The VDC firmware lives in this repository (decided); the VDC MCU is an STM32H7.
  - [ ] BMS controller as `apps/bms/` with `lib/battery/` (system plan section 5.5): board (a new STM32H7 board, Volta), cell monitoring front end, contactor and precharge, battery status message. It needs its own brake chopper: the drives have none (system plan section 5.2.1).
@@ -223,10 +225,9 @@ no motor-type selection and runs the PMSM path only, and `lib/sim` has only
 
  - [ ] ASM plant in `lib/sim` (`AsmModel`: stator and rotor flux d/q model with rotor resistance and magnetizing inductance) behind the `MotorModel` concept; plant tests (slip, torque direction, flux build-up).
  - [ ] EESM plant in `lib/sim` (`EesmModel`: d/q model with saliency and a field winding, psi_f = L_m i_f, field voltage from `ElectricalInput::field_voltage`); plant tests (field build-up and decay, torque with and without excitation).
- - [ ] Fourth half bridge in the sim inverter: field voltage from its duty (EESM), or a brake resistor on the DC link (PMSM); field or resistor current as a measured channel.
  - [x] DC-link model in the sim (2026-10-31, `lib/sim/src/dc_link_model.hpp`): capacitor, battery with internal resistance and a contactor (`unimoc.sim.dc_link_capacitance`, `.battery_resistance`, `.contactor_closed`; the ideal source stays the default), the body-diode charging of the open bridge as an averaged six-step rectifier (decision 2), the dead time of the bridge. Open: the chopper (with the fourth half bridge), a test of the regenerative derating against the capacitor.
  - [ ] Motor-type selection in the runtime: ASM path (flux observer and controller; the `atan2` of `asm_flux_observer::flux_angle` must go without libm before it enters the control cycle) and EESM path (excitation controller and observer, excitation setpoint over Cyphal, the open "excitation" of the SIL setpoint item); closed-loop sim tests per motor type.
- - [ ] Hardware: excitation and chopper on the 4850 bench (after the board exists).
+ - [ ] Hardware: the excitation and chopper board (separate module, not the drive) on the bench, after it exists.
 
 ## Hot path and Zephyr port
 

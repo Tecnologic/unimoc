@@ -580,10 +580,10 @@ Not a safety concept; a list of what one must cover.
 7. **Brake resistor:** power and energy rating from the cart mass, top speed
    and longest braking; chopper switch and its cooling.
 8. **Steering assist:** concept, torque sensor, interface (later).
-9. **Fourth half bridge (section 5.2.1):** placement (logic or power board),
-   PWM timer channel and comparator routing, current measurement, field and
-   resistor ratings, de-excitation of the EESM; whether the BMS still needs
-   its own chopper.
+9. ~~**Fourth half bridge (section 5.2.1)**~~: dropped from the drive
+   (2026-11-03, confirmed 2026-11-08); the excitation and chopper are a
+   separate board with its own open points (placement, comparator routing,
+   field and resistor ratings, de-excitation of the EESM).
 
 ## 13. Risks
 
@@ -598,11 +598,12 @@ Not a safety concept; a list of what one must cover.
   the battery state and the bus; covered by the limp-home path, the brake
   chopper and the mechanical emergency brake (section 7.1).
 - **Chopper in hardware:** the comparator-to-timer path of the H743 has to be
-  confirmed in the schematic (BMS and the fourth half bridge of the drives);
+  confirmed in the schematic (BMS and the separate excitation and chopper
+  board);
   otherwise the chopper needs a fast interrupt.
 - **ASM and EESM without a plant model:** the libraries exist, but the
-  simulation and the runtime run the PMSM only; the fourth half bridge and
-  the EESM are first tested in the sim once its plants exist.
+  simulation and the runtime run the PMSM only; the EESM is first tested in
+  the sim once its plants exist (its excitation comes from a separate board).
 - **H743 logic board:** the LQFP100 needs more board area than the LQFP64,
   a second hot-path platform is to maintain, and the H7 adds cache, MPU and
   power-supply details (`docs/drive4850_h7_plan.md`).

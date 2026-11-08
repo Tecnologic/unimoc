@@ -246,11 +246,11 @@ Keep long simulation batches and Cyphal I/O outside the UI thread. The GUI shoul
 
 After the PMSM runtime and tests are stable:
 
-1. Add ASM and EESM plants behind the same contract, with the fourth half
-   bridge of the new 4850 hardware in the inverter model (field voltage for
-   the EESM, brake resistor for the PMSM) and a DC-link model (capacitor,
-   battery resistance, contactor) instead of the stiff source, so the
-   overvoltage trip, the body-diode charging and the chopper can be tested
+1. Add ASM and EESM plants behind the same contract (the EESM field voltage
+   as a plant input: the excitation is a separate board, the drive has no
+   fourth half bridge since 2026-11-08) and a DC-link model (capacitor,
+   battery resistance, contactor; done 2026-10-31) instead of the stiff
+   source, so the overvoltage trip and the body-diode charging can be tested
    (`docs/system_plan.md`, section 5.2.1; `TODO.md`, "Motor types"). The
    runtime then needs the ASM and EESM control paths: today it runs the PMSM
    path only.
