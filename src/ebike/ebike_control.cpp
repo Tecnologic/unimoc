@@ -91,8 +91,8 @@ void EbikeControl::Configure(const EbikeParameters& parameters) noexcept {
 std::optional<unit::Torque> EbikeControl::OffsetToStore(const uint64_t now_us) const noexcept {
   const unit::Torque kOffset = pedal_.ZeroOffset();
   const unit::Torque kMoved = kOffset - stored_offset_;
-  const auto kIntervalUs = static_cast<uint64_t>(parameters_.offset_store_interval.Value() * 1e6F);
-  if (!started_ || wanting_ || pedal_.Pedaling() || now_us - last_offset_store_us_ < kIntervalUs ||
+  const unit::Time kSinceStore = 1.0_us * static_cast<float>(now_us - last_offset_store_us_);
+  if (!started_ || wanting_ || pedal_.Pedaling() || kSinceStore < parameters_.offset_store_interval ||
       (kMoved < parameters_.offset_store_step && kMoved > -parameters_.offset_store_step)) {
     return std::nullopt;
   }

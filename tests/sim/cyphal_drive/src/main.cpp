@@ -1466,9 +1466,8 @@ ZTEST(sim_cyphal_drive, test_ebike_stores_the_learned_torque_offset) {
   const Torque kSaved = rig.store.GetSnapshot().Get().ebike_torque_offset;
   zexpect_true(kSaved > 0.5_Nm && kSaved < 1.0_Nm, "the learned offset is saved");
   zexpect_equal(rig.store.GetOperations().UnsavedCount(), 0U, "saved to flash");
-  UNIMOC_EXPECT_FLOAT_EQ(Torque{unimoc::cyphal::GetNumber(rig.Access(reg::kEbikeTorqueOffset, Empty()))
-                                    .value_or(0.0F)},
-                         kSaved);
+  const float kRead = unimoc::cyphal::GetNumber(rig.Access(reg::kEbikeTorqueOffset, Empty())).value_or(0.0F);
+  UNIMOC_EXPECT_FLOAT_EQ(kRead * 1.0_Nm, kSaved);
 
   // With another change not saved yet, the offset waits in RAM for the next STORE_PERSISTENT_STATES.
   zassert_equal(rig.store.GetOperations().Update([](auto& settings) { settings.telemetry_rate = 25.0_Hz; }),

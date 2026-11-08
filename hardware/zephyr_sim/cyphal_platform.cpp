@@ -52,6 +52,8 @@ namespace unimoc::hardware {
 
 namespace {
 
+using unit::operator""_Nm;
+using unit::operator""_rad_per_s;
 using cyphal::RegisterFlags;
 using cyphal::RegisterValue;
 using cyphal::RegisterWriteResult;
@@ -550,7 +552,7 @@ class RiderRegisters final : public cyphal::RegisterProvider {
  private:
   void Apply(const RiderRegister changed) const noexcept {
     if (changed == RiderRegister::kCadence || changed == RiderRegister::kTorque) {
-      sim::SetPedal(unit::AngularVelocity{inputs_.cadence}, unit::Torque{inputs_.torque});
+      sim::SetPedal(inputs_.cadence * 1.0_rad_per_s, inputs_.torque * 1.0_Nm);
     } else if (inputs_.display_on) {
       sim::SetDisplay(inputs_.level, inputs_.max_speed, inputs_.light);
     } else if (changed == RiderRegister::kDisplayOn) {

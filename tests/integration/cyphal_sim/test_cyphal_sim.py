@@ -120,6 +120,20 @@ def test_registers_list_read_write_and_validation(sim: SimClient):
     assert sim.write("uavcan.pub.cymon_trigger.id", natural16(65535)) == 65535
 
 
+def test_every_port_has_a_type_register(sim: SimClient):
+    """Each port-ID register `uavcan.<pub|sub|cln|srv>.<name>.id` has its read-only `.type` (docs/gui_plan.md)."""
+    names = set(sim.register_names())
+    ports = [name for name in names
+             if name.split(".")[:2][-1] in ("pub", "sub", "cln", "srv") and name.endswith(".id")]
+    assert len(ports) >= 20
+    for port in ports:
+        type_name = port[: -len(".id")] + ".type"
+        assert type_name in names, f"{port} has no {type_name}"
+        response = sim.access(type_name)
+        assert not response.mutable, type_name
+        assert response.value.string is not None and response.value.string.value.tobytes(), type_name
+
+
 def test_registers_json_describes_every_register_on_the_bus(dut, sim: SimClient, tmp_path: Path):
     described = describe_registers(dut, tmp_path)
     assert described["schema"] == 1

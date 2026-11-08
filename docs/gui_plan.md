@@ -159,8 +159,11 @@ Each its own PR with ztest and pytest coverage:
    (`NodeIdentity`, for example "unimoc.propulsion.left"), so it cannot also
    be a fixed product name. A tool recognizes a UNIMOC node by its registers
    (the `unimoc.` prefix) instead; the factory name stays "unimoc".
-4. **`.type` registers** for every port of every application (the drive has
-   them), so the GUI can decode every subject.
+4. Done for the drive (2026-11-08): **`.type` registers** for every port,
+   so the GUI can decode every subject. Every `uavcan.<pub|sub|cln|srv>.*.id`
+   of the drive and the simulation has its read-only `.type` (pytest
+   `test_every_port_has_a_type_register`). Each new application
+   (`apps/vdc/`, ...) adds them with its ports.
 5. Done (F2, 2026-10-24): **register description file** (section 4):
    the description next to every register (`ForEachRegister()` entries,
    `RegisterProvider::Describe()`), `--describe-registers` of the

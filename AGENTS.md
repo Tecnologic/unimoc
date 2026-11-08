@@ -98,7 +98,8 @@ Read `README.md` for the supported motor types and public features, and
   holds the shared float checks and the in-memory CAN bus of the Cyphal
   tests. `tests/integration/cyphal_sim/` are pytest integration tests: twister
   starts the real application on `native_sim` (scenario
-  `unimoc.app.cyphal_integration` in `app/testcase.yaml`, pytest harness) and
+  `unimoc.app.cyphal_integration` in `app/testcase.yaml`, pytest harness; the
+  e-bike build in `unimoc.app.cyphal_integration.ebike`, marker `ebike`) and
   a pycyphal node drives it over an slcan pseudo terminal. They are skipped
   without pycyphal (`scripts/requirements-cyphal-tools.txt`).
 - `scripts/` holds the validation scripts (`check_format.sh`,

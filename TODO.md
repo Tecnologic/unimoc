@@ -25,8 +25,8 @@ modules) and no access to cypilot's branches beyond its own repository.
 
 ### Tier 1: in the development container, in this order
 
-Items 1 to 5 are done (2026-10-31, one pull request); 6 is dropped
-(2026-11-08); 7 is next.
+Items 1 to 5 are done (2026-10-31, one pull request); 6 is dropped and 7 is
+done (2026-11-08); 8 is next.
 
 1. Done: **Zephyr 4.5 update** ("Hot path and Zephyr port"). First, so every later
    change lands on the new baseline while the diff against 4.4 is still only
@@ -50,10 +50,12 @@ Items 1 to 5 are done (2026-10-31, one pull request); 6 is dropped
    the EESM excitation and the brake chopper become a separate board (a bus
    module; decisions 9 and 12), so neither the sim inverter nor the drive
    firmware gets an auxiliary output.
-7. **Small bus items**: `.type` registers for every port (`docs/gui_plan.md`
-   section 6.4), `unimoc.sim.pedal_*` registers with a pytest of the
-   simulated rider, persisting the learned pedal torque offset
-   (`docs/ebike_plan.md`), and new pycyphal tests with each bus feature.
+7. Done (2026-11-08): **Small bus items**: `.type` registers for every port
+   (`docs/gui_plan.md` section 6.4; the drive had them, a pytest checks each
+   port), `unimoc.sim.pedal_*` and `unimoc.sim.display_*` registers with the
+   pytest scenario of the simulated rider (`unimoc.app.cyphal_integration.ebike`),
+   the learned pedal torque offset stored in `unimoc.ebike.torque_offset`
+   (`docs/ebike_plan.md`). New pycyphal tests come with each bus feature.
 8. **ASM and EESM plants, then the motor-type selection in the runtime**
    ("Motor types"), including the libm-free `atan2` of the ASM flux angle
    and the excitation setpoint (SIL P2).
@@ -165,7 +167,7 @@ In this order; all without hardware unless marked.
  - [x] Battery status in the drive (2026-10-23): fresh BMS limits replace `unimoc.battery.limits.*` in the outer loop (`OuterLoop::SetBatteryLimits()`), scaled by `unimoc.cart.battery_share`; none with the contactor open or precharging; the registers again after a BMS timeout (decision 5, system plan section 7).
  - [x] CAN error states in the drive (2026-10-23): `CanMedia::BusStatus()` (Zephyr state-change callback, atomics), the best state of the interfaces in the transport; a bus-off drops every cart input at once (torque ramps to zero), `unimoc.can.bus_off_count`, a record on the return. The controller recovers by itself. Tested with an injected bus-off on `tests/common/can_test_bus.hpp`; the FDCAN callback is not run on the board.
  - [x] Limp-home mode in the drive (2026-10-23): on a VDC timeout (`unimoc.cart.timeout`) the torque comes from the pedal state (brake first, against the motion, fading below `unimoc.cart.standstill_speed`; drive pedal forward only; `unimoc.cart.limp_home_torque`, ramped at `unimoc.cart.torque_ramp`); the readiness timeout waits; back to the VDC only at standstill; without the pedals the torque ramps to zero and the drive disengages. Open: reverse in limp-home (direction selector), the VDC reaction to a lost drive.
- - [x] E-bike pedal assist (2026-10-23, `docs/ebike_plan.md`): `lib/ebike/` (pedal observer, assist law, Kunteng codec, software UART receiver), `src/ebike/` (control), `unimoc.ebike.*` registers, the drive hook, the BCC drivers (cadence pulse PA5, display line on PB15 through TIM15 capture, USART3 transmit on PB10) behind `CONFIG_UNIMOC_EBIKE`, the simulated rider and display. Open: tune the assist (bench, then ride), check the display protocol on a real KT-LCD8 (temperature offset, checksum constant, wheel size mapping, error codes), check the TIM15 both-edge capture and the 5 V levels of the display lines on the board, an assist level on the bus (a pedal-unit node), pytest integration of the simulated rider (registers `unimoc.sim.pedal_*`), persist the learned torque offset, brake and light inputs (not on the BCC connectors).
+ - [x] E-bike pedal assist (2026-10-23, `docs/ebike_plan.md`): `lib/ebike/` (pedal observer, assist law, Kunteng codec, software UART receiver), `src/ebike/` (control), `unimoc.ebike.*` registers, the drive hook, the BCC drivers (cadence pulse PA5, display line on PB15 through TIM15 capture, USART3 transmit on PB10) behind `CONFIG_UNIMOC_EBIKE`, the simulated rider and display. Open: tune the assist (bench, then ride), check the display protocol on a real KT-LCD8 (temperature offset, checksum constant, wheel size mapping, error codes), check the TIM15 both-edge capture and the 5 V levels of the display lines on the board, an assist level on the bus (a pedal-unit node), brake and light inputs (not on the BCC connectors). Done 2026-11-08: the pytest of the simulated rider (`unimoc.sim.pedal_*`, `unimoc.sim.display_*`, scenario `unimoc.app.cyphal_integration.ebike`) and the learned torque offset stored in `unimoc.ebike.torque_offset`.
  - [ ] Multi-node simulation: check `vcan` (CAN FD MTU) on WSL2; one `native_sim` process per node on `vcan`, pycyphal on the same interface; multi-node pycyphal tests in CI. A single node already works over the slcan pseudo terminals (classic CAN). Fallback: Cyphal/UDP over the `native_sim` TAP driver (NSOS passes no multicast socket options in 4.4).
  - [ ] CAN FD bit timing per board in the devicetree: 1 Mbit/s arbitration and 4 Mbit/s data with transmitter delay compensation for the 4850 (TCAN334), 2 Mbit/s data as the fallback; Jacobi and the NUCLEO-H743ZI run 1/1 Mbit/s until then (`boards/unimoc/jacobi/unimoc_jacobi.dts`).
  - [ ] Firmware update over Cyphal: `ExecuteCommand BEGIN_SOFTWARE_UPDATE`, `uavcan.file.Read` into flash bank 2, bootloader swap; USB DFU as recovery.

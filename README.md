@@ -343,12 +343,21 @@ T9N) and the display (KT-LCD8, Kunteng protocol) feed the assist law (`lib/ebike
 - Registers (all persistent): `unimoc.ebike.pulses_per_rev`, `wheel_circumference` [m], `gear_ratio`,
   `battery_cells`, `nominal_voltage`, `gain_1` to `gain_5`, `power_scale`, `max_ratio`, `torque_ratio`,
   `torque_deadband`, `min_cadence`, `speed_taper`, `rise_time`, `fall_time`, `engage_hold`, `rearm_time`,
-  `display_timeout`; the direction is `unimoc.cart.reversed`. A change while engaged waits for the disengage. The
-  defaults are untuned starting values: try them on the bench first.
+  `display_timeout`, `torque_offset` [N m]; the direction is `unimoc.cart.reversed`. A change while engaged
+  waits for the disengage. The defaults are untuned starting values: try them on the bench first.
+- Torque sensor offset: `unimoc.ebike.torque_offset` is the reading at zero load the pedal observer starts
+  with; it learns the offset while the crank stands still. While the drive is disengaged and not requested, the
+  drive saves the learned value once it moved 0.1 N m, at most once a minute. If other register changes are not
+  saved yet, the offset only changes in RAM and goes to flash with them at the next `STORE_PERSISTENT_STATES`.
 - Hardware: none at the moment; a drive with a crank sensor and a display port adds an `ebike_io.cpp` to its platform.
 - `native_sim`: a simulated rider and display (`hardware/zephyr_sim/sim_ebike.hpp`) drive the control in the
   tests (`sim_cyphal_drive` attaches the control itself); the simulation app keeps the bus readiness for the
-  pytest integration tests, so `CONFIG_UNIMOC_EBIKE` is off there too.
+  pytest integration tests, so `CONFIG_UNIMOC_EBIKE` is off there too. Built with it
+  (`-DCONFIG_UNIMOC_EBIKE=y`, the pytest scenario `unimoc.app.cyphal_integration.ebike`), the simulated rider
+  and display are registers (volatile): `unimoc.sim.pedal_cadence` [rad/s, 0: standstill],
+  `unimoc.sim.pedal_torque` [N m, at standstill the sensor offset], `unimoc.sim.display_on` (bit: the display
+  polls), `unimoc.sim.display_level` (0 to 7), `unimoc.sim.display_max_speed` [km/h, 10 to 63],
+  `unimoc.sim.display_light` and the read-only `unimoc.sim.display_frames` (status frames the drive answered).
 
 ### Readiness per drive and the heartbeat status
 

@@ -148,9 +148,13 @@ application, and pycyphal (`tests/integration/cyphal_sim/`) checks
 heartbeat, GetInfo, the port list, registers, arming, setpoints, telemetry,
 diagnostics, the simulation registers, trace captures (cymon) and a store
 across a restart over the
-first slcan pseudo terminal. The DSDL is compiled into
-`<tmp>/unimoc_pycyphal` on the first run; without pycyphal the tests are
-skipped.
+first slcan pseudo terminal. `unimoc.app.cyphal_integration.ebike` runs the
+same harness on the e-bike build (`CONFIG_UNIMOC_EBIKE`) with the tests of
+marker `ebike` only (`test_ebike_sim.py`: the simulated rider and display
+over the `unimoc.sim.pedal_*` and `unimoc.sim.display_*` registers); the
+first scenario deselects them. The DSDL is compiled into
+`<tmp>/unimoc_pycyphal` on the first run (under a file lock, the scenarios
+run in parallel); without pycyphal the tests are skipped.
 The tests wait for the event they check instead of a guessed duration
 (`SimClient.expect()`: the first message from now on that satisfies a
 condition; `expect_register()`, `expect_record()`), so a loaded machine only

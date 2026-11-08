@@ -8,8 +8,8 @@
 
 Status: 2026-10-23. Steps 1 to 5 are implemented, tested under twister on `native_sim`
 (`lib/ebike/`, `src/ebike/`, `tests/lib/ebike/`, `tests/ebike/`, the e-bike tests of
-`tests/sim/cyphal_drive`; `unimoc.app.build.ebike`). Nothing is verified on hardware or on a
-real KT-LCD8.
+`tests/sim/cyphal_drive`; the pytest scenario `unimoc.app.cyphal_integration.ebike` with the simulated rider
+on the bus, 2026-11-08). Nothing is verified on hardware or on a real KT-LCD8.
 
 ## 1. Goal
 
@@ -68,8 +68,13 @@ observer.
 - **Power:** mean torque times cadence.
 - **Offset:** follows the reading while the crank stands still, only within
   3 Nm of the current offset (a foot on a pedal is not a zero), time constant
-  30 s after 1 s of standstill. The value can be stored and restored
-  (`SetZeroOffset`); storing it as a setting is pending.
+  30 s after 1 s of standstill. The setting `unimoc.ebike.torque_offset` is
+  the initial offset; the drive stores the learned one (2026-11-08,
+  `EbikeControl::OffsetToStore()`): at standstill, while the drive is not
+  requested and the power stage is off, once it moved 0.1 N m from the stored
+  value and at most once a minute (flash wear). It saves to flash only when no
+  other register change is unsaved; otherwise the offset waits in RAM for the
+  next `STORE_PERSISTENT_STATES`.
 
 ## 5. Assist law (`lib/ebike/src/assist_controller.hpp`)
 
@@ -132,9 +137,12 @@ rebuilds the bytes from timestamped edges of a GPIO in a thread. Not verified: t
 (5 V on the receive line?), the interrupt latencies.
 
 **Switch.** `CONFIG_UNIMOC_EBIKE` is off by default, because the assist parameters are untuned and the control
-engages the power stage by itself (`unimoc.app.build.ebike` builds it for the simulation). The simulation app keeps it off, so that
-the pytest integration tests can still engage the drive over the bus; the e-bike tests of `sim_cyphal_drive`
-attach the control themselves.
+engages the power stage by itself. The simulation app keeps it off, so that the pytest integration tests can
+still engage the drive over the bus; the e-bike tests of `sim_cyphal_drive` attach the control themselves, and
+the pytest scenario `unimoc.app.cyphal_integration.ebike` builds the simulation with it: the simulated rider and
+display are the volatile registers `unimoc.sim.pedal_cadence`, `pedal_torque`, `display_on`, `display_level`,
+`display_max_speed`, `display_light` and `display_frames` (README, "E-bike"), for pytest and yakut
+(`tests/integration/cyphal_sim/test_ebike_sim.py`, marker `ebike`).
 
 ## 8. Steps
 
@@ -146,5 +154,6 @@ attach the control themselves.
    the open points below.
 
 Open: tuning on the bench and on the road; the display on a real KT-LCD8; a board with the e-bike inputs and its
-`ebike_io.cpp`; the logic levels; brake, light and throttle inputs; the `unimoc.sim.pedal_*`
-registers for pytest and yakut; persisting the learned torque offset; the display's current limit code.
+`ebike_io.cpp`; the logic levels; brake, light and throttle inputs; the display's current limit code. Done
+2026-11-08: the `unimoc.sim.pedal_*` and `unimoc.sim.display_*` registers with the pytest of the simulated rider,
+the learned torque offset stored in `unimoc.ebike.torque_offset`.
