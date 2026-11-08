@@ -41,7 +41,7 @@
 
 	/*
 	 * Status LEDs LED_RUN PE0, LED_ERROR PE1, LED_MODE PE2, LED_PWM PE3
-	 * (schematic, interfaces sheet). Polarity: active high assumed, to check.
+	 * (schematic, interfaces sheet), active high.
 	 */
 	leds {
 		compatible = "gpio-leds";
@@ -95,6 +95,7 @@
 		/* Trip 120 A (rating 120 to 130 A), 100 A peak phase current. */
 		max-phase-current-amps = <120>;
 		max-motor-current-amps = <100>;
+		battery-current-amps = <45 20>;
 		/* 60 V FETs, 36 V systems up to 44 V: derate 45 V, trip 48 V, at most 50 V. */
 		dc-link-millivolts = <45000 48000 50000>;
 

@@ -57,13 +57,16 @@ const settings::SettingsProfile kSettingsProfile = [] {
   // The dead-time compensation starts from the devicetree dead time (foc0
   // dead-time-ns); M1 of the identification measures the effective one.
   profile.factory_settings.dtc_dead_time = 1.0e-9_s * static_cast<float>(foc_stm32h7::kDeadTimeNs);
-  profile.factory_settings.battery_drive_current_max = 50.0_A;
-  profile.factory_settings.battery_charge_current_max = 20.0_A;
+  // Battery current rating of the board: foc0 battery-current-amps.
+  profile.factory_settings.battery_drive_current_max =
+      1.0_A * static_cast<float>(foc_stm32h7::kBatteryDriveCurrentAmps);
+  profile.factory_settings.battery_charge_current_max =
+      1.0_A * static_cast<float>(foc_stm32h7::kBatteryChargeCurrentAmps);
   // Hard trip limit and motor current limit of the power stage: foc0 of the board.
   profile.capabilities.max_phase_current = 1.0_A * static_cast<float>(foc_stm32h7::kMaxPhaseCurrentAmps);
   profile.capabilities.max_motor_current = 1.0_A * static_cast<float>(foc_stm32h7::kMaxMotorCurrentAmps);
-  profile.capabilities.max_battery_drive_current = 50.0_A;
-  profile.capabilities.max_battery_charge_current = 20.0_A;
+  profile.capabilities.max_battery_drive_current = profile.factory_settings.battery_drive_current_max;
+  profile.capabilities.max_battery_charge_current = profile.factory_settings.battery_charge_current_max;
   // DC link from foc0 dc-link-millivolts of the board (derate, trip, max):
   // Jacobi and the legacy 4850 power board both carry 60 V FETs (NCEP6080AG),
   // so both are 36 V drives (lead-acid up to 44 V while charging, 10S Li-ion).

@@ -272,7 +272,7 @@ module; (5) the 4850 power board through an adapter.
    chip, COMP2 shares port E with TIM1 in this proposal).
 6. Phase voltage dividers and their pins on the power board connector.
 7. ~~HSE frequency~~: a 20 MHz oscillator in bypass (2026-11-08). LED
-   polarity (active high assumed). `PWM_EN` is the break input PE15
+   polarity: active high (2026-11-08). `PWM_EN` is the break input PE15
    (2026-11-08, devicetree without a PE7 enable).
 8. Dead time: the Jacobi power stage is designed for 200 ns (schematic,
    phase sheet), and the legacy 4850 power board is capable of 200 ns too
@@ -281,5 +281,6 @@ module; (5) the 4850 power board through an adapter.
    dead-time compensation takes `dead-time-ns`.
 9. ~~Voltage and current limits per board~~ (2026-11-08): foc0 carries the
    front end and the limits (`docs/zephyr_workflow.md`, "Limits per
-   board"). Open: whether the legacy board has the INA240A1 (BOM value)
-   or the A2 (its order number), and the battery current rating of Jacobi.
+   board"). Both boards carry the INA240A1; the DC-link limits 45 / 48 /
+   50 V are confirmed; Jacobi is rated 45 A battery current
+   (`battery-current-amps`).
