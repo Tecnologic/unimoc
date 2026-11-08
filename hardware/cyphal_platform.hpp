@@ -29,6 +29,10 @@
 #include "nvm_settings.hpp"
 #include "settings_store.hpp"
 
+namespace unimoc::drive {
+struct DriveHooks;
+}  // namespace unimoc::drive
+
 namespace unimoc::hardware {
 
 /**
@@ -67,9 +71,10 @@ void CyphalPlatformStart(cyphal::CyphalNode& node, const settings::NvmSettings& 
 /**
  * @brief Called once the node has all its registers and ports, before the first spin.
  * @param node The drive's Cyphal node.
- * @param info Its GetInfo values (sim: `--describe-registers` writes the description file and exits).
+ * @param info Its GetInfo values (sim: `--describe-registers` writes the description file and exits;
+ *             otherwise the node serves it as `registers.json` over uavcan.file.Read).
  */
-void CyphalPlatformReady(const cyphal::CyphalNode& node, const cyphal::NodeInfo& info) noexcept;
+void CyphalPlatformReady(cyphal::CyphalNode& node, const cyphal::NodeInfo& info) noexcept;
 
 /**
  * @brief Registers the trace variables of the platform after those of the control (sim: plant truth).
@@ -92,6 +97,15 @@ void CyphalPlatformSpin(cyphal::CyphalNode& node, uint64_t now_us) noexcept;
 
 /// Called after the drive applied new settings to the controller.
 void CyphalPlatformSettingsApplied(const settings::NvmSettings& settings) noexcept;
+
+/**
+ * @brief Adds the platform's in-process parts to the drive's hooks.
+ *
+ * native_sim: the excitation module and a RAM bank for the firmware update.
+ * The boards leave them null: their excitation module is on the bus, and the
+ * second flash bank waits for the bootloader (updates are refused).
+ */
+void CyphalPlatformDriveHooks(drive::DriveHooks& hooks) noexcept;
 
 /// @}
 

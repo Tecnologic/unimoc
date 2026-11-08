@@ -12,9 +12,12 @@
  *      next to the SocketCAN interface, for hosts without vcan.
  *    - Registers of the simulated plant (`unimoc.sim.*`, volatile): shaft
  *      mode, imposed speed, load torque, DC-link voltage, external enable,
- *      and whether the plant follows the motor settings.
+ *      and whether the plant follows the motor settings; the board inputs
+ *      (power board detect, gate supply, accelerator, brake; sim_board.hpp).
  *    - The plant state (unimoc.sim.Plant.0.1) on `uavcan.pub.sim_plant.id`
  *      at the telemetry rate, to compare with the controller's estimates.
+ *    - With the e-bike (CONFIG_UNIMOC_EBIKE): the simulated rider and display
+ *      (`unimoc.sim.pedal_*`, `unimoc.sim.display_*`, volatile).
  *
  *    SPDX-License-Identifier: GPL-3.0-or-later
  *
@@ -31,16 +34,22 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdio>
 #include <limits>
 #include <numbers>
 #include <string_view>
 #include <tuple>
 #include "current_control_runtime.hpp"
+#include "cyphal/file_service.hpp"
 #include "cyphal/register_value.hpp"
+#include "drive_node.hpp"
 #include "power_stage_interface.hpp"
 #include "register_file.hpp"
+#include "sim_board.hpp"
 #include "sim_cmdline.h"
 #include "sim_control.hpp"
+#include "sim_ebike.hpp"
+#include "sim_excitation.hpp"
 #include "slcan_media.hpp"
 
 LOG_MODULE_DECLARE(unimoc_cyphal, CONFIG_UNIMOC_LOG_LEVEL);
@@ -49,9 +58,13 @@ namespace unimoc::hardware {
 
 namespace {
 
+using unit::operator""_Nm;
+using unit::operator""_rad_per_s;
+using unit::operator""_V;
 using cyphal::RegisterFlags;
 using cyphal::RegisterValue;
 using cyphal::RegisterWriteResult;
+using unit::Voltage;
 
 /// Volatile state of the simulated plant that the registers set.
 struct PlantInputs {
@@ -77,7 +90,9 @@ void ApplyInputs() noexcept {
   const unsigned int kKey = irq_lock();
   auto& plant = sim::Plant();
   plant.SetShaftMode(g_inputs.shaft_mode, unit::AngularVelocity{g_inputs.imposed_speed});
-  plant.SetInput(::unimoc::sim::SimulationInput{unit::Torque{g_inputs.load_torque}, unit::Voltage{}});
+  // The field voltage stays with the simulated excitation module (sim_excitation.hpp).
+  plant.SetInput(
+      ::unimoc::sim::SimulationInput{unit::Torque{g_inputs.load_torque}, plant.Input().field_voltage});
   plant.SetDcLinkVoltage(unit::Voltage{g_inputs.dc_link_voltage});
   plant.SetContactorClosed(g_inputs.contactor_closed);
   irq_unlock(kKey);
@@ -118,12 +133,16 @@ enum class SimRegister : uint8_t {
   kDcLinkCapacitance,
   kBatteryResistance,
   kContactorClosed,
+  kPowerBoard,
+  kGateSupply,
+  kAccelerator,
+  kBrake,
 };
 
 /// Most control cycles one write of `unimoc.sim.advance` runs (1 s of virtual time at 16 kHz).
 constexpr int64_t kMaxAdvanceCycles = 16000;
 
-constexpr std::array<std::string_view, 17> kNames{
+constexpr std::array<std::string_view, 21> kNames{
     "unimoc.sim.shaft_mode",
     "unimoc.sim.imposed_speed",
     "unimoc.sim.load_torque",
@@ -141,6 +160,10 @@ constexpr std::array<std::string_view, 17> kNames{
     "unimoc.sim.dc_link_capacitance",
     "unimoc.sim.battery_resistance",
     "unimoc.sim.contactor_closed",
+    "unimoc.sim.power_board",
+    "unimoc.sim.gate_supply",
+    "unimoc.sim.accelerator",
+    "unimoc.sim.brake",
 };
 
 constexpr float kInf = std::numeric_limits<float>::infinity();
@@ -207,6 +230,10 @@ constexpr std::array<cyphal::RegisterDescription, kNames.size()> kDescriptions{{
      kInf,
      RegisterEffect::kImmediate,
      "0 opens the contactor between battery and DC-link capacitor"},
+    {{}, -kInf, kInf, RegisterEffect::kImmediate, "Power board detect (PWR_DET); 0: no power board"},
+    {"V", 0.0F, 30.0F, RegisterEffect::kImmediate, "Gate driver supply +12P"},
+    {"V", 0.0F, 3.3F, RegisterEffect::kImmediate, "Output of the accelerator (throttle) sensor"},
+    {"V", 0.0F, 3.3F, RegisterEffect::kImmediate, "Output of the brake lever sensor"},
 }};
 
 /**
@@ -252,6 +279,32 @@ bool WriteDcLink(const bool capacitance, const float value) noexcept {
     return false;
   }
   return true;
+}
+
+/// Sets one of the simulated board inputs; the voltages within the limits of their descriptions.
+RegisterWriteResult WriteBoardInput(const SimRegister which, const float value) noexcept {
+  const cyphal::RegisterDescription& limits = kDescriptions[static_cast<std::size_t>(which)];
+  if (value < limits.minimum || value > limits.maximum) {
+    return RegisterWriteResult::kOutOfRange;
+  }
+  BoardInputs inputs = sim::SimBoardInputs();
+  const Voltage kVoltage = 1.0_V * value;
+  switch (which) {
+    case SimRegister::kPowerBoard:
+      inputs.power_board = value != 0.0F;
+      break;
+    case SimRegister::kGateSupply:
+      inputs.gate_supply = kVoltage;
+      break;
+    case SimRegister::kAccelerator:
+      inputs.accelerator = kVoltage;
+      break;
+    default:
+      inputs.brake = kVoltage;
+      break;
+  }
+  sim::SetBoardInputs(inputs);
+  return RegisterWriteResult::kAccepted;
 }
 
 /// Registers of the simulated plant; not persistent, the plant starts from the defaults.
@@ -319,6 +372,18 @@ class SimRegisters final : public cyphal::RegisterProvider {
         break;
       case SimRegister::kContactorClosed:
         cyphal::SetBit(value, g_inputs.contactor_closed);
+        break;
+      case SimRegister::kPowerBoard:
+        cyphal::SetBit(value, sim::SimBoardInputs().power_board.value_or(false));
+        break;
+      case SimRegister::kGateSupply:
+        cyphal::SetReal32(value, sim::SimBoardInputs().gate_supply.value_or(Voltage{}).Value());
+        break;
+      case SimRegister::kAccelerator:
+        cyphal::SetReal32(value, sim::SimBoardInputs().accelerator.value_or(Voltage{}).Value());
+        break;
+      case SimRegister::kBrake:
+        cyphal::SetReal32(value, sim::SimBoardInputs().brake.value_or(Voltage{}).Value());
         break;
     }
     return {true, false};
@@ -400,6 +465,11 @@ class SimRegisters final : public cyphal::RegisterProvider {
       case SimRegister::kContactorClosed:
         g_inputs.contactor_closed = kValue != 0.0F;
         break;
+      case SimRegister::kPowerBoard:
+      case SimRegister::kGateSupply:
+      case SimRegister::kAccelerator:
+      case SimRegister::kBrake:
+        return WriteBoardInput(static_cast<SimRegister>(index), kValue);
     }
     ApplyInputs();
     return RegisterWriteResult::kAccepted;
@@ -407,6 +477,158 @@ class SimRegisters final : public cyphal::RegisterProvider {
 };
 
 SimRegisters g_registers;
+
+/// Inputs of the simulated rider and display (sim_ebike.hpp) that the registers set.
+struct RiderInputs {
+  float cadence{0.0F};  ///< Crank speed [rad/s]; 0: the crank stands still.
+  float torque{0.0F};   ///< Mean reading of the torque sensor [N m]; at standstill its offset.
+  bool display_on{false};
+  uint8_t level{0U};
+  uint8_t max_speed{25U};  ///< [km/h]
+  bool light{false};
+};
+
+enum class RiderRegister : uint8_t {
+  kCadence,
+  kTorque,
+  kDisplayOn,
+  kLevel,
+  kMaxSpeed,
+  kLight,
+  kFrames,
+};
+
+constexpr std::array<std::string_view, 7> kRiderNames{
+    "unimoc.sim.pedal_cadence",
+    "unimoc.sim.pedal_torque",
+    "unimoc.sim.display_on",
+    "unimoc.sim.display_level",
+    "unimoc.sim.display_max_speed",
+    "unimoc.sim.display_light",
+    "unimoc.sim.display_frames",
+};
+
+constexpr std::array<cyphal::RegisterDescription, kRiderNames.size()> kRiderDescriptions{{
+    {"rad/s",
+     0.0F,
+     100.0F,
+     RegisterEffect::kImmediate,
+     "Crank speed of the simulated rider; 0: the crank stands still"},
+    {"N m",
+     -10.0F,
+     200.0F,
+     RegisterEffect::kImmediate,
+     "Mean reading of the simulated torque sensor; at standstill the sensor offset the drive learns"},
+    {{},
+     -kInf,
+     kInf,
+     RegisterEffect::kImmediate,
+     "1: the simulated display polls the drive; 0: it falls silent"},
+    {{}, 0.0F, 7.0F, RegisterEffect::kImmediate, "Assist level the simulated display requests"},
+    {"km/h", 10.0F, 63.0F, RegisterEffect::kImmediate, "Speed limit the simulated display requests"},
+    {{}, -kInf, kInf, RegisterEffect::kImmediate, "1: the simulated display asks for the light"},
+    {"frames",
+     -kInf,
+     kInf,
+     RegisterEffect::kImmediate,
+     "Status frames the drive sent to the simulated display"},
+}};
+
+/// Registers of the simulated rider and display; only with the e-bike, not persistent.
+class RiderRegisters final : public cyphal::RegisterProvider {
+ public:
+  [[nodiscard]] std::size_t Count() const noexcept override { return kRiderNames.size(); }
+
+  [[nodiscard]] std::string_view Name(const std::size_t index) const noexcept override {
+    return index < kRiderNames.size() ? kRiderNames[index] : std::string_view{};
+  }
+
+  [[nodiscard]] cyphal::RegisterDescription Describe(const std::size_t index) const noexcept override {
+    return index < kRiderDescriptions.size() ? kRiderDescriptions[index] : cyphal::RegisterDescription{};
+  }
+
+  [[nodiscard]] RegisterFlags Read(const std::size_t index, RegisterValue& value) const noexcept override {
+    switch (static_cast<RiderRegister>(index)) {
+      case RiderRegister::kCadence:
+        cyphal::SetReal32(value, inputs_.cadence);
+        break;
+      case RiderRegister::kTorque:
+        cyphal::SetReal32(value, inputs_.torque);
+        break;
+      case RiderRegister::kDisplayOn:
+        cyphal::SetBit(value, inputs_.display_on);
+        break;
+      case RiderRegister::kLevel:
+        cyphal::SetNatural8(value, inputs_.level);
+        break;
+      case RiderRegister::kMaxSpeed:
+        cyphal::SetNatural8(value, inputs_.max_speed);
+        break;
+      case RiderRegister::kLight:
+        cyphal::SetBit(value, inputs_.light);
+        break;
+      case RiderRegister::kFrames:
+        cyphal::SetNatural32(value, sim::DisplayStatusCount());
+        return {false, false};
+    }
+    return {true, false};
+  }
+
+  [[nodiscard]] RegisterWriteResult Write(const std::size_t index,
+                                          const RegisterValue& value) noexcept override {
+    const auto kNumber = cyphal::GetNumber(value);
+    if (!kNumber.has_value()) {
+      return RegisterWriteResult::kTypeMismatch;
+    }
+    const float kValue = *kNumber;
+    if (!std::isfinite(kValue)) {
+      return RegisterWriteResult::kOutOfRange;
+    }
+    const cyphal::RegisterDescription& limits = kRiderDescriptions[index];
+    if (kValue < limits.minimum || kValue > limits.maximum) {
+      return RegisterWriteResult::kOutOfRange;
+    }
+    switch (static_cast<RiderRegister>(index)) {
+      case RiderRegister::kCadence:
+        inputs_.cadence = kValue;
+        break;
+      case RiderRegister::kTorque:
+        inputs_.torque = kValue;
+        break;
+      case RiderRegister::kDisplayOn:
+        inputs_.display_on = kValue != 0.0F;
+        break;
+      case RiderRegister::kLevel:
+        inputs_.level = static_cast<uint8_t>(kValue);
+        break;
+      case RiderRegister::kMaxSpeed:
+        inputs_.max_speed = static_cast<uint8_t>(kValue);
+        break;
+      case RiderRegister::kLight:
+        inputs_.light = kValue != 0.0F;
+        break;
+      case RiderRegister::kFrames:
+        return RegisterWriteResult::kReadOnly;
+    }
+    Apply(static_cast<RiderRegister>(index));
+    return RegisterWriteResult::kAccepted;
+  }
+
+ private:
+  void Apply(const RiderRegister changed) const noexcept {
+    if (changed == RiderRegister::kCadence || changed == RiderRegister::kTorque) {
+      sim::SetPedal(inputs_.cadence * 1.0_rad_per_s, inputs_.torque * 1.0_Nm);
+    } else if (inputs_.display_on) {
+      sim::SetDisplay(inputs_.level, inputs_.max_speed, inputs_.light);
+    } else if (changed == RiderRegister::kDisplayOn) {
+      sim::SilenceDisplay();
+    }
+  }
+
+  RiderInputs inputs_;
+};
+
+RiderRegisters g_rider_registers;
 
 // The slcan pseudo terminals: the slcan-uarts phandles of zephyr,user (app overlay).
 #define UNIMOC_SLCAN_NODE DT_PATH(zephyr_user)
@@ -425,6 +647,67 @@ void SetPlantRate(const settings::NvmSettings& settings) noexcept {
   const float kRate = settings.telemetry_rate.Value();
   g_plant_period_us = (kRate > 0.0F) ? static_cast<uint64_t>(1.0e6F / kRate) : 0U;
 }
+
+// ----- Firmware update and the register description file (docs/system_plan.md) -----
+
+/// The simulated flash bank 2: 1 MiB of RAM, as the second bank of the STM32H743.
+constexpr uint32_t kUpdateBankSize = 1024U * 1024U;
+std::array<std::byte, kUpdateBankSize> g_update_bank{};
+
+bool EraseUpdateBank() noexcept {
+  g_update_bank.fill(std::byte{0xFF});
+  return true;
+}
+
+bool WriteUpdateBank(const uint32_t offset, const std::span<const std::byte> data) noexcept {
+  if (offset > g_update_bank.size() || data.size() > g_update_bank.size() - offset) {
+    return false;
+  }
+  std::copy(data.begin(), data.end(), g_update_bank.begin() + offset);
+  return true;
+}
+
+bool ReadUpdateBank(const uint32_t offset, const std::span<std::byte> data) noexcept {
+  if (offset > g_update_bank.size() || data.size() > g_update_bank.size() - offset) {
+    return false;
+  }
+  std::copy_n(g_update_bank.begin() + offset, data.size(), data.begin());
+  return true;
+}
+
+constexpr cyphal::FirmwareBank kUpdateBank{EraseUpdateBank, WriteUpdateBank, ReadUpdateBank, kUpdateBankSize};
+
+/// Serves the register description file, written into a host temporary file at the start.
+class RegisterFileSource final : public cyphal::FileSource {
+ public:
+  static constexpr std::string_view kPath = "registers.json";
+
+  /// @param file The written file; stays open for the run.
+  void SetFile(std::FILE* const file) noexcept { file_ = file; }
+
+  [[nodiscard]] cyphal::FileReadResult Read(const std::string_view path,
+                                            const uint64_t offset,
+                                            const std::span<std::byte> data) noexcept override {
+    if (file_ == nullptr || path != kPath) {
+      return {cyphal::file_error::kNotFound, 0U};
+    }
+    if (std::fseek(file_, static_cast<long>(offset), SEEK_SET) != 0) {
+      return {cyphal::file_error::kIoError, 0U};
+    }
+    const std::size_t kSize = std::fread(data.data(), 1U, data.size(), file_);
+    if (std::ferror(file_) != 0) {
+      std::clearerr(file_);
+      return {cyphal::file_error::kIoError, 0U};
+    }
+    return {cyphal::file_error::kOk, kSize};
+  }
+
+ private:
+  std::FILE* file_{nullptr};
+};
+
+RegisterFileSource g_register_file;
+cyphal::FileServer g_file_server{g_register_file};
 
 }  // namespace
 
@@ -456,15 +739,27 @@ std::span<cyphal::CanMedia* const> CyphalPlatformInterfaces() noexcept { return 
 
 void CyphalPlatformStart(cyphal::CyphalNode& node, const settings::NvmSettings& settings) noexcept {
   (void)node.AddRegisterProvider(g_registers);
+  if (IS_ENABLED(CONFIG_UNIMOC_EBIKE)) {
+    (void)node.AddRegisterProvider(g_rider_registers);
+  }
   (void)node.AddPublisher(g_plant_publisher);
   g_applied_settings = settings;
   SetPlantRate(settings);
   ApplyInputs();
 }
 
-void CyphalPlatformReady(const cyphal::CyphalNode& node, const cyphal::NodeInfo& info) noexcept {
+void CyphalPlatformReady(cyphal::CyphalNode& node, const cyphal::NodeInfo& info) noexcept {
   const char* const kPath = UnimocSimDescribeRegistersOption();
   if (kPath == nullptr) {
+    // F3: the description file of the fresh node over uavcan.file.Read (`registers.json`).
+    // NOLINTNEXTLINE(cppcoreguidelines-owning-memory): open for the run, removed by the host at exit.
+    std::FILE* const kFile = std::tmpfile();
+    if (kFile == nullptr || !sim::WriteRegisterJson(node, info, kFile) ||
+        !node.AddServer(cyphal::port::kFileRead, cyphal::FileServer::kRequestExtent, g_file_server)) {
+      LOG_WRN("register description file not served");
+      return;
+    }
+    g_register_file.SetFile(kFile);
     return;
   }
   const bool kWritten = sim::WriteRegisterFile(node, info, kPath);
@@ -554,6 +849,12 @@ uint64_t CyphalPlatformDriveTimeUs(const uint64_t now_us) noexcept {
   clock.real_us = now_us;
   clock.virtual_ns = kVirtualNs;
   return clock.drive_ns / 1000U;
+}
+
+void CyphalPlatformDriveHooks(drive::DriveHooks& hooks) noexcept {
+  hooks.excitation_command = sim::ExcitationCommand;
+  hooks.excitation_status = sim::ExcitationStatus;
+  hooks.firmware_bank = &kUpdateBank;
 }
 
 void CyphalPlatformSettingsApplied(const settings::NvmSettings& settings) noexcept {

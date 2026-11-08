@@ -18,7 +18,9 @@
 #include <cstdint>
 #include <numbers>
 #include <variant>
+#include "asm_model.hpp"
 #include "dc_link_model.hpp"
+#include "eesm_model.hpp"
 #include "hall_sensor.hpp"
 #include "inverter_model.hpp"
 #include "mechanical_model.hpp"
@@ -42,6 +44,10 @@ struct SimulationParameters {
   system::MotorType motor_type{system::MotorType::kPmsm};
   /// PMSM parameters, used for MotorType::kPmsm.
   PmsmParameters pmsm;
+  /// Induction motor parameters, used for MotorType::kAsm.
+  AsmParameters asm_motor;
+  /// EESM parameters, used for MotorType::kEesm.
+  EesmParameters eesm;
   /// Shaft and load parameters, used for every motor type.
   MechanicalParameters mechanics;
   /// Hall sensor parameters.
@@ -69,6 +75,27 @@ struct SimulationParameters {
   parameters.pmsm.l_d = settings.l_d;
   parameters.pmsm.l_q = settings.l_q;
   parameters.pmsm.flux_pm = settings.flux_pm;
+  parameters.asm_motor.pole_pairs = settings.pole_pairs;
+  parameters.asm_motor.stator_resistance = settings.asm_r_s;
+  parameters.asm_motor.rotor_resistance = settings.asm_r_r;
+  parameters.asm_motor.l_s = settings.asm_l_s;
+  parameters.asm_motor.l_r = settings.asm_l_r;
+  parameters.asm_motor.l_m = settings.asm_l_m;
+  // The EESM stator and L_m from the motor settings. The field winding is not referred to the stator, so
+  // its inductance follows from a coupling of 3/2 L_m^2 / (L_d L_f) = 0.8 and its resistance from a field
+  // time constant of 25 ms (the excitation module knows the real winding).
+  parameters.eesm.pole_pairs = settings.pole_pairs;
+  parameters.eesm.stator_resistance = settings.stator_r;
+  parameters.eesm.l_d = settings.l_d;
+  parameters.eesm.l_q = settings.l_q;
+  parameters.eesm.l_m = settings.excitation_l_m;
+  if (settings.l_d > unit::Inductance{}) {
+    constexpr float kFieldCoupling = 0.8F;
+    constexpr unit::Time kFieldTimeConstant = unit::operator""_ms(25.0L);
+    parameters.eesm.field_inductance =
+        (settings.excitation_l_m * (settings.excitation_l_m / settings.l_d)) * (1.5F / kFieldCoupling);
+    parameters.eesm.field_resistance = parameters.eesm.field_inductance / kFieldTimeConstant;
+  }
   parameters.mechanics.inertia = settings.motor_j;
   return parameters;
 }
@@ -175,7 +202,13 @@ class MotorSimulation {
         pole_pairs = parameters.pmsm.pole_pairs;
         break;
       case system::MotorType::kAsm:
+        model = AsmModel(parameters.asm_motor);
+        pole_pairs = parameters.asm_motor.pole_pairs;
+        break;
       case system::MotorType::kEesm:
+        model = EesmModel(parameters.eesm);
+        pole_pairs = parameters.eesm.pole_pairs;
+        break;
       default:
         return Status::kUnsupportedMotorType;
     }
@@ -295,6 +328,9 @@ class MotorSimulation {
    */
   constexpr void SetInput(const SimulationInput& input) noexcept { input_ = input; }
 
+  /// The external inputs of the last SetInput().
+  [[nodiscard]] constexpr const SimulationInput& Input() const noexcept { return input_; }
+
   /**
    * @brief Selects how the shaft speed is determined.
    * @param mode Free shaft or imposed speed.
@@ -400,7 +436,7 @@ class MotorSimulation {
 
  private:
   /// Electrical models of all motor types; std::monostate while unconfigured.
-  using Model = std::variant<std::monostate, PmsmModel>;
+  using Model = std::variant<std::monostate, PmsmModel, AsmModel, EesmModel>;
 
   /// Validates the parameters of the held model.
   struct ValidateVisitor {

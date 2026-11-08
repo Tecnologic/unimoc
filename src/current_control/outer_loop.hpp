@@ -17,11 +17,13 @@
 
 #include <atomic>
 #include <cstdint>
+#include "asm_flux_controller.hpp"
 #include "battery_limits.hpp"
 #include "current_control_isr.hpp"
 #include "cyphal/control_mode.hpp"
 #include "dc_link_limit.hpp"
 #include "mailbox.hpp"
+#include "motor_type.hpp"
 #include "nvm_settings.hpp"
 #include "position_controller.hpp"
 #include "position_tracker.hpp"
@@ -160,6 +162,22 @@ class OuterLoop {
   void SetBatteryLimits(const BatteryLimits& limits) noexcept { battery_.Write(limits); }
 
   /**
+   * @brief EESM: the field flux psi_f = L_m i_f of the measured field current (one writer: the drive).
+   *
+   * The torque constant 3/2 p psi_f of the next steps follows it.
+   */
+  void SetFieldFlux(const unit::MagneticFlux flux) noexcept { field_flux_.Write(flux); }
+
+  /**
+   * @brief The torque constant 3/2 p psi of the motor type of @p settings.
+   *
+   * PMSM: psi_PM. ASM: (L_m / L_r) |psi_r*| at the flux reference. EESM: @p field_flux,
+   * the flux of the field current.
+   */
+  [[nodiscard]] static unit::MagneticFlux MotorTorqueConstant(const settings::NvmSettings& settings,
+                                                              unit::MagneticFlux field_flux) noexcept;
+
+  /**
    * @brief Starts a homing run (one writer: the drive).
    *
    * The control thread takes it at its next step: in the engaged position
@@ -212,9 +230,12 @@ class OuterLoop {
     uint8_t pole_pairs{1U};
     unit::Time dt;                       ///< Period of one step.
     unit::Current current_limit;         ///< Magnitude limit of the current reference.
-    unit::MagneticFlux torque_constant;  ///< PMSM 3/2 p psi_pm [N m/A = Wb]; 0: no torque available.
-    control::DcLinkLimit dc_link;        ///< Battery current limits, regenerative derating.
-    unit::AngularVelocity speed_min;     ///< Mechanical, from the electrical limits.
+    unit::MagneticFlux torque_constant;  ///< 3/2 p psi [N m/A = Wb] (MotorTorqueConstant()); 0: no torque.
+    system::MotorType motor_type{system::MotorType::kPmsm};
+    control::AsmFluxController asm_flux{};  ///< ASM: rotor flux controller (d current) and slip.
+    unit::MagneticFlux asm_flux_reference;  ///< ASM: |psi_r*|.
+    control::DcLinkLimit dc_link;           ///< Battery current limits, regenerative derating.
+    unit::AngularVelocity speed_min;        ///< Mechanical, from the electrical limits.
     unit::AngularVelocity speed_max;
     unit::AngularVelocity homing_speed;  ///< Mechanical speed of the homing run.
     unit::Current homing_current;        ///< Current bound of the homing run.
@@ -259,6 +280,8 @@ class OuterLoop {
 
   // Control thread only.
   Parameters active_{};
+  /// EESM: the field flux L_m i_f of the excitation module (SetFieldFlux()).
+  Mailbox<unit::MagneticFlux> field_flux_{};
   uint32_t applied_gains_generation_{0U};
   uint32_t applied_homing_requests_{0U};
   control::HomingState homing_{control::HomingState::kIdle};

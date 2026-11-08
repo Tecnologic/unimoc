@@ -99,31 +99,48 @@
 		/* 60 V FETs, 36 V systems up to 44 V: derate 45 V, trip 48 V, at most 50 V. */
 		dc-link-millivolts = <45000 48000 50000>;
 
+		/*
+		 * Gate driver supply +12P: 10k / 2k2 (R109/R110) at the drivers, on
+		 * PC5 (V12P_SNS). The LM5109B undervoltage lockout is at about 6.7 V;
+		 * the NCEP6080AG is specified at 10 V gate drive (the high side gets
+		 * +12P less the bootstrap diode), so engage from 10.5 V, trip below 10 V.
+		 */
+		gate-supply-divider-ohms = <10000 2200>;
+		gate-supply-millivolts = <10000 10500>;
+
 		pinctrl-0 = <&tim1_ch1_pa8 &tim1_ch1n_pb13
 			     &tim1_ch2_pa9 &tim1_ch2n_pb14
 			     &tim1_ch3_pa10 &tim1_ch3n_pb15
 			     &tim1_bkin_pe15
 			     &analog_pa2 &analog_pb1 &analog_pa0 &analog_pa1
-			     &analog_pa3 &analog_pb0 &analog_pc1
-			     &analog_pc2_c &analog_pc3_c>;
+			     &analog_pa3 &analog_pb0 &analog_pc5 &analog_pc4
+			     &analog_pc2_c &analog_pc3_c &analog_pc1 &analog_pc0>;
 		pinctrl-names = "default";
 
-		/* Injected sequences in this order, the phase current first on each ADC. */
-		io-channels = <&adc1 14>, <&adc1 5>, <&adc1 16>, <&adc1 17>, /* PA2 ia, PB1 va, PA0, PA1 */
-			      <&adc2 15>, <&adc2 9>, <&adc2 11>,            /* PA3 ib, PB0 vb, PC1 vdc   */
-			      <&adc3 0>, <&adc3 1>;                         /* PC2_C ic, PC3_C vc        */
+		/*
+		 * Injected sequences in this order, the phase current first on each
+		 * ADC. Vdc (PC1) is on ADC3, which reaches it like ADC1 and ADC2, so
+		 * ADC2 has room for +12P and the brake lever (ADC1/2-only pins).
+		 * Accelerator and brake lever: J601, sensors on +3.3VADC through
+		 * 11k / 100n (AIN_ACC, AIN_DCC), 0 V to the ADC reference.
+		 */
+		io-channels = <&adc1 14>, <&adc1 5>, <&adc1 16>, <&adc1 17>, /* PA2 ia, PB1 va, PA0, PA1   */
+			      <&adc2 15>, <&adc2 9>, <&adc2 8>, <&adc2 4>,    /* PA3 ib, PB0 vb, PC5, PC4   */
+			      <&adc3 0>, <&adc3 1>, <&adc3 11>, <&adc3 10>;   /* PC2_C ic, PC3_C vc, PC1, PC0 */
 		io-channel-names = "ia", "va", "motor-temperature", "bridge-temperature",
-				   "ib", "vb", "vdc",
-				   "ic", "vc";
+				   "ib", "vb", "gate-supply", "brake",
+				   "ic", "vc", "vdc", "accelerator";
 
 		/*
 		 * ADC clock cycles at 30 MHz (pll2_p 120 MHz / 4). Currents and phase
-		 * voltages through 220R / 2n2, Vdc through 4k7 / 10n: short, the
-		 * filter capacitors charge the sample capacitor. NTCs: longer.
+		 * voltages through 220R / 2n2, Vdc and +12P through 4k7 / 10n, the
+		 * accelerator and brake through 11k / 100n: short, the filter capacitors
+		 * charge the sample capacitor. NTCs: longer. ADC1 stays the longest
+		 * sequence (84 against 52 cycles).
 		 */
 		sample-times = "2.5", "16.5", "32.5", "32.5",
-			       "2.5", "16.5", "16.5",
-			       "2.5", "16.5";
+			       "2.5", "16.5", "16.5", "16.5",
+			       "2.5", "16.5", "16.5", "16.5";
 	};
 
 	/*
@@ -142,7 +159,10 @@
 			     <&gpiod 14 GPIO_ACTIVE_HIGH>;
 		/* TCAN334 STB on PD2: high = standby. Driven low by the Cyphal platform. */
 		can-standby-gpios = <&gpiod 2 GPIO_ACTIVE_HIGH>;
-		/* PWR_DET on PE4 (10k pull-up): low while the power board is plugged in. Not read yet. */
+		/*
+		 * PWR_DET on PE4 (10k pull-up R612, GND on the power board): low while
+		 * the power board is plugged in. Without it the drive does not engage.
+		 */
 		power-board-gpios = <&gpioe 4 GPIO_ACTIVE_LOW>;
 	};
 };

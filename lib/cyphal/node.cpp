@@ -143,6 +143,44 @@ bool CyphalNode::AddServer(const uint16_t service_id,
   return true;
 }
 
+bool CyphalNode::AddClient(const uint16_t service_id,
+                           const std::size_t response_extent,
+                           ResponseListener& listener) noexcept {
+  const bool kTaken =
+      std::any_of(clients_.begin(),
+                  clients_.begin() + static_cast<std::ptrdiff_t>(client_count_),
+                  [service_id](const Client& client) { return client.service_id == service_id; });
+  if (service_id > kMaxServiceId || kTaken || client_count_ >= kMaxClients ||
+      !transport_->Subscribe(TransferKind::kServiceResponse, service_id, response_extent)) {
+    return false;
+  }
+  clients_[client_count_++] = Client{service_id, &listener};
+  return true;
+}
+
+bool CyphalNode::Request(const uint16_t service_id,
+                         const uint8_t server,
+                         const uint8_t transfer_id,
+                         const std::span<const std::byte> payload) noexcept {
+  const bool kAdded =
+      std::any_of(clients_.begin(),
+                  clients_.begin() + static_cast<std::ptrdiff_t>(client_count_),
+                  [service_id](const Client& client) { return client.service_id == service_id; });
+  if (!kAdded || NodeId() == kNodeIdUnset || server > kNodeIdMax) {
+    return false;
+  }
+  const Transfer kTransfer{
+      .port_id = service_id,
+      .source_node_id = NodeId(),
+      .destination_node_id = server,
+      .transfer_id = transfer_id,
+      .kind = TransferKind::kServiceRequest,
+      .priority = Priority::kSlow,
+      .payload = payload,
+  };
+  return transport_->Send(kTransfer);
+}
+
 bool CyphalNode::AddPublisher(const Publisher& publisher) noexcept {
   if (publisher.port_id == kUnsetPortId) {
     return true;
@@ -244,7 +282,12 @@ void CyphalNode::Dispatch(const Transfer& transfer, const uint64_t now_us) noexc
     }
     return;
   }
-  if (transfer.kind != TransferKind::kMessage) {
+  if (transfer.kind == TransferKind::kServiceResponse) {
+    for (std::size_t i = 0U; i < client_count_; ++i) {
+      if (clients_[i].service_id == transfer.port_id) {
+        clients_[i].listener->OnResponse(transfer, now_us);
+      }
+    }
     return;
   }
   if (transfer.port_id == port::kNodeIdAllocation) {
@@ -375,6 +418,7 @@ void CyphalNode::HandleExecuteCommand(const Transfer& request) noexcept {
   uavcan_node_ExecuteCommand_Response_1_3 response{};
   response.status = cmd::kStatusBadCommand;
   if (command_handler_ != nullptr) {
+    command_source_ = request.source_node_id;
     const CommandResult kResult =
         command_handler_->OnCommand(command.command,
                                     std::span<const uint8_t>{std::begin(command.parameter.elements),
@@ -382,6 +426,7 @@ void CyphalNode::HandleExecuteCommand(const Transfer& request) noexcept {
     response.status = kResult.status;
     response.output.count = std::min(kResult.output.size(), kCommandOutputMaxLength);
     std::copy_n(kResult.output.begin(), response.output.count, std::begin(response.output.elements));
+    command_source_ = kNodeIdUnset;
   }
   std::size_t size = tx_buffer_.size();
   if (uavcan_node_ExecuteCommand_Response_1_3_serialize_(&response, OutputBytes(tx_buffer_), &size) >= 0) {
@@ -478,7 +523,11 @@ void CyphalNode::PublishPortList() noexcept {
   Writer writer{tx_buffer_};
   WriteSubjectList(writer, std::span<const uint16_t>{publishers.data(), publisher_count});
   WriteSubjectList(writer, std::span<const uint16_t>{subscribers.data(), listener_count_});
-  WriteServiceList(writer, {});
+  std::array<uint16_t, kMaxClients> clients{};
+  for (std::size_t i = 0U; i < client_count_; ++i) {
+    clients[i] = clients_[i].service_id;
+  }
+  WriteServiceList(writer, std::span<const uint16_t>{clients.data(), client_count_});
   std::array<uint16_t, kServedServices.size() + kMaxServers> servers{};
   std::copy(kServedServices.begin(), kServedServices.end(), servers.begin());
   for (std::size_t i = 0U; i < server_count_; ++i) {

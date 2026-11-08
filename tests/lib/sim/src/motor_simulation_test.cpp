@@ -135,16 +135,31 @@ ZTEST(motor_simulation, test_default_motor_type_is_the_configured_one) {
   zexpect_equal(simulation.Type(), NvmSettings{}.motor_type);
 }
 
-ZTEST(motor_simulation, test_motor_types_without_model_are_rejected_and_keep_the_configuration) {
+ZTEST(motor_simulation, test_asm_and_eesm_follow_the_motor_type_of_the_settings) {
   MotorSimulation simulation;
-  zassert_equal(simulation.Configure(TestSettings()), Status::kOk);
-
   for (const MotorType kType : {MotorType::kAsm, MotorType::kEesm}) {
     NvmSettings settings = TestSettings();
     settings.motor_type = kType;
-    zexpect_equal(simulation.Configure(settings), Status::kUnsupportedMotorType);
-    zexpect_equal(simulation.Type(), MotorType::kPmsm);
+    zexpect_equal(simulation.Configure(settings), Status::kOk);
+    zexpect_equal(simulation.Type(), kType);
+    zexpect_true(RunSteps(simulation, 10));
   }
+}
+
+ZTEST(motor_simulation, test_the_field_voltage_excites_the_eesm) {
+  MotorSimulation simulation;
+  NvmSettings settings = TestSettings();
+  settings.motor_type = MotorType::kEesm;
+  zassert_equal(simulation.Configure(settings), Status::kOk);
+  // The field winding of the settings: time constant 25 ms, its resistance from the coupling.
+  const SimulationParameters kParameters = ParametersFromSettings(settings);
+  UNIMOC_EXPECT_NEAR(kParameters.eesm.field_inductance / kParameters.eesm.field_resistance,
+                     25.0e-3_s,
+                     1e-6_s);
+  const Voltage kFieldVoltage = kParameters.eesm.field_resistance * 5.0_A;
+  simulation.SetInput(SimulationInput{Torque{}, kFieldVoltage});
+  zassert_true(RunSteps(simulation, static_cast<int>(0.5F / 25.0e-6F)));
+  UNIMOC_EXPECT_NEAR(simulation.Output().field_current, 5.0_A, 0.01_A);
 }
 
 ZTEST(motor_simulation, test_invalid_parameters_are_rejected) {

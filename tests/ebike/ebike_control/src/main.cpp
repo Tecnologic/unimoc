@@ -19,6 +19,7 @@
 #include <cstdint>
 #include <deque>
 #include <numbers>
+#include <optional>
 #include <vector>
 #include "ebike_control.hpp"
 #include "unimoc_test.hpp"
@@ -185,6 +186,7 @@ ZTEST(ebike_control, test_the_settings_defaults_are_the_parameter_defaults) {
   zexpect_equal(kFromSettings.battery_cells, kDefaults.battery_cells);
   zexpect_equal(kFromSettings.nominal_voltage, kDefaults.nominal_voltage);
   zexpect_equal(kFromSettings.reversed, kDefaults.reversed);
+  UNIMOC_EXPECT_FLOAT_EQ(kFromSettings.pedal.zero_offset, kDefaults.pedal.zero_offset);
 }
 
 ZTEST(ebike_control, test_the_parameters_follow_the_settings) {
@@ -200,6 +202,61 @@ ZTEST(ebike_control, test_the_parameters_follow_the_settings) {
   UNIMOC_EXPECT_FLOAT_EQ(kParameters.assist.level_gain[7], 2.5_ratio);
   zexpect_true(kParameters.reversed);
   zexpect_equal(kParameters.battery_cells, 13U);
+}
+
+ZTEST(ebike_control, test_the_stored_torque_offset_is_the_initial_offset) {
+  unimoc::settings::NvmSettings settings;
+  settings.ebike_torque_offset = 1.5_Nm;
+  Rig rig;
+  rig.Control().Configure(EbikeParameters::From(settings));
+  UNIMOC_EXPECT_FLOAT_EQ(rig.Control().Pedal().ZeroOffset(), 1.5_Nm);
+  // A sensor that reads the stored offset at standstill gives no torque and no reason to store.
+  rig.Pedal(0.0_rad_per_s, 1.5_Nm);
+  rig.Step(5000);
+  UNIMOC_EXPECT_NEAR(rig.Control().Pedal().ZeroOffset(), 1.5_Nm, 1e-4_Nm);
+  zexpect_false(rig.Control().OffsetToStore(5000U * kMs).has_value());
+}
+
+ZTEST(ebike_control, test_the_learned_torque_offset_is_offered_for_storing_at_standstill) {
+  Rig rig;
+  EbikeParameters parameters;
+  parameters.pedal.zero_time_constant = 1.0_s;
+  parameters.offset_store_interval = 2.0_s;
+  rig.Control().Configure(parameters);
+  // The sensor reads 1 N m at zero load: after the zero hold (1 s) the offset follows it.
+  rig.Pedal(0.0_rad_per_s, 1.0_Nm);
+  rig.Step(1500);
+  // Moved by more than the step (0.1 N m), but the first store waits for the interval after the start.
+  zexpect_true(rig.Control().Pedal().ZeroOffset() > 0.1_Nm);
+  zexpect_false(rig.Control().OffsetToStore(1500U * kMs).has_value());
+  rig.Step(600);
+  const std::optional<Torque> kFirst = rig.Control().OffsetToStore(2100U * kMs);
+  zassert_true(kFirst.has_value());
+  UNIMOC_EXPECT_FLOAT_EQ(*kFirst, rig.Control().Pedal().ZeroOffset());
+  rig.Control().OffsetStored(*kFirst, 2100U * kMs);
+  zexpect_false(rig.Control().OffsetToStore(2100U * kMs).has_value());
+  // Settled: one more store once it moved the step and the interval passed, then none.
+  rig.Step(6000);
+  const std::optional<Torque> kSecond = rig.Control().OffsetToStore(8100U * kMs);
+  zassert_true(kSecond.has_value());
+  UNIMOC_EXPECT_NEAR(*kSecond, 1.0_Nm, 0.01_Nm);
+  rig.Control().OffsetStored(*kSecond, 8100U * kMs);
+  rig.Step(4000);
+  zexpect_false(rig.Control().OffsetToStore(12100U * kMs).has_value());
+}
+
+ZTEST(ebike_control, test_no_offset_store_while_the_rider_wants_the_drive) {
+  Rig rig;
+  EbikeParameters parameters;
+  parameters.pedal.zero_time_constant = 1.0_s;
+  parameters.offset_store_interval = 1.0_s;
+  rig.Control().Configure(parameters);
+  rig.Pedal(0.0_rad_per_s, 1.0_Nm);
+  rig.Step(3000);
+  zassert_true(rig.Control().OffsetToStore(3000U * kMs).has_value());
+  Riding(rig);
+  zexpect_true(rig.Output().engage);
+  zexpect_false(rig.Control().OffsetToStore(5500U * kMs).has_value());
 }
 
 ZTEST(ebike_control, test_no_assist_without_a_display) {

@@ -88,6 +88,7 @@ target_link_libraries(unimoc_canard PRIVATE zephyr_interface)
 # --- Portable node layer (strict warnings) ----------------------------------
 add_library(unimoc_cyphal STATIC
   ${CMAKE_CURRENT_LIST_DIR}/canard_transport.cpp
+  ${CMAKE_CURRENT_LIST_DIR}/file_service.cpp
   ${CMAKE_CURRENT_LIST_DIR}/node.cpp
   ${CMAKE_CURRENT_LIST_DIR}/register_value.cpp)
 
