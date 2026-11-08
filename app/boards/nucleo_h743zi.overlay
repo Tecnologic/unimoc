@@ -62,8 +62,8 @@
 
 		/*
 		 * Legacy 4850 power board through the Nucleo adapter: three 2 mOhm
-		 * shunts in parallel with an INA240A1 per phase (BOM; the order
-		 * number names the A2, to check on the board), 47k / 2k2 dividers on
+		 * shunts in parallel with an INA240A1 per phase (gain 20, as on
+		 * Jacobi), 47k / 2k2 dividers on
 		 * the adapter. 60 A trip as before, 60 V FETs (NCEP6080AG in the BOM).
 		 */
 		shunt-nano-ohm = <666667>;
@@ -71,6 +71,7 @@
 		voltage-divider-ohms = <47000 2200>;
 		max-phase-current-amps = <60>;
 		max-motor-current-amps = <50>;
+		battery-current-amps = <50 20>;
 		dc-link-millivolts = <45000 48000 50000>;
 
 		pinctrl-0 = <&tim1_ch1_pe9 &tim1_ch1n_pe8

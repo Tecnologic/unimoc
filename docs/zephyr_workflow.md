@@ -229,8 +229,9 @@ stage is no longer enabled (trip, external break, e-stop), and
   setting (100 A / 50 A), `dc-link-millivolts` the DC-link derate, trip and
   maximum (45 / 48 / 50 V: both power stages have 60 V FETs). The analog
   scaling takes `shunt-nano-ohm`, `current-amplifier-gain` and
-  `voltage-divider-ohms`. The battery current limits are still the old
-  values (50 A drive, 20 A charge; Jacobi is rated about 45 A).
+  `voltage-divider-ohms` (both boards INA240A1, gain 20), the battery current
+  limits `battery-current-amps` (drive, charge: Jacobi 45 / 20 A, the legacy
+  board 50 / 20 A).
 - Nothing watches the power stage after the startup run is DONE except the
   per-sample overcurrent trip; the hardware break still works. The board has no
   comparators on the current channels; the analog watchdog is not configured.

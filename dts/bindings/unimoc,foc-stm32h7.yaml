@@ -90,6 +90,13 @@ properties:
     required: true
     description: Highest motor current the power stage allows as a setting, in A.
 
+  battery-current-amps:
+    type: array
+    required: true
+    description: |
+      Battery current the drive is rated for, in A: <drive charge>. The
+      factory limits and the highest settings of the battery current.
+
   dc-link-millivolts:
     type: array
     required: true

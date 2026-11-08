@@ -186,6 +186,9 @@ inline constexpr uint32_t kDividerTopOhm = DT_PROP_BY_IDX(UNIMOC_FOC, voltage_di
 inline constexpr uint32_t kDividerBottomOhm = DT_PROP_BY_IDX(UNIMOC_FOC, voltage_divider_ohms, 1);
 inline constexpr uint32_t kMaxPhaseCurrentAmps = DT_PROP(UNIMOC_FOC, max_phase_current_amps);
 inline constexpr uint32_t kMaxMotorCurrentAmps = DT_PROP(UNIMOC_FOC, max_motor_current_amps);
+/// Rated battery drive and charge current [A] (foc0 battery-current-amps).
+inline constexpr uint32_t kBatteryDriveCurrentAmps = DT_PROP_BY_IDX(UNIMOC_FOC, battery_current_amps, 0);
+inline constexpr uint32_t kBatteryChargeCurrentAmps = DT_PROP_BY_IDX(UNIMOC_FOC, battery_current_amps, 1);
 inline constexpr uint32_t kDcLinkDerateMillivolts = DT_PROP_BY_IDX(UNIMOC_FOC, dc_link_millivolts, 0);
 inline constexpr uint32_t kDcLinkTripMillivolts = DT_PROP_BY_IDX(UNIMOC_FOC, dc_link_millivolts, 1);
 inline constexpr uint32_t kDcLinkMaxMillivolts = DT_PROP_BY_IDX(UNIMOC_FOC, dc_link_millivolts, 2);
@@ -195,6 +198,8 @@ static_assert(kDcLinkDerateMillivolts < kDcLinkTripMillivolts &&
                   kDcLinkTripMillivolts <= kDcLinkMaxMillivolts,
               "dc-link-millivolts: derate below trip, trip at most max");
 static_assert(kMaxMotorCurrentAmps <= kMaxPhaseCurrentAmps, "the motor current stays below the trip limit");
+static_assert(DT_PROP_LEN(UNIMOC_FOC, battery_current_amps) == 2, "battery-current-amps is <drive charge>");
+static_assert(kBatteryDriveCurrentAmps > 0U && kBatteryChargeCurrentAmps > 0U, "battery currents are set");
 static_assert(kShuntNanoOhm > 0U && kCurrentAmplifierGain > 0U && kDividerBottomOhm > 0U, "front end values");
 /// Phase currents from low-side shunts (current-sense = "low-side"), else inline.
 inline constexpr bool kLowSideCurrentSense = DT_ENUM_IDX(UNIMOC_FOC, current_sense) == 1;
