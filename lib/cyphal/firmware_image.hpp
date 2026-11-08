@@ -91,9 +91,11 @@ enum class ImageStatus : uint8_t {
 
 namespace image_detail {
 
-[[nodiscard]] constexpr uint32_t Le32(const std::span<const std::byte> bytes, const std::size_t at) noexcept {
-  return static_cast<uint32_t>(bytes[at]) | (static_cast<uint32_t>(bytes[at + 1U]) << 8U) |
-         (static_cast<uint32_t>(bytes[at + 2U]) << 16U) | (static_cast<uint32_t>(bytes[at + 3U]) << 24U);
+[[nodiscard]] constexpr uint32_t Le32(const std::span<const std::byte> bytes,
+                                      const std::size_t offset) noexcept {
+  return static_cast<uint32_t>(bytes[offset]) | (static_cast<uint32_t>(bytes[offset + 1U]) << 8U) |
+         (static_cast<uint32_t>(bytes[offset + 2U]) << 16U) |
+         (static_cast<uint32_t>(bytes[offset + 3U]) << 24U);
 }
 
 }  // namespace image_detail

@@ -72,9 +72,9 @@ constexpr FirmwareBank kNoBank{};
 
 // ----- Images -------------------------------------------------------------------
 
-void PutLe32(std::span<std::byte> bytes, const std::size_t at, const uint32_t value) {
+void PutLe32(std::span<std::byte> bytes, const std::size_t offset, const uint32_t value) {
   for (std::size_t i = 0U; i < 4U; ++i) {
-    bytes[at + i] = static_cast<std::byte>((value >> (8U * i)) & 0xFFU);
+    bytes[offset + i] = static_cast<std::byte>((value >> (8U * i)) & 0xFFU);
   }
 }
 
@@ -273,7 +273,7 @@ class ImageSource final : public FileSource {
   [[nodiscard]] FileReadResult Read(const std::string_view path,
                                     const uint64_t offset,
                                     const std::span<std::byte> data) noexcept override {
-    ++reads;
+    ++reads_;
     if (path != "fw/unimoc.bin") {
       return {file_error::kNotFound, 0U};
     }
@@ -282,10 +282,11 @@ class ImageSource final : public FileSource {
     std::copy_n(image_.begin() + static_cast<std::ptrdiff_t>(kOffset), kLength, data.begin());
     return {file_error::kOk, kLength};
   }
-  unsigned reads{0U};
+  [[nodiscard]] unsigned Reads() const { return reads_; }
 
  private:
   std::span<const std::byte> image_;
+  unsigned reads_{0U};
 };
 
 struct Pair {
@@ -367,7 +368,7 @@ ZTEST(firmware_update, test_the_service_downloads_over_file_read) {
 
   pair.Run(100U);
   zassert_equal(pair.update.Update().GetState(), FirmwareUpdate::State::kReady);
-  zexpect_equal(pair.source.reads, 5U);  // 1040 bytes: four full reads of 256 bytes and a short one
+  zexpect_equal(pair.source.Reads(), 5U);  // 1040 bytes: four full reads of 256 bytes and a short one
   zexpect_equal(ReadNatural(pair.update, 0U), 2U);  // ready
   zexpect_equal(ReadNatural(pair.update, 1U), 0U);  // ok
   zexpect_equal(ReadNatural(pair.update, 3U), kImageSize);

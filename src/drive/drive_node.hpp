@@ -52,7 +52,7 @@ struct DriveHooks {
   /// The bank a firmware update is written into (native_sim: RAM); null: the board refuses updates.
   const cyphal::FirmwareBank* firmware_bank{nullptr};
   /// Board name an update image must carry (CONFIG_BOARD); must outlive the drive.
-  std::string_view board{};
+  std::string_view board;
 };
 
 /// The board inputs as the drive last read them, with the verdict of its supervision.
