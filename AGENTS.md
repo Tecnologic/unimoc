@@ -75,7 +75,7 @@ Read `README.md` for the supported motor types and public features, and
   holds the pinout, timers, ADC trigger, dead time, and sample times.
 - `hardware/zephyr_stm32h7/` is the STM32H7 platform (node `foc0`, compatible
   `unimoc,foc-stm32h7`) of Jacobi, brought up first on a NUCLEO-H743ZI
-  (`app/boards/nucleo_h743zi.overlay`). Its hot path runs from ITCM:
+  (`apps/drive/boards/nucleo_h743zi.overlay`). Its hot path runs from ITCM:
   `hot_path_itcm.ld` names the functions by mangled name, so check it when
   renaming or adding a hot-path function (call-graph check,
   `docs/hotpath_plan.md` section 8).
@@ -103,8 +103,8 @@ Read `README.md` for the supported motor types and public features, and
   holds the shared float checks and the in-memory CAN bus of the Cyphal
   tests. `tests/integration/cyphal_sim/` are pytest integration tests: twister
   starts the real application on `native_sim` (scenario
-  `unimoc.app.cyphal_integration` in `app/testcase.yaml`, pytest harness; the
-  e-bike build in `unimoc.app.cyphal_integration.ebike`, marker `ebike`) and
+  `unimoc.app.drive.cyphal_integration` in `apps/drive/testcase.yaml`, pytest harness; the
+  e-bike build in `unimoc.app.drive.cyphal_integration.ebike`, marker `ebike`) and
   a pycyphal node drives it over an slcan pseudo terminal. They are skipped
   without pycyphal (`scripts/requirements-cyphal-tools.txt`).
 - `scripts/` holds the validation scripts (`check_format.sh`,
@@ -155,9 +155,9 @@ These two are the standard validation and exactly what CI
 
 ```sh
 west twister -T unimoc/tests/lib/motor_control -p native_sim/native/64
-west build -b native_sim/native/64 unimoc/app -d unimoc/app/build/sim   # host simulation
-west build -b unimoc_jacobi unimoc/app -d unimoc/app/build/jacobi         # Jacobi drive
-west build -b nucleo_h743zi unimoc/app -d unimoc/app/build/h743           # STM32H7 bring-up
+west build -b native_sim/native/64 unimoc/apps/drive -d unimoc/apps/drive/build/sim   # host simulation
+west build -b unimoc_jacobi unimoc/apps/drive -d unimoc/apps/drive/build/jacobi         # Jacobi drive
+west build -b nucleo_h743zi unimoc/apps/drive -d unimoc/apps/drive/build/h743           # STM32H7 bring-up
 ```
 
 ### Getting it right in a new session
@@ -276,7 +276,7 @@ Before finishing a change:
 	 name and a justification.
 3. Check the diff for accidental changes to generated files, build output, or
 	 submodules. The west workspace (`zephyr/`, `modules/`) is not part of this
-	 repository; `build/`, `app/build/` and `twister-out/` are git-ignored.
+	 repository; `build/`, `apps/drive/build/` and `twister-out/` are git-ignored.
 4. Update `README.md`, `CONTEXT.md`, and the affected `docs/` plan when
 	 user-visible behavior, configuration, build steps, hardware bring-up
 	 behavior, or a planned decision changes.

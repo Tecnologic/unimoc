@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
 # The e-bike build of the native_sim drive (CONFIG_UNIMOC_EBIKE, scenario
-# unimoc.app.cyphal_integration.ebike in app/testcase.yaml), driven by the
+# unimoc.app.drive.cyphal_integration.ebike in apps/drive/testcase.yaml), driven by the
 # simulated rider and display over the unimoc.sim.pedal_* and
 # unimoc.sim.display_* registers. The drive engages on demand: the readiness
 # ENGAGED of the bus is ignored, STANDBY or SLEEP release it. The tests share

@@ -8,7 +8,7 @@
 
 Status: 2026-10-23. Steps 1 to 5 are implemented, tested under twister on `native_sim`
 (`lib/ebike/`, `src/ebike/`, `tests/lib/ebike/`, `tests/ebike/`, the e-bike tests of
-`tests/sim/cyphal_drive`; the pytest scenario `unimoc.app.cyphal_integration.ebike` with the simulated rider
+`tests/sim/cyphal_drive`; the pytest scenario `unimoc.app.drive.cyphal_integration.ebike` with the simulated rider
 on the bus, 2026-11-08). Nothing is verified on hardware or on a real KT-LCD8.
 
 ## 1. Goal
@@ -139,7 +139,7 @@ rebuilds the bytes from timestamped edges of a GPIO in a thread. Not verified: t
 **Switch.** `CONFIG_UNIMOC_EBIKE` is off by default, because the assist parameters are untuned and the control
 engages the power stage by itself. The simulation app keeps it off, so that the pytest integration tests can
 still engage the drive over the bus; the e-bike tests of `sim_cyphal_drive` attach the control themselves, and
-the pytest scenario `unimoc.app.cyphal_integration.ebike` builds the simulation with it: the simulated rider and
+the pytest scenario `unimoc.app.drive.cyphal_integration.ebike` builds the simulation with it: the simulated rider and
 display are the volatile registers `unimoc.sim.pedal_cadence`, `pedal_torque`, `display_on`, `display_level`,
 `display_max_speed`, `display_light` and `display_frames` (README, "E-bike"), for pytest and yakut
 (`tests/integration/cyphal_sim/test_ebike_sim.py`, marker `ebike`).

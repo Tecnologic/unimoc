@@ -170,7 +170,7 @@ stays the same with three changes:
   The phase with the highest duty switches closest to the valley; within the
   guard it is reconstructed from the other two, as with inline sensors.
 
-Open: no board has low-side shunts yet (build check `unimoc.app.build.low_side`
+Open: no board has low-side shunts yet (build check `unimoc.app.drive.build.low_side`
 on Jacobi with an overlay, the sim scenario `unimoc.sim.closed_loop.low_side`).
 The cap costs voltage; it could apply to the middle phase only, with the
 highest phase reconstructed (as the ST motor control SDK does), which needs

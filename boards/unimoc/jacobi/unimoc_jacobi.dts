@@ -257,7 +257,7 @@
 /*
  * CAN: TCAN334 on FDCAN1 (PD0 RX, PD1 TX). The transceiver handles CAN FD
  * data rates, but the bus runs 1 Mbit/s in both phases like the other nodes
- * (app/boards/unimoc_jacobi.conf turns the bit rate switch off).
+ * (apps/drive/boards/unimoc_jacobi.conf turns the bit rate switch off).
  */
 &fdcan1 {
 	pinctrl-0 = <&fdcan1_rx_pd0 &fdcan1_tx_pd1>;

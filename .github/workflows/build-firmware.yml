@@ -48,7 +48,7 @@ jobs:
         run: pip install -r unimoc/scripts/requirements-cyphal.txt
 
       - name: Build
-        run: west build -p always -b ${{ matrix.board }} unimoc/app -d build/${{ matrix.target }}
+        run: west build -p always -b ${{ matrix.board }} unimoc/apps/drive -d build/${{ matrix.target }}
 
       - name: Collect the files
         run: |

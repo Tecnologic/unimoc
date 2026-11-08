@@ -3,7 +3,7 @@
 	"cmake.copyCompileCommands": "${workspaceFolder}/compile_commands.json",
 	"cmake.autoSelectActiveFolder": false,
 	"clangd.arguments": [
-		"--compile-commands-dir=${workspaceFolder}/app/build/jacobi",
+		"--compile-commands-dir=${workspaceFolder}/apps/drive/build/jacobi",
 		"--background-index",
 		"--completion-style=detailed",
 		"--header-insertion=never",
@@ -64,7 +64,7 @@
 		}
 	],
 	"nrf-connect.applications": [
-		"${workspaceFolder}/app"
+		"${workspaceFolder}/apps/drive"
 	],
 	"nrf-connect.boardRoots": [
 		"${workspaceFolder}"
@@ -81,7 +81,7 @@
 		"ZEPHYR_SDK_INSTALL_DIR": "/home/alex/zephyr-sdk-1.0.1"
 	},
 	"nrf-connect.debugging.bindings": {
-		"${workspaceFolder}/app/build/sim": "Debug native_sim (Zephyr)",
-		"${workspaceFolder}/app/build/jacobi": "Debug Jacobi (Zephyr)"
+		"${workspaceFolder}/apps/drive/build/sim": "Debug native_sim (Zephyr)",
+		"${workspaceFolder}/apps/drive/build/jacobi": "Debug Jacobi (Zephyr)"
 	}
 }

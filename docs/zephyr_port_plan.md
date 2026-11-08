@@ -121,7 +121,7 @@ log is on RTT and on the bus. The phase order below is the plan.
   for services on register-assigned IDs, the five `cymon.*` services
   (`src/trace/trace_node.*`) and the trigger event, `Tick()` at the end of the
   control cycle; tested with ztest (`unimoc.lib.cymon`, `unimoc.lib.cyphal`)
-  and pycyphal (`unimoc.app.cyphal_integration`). The `Tick()` cost on the
+  and pycyphal (`unimoc.app.drive.cyphal_integration`). The `Tick()` cost on the
   board (M0) is not measured.
 - Open: firmware update (file service into bank
   2); speed and position setpoints (need the control thread, M7); the startup

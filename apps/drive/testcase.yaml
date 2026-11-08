@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 tests:
-  unimoc.app.build:
+  unimoc.app.drive.build:
     build_only: true
     platform_allow:
       - native_sim/native/64
@@ -9,7 +9,7 @@ tests:
       - nucleo_h743zi
     tags: [unimoc, app]
   # The M0 timing probes in the interrupts (CONFIG_UNIMOC_HOT_PATH_TIMING).
-  unimoc.app.build.timing:
+  unimoc.app.drive.build.timing:
     build_only: true
     platform_allow:
       - unimoc_jacobi
@@ -19,8 +19,8 @@ tests:
     tags: [unimoc, app]
   # Low-side shunts on the STM32H7 platform (foc0 current-sense = "low-side"): PWM mode 2, the control after the
   # valleys only. Build check only, no board has them yet. On Jacobi only: the overlay replaces the board overlay of
-  # app/boards (the NUCLEO-H743ZI defines foc0 there).
-  unimoc.app.build.low_side:
+  # apps/drive/boards (the NUCLEO-H743ZI defines foc0 there).
+  unimoc.app.drive.build.low_side:
     build_only: true
     platform_allow:
       - unimoc_jacobi
@@ -30,7 +30,7 @@ tests:
   # The simulation as a Cyphal node, tested from pycyphal over its slcan
   # pseudo terminal (tests/integration/cyphal_sim). Needs pycyphal, python-can
   # and pyserial (scripts/requirements-cyphal-tools.txt); skipped without them.
-  unimoc.app.cyphal_integration:
+  unimoc.app.drive.cyphal_integration:
     harness: pytest
     platform_allow:
       - native_sim/native/64
@@ -38,7 +38,7 @@ tests:
       - native_sim/native/64
     harness_config:
       pytest_root:
-        - "../tests/integration/cyphal_sim"
+        - "../../tests/integration/cyphal_sim"
       pytest_dut_scope: session
       # platformdirs >= 4.13 registers a pytest plugin; with a second, older
       # platformdirs on the path (pip --user on the CI runner's system
@@ -54,7 +54,7 @@ tests:
   # over the unimoc.sim.pedal_* and unimoc.sim.display_* registers
   # (test_ebike_sim.py, marker `ebike`). With the e-bike the readiness of the
   # bus no longer engages the drive, so the tests above run without it.
-  unimoc.app.cyphal_integration.ebike:
+  unimoc.app.drive.cyphal_integration.ebike:
     harness: pytest
     platform_allow:
       - native_sim/native/64
@@ -64,7 +64,7 @@ tests:
       - CONFIG_UNIMOC_EBIKE=y
     harness_config:
       pytest_root:
-        - "../tests/integration/cyphal_sim"
+        - "../../tests/integration/cyphal_sim"
       pytest_dut_scope: session
       pytest_args:
         - "-p"

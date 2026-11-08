@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
 # pycyphal integration tests of the native_sim drive (scenario
-# unimoc.app.cyphal_integration in app/testcase.yaml). Twister builds the
+# unimoc.app.drive.cyphal_integration in apps/drive/testcase.yaml). Twister builds the
 # application and starts it (fixture `dut`); a pycyphal node connects to the
 # first slcan pseudo terminal of the simulation, so no SocketCAN is needed.
 # Skipped when pycyphal, python-can or pyserial are not installed
@@ -116,7 +116,7 @@ def configure_test_motor(client: SimClient) -> None:
 
 def pytest_configure(config) -> None:
     config.addinivalue_line(
-        "markers", "ebike: needs the e-bike build (CONFIG_UNIMOC_EBIKE, scenario unimoc.app.cyphal_integration.ebike)")
+        "markers", "ebike: needs the e-bike build (CONFIG_UNIMOC_EBIKE, scenario unimoc.app.drive.cyphal_integration.ebike)")
 
 
 @pytest.fixture(scope="session")
