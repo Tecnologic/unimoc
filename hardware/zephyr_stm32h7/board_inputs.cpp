@@ -56,15 +56,17 @@ BoardInputs ReadBoardInputs() noexcept {
     const int kLevel = gpio_pin_get_dt(&kPowerBoardDetect);  // logical: 1 = present (active low)
     inputs.power_board = kLevel > 0;
   }
-  const foc_stm32h7::RawSamples kRaw = foc_stm32h7::ReadRaw();
-  if constexpr (foc_stm32h7::kHasGateSupply) {
-    inputs.gate_supply = PinVoltage(kRaw.gate_supply) * kGateSupplyDividerRatio;
-  }
-  if constexpr (foc_stm32h7::kHasAccelerator) {
-    inputs.accelerator = PinVoltage(kRaw.accelerator);
-  }
-  if constexpr (foc_stm32h7::kHasBrake) {
-    inputs.brake = PinVoltage(kRaw.brake);
+  if constexpr (foc_stm32h7::kHasGateSupply || foc_stm32h7::kHasAccelerator || foc_stm32h7::kHasBrake) {
+    const foc_stm32h7::RawSamples kRaw = foc_stm32h7::ReadRaw();
+    if constexpr (foc_stm32h7::kHasGateSupply) {
+      inputs.gate_supply = PinVoltage(kRaw.gate_supply) * kGateSupplyDividerRatio;
+    }
+    if constexpr (foc_stm32h7::kHasAccelerator) {
+      inputs.accelerator = PinVoltage(kRaw.accelerator);
+    }
+    if constexpr (foc_stm32h7::kHasBrake) {
+      inputs.brake = PinVoltage(kRaw.brake);
+    }
   }
   return inputs;
 }
