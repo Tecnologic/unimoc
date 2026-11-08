@@ -34,6 +34,7 @@ constexpr uint32_t kWarningHoldTicks = 20;   // two seconds
 constexpr int kStatusLedsStackSize = 512;
 
 // An alias that the board does not define leaves its LED out.
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage): DT_NODE_EXISTS needs the preprocessor.
 #define UNIMOC_OPTIONAL_LED(name, alias)                                                    \
   COND_CODE_1(DT_NODE_EXISTS(DT_ALIAS(alias)),                                              \
               (const gpio_dt_spec k##name##Spec = GPIO_DT_SPEC_GET(DT_ALIAS(alias), gpios); \
@@ -54,9 +55,9 @@ bool Configure(const gpio_dt_spec* led) {
   return led == nullptr || (gpio_is_ready_dt(led) && gpio_pin_configure_dt(led, GPIO_OUTPUT_INACTIVE) == 0);
 }
 
-void Set(const gpio_dt_spec* led, bool on) {
+void Set(const gpio_dt_spec* led, bool lit) {
   if (led != nullptr) {
-    (void)gpio_pin_set_dt(led, on ? 1 : 0);
+    (void)gpio_pin_set_dt(led, lit ? 1 : 0);
   }
 }
 
