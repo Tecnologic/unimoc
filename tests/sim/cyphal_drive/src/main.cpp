@@ -704,7 +704,9 @@ ZTEST(sim_cyphal_drive, test_emergency_stop_restart_and_unknown_commands) {
   zexpect_false(rig.drive.IsEngaged());  // until the restart
 
   zexpect_equal(rig.Command(cmd::kCommandPowerOff), cmd::kStatusBadCommand);
-  zexpect_equal(rig.Command(cmd::kCommandBeginSoftwareUpdate), cmd::kStatusBadCommand);
+  // A drive without an update bank (as the STM32H7 boards) knows the update and refuses it.
+  zexpect_equal(rig.Command(cmd::kCommandBeginSoftwareUpdate), cmd::kStatusBadParameter);  // no path
+  zexpect_equal(rig.Command(cmd::kCommandBeginSoftwareUpdate, "unimoc.bin"), cmd::kStatusFailure);
   zexpect_equal(rig.Command(cmd::kCommandRestart), cmd::kStatusSuccess);
   zexpect_equal(g_restarts, 0);  // after the response is out
   rig.Run(250U);
