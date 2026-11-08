@@ -178,7 +178,10 @@ offers `sim::SetExternalEnable()`.
 
 **Dead time.** `dead-time-ns` in the foc0 node (1 us on Jacobi, as in the
 legacy firmware of the 4850 power board: BSC040N08 with LM5109B; to be tuned
-with the scope). The layer rounds it up to a DTG step
+with the scope). Both power stages are designed for 200 ns: the Jacobi power
+stage, and the legacy 4850 power board is capable of it as well
+(2026-11-08). The devicetree keeps 1 us until 200 ns is confirmed on the
+scope (shoot-through margin, switching edges at the full phase current). The layer rounds it up to a DTG step
 (`hardware/stm32_dead_time.hpp`, 5 ns steps at 200 MHz up to 635 ns, coarser
 above) and fails `Initialize()` if it is longer than the field can encode. Two parallel
 MOSFETs per switch would need roughly twice the value.
