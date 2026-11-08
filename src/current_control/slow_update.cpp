@@ -212,24 +212,30 @@ void SlowUpdate::TrackBackEmf(const CycleRecord& cycle,
   const uint8_t kSteps = isr_->state.timing.steps_per_cycle;
   const std::span<const system::Stator<unit::Voltage>> kSamples{cycle.u_ab_samples.data(), kSteps};
 
-  // The measured voltage in the frame of the estimate of each sample, as the
-  // demand of a controlled cycle: the flux observer runs on, unchanged.
-  system::Rotor<unit::Voltage> voltage_sum{0.0F, 0.0F};
-  for (uint8_t k = 0U; k < kSteps; ++k) {
-    const system::Rotor<unit::Voltage> kVoltage = kSamples[k].ToRotor(cycle.sc[k]);
-    voltage_sum.d += kVoltage.d;
-    voltage_sum.q += kVoltage.q;
+  // The flux observer turns its voltage into the stator frame with the
+  // estimate it reads now, the angle at the cycle's first sample, and compares
+  // the integrated flux with that angle. The samples are in the stator frame
+  // already: their sum is the flux change of the cycle up to half a step after
+  // its last sample, (N - 1/2) steps after the first. Their mean turned into
+  // the frame of the estimate at that instant makes the flux the observer
+  // integrates the flux at the first sample, so the estimate settles on the
+  // angle of the samples, as the control steps use it.
+  system::Stator<unit::Voltage> voltage_sum{0.0F, 0.0F};
+  for (const auto& sample : kSamples) {
+    voltage_sum = voltage_sum + sample;
   }
-  const float kInverse = 1.0F / static_cast<float>(kSteps);
-  const system::Rotor<unit::Voltage> kVoltageDq{voltage_sum.d * kInverse, voltage_sum.q * kInverse};
+  const unit::Time kFluxTime = isr_->state.dt_fast * (static_cast<float>(kSteps) - 0.5F);
+  const system::Rotor<unit::Voltage> kVoltageDq =
+      (voltage_sum / static_cast<float>(kSteps))
+          .ToRotor(system::SinCos<unit::Ratio>(mech_obs.theta + (mech_obs.omega * kFluxTime)));
+  const std::optional<unit::Angle> kFluxError =
+      flux_obs.Calculate(kVoltageDq, current_dq, flux_setpoint_, isr_->state.dt_slow, mech_obs);
 
   const std::optional<observer::BackEmfSpeed::Measurement> kSpeed =
       emf_speed_.Update(kSamples, flux_setpoint_.d);
   if (kSpeed.has_value()) {
     mech_obs.UpdateSpeed(kSpeed->speed - mech_obs.omega, kSpeed->variance);
   }
-  const std::optional<unit::Angle> kFluxError =
-      flux_obs.Calculate(kVoltageDq, current_dq, flux_setpoint_, isr_->state.dt_slow, mech_obs);
   if (kFluxError.has_value()) {
     mech_obs.UpdateAngle(*kFluxError, FluxNoise(mech_obs.omega));
   }
