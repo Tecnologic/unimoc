@@ -55,10 +55,12 @@ unimoc::settings::NvmSettings MotorSettings(const unimoc::settings::NvmSettings&
   settings.l_q = 100e-6_H;
   settings.flux_pm = 5e-3_Wb;
   settings.motor_j = 1e-4_kg_m2;
-  settings.current_kp_d = VoltagePerCurrent{100e-6F * kWc};
-  settings.current_kp_q = VoltagePerCurrent{100e-6F * kWc};
-  settings.current_ki_d = VoltagePerCurrentTime{0.05F * kWc};
-  settings.current_ki_q = VoltagePerCurrentTime{0.05F * kWc};
+  // A current loop of 500 Hz: kp = L wc, ki = R wc.
+  constexpr InverseTime kBandwidth = 1.0_per_s * kWc;
+  settings.current_kp_d = 100e-6_H * kBandwidth;
+  settings.current_kp_q = 100e-6_H * kBandwidth;
+  settings.current_ki_d = 0.05_Ohm * kBandwidth;
+  settings.current_ki_q = 0.05_Ohm * kBandwidth;
   settings.dtc_dead_time = 0.0_s;
   settings.hall_enable = 0U;
   settings.pmsm_flux_obs_r_speed = 1.0_rad4_per_s2;
@@ -85,14 +87,10 @@ Angle AngleError() {
 
 /// The estimate follows the plant: speed within 2 %, angle within @p angle.
 void ExpectTracking(const AngularVelocity electrical, const Angle angle) {
-  const AngularVelocity kEstimate = CurrentControlIsr::Instance().mech_obs.omega;
-  zexpect_within(kEstimate,
-                 electrical,
-                 Abs(electrical) * 0.02F + 2.0_rad_per_s,
-                 "speed %f, expected %f",
-                 static_cast<double>(kEstimate.Value()),
-                 static_cast<double>(electrical.Value()));
-  zexpect_true(Abs(AngleError()) < angle, "angle error %f rad", static_cast<double>(AngleError().Value()));
+  UNIMOC_EXPECT_NEAR(CurrentControlIsr::Instance().mech_obs.omega,
+                     electrical,
+                     (Abs(electrical) * 0.02F) + 2.0_rad_per_s);
+  zexpect_true(Abs(AngleError()) < angle, "the angle estimate is off");
 }
 
 /// Largest phase current over @p milliseconds.
@@ -174,7 +172,7 @@ ZTEST_F(sim_coast_tracking, test_engages_on_the_coasting_motor_without_a_current
   CurrentControlIsr::Instance().ClearTrips();
   zassert_true(kPowerStage.Enable());
   const Current kPeak = PeakCurrent(20U);
-  zexpect_true(kPeak < 2.0_A, "peak %f A", static_cast<double>(kPeak.Value()));
+  zexpect_true(kPeak < 2.0_A, "a current jump at the engage");
   zexpect_false(CurrentControlIsr::Instance().Tripped());
   // Engaged, the flux observer runs on the voltage demand again (its usual lag at speed).
   ExpectTracking(1200.0_rad_per_s, 0.15_rad);

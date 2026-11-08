@@ -24,7 +24,7 @@
 4 lib/sim/src/pmsm_model.hpp
 1 src/current_control/current_control_isr.cpp
 1 src/current_control/slow_update.cpp
-9 src/drive/commissioning.cpp
+11 src/drive/commissioning.cpp
 31 src/drive/drive_node.cpp
 1 src/drive/settings_register_provider.cpp
 7 src/drive/timing_registers.cpp
