@@ -25,9 +25,9 @@ namespace unimoc::hardware::foc_stm32h7 {
 /**
  * @brief Brings up the pins, the timer, ADC1..3 and the interrupts.
  *
- * Timing and interrupt layout of docs/hotpath_plan.md (taken over from the
- * former STM32G4 driver of the BCC); the timer is TIM1 or TIM8 of the
- * foc0 node and the ADCs run three injected conversions each.
+ * Timing and interrupt layout of docs/hotpath_plan.md; the timer is TIM1 or
+ * TIM8 of the foc0 node and the ADCs run the injected sequences of foc0
+ * (one to four conversions each, foc_stm32h7_dt.hpp).
  *
  * Timing, all derived from the PWM frequency (T = one PWM period):
  *  - The timer runs center aligned (mode 3). The counter reverses at the peak

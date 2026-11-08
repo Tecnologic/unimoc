@@ -1,9 +1,7 @@
 # Plan: Control Cycle, Duty DMA and Hall Sensor Fusion
 
-> **2026-11-03:** the battery case controller (BCC, STM32G473) and its
-> platform `hardware/zephyr_bcc` are removed. BCC references below are
-> history; the STM32H7 platform (`hardware/zephyr_stm32h7`, Jacobi and the
-> NUCLEO-H743ZI) carries the same design.
+> The firmware targets the STM32H7 only (`hardware/zephyr_stm32h7`: Jacobi
+> and the NUCLEO-H743ZI) and `native_sim`.
 
 > **2026-11-03 (control divider):** the control step runs every
 > `control_divider` PWM half periods and always writes the CCR preload.
@@ -202,6 +200,9 @@ does not limit them. What remains:
   1 µs (devicetree `dead-time-ns`), which is why the factory frequency stays
   at 32 kHz; 64 kHz needs the dead time at or below about 300 ns. The
   dead-time compensation runs on every step from the current of its sample.
+  Both power stages (Jacobi, and the legacy 4850 power board) are designed for
+  200 ns (2026-11-08): 0.31 V at 32 kHz and 0.61 V at 64 kHz at 48 V. Not set
+  yet: `dead-time-ns` stays 1000 until it is checked on the scope.
 
 **Current bandwidth.** With pole-zero cancellation (kp = L·ω_c, ki = R·ω_c)
 the open loop is an integrator with the delay T_d from a sample to the middle
@@ -430,7 +431,7 @@ Each milestone builds for the STM32H7 boards and native_sim and keeps the twiste
 | M2 | Done in code: circle limiter without libm (`vsqrt.f32` through `-fno-math-errno`). The control step makes one division by V_dc for its SVM. | `svm_test`, call-graph check below |
 | M3 | Done in code: hot-path hardware access through `hardware/hot_path_interface.hpp` (link-time bound, no function pointers); the platform calls `SampleHandler()`/`ObserverHandler()` of the application directly; `-fno-math-errno` for the Zephyr build. Hot path in ITCM since 2026-11-03 (`hot_path_itcm.ld`). Inlining across the translation units (LTO or header-only access) is open; `-O2` saves about 15 % (section 4). | Call-graph check below, cycles against the M0 baseline |
 | M4 | Done in code: `MechanicalObserver` with `PredictCovariance()`, `UpdateAngle()`/`UpdateSpeed()` each with its own R, error wrap in `angle_wrap.hpp`; the flux observer as an angle measurement with R_flux = R0 + k/ω². | `mechanical_observer_test` (synthetic profiles) |
-| M5 | Done in code: `HallDecoder` and `HallEventQueue` (`hall_capture.hpp`), BCC EXTI capture with timestamps (not run on the board), sim Hall events with the edge time from the plant. | `hall_decoder_test`, `hall_sensor_test` (generated edges) |
+| M5 | Done in code: `HallDecoder` and `HallEventQueue` (`hall_capture.hpp`), STM32H7 GPIO interrupt capture with timestamps (not run on the board), sim Hall events with the edge time from the plant. | `hall_decoder_test`, `hall_sensor_test` (generated edges) |
 | M6 | Done in code: `HallFusion` with edge and sector measurement, speed bound from the sector time, standstill hold, sector center at the start. | `hall_fusion_test`, `sim_hall_fusion` (standstill without drift, ramps, Hall failure) |
 | M7 | Done in code: control thread (`control_thread.hpp`), `OuterLoop` with `SpeedController`, `PositionController`, setpoint limiting and `Mailbox`; speed and position setpoints over Cyphal. | `sim_speed_control` (step in ω, current limit), `sim_cyphal_drive` |
 | M8 | Board: preload timing on the scope, ADC alignment, Hall table, closed current loop with the 50 A limit, current step at the 3.6 kHz tuning. | Measurements, oscilloscope |

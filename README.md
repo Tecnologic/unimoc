@@ -10,7 +10,7 @@
 C++ library and [Zephyr RTOS](https://zephyrproject.org/) firmware for
 Field-Oriented Control (FOC) of multi-phase electric motors.  It targets
 embedded micro-controllers (STM32 series, first the STM32H743 of the Jacobi
-48 V / 50 A drive).  The algorithm code is portable and tested with Zephyr's ztest
+36 V / 45 A drive).  The algorithm code is portable and tested with Zephyr's ztest
 and twister on `native_sim`.
 
 Zephyr is the primary OS: logging, Cyphal/CAN FD, and settings run in
@@ -151,7 +151,7 @@ hardware-specific parts are selected by the board and Kconfig, not by
 
 UNIMOC is configured, commanded and traced over
 [Cyphal](https://opencyphal.org/) v1.0 on CAN FD.  The same node code runs on
-the battery case controller (FDCAN3) and on `native_sim`; only the CAN
+the STM32H7 boards (FDCAN1) and on `native_sim`; only the CAN
 interfaces and the simulation registers are platform specific.
 
 > **Status:** integrated and tested on `native_sim` (ztest scenarios
@@ -276,8 +276,9 @@ it from the mechanical power of the q current (k_t i_q ω / V_dc, losses
 ignored) and scales i_q to `unimoc.battery.limits.drive_current` when
 motoring and to `unimoc.battery.limits.charge_current` when braking.  The
 charge limit falls linearly from `unimoc.battery.limits.regen_derate_voltage`
-(55 V) to zero at `unimoc.battery.limits.trip_voltage` (58 V, at most the
-hardware's 60 V), where the control cycle trips the power stage.  The trip
+(factory values from the board: 45 V on Jacobi and the NUCLEO-H743ZI, 55 V in
+the simulation) to zero at `unimoc.battery.limits.trip_voltage` (48 V on the
+H7 boards, at most 50 V; 58 V in the simulation), where the control cycle trips the power stage.  The trip
 switches all transistors off: above the line-to-line back-EMF peak the
 motor still feeds the DC link through the body diodes, so the trip level
 must stay above the battery voltage and a brake chopper has to hold the
@@ -324,7 +325,7 @@ it engages again only after a readiness other than `ENGAGED` (re-arm).
 `STANDBY` while disengaged acknowledges a latched trip or fault without
 releasing the outputs; the settings can only be stored without one.
 
-### E-bike (battery case controller)
+### E-bike
 
 With `CONFIG_UNIMOC_EBIKE=y` (off by default) the drive becomes the motor of a
 pedal-assist e-bike ([`docs/ebike_plan.md`](docs/ebike_plan.md)). The crank torque and cadence sensor (E-Rider
@@ -344,8 +345,7 @@ T9N) and the display (KT-LCD8, Kunteng protocol) feed the assist law (`lib/ebike
   `torque_deadband`, `min_cadence`, `speed_taper`, `rise_time`, `fall_time`, `engage_hold`, `rearm_time`,
   `display_timeout`; the direction is `unimoc.cart.reversed`. A change while engaged waits for the disengage. The
   defaults are untuned starting values: try them on the bench first.
-- Hardware: none at the moment. The e-bike inputs were wired on the battery case controller (BCC), which is
-  removed; a drive with a crank sensor and a display port adds an `ebike_io.cpp` to its platform.
+- Hardware: none at the moment; a drive with a crank sensor and a display port adds an `ebike_io.cpp` to its platform.
 - `native_sim`: a simulated rider and display (`hardware/zephyr_sim/sim_ebike.hpp`) drive the control in the
   tests (`sim_cyphal_drive` attaches the control itself); the simulation app keeps the bus readiness for the
   pytest integration tests, so `CONFIG_UNIMOC_EBIKE` is off there too.
@@ -895,7 +895,8 @@ y cmd 42 514 motor-connected
 > over-current (OC) trip limit equal to `oc_fraction × max_phase_current_A`
 > (default 10 %) is active throughout.  The FSM transitions immediately to
 > FAULT if this limit is exceeded.  Independently, the fast ISR trips the power
-> stage at the hard limit `max_phase_current` (60 A on Jacobi) and latches a
+> stage at the hard limit `max_phase_current` (foc0 `max-phase-current-amps`: 120 A on Jacobi, 60 A
+> with the legacy 4850 power board on the NUCLEO-H743ZI) and latches a
 > fault until it is cleared.
 
 ---
@@ -1095,7 +1096,7 @@ Run these from the west workspace root, which contains `unimoc/` and `zephyr/`:
 # Linux host simulation (native_sim)
 west build -b native_sim/native/64 unimoc/app -d unimoc/app/build/sim
 
-# Jacobi, 48 V / 50 A drive (STM32H743VI)
+# Jacobi, 36 V / 45 A drive (STM32H743VI)
 west build -b unimoc_jacobi unimoc/app -d unimoc/app/build/jacobi
 
 # STM32H7 platform on a NUCLEO-H743ZI (bring-up for Jacobi)
@@ -1136,7 +1137,8 @@ west twister -T unimoc/app -p native_sim/native/64 --scenario unimoc.app.cyphal_
 west twister -T unimoc/tests/lib/motor_control -p native_sim/native/64
 ```
 
-Prebuilt firmware: every CI run uploads the Jacobi image (`unimoc-jacobi`) and the
+Prebuilt firmware: every CI run uploads the Jacobi image (`unimoc-jacobi`), the NUCLEO-H743ZI
+image (`unimoc-nucleo_h743zi`) and the
 `native_sim` executable (`unimoc-native_sim`) as artifacts of the
 [Zephyr workflow](https://github.com/Tecnologic/unimoc/actions/workflows/ci-zephyr.yml).
 Releases (below) attach the same files with checksums, the twister report and

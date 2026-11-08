@@ -35,10 +35,9 @@ struct UartEdge {
 /**
  * @brief Decodes 8N1 serial bytes (LSB first, idle high) from the edges of a line.
  *
- * For a line that is not on a UART receive pin (the display receive line of the former BCC sat on PB15, which
- * has no UART function). The platform stamps every edge of the pin in an interrupt (a counter that runs at a
- * known rate, at 9600 baud a bit lasts about 104 microseconds, so interrupt jitter of some microseconds does
- * not matter) and this class reconstructs the bytes in a thread.
+ * For a display receive line that is not on a UART receive pin. The platform stamps every edge of the pin in
+ * an interrupt (a counter that runs at a known rate, at 9600 baud a bit lasts about 104 microseconds, so
+ * interrupt jitter of some microseconds does not matter) and this class reconstructs the bytes in a thread.
  *
  * Each frame is sampled in the middle of its bits, timed from its own start edge, so the baud rate only has
  * to match within a few percent over the ten bits. A start bit that is no longer low in its middle is a

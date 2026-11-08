@@ -4,8 +4,8 @@ UNIMOC is a platform-independent C++ motor-control library and Zephyr firmware
 for field-oriented control (FOC) of multi-phase electric motors. One drive
 typically controls one motor; multiple drives can be networked through Cyphal
 (UAVCAN v1) over CAN-FD (`docs/system_plan.md`). Drive hardware is named
-after pioneers of electric drives; the first is Jacobi, a 48 V / 50 A drive
-on the STM32H743 (`docs/system_plan.md`, hardware names).
+after pioneers of electric drives; the first is Jacobi, a 36 V / 45 A drive
+(100 A peak phase current) on the STM32H743 (`docs/system_plan.md`, hardware names).
 
 Read `README.md` for the supported motor types and public features, and
 `CONTEXT.md` for the project's domain vocabulary. The port decisions are in

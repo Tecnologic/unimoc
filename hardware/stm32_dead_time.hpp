@@ -25,8 +25,8 @@ inline constexpr uint32_t kMaxDeadTimeTicks = 63U * 16U;
 
 /// Converts a dead time in ticks of t_DTS into the 8 bit DTG field of TIM_BDTR.
 ///
-/// The field has four ranges with growing step size (TIMx_BDTR, the same on
-/// the STM32G4, RM0440, and the STM32H7, RM0433):
+/// The field has four ranges with growing step size (TIMx_BDTR, STM32H7,
+/// RM0433):
 ///   0xx xxxx: DT = DTG[7:0] * t_DTS                  0 .. 127
 ///   10x xxxx: DT = (64 + DTG[5:0]) * 2 * t_DTS     128 .. 254
 ///   110 xxxx: DT = (32 + DTG[4:0]) * 8 * t_DTS     256 .. 504

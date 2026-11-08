@@ -1,15 +1,13 @@
 # Zephyr Port Plan
 
-> **2026-11-03:** the battery case controller (BCC, STM32G473) and its
-> platform `hardware/zephyr_bcc` are removed. BCC references below are
-> history; the STM32H7 platform (`hardware/zephyr_stm32h7`, Jacobi and the
-> NUCLEO-H743ZI) carries the same design.
+> The firmware targets the STM32H7 only (`hardware/zephyr_stm32h7`: Jacobi
+> and the NUCLEO-H743ZI) and `native_sim`.
 
 Status (2026-10-21): direction accepted. The Zephyr application (`app/`),
-the `native_sim` platform and the BCC platform code exist (see
+the `native_sim` platform and the STM32H7 platform code exist (see
 `docs/zephyr_workflow.md`). The Cyphal/CAN node (Phase 5) runs on
-`native_sim` and is built for the BCC; the flash settings backend and FDCAN3
-are built but not run on the board. USB and the shell were dropped: the bench
+`native_sim` and is built for the STM32H7; the flash settings backend and
+FDCAN1 are built but not run on the board. USB and the shell were dropped: the bench
 log is on RTT and on the bus. The phase order below is the plan.
 
 ## Goals
@@ -95,22 +93,22 @@ log is on RTT and on the bus. The phase order below is the plan.
 - Threads: Cyphal, logging, settings, later the 2 kHz control thread.
   No `main()` wait loop. The observer stays in its pended interrupt.
 
-### Phase 4 - STM32G473 target
+### Phase 4 - STM32H7 target (Jacobi, NUCLEO-H743ZI)
 - Custom board with devicetree, no legacy code.
-- Fast loop: ADC injected conversion (JEOC) and TIM8 via STM32 LL, connected
+- Fast loop: ADC injected conversion (JEOC) and TIM1 by register access, connected
   with `IRQ_ZERO_LATENCY`. Spike required: the Zephyr ADC API is unlikely to
   cover injected conversions.
 - Zero-latency IRQ rules: no kernel calls, no logging, no locks in the ISR path.
 - Logging over SEGGER RTT. ~~USB CDC-ACM console~~ dropped; USB returns
   for DFU recovery.
 
-### Phase 5 - Cyphal over CAN-FD (implemented on native_sim, built for the BCC)
+### Phase 5 - Cyphal over CAN-FD (implemented on native_sim, built for the STM32H7)
 - Done: libcanard 4.0 with O1Heap, Nunavut 2.3 C serialization generated at
   configure time (`lib/cyphal/CMakeLists.txt`), all pinned in `west.yml` and
   `scripts/requirements-cyphal.txt`.
 - Done: `CanardTransport : cyphal::Transport` over `cyphal::CanMedia`; the
   Zephyr CAN API media (`hardware/zephyr_common/zephyr_can_media.cpp`) serves
-  the BCC (FDCAN3) and native_sim (SocketCAN `vcan0`). Redundant interfaces
+  the STM32H7 (FDCAN1) and native_sim (SocketCAN `vcan0`). Redundant interfaces
   with their own MTU.
 - Done: heartbeat, port list, GetInfo, register List/Access on
   `SettingsStore` (all 95 persistent registers), ExecuteCommand (restart,
@@ -130,8 +128,7 @@ log is on RTT and on the bus. The phase order below is the plan.
   FSM registers; the board run (transceiver, bit timing).
 
 ### Phase 6 - Cyphal/UDP (simulation fallback only)
-- The cart uses Cyphal/CAN-FD and an STM32G4 logic board; an STM32H7 with
-  Single Pair Ethernet is a later option (`docs/system_plan.md`, section 6.5).
+- The cart uses Cyphal/CAN-FD and the STM32H7 drives; Single Pair Ethernet is a later option (`docs/system_plan.md`, section 6.5).
 - libudpard 2.x over Zephyr sockets, only if `vcan` is not available for the
   multi-node simulation. Its upstream is a v3.0 alpha redesign, so pin a
   version deliberately.
@@ -142,7 +139,7 @@ log is on RTT and on the bus. The phase order below is the plan.
   check, not run), so NSOS may carry Cyphal/UDP without TAP.
 
 ### Phase 7 - CI and documentation
-- Done: twister (native_sim run, STM32G4 build) with clang-tidy as Zephyr
+- Done: twister (native_sim run, STM32H7 builds) with clang-tidy as Zephyr
   SCA and a clang-format check in CI (`.github/workflows/ci-zephyr.yml`).
 - WSL2 instructions for Windows; update `README.md` and `AGENTS.md`.
 
@@ -160,14 +157,10 @@ log is on RTT and on the bus. The phase order below is the plan.
   `lib/cyphal/sw_version.hpp` would silently fall back to version 0.0), the
   CAN state-change callback through `can_add_state_change_callback()`,
   `uart_irq_update()` returns void, the STM32 ADC nodes are children of a
-  common node that carries the clock (`foc_stm32g4_dt.hpp` reads it from
-  the parent), twister takes `tags` only as a YAML list, CMake >= 3.28. The
-  BCC image grew by about 1 KB (text 188452 -> 189376 B, data 5544 -> 5656 B,
-  bss 73749 -> 73817 B); the sample ISR, the control cycle and the observer
-  interrupt kept their sizes and stay in flash. Not run on the board.
-- **CAN-FD on the BCC:** the transceiver is an SN65HVD230 (classic CAN, no CAN
-  FD). Phase 5 needs a CAN-FD transceiver on the board, or it runs at classic
-  CAN rates.
+  common node that carries the clock (the platform reads it from the
+  parent), twister takes `tags` only as a YAML list, CMake >= 3.28.
+- **CAN-FD:** Jacobi has a TCAN334 on FDCAN1; the NUCLEO-H743ZI needs an
+  external CAN FD transceiver module (the Nucleo adapter carries a TCAN334).
 - **Observer deadline:** the observer and later the Hall fusion must finish
   within one control cycle (62.5 µs) below the sample ISR, see the budget in
   `docs/hotpath_plan.md` section 4. `state.observer_overruns` counts misses.

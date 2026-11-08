@@ -9,12 +9,17 @@ description: |
   sampled together. All pins are listed in pinctrl-0, all ADC channels in
   io-channels.
 
-  The injected sequences are fixed, three conversions per ADC, in this
-  io-channel order:
-    ADC of phase A: "ia", "va", "bridge-temperature"
-    ADC of phase B: "ib", "vb", "motor-temperature"
-    ADC of phase C: "ic", "vdc", "vc"
-  The end of the sequence of the phase A ADC is the sample interrupt.
+  Every entry of io-channels names its signal in io-channel-names: "ia",
+  "ib", "ic", "va", "vb", "vc", "vdc", "bridge-temperature" and
+  "motor-temperature", each exactly once. The entries of one ADC form its
+  injected sequence in devicetree order, one to four conversions. Each phase
+  current is on its own ADC and comes first there; the other signals may be
+  on any of the three. The end of the sequence of the phase A ADC is the
+  sample interrupt, so that sequence must be the longest (checked at build
+  time from the sample times).
+
+  The analog front end (shunt, amplifier, dividers) and the limits of the
+  power stage are properties of the board.
 
 compatible: "unimoc,foc-stm32h7"
 
@@ -54,10 +59,57 @@ properties:
       for a sample. The amplifier must give a positive count for a current
       into the motor, as the inline amplifiers do.
 
+  shunt-nano-ohm:
+    type: int
+    required: true
+    description: Resistance of the current shunt of one phase (parallel shunts combined), in nOhm.
+
+  current-amplifier-gain:
+    type: int
+    required: true
+    description: |
+      Gain of the current amplifier (INA240A1: 20). Its output is biased to
+      half the ADC reference, so a positive count is a current into the motor.
+
+  voltage-divider-ohms:
+    type: array
+    required: true
+    description: |
+      Top and bottom resistor of the dividers of Vdc and the phase voltages,
+      in Ohm, e.g. <47000 2200>.
+
+  max-phase-current-amps:
+    type: int
+    required: true
+    description: |
+      Hard trip limit of the phase current in A (per-sample check in the
+      sample interrupt). Must lie inside the range of the current sensing.
+
+  max-motor-current-amps:
+    type: int
+    required: true
+    description: Highest motor current the power stage allows as a setting, in A.
+
+  battery-current-amps:
+    type: array
+    required: true
+    description: |
+      Battery current the drive is rated for, in A: <drive charge>. The
+      factory limits and the highest settings of the battery current.
+
+  dc-link-millivolts:
+    type: array
+    required: true
+    description: |
+      DC-link limits in mV, <derate trip max>: regenerative braking derates
+      from the first value, the drive trips at the second (factory values),
+      and no setting may exceed the third (the power stage limit, well below
+      the FET rating).
+
   io-channels:
     type: phandle-array
     required: true
-    description: Injected ADC channels in sequence order, three per ADC.
+    description: Injected ADC channels; the entries of one ADC are its sequence.
 
   io-channel-names:
     type: string-array

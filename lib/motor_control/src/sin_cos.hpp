@@ -125,8 +125,6 @@ struct SinCos {
  * | Linear interpolation | 1.88e-5 | 4 table loads and FPU arithmetic |
  * | Linear interpolation plus normalisation | 1.4e-7 | Linear work plus 7 FPU operations |
  * | Cubic Hermite interpolation | 1.5e-7 in float32 | 4 table loads and substantially more FPU arithmetic |
- * | STM32G4 CORDIC, 6-cycle Q1.31 | 2^-19 documented residual | Peripheral setup, transfers, and 6 CORDIC
- * iterations |
  *
  * The instruction and peripheral-work figures are implementation estimates;
  * flash wait states, memory placement, compiler scheduling, and transfer mode

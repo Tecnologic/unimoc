@@ -61,8 +61,8 @@ Items 1 to 5 are done (2026-10-31, one pull request); 6 is next.
    description file over it (F3). The bank swap and the bootloader wait for
    the board.
 10. **Structure for the cart**: split `app/` into `apps/drive/` and
-    `apps/vdc/` with `lib/vehicle/` (the G4 platform for the VDC, pedal unit
-    and BMS boards is new work since the BCC platform was removed).
+    `apps/vdc/` with `lib/vehicle/` (the VDC, pedal unit and BMS boards are
+    STM32H7 based and share `hardware/zephyr_stm32h7`).
 11. **SIL coordinator** (one process, N motor nodes, shared virtual clock,
     load models, the host executable; SIL P2) and the simulator chapter of
     `README.md`. Multi-node over `vcan` cannot run in the container.
@@ -72,8 +72,7 @@ Items 1 to 5 are done (2026-10-31, one pull request); 6 is next.
  - The data bit rate of the bus (Jacobi's TCAN334 handles CAN FD rates; all
    boards run 1/1 Mbit/s today).
  - License of `dsdl/unimoc/` (`docs/gui_plan.md` section 2).
- - VDC MCU and G4 part of the 4850 logic board (`docs/system_plan.md`
-   section 12); the EESM excitation module (section 5.2.1).
+ - VDC part (STM32H7; `docs/system_plan.md` section 12); the EESM excitation module (section 5.2.1).
  - Limp-home reverse (direction selector) and the VDC reaction to a lost
    drive.
 
@@ -98,6 +97,9 @@ I7, regenerative braking on a dyno.
 1. DC-link voltages: regenerative braking derates from 55 V, the drive trips
    at 58 V, the hardware capability is 60 V (Jacobi and sim). Accepted; check
    the switch and capacitor ratings against the schematic during bring-up.
+   2026-11-08: both H7 power stages carry 60 V FETs, so the H7 boards take
+   their limits from the devicetree (foc0 `dc-link-millivolts`: derate 45 V,
+   trip 48 V, at most 50 V); the simulation keeps 55 / 58 / 60 V.
 2. The overvoltage trip switches all transistors off; above the
    line-to-line back-EMF peak the motor still charges the DC link through
    the body diodes. Known and accepted risk until the brake chopper of the
@@ -147,7 +149,9 @@ I7, regenerative braking on a dyno.
 13. The battery case controller (BCC, STM32G473) is removed: board, platform
     `hardware/zephyr_bcc`, the G4 and e-bike bindings. The e-bike control
     remains for the simulation only. A revived BCC gets an STM32H743 too
-    (decision 2026-11-03, `docs/system_plan.md` section 5.1).
+    (decision 2026-11-03, `docs/system_plan.md` section 5.1). 2026-11-08:
+    all boards are STM32H7 based; the firmware builds only the H7 boards and
+    `native_sim`.
 
 ## Next: Cyphal/CAN-FD (focus)
 
@@ -183,14 +187,16 @@ Plan: [docs/motor_identification_plan.md](docs/motor_identification_plan.md) (al
 
 ## Cart system
 
- - [ ] Schematic of the STM32H743VIT6 redesign of the hardware_4850 logic board from the pin proposal in `docs/drive4850_h7_plan.md` (decision 11; check the marked points against DS12110 and RM0433, board size in the enclosure), including the fourth half bridge (decision 9): its PWM channel synchronized with the phase timer, its current measurement (excitation current, resistor current), the comparator path for the chopper and the board it sits on.
+ - [ ] Jacobi schematic (Tecnologic/unimoc_jacobi, MCU drawn 2026-11-03): the reserved functions (overcurrent comparator, angle sensor, CAN STB), the *(RM0433)* points, board size in the enclosure. The fourth half bridge is dropped (separate module).
+ - [x] (2026-11-08) Jacobi devicetree to the schematic (`docs/drive4850_h7_plan.md` section 4 note): PWM pins, ADC channels, LEDs, `PWM_EN` = break PE15 (drop the PE7 `pwm-enable-gpios`), CAN STB PD2, PWR_DET PE4, +12P sense PC5. The binding now takes one to four conversions per ADC by signal name (both temperatures on ADC1, vdc on ADC2). Open: the +12P gate supply (PC5), PWR_DET (PE4) and the accelerator inputs (PC0, PC4) are not read yet. LEDs are active high.
+ - [x] (2026-11-08, foc0 `max-phase-current-amps`, `max-motor-current-amps`, `dc-link-millivolts`, `shunt-nano-ohm`, `current-amplifier-gain`, `voltage-divider-ohms`) Limits per board (`docs/drive4850_h7_plan.md` open point 9): the STM32H7 profile has the legacy 4850 values (48 V, trip 58 V, 60 A trip); Jacobi has 60 V FETs (36 V systems, not for 13S), ±160 A sensing, trip 120 to 130 A, 100 A peak. Take them from the devicetree or a board profile; the current scaling (0.5 mΩ, INA240A1 gain 20) differs from the legacy board too.
  - [x] H7 platform `hardware/zephyr_stm32h7` on a NUCLEO-H743ZI rev. Y (2026-11-01, `docs/drive4850_h7_plan.md` section 7): H7 ADC and calibration, non-cacheable duty DMA buffer, dual-bank flash layout, 400 MHz; builds and passes clang-tidy, not run on the board.
  - [ ] NUCLEO-H743ZI on the bench (plan section 7, steps 1 to 5): boot, settings, PWM and break, ADC, timing, Cyphal, then the 4850 power board through an adapter.
  - [x] H7 hot path in ITCM and the control cycle on every sample (2026-11-03, `hardware/zephyr_stm32h7/hot_path_itcm.ld`, `docs/hotpath_plan.md` section 4); the Jacobi board exists (`boards/unimoc/jacobi/`).
- - [ ] Fourth half bridge in the firmware: a platform-independent auxiliary output next to `hardware/power_stage_interface.hpp` with two roles selected by the motor type, excitation (EESM: `ExcitationController` sets the duty) and brake chopper (PMSM: DC-link threshold with hysteresis, on together with the overvoltage trip; resistor energy and temperature limit in a thread). The chopper reacts in hardware (G4 comparator to timer) where the routing allows it, the firmware sets the thresholds. Simulated first (see "Motor types").
+ - [ ] Fourth half bridge in the firmware: a platform-independent auxiliary output next to `hardware/power_stage_interface.hpp` with two roles selected by the motor type, excitation (EESM: `ExcitationController` sets the duty) and brake chopper (PMSM: DC-link threshold with hysteresis, on together with the overvoltage trip; resistor energy and temperature limit in a thread). The chopper reacts in hardware (H7 comparator to timer) where the routing allows it, the firmware sets the thresholds. Simulated first (see "Motor types").
  - [ ] Regenerative braking, open parts (the drive side, the BMS limits and the reporting to the VDC are done): the estimated speed in the limit on a dyno (the observer's torque model expects the shaft to slow; settles within some 300 ms in the sim), the Jacobi voltage ratings from the schematic. Done 2026-10-31: the per-sample overvoltage check in the sample interrupt (raw DC-link counts, `SetOvervoltageCounts()`; not run on the board).
- - [ ] Split `app/` into `apps/drive/` and `apps/vdc/` (later `apps/pedal/` and `apps/bms/`) and add `lib/vehicle/`; update `AGENTS.md`, `README.md` and `docs/zephyr_workflow.md`. The VDC firmware lives in this repository (decided); the VDC MCU starts on a G4.
- - [ ] BMS controller as `apps/bms/` with `lib/battery/` (system plan section 5.5): board (a new G4 board, Volta), cell monitoring front end, contactor and precharge, battery status message. It needs its own brake chopper: the drives have none (system plan section 5.2.1).
+ - [ ] Split `app/` into `apps/drive/` and `apps/vdc/` (later `apps/pedal/` and `apps/bms/`) and add `lib/vehicle/`; update `AGENTS.md`, `README.md` and `docs/zephyr_workflow.md`. The VDC firmware lives in this repository (decided); the VDC MCU is an STM32H7.
+ - [ ] BMS controller as `apps/bms/` with `lib/battery/` (system plan section 5.5): board (a new STM32H7 board, Volta), cell monitoring front end, contactor and precharge, battery status message. It needs its own brake chopper: the drives have none (system plan section 5.2.1).
 
 ## GUI
 
@@ -232,7 +238,8 @@ no motor-type selection and runs the PMSM path only, and `lib/sim` has only
  - [ ] Raise the factory current PI gains per motor to the bandwidth of the running timing (kp = L * w_c, w_c = (pi / 6) / T_d; 2.7 kHz at 32 kHz PWM, 5.3 kHz at 64 kHz, `docs/hotpath_plan.md` section 3); the hoverboard default is still 2000 rad/s. Derive them from L, R and the timing automatically once the identification results are applied.
  - [x] Low-side shunts in the hot path (2026-11-03, `docs/hotpath_plan.md` section 2, "Low-side shunts"): foc0 `current-sense = "low-side"` runs the phases in PWM mode 2 (low-side pulses centered on the valley sample), `settings::CurrentSense` and `min_low_side_time` in the profile; `ResolveControlTiming()` skips divider 1 and caps the duty at 1 − f_pwm · `min_low_side_time` (`unimoc.timing.pwm`, fifth value). Sim scenario `unimoc.sim.closed_loop.low_side`, build check `unimoc.app.build.low_side` (Jacobi with an overlay). Open: no board has them; measure `min_low_side_time` (STM32H7 estimate 6 µs with 1 µs dead time) and the amplifier sign; cap only the middle phase and reconstruct the highest (more voltage).
  - [x] Control divider and PWM frequency from the inductance (2026-11-03, `lib/settings/control_timing.hpp`, `docs/hotpath_plan.md`, the header and sections 1 to 3): the control step every 1, 2, 4 or 8 half periods (`unimoc.control.divider`, 0 the smallest the board's `max_control_frequency` allows): divider 1 after every sample with an update at every boundary (RCR = 0), else after the valley samples with the update at the peak only (RCR = 1, repetition counter started at 0, measured on the Nucleo); the observer after 1 to 8 steps (at most 16 kHz), `pwm_frequency` up to 64 kHz and 0 from the inductance (30 % ripple target), `unimoc.timing.pwm` and `.pwm_suggestion`. Nucleo: 64.3 k steps/s at 32 kHz (divider 1), 64.4 k at 64 kHz (divider 2), no overrun.
- - [ ] 64 kHz PWM on Jacobi: the dead time down to about 300 ns (devicetree `dead-time-ns`, now 1000), the hot path at `-O2` (0.9 us margin before the peak at `-Os`), then raise the factory frequency.
+ - [ ] 64 kHz PWM on Jacobi: the dead time down to about 300 ns (devicetree `dead-time-ns`, now 1000), the hot path at `-O2` (0.9 us margin before the peak at `-Os`), then raise the factory frequency. The Jacobi power stage is designed for 200 ns dead time, and the legacy 4850 power board is capable of 200 ns too (2026-11-08): measure 200 ns on the scope with each stage, then set `dead-time-ns = <200>` in `unimoc_jacobi.dts` and the Nucleo overlay and revisit `svm_duty_min/max` and the low-side estimate (`min_low_side_time` follows `dead-time-ns`).
+ - [x] Factory `dtc_dead_time` of the STM32H7 profile from the devicetree `dead-time-ns` (2026-11-08); M1 measures the effective value.
  - [x] Simulation-control commands over Cyphal for deterministic runs (SIL P2): pause, fixed-cycle advance, reset (`unimoc.sim.paused`, `.advance`, `.reset`, `.cycle_count`, `.cycle_period_ns`), run-until (`unimoc.sim.run_until`, stops at a trip) and the drive's timeouts in virtual time while paused (2026-10-31, `CyphalPlatformDriveTimeUs()`, pycyphal test).
 
 ### Blocked on hardware access

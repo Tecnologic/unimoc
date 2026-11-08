@@ -1,9 +1,7 @@
 # cymon integration plan
 
-> **2026-11-03:** the battery case controller (BCC, STM32G473) and its
-> platform `hardware/zephyr_bcc` are removed. BCC references below are
-> history; the STM32H7 platform (`hardware/zephyr_stm32h7`, Jacobi and the
-> NUCLEO-H743ZI) carries the same design.
+> The firmware targets the STM32H7 only (`hardware/zephyr_stm32h7`: Jacobi
+> and the NUCLEO-H743ZI) and `native_sim`.
 
 Status: **implemented** (steps 1 to 10 below), not yet run on the board
 (M0 cost of `Tick()`). `lib/cymon` points at cymon-lib 0.2 on `main`.
@@ -48,7 +46,7 @@ integration with ztest and pytest, as below.
    - Remove `-*/unimoc/lib/cymon/*` from `scripts/codechecker_skip.txt`, and
      add `lib/cymon/(include/cymon|src/cymon)` to `HeaderFilterRegex`.
 
-   Check with `twister_sca.sh` (native_sim and bcc).
+   Check with `twister_sca.sh` (native_sim, unimoc_jacobi and nucleo_h743zi).
 2. **DSDL** (`lib/cyphal/CMakeLists.txt`): add
    `${UNIMOC_ROOT}/lib/cymon/dsdl/cymon` to `unimoc_dsdl_roots` and to the
    configure dependencies. The headers `cymon/*_0_1.h` are generated next
@@ -126,24 +124,24 @@ integration with ztest and pytest, as below.
   thread before the services start: as a constant-initialized object its
   non-zero defaults would put about 8.9 KB into `.data` and flash. The
   control cycle samples it once it is published through an atomic pointer.
-  On the BCC it disassembles to the copy loop plus `memset`/`memmove`, no
-  other calls.
+  On the former G4 target it disassembled to the copy loop plus
+  `memset`/`memmove`, no other calls (to recheck on the STM32H7).
 - The tick period is `dt_slow` of the controller, set at start and again
   after the drive applied new settings (another PWM frequency).
 - Sim plant truth: `hardware/zephyr_sim` fills `sim::PlantTrace` at the end
   of every cycle; `CyphalPlatformTraceSignals()` registers it as `sim.*`
-  (IDs from 12). The BCC registers nothing extra.
+  (IDs from 12). The STM32H7 registers nothing extra.
 
 ## Tool side
 
 ```sh
 pip install -e <cymon>                       # once
 cymon serve -i socketcan:vcan0 --dsdl unimoc/dsdl/unimoc --open      # simulation
-cymon serve -i canable:/dev/ttyACM0 --dsdl unimoc/dsdl/unimoc --open # BCC, CANable 2.0
+cymon serve -i canable:/dev/ttyACM0 --dsdl unimoc/dsdl/unimoc --open # board, CAN FD adapter
 ```
 
-The BCC sends CAN FD frames at 1 Mbit/s without bit rate switch (SN65HVD230).
-The CANable defaults of cymon match that. A full 8-channel capture of 1024
+The STM32H7 boards send CAN FD frames at 1 Mbit/s without bit rate switch
+for now (`TODO.md`, CAN FD bit timing per board); set the adapter to match. A full 8-channel capture of 1024
 frames is 8192 floats, which is 128 `ReadSamples` responses of about 270
 bytes each. At 1 Mbit/s that takes roughly 0.4 s of bus time.
 

@@ -16,8 +16,8 @@ board. That choice no longer holds:
 
 - The 512 KB G4 parts (G473CE/RE, G474CE/RE, G483, G484) are not available or
   far too expensive.
-- The application does not fit into 128 KB: the former BCC image was 194 KB flash and
-  79 KB RAM (v0.4.0, `west build -b bcc`; with WRN log level, no asserts and
+- The application does not fit into 128 KB: the v0.4.0 image of the former G4 target was 194 KB
+  flash and 79 KB RAM ( with WRN log level, no asserts and
   LTO still 178 KB). About 45 KB of it is Zephyr, the rest is the
   application (drive node, settings registers, Cyphal). A port back to modm
   would not close the gap.
@@ -67,6 +67,20 @@ and the sheet labels of `logic/` and `power/` in hardware_4850:
   (`docs/system_plan.md`, section 5.2.1).
 
 ## 4. Pin proposal
+
+> **2026-11-08:** superseded by the drawn schematic,
+> [`docs/h743_logic_board.md`](https://github.com/Tecnologic/unimoc_jacobi/blob/main/docs/h743_logic_board.md)
+> in Tecnologic/unimoc_jacobi, section 5. The differences that the firmware
+> has to follow: PWM on PA8 to PA10 / PB13 to PB15; Ia PA2 (ADC1 INP14), Ib
+> PA3 (ADC2 INP15), Ic PC2_C; Va PB1 (ADC1 INP5), Vb PB0 (ADC2 INP9), Vc
+> PC3_C; Vdc PC1 (INP11, also COMP1 on PB2); both temperatures on ADC1 (PA0
+> motor, PA1 bridge); +12P on PC5; `PWM_EN` is the optocoupler on PE15
+> (TIM1_BKIN), there is no PE7 enable; LEDs PE0 RUN, PE1 ERROR, PE2 MODE, PE3
+> PWM; PWR_DET PE4; CAN STB PD2; HSE a 20 MHz oscillator in bypass. Jacobi
+> also has its own power board (NCEP6080AG 60 V FETs, two per switch, 0.5 mΩ
+> shunts with INA240A1, ±160 A), rated 36 V / 45 A and 100 A peak. The table
+> below is the earlier proposal. The devicetree follows the schematic since
+> 2026-11-08 (vdc on ADC2, both temperatures on ADC1).
 
 ### 4.1 Analog
 
@@ -119,7 +133,7 @@ trigger used by ADC1/2; the GS8632 output range against the ADC range.
 | LEDs RUN, PWM, MODE, ERROR | PD8, PD9, PD10, PD11 | GPIO outputs |
 | Angle sensor (later) | PC10 (SPI3_SCK), PC11 (MISO), PC12 (MOSI), PA15 (NSS) | Connector only |
 | I2C (optional) | PB6 (I2C1_SCL), PB7 (I2C1_SDA) | The EEPROM is dropped; keep the pins free |
-| HSE | PH0, PH1 | Crystal, 8 MHz assumed in the devicetree (to confirm); FDCAN1 from PLL2 Q |
+| HSE | PH0 | 20 MHz oscillator X601, bypass mode (schematic); FDCAN1 from PLL2 Q |
 | Log | SWD (SEGGER RTT) | No UART on the board |
 
 The power board connector stays unchanged (section 2.1 of the system plan).
@@ -145,7 +159,7 @@ module. The notes below stay for that module if it uses an H743.
 ## 6. Firmware work
 
 - New platform `hardware/zephyr_stm32h7/` (`CONFIG_UNIMOC_PLATFORM_*`); the
-  G4 platform of the BCC is removed (2026-11-03). Above `hardware/hot_path_interface.hpp` and
+  former G4 platform is removed (2026-11-03). Above `hardware/hot_path_interface.hpp` and
   `hardware/power_stage_interface.hpp` nothing changes.
 - Reused nearly as is: the TIM programming, `dead_time.hpp` (same BDTR
   coding, other timer clock), the break logic (the DMAMUX duty DMA was
@@ -167,14 +181,16 @@ module. The notes below stay for that module if it uses an H743.
 Started 2026-11-01 on a first-revision NUCLEO-H743ZI (silicon rev. Y), so
 the platform runs before the logic board is drawn. The board is Zephyr's
 `nucleo_h743zi`; `app/boards/nucleo_h743zi.overlay` and `.conf` add the
-UNIMOC parts. Built, not run on the board yet.
+UNIMOC parts. Running on the board since 2026-11-03 with the outputs off
+(M0 timings in `docs/hotpath_plan.md`, section 4); the bench steps below are tracked in `TODO.md`.
 
 - Clock: 400 MHz core (rev. Y limit), HCLK 200 MHz, TIM1 200 MHz; ADC
   kernel clock PLL2 P 120 MHz / 4 = 30 MHz; FDCAN1 from PLL2 Q (80 MHz).
 - Platform `hardware/zephyr_stm32h7/` (binding `unimoc,foc-stm32h7`): the
   G4 driver ported to the H7 ADC (asynchronous clock, boost by silicon
   revision, linearity calibration, channel preselection `PCSEL`, 12 bit),
-  three injected conversions per ADC, the unlocked M7 cycle counter. Since
+  one to four injected conversions per ADC (by signal name, 2026-11-08), the
+  unlocked M7 cycle counter. Since
   2026-11-03 the control step runs in every sample interrupt and writes the
   CCR preload (no duty DMA); measured on the Nucleo in `docs/hotpath_plan.md`,
   section 4. The hot path runs from ITCM (`hot_path_itcm.ld`, both H7 boards
@@ -189,7 +205,6 @@ the 4850 proposal):
 |---|---|---|
 | PWM CH1..CH3, CH1N..CH3N | PE9, PE11, PE13, PE8, PE10, PE12 | TIM1 |
 | Break (external enable) | PE15 | TIM1_BKIN, pull-down: tie to 3V3 to release |
-| Gate driver enable `PWM_EN` | PE7 | `pwm-enable-gpios` in `zephyr,user` (as on Jacobi), not driven by the platform yet |
 | ia, va, bridge temperature | PA6, PF11, PF12 | ADC1 INP3, INP2, INP6 |
 | ib, vb, motor temperature | PB1, PF13, PF14 | ADC2 INP5, INP2, INP6 |
 | ic, vdc, vc | PC2_C, PC3_C, PF10 | ADC3 INP0, INP1, INP6 |
@@ -214,8 +229,20 @@ module; (5) the 4850 power board through an adapter.
 4. ~~Whether the AC current paths stay~~: their pins take the phase voltage
    taps (2026-11-03); the AC paths could move to the spare inputs, the
    firmware does not sample them.
-6. Phase voltage dividers and their pins on the power board connector.
-7. HSE frequency (8 MHz assumed), LED polarity, and who drives `PWM_EN`.
 5. Hardware overcurrent: today the firmware checks every sample; a
    comparator path to BKIN needs one comparator per phase (only COMP1/2 on
    chip, COMP2 shares port E with TIM1 in this proposal).
+6. Phase voltage dividers and their pins on the power board connector.
+7. ~~HSE frequency~~: a 20 MHz oscillator in bypass (2026-11-08). LED
+   polarity: active high (2026-11-08). `PWM_EN` is the break input PE15
+   (2026-11-08, devicetree without a PE7 enable).
+8. Dead time: the Jacobi power stage is designed for 200 ns (schematic,
+   phase sheet), and the legacy 4850 power board is capable of 200 ns too
+   (2026-11-08). The devicetree keeps 1 us until it is measured on the scope;
+   200 ns allows 64 kHz PWM (`docs/hotpath_plan.md`, section 3). The factory
+   dead-time compensation takes `dead-time-ns`.
+9. ~~Voltage and current limits per board~~ (2026-11-08): foc0 carries the
+   front end and the limits (`docs/zephyr_workflow.md`, "Limits per
+   board"). Both boards carry the INA240A1; the DC-link limits 45 / 48 /
+   50 V are confirmed; Jacobi is rated 45 A battery current
+   (`battery-current-amps`).

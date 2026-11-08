@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 identifier: unimoc_jacobi
-name: UNIMOC Jacobi (48 V / 50 A drive)
+name: UNIMOC Jacobi (36 V / 45 A drive)
 type: mcu
 arch: arm
 toolchain:

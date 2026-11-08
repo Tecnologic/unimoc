@@ -3,9 +3,11 @@
  *
  * UNIMOC on a NUCLEO-H743ZI (first revision, STM32H743ZI silicon rev. Y):
  * bring-up of the STM32H7 platform (hardware/zephyr_stm32h7) before the
- * 4850 logic board exists (docs/drive4850_h7_plan.md). Without a power
- * stage; every pin below is on the ST morpho or Zio connectors.
- * Not run on the board yet.
+ * Jacobi exists (docs/drive4850_h7_plan.md). The pins follow the Nucleo
+ * adapter for the legacy 4850 power board (Tecnologic/unimoc_jacobi, branch
+ * nucleo-adapter, nucleo_adapter/README.md): the enable is the break loop on
+ * PE15 (J401), the TCAN334 has STB and SHDN tied low. Run on the board with
+ * the outputs off (docs/hotpath_plan.md, section 4).
  *
  * Pins differ from the 4850 proposal where the Nucleo uses them: the
  * Ethernet PHY (PA1, PA2, PA7, PB13, PC1, PC4, PC5), the LEDs (LD1 PB0, LD2 PE1,
@@ -51,8 +53,26 @@
 
 		timer = <&timers1>;
 
-		/* 4850 power board (BSC040N08, LM5109B): 1 us as in the legacy firmware. */
+		/*
+		 * 4850 power board (LM5109B): 1 us as in the legacy
+		 * firmware. Both power stages are designed for 200 ns (Jacobi, and
+		 * the legacy board is capable of it); lower it after the scope check.
+		 */
 		dead-time-ns = <1000>;
+
+		/*
+		 * Legacy 4850 power board through the Nucleo adapter: three 2 mOhm
+		 * shunts in parallel with an INA240A1 per phase (gain 20, as on
+		 * Jacobi), 47k / 2k2 dividers on
+		 * the adapter. 60 A trip as before, 60 V FETs (NCEP6080AG in the BOM).
+		 */
+		shunt-nano-ohm = <666667>;
+		current-amplifier-gain = <20>;
+		voltage-divider-ohms = <47000 2200>;
+		max-phase-current-amps = <60>;
+		max-motor-current-amps = <50>;
+		battery-current-amps = <50 20>;
+		dc-link-millivolts = <45000 48000 50000>;
 
 		pinctrl-0 = <&tim1_ch1_pe9 &tim1_ch1n_pe8
 			     &tim1_ch2_pe11 &tim1_ch2n_pe10
@@ -89,15 +109,6 @@
 		hall-gpios = <&gpiod 12 GPIO_ACTIVE_HIGH>,
 			     <&gpiod 13 GPIO_ACTIVE_HIGH>,
 			     <&gpiod 14 GPIO_ACTIVE_HIGH>;
-		/*
-		 * Gate driver enable PWM_EN: the same pin as on Jacobi (PE7, on the
-		 * morpho connector, free on the Nucleo). Not driven by the platform
-		 * yet. The legacy 4850 power board has no enable input, so on the
-		 * Nucleo adapter (repository unimoc_jacobi, nucleo_adapter/) the
-		 * outputs are released by the break loop on PE15; PE7 is not wired
-		 * there yet.
-		 */
-		pwm-enable-gpios = <&gpioe 7 GPIO_ACTIVE_HIGH>;
 	};
 };
 

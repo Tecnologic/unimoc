@@ -6,15 +6,13 @@
  *    \____/_/ |_/___/_/  /_/\____/\____/
  *
  *    @file analog_scaling.hpp
- *    @brief ADC count to physical unit conversion of the 4850 power board.
+ *    @brief ADC count to physical unit conversion of the STM32H7 power stages.
  *
- *    Constants of the analog front end of the 4850 power board, taken from
- *    the legacy firmware (unimoc_old_software, branch electric_quad,
- *    hardware/4850/analog.cpp): three 2 mOhm shunts in parallel per phase
- *    with an INA240A1 (20 V/V) biased to mid-scale, a 24k / 1k2 DC-link
- *    divider, 10k NTCs (beta 3950) to ground with a 10k pull-up. On a
- *    NUCLEO-H743ZI without the power board the values only scale whatever
- *    is wired to the pins. Header only and free of Zephyr and HAL includes.
+ *    The shunt, the current amplifier gain and the voltage dividers come
+ *    from the foc0 node of the board devicetree (Jacobi: one 0.5 mOhm shunt
+ *    per phase; the legacy 4850 power board: three 2 mOhm in parallel; both
+ *    with an INA240A1 biased to mid-scale and 47k / 2k2 dividers). The NTCs
+ *    are 10k (beta 3950) to ground with a 10k pull-up on both boards.
  *
  *    SPDX-License-Identifier: GPL-3.0-or-later
  *
@@ -27,6 +25,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include "foc_stm32h7_dt.hpp"
 #include "units.hpp"
 
 namespace unimoc::hardware::analog {
@@ -37,9 +36,14 @@ inline constexpr float kVoltageReference = 3.3F;  ///< VREF+ = VDDA [V].
 /// Raw count of a current channel at zero current (amplifier biased to mid-scale).
 inline constexpr int32_t kCurrentZeroCounts = 2048;
 
-inline constexpr float kShuntResistance = 0.002F / 3.0F;  ///< three 2 mOhm shunts in parallel [Ohm]
-inline constexpr float kCurrentAmplifierGain = 20.0F;     ///< INA240A1
-inline constexpr float kVoltageDividerRatio = (24.0F + 1.2F) / 1.2F;  ///< 24k / 1k2
+/// Shunt of one phase [Ohm] (foc0 shunt-nano-ohm).
+inline constexpr float kShuntResistance = static_cast<float>(foc_stm32h7::kShuntNanoOhm) * 1.0e-9F;
+/// Current amplifier gain (foc0 current-amplifier-gain).
+inline constexpr float kCurrentAmplifierGain = static_cast<float>(foc_stm32h7::kCurrentAmplifierGain);
+/// Divider ratio of Vdc and the phase voltages (foc0 voltage-divider-ohms).
+inline constexpr float kVoltageDividerRatio =
+    static_cast<float>(foc_stm32h7::kDividerTopOhm + foc_stm32h7::kDividerBottomOhm) /
+    static_cast<float>(foc_stm32h7::kDividerBottomOhm);
 
 [[nodiscard]] constexpr float CountsToVolts(const float counts) noexcept {
   return counts * kVoltageReference / kAdcResolution;
@@ -58,7 +62,7 @@ inline constexpr float kVoltageDividerRatio = (24.0F + 1.2F) / 1.2F;  ///< 24k /
 inline constexpr unit::Current kCurrentPerCount =
     CountsToCurrent(static_cast<uint32_t>(kCurrentZeroCounts + 1));
 
-/// Voltage in front of the 24k / 1k2 divider.
+/// Voltage in front of the divider.
 [[nodiscard]] constexpr unit::Voltage CountsToVoltage(const uint32_t raw) noexcept {
   return unit::Voltage{CountsToVolts(static_cast<float>(raw)) * kVoltageDividerRatio};
 }

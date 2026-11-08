@@ -1,9 +1,7 @@
 # Host Software-in-the-Loop Plan
 
-> **2026-11-03:** the battery case controller (BCC, STM32G473) and its
-> platform `hardware/zephyr_bcc` are removed. BCC references below are
-> history; the STM32H7 platform (`hardware/zephyr_stm32h7`, Jacobi and the
-> NUCLEO-H743ZI) carries the same design.
+> The firmware targets the STM32H7 only (`hardware/zephyr_stm32h7`: Jacobi
+> and the NUCLEO-H743ZI) and `native_sim`.
 
 > **Status (2026-10-21):** partly superseded. The single-motor host runtime is
 > the Zephyr `native_sim` platform (`hardware/zephyr_sim/`, see
@@ -44,7 +42,7 @@ The existing code has three relevant layers:
 2. `src/current_control/` contains the actual current-control ISR and slow update implementation. Its ADC, PWM, trigger, and timer operations are supplied by `HardwareInterface` callbacks.
 3. `hardware/` contains target-specific hardware implementations. `hardware/zephyr_sim/` binds the public `HardwareInterface` callbacks and the hot-path interface for `native_sim` and drives the plant of `lib/sim/`.
 
-The current-control ISR now calls the public hardware boundary for ADC samples, PWM duties, trigger timing, and applied-duty inspection. The BCC implementation binds those operations to STM32G4 peripherals through Zephyr's devicetree and LL drivers. The `native_sim` implementation drives the simulator plant. All tests run as ztest suites under twister; `tests/sim/` already runs the current-control runtime against the plant.
+The current-control ISR now calls the public hardware boundary for ADC samples, PWM duties, trigger timing, and applied-duty inspection. The STM32H7 implementation binds those operations to its peripherals through the devicetree and direct register access. The `native_sim` implementation drives the simulator plant. All tests run as ztest suites under twister; `tests/sim/` already runs the current-control runtime against the plant.
 
 ## Target Architecture
 

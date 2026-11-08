@@ -54,8 +54,8 @@ Jacobi is flashed with a J-Link over SWD (`west flash -d unimoc/app/build/jacobi
 --runner openocd`, `boards/unimoc/jacobi/support/openocd.cfg`, or `--runner
 jlink`); its log is on SEGGER RTT.
 
-CI builds Jacobi and the simulation (workflow `build-firmware.yml`, one matrix row per target) and uploads them as the artifacts
-`unimoc-jacobi` (`.elf`, `.hex`, `.bin`, `.map`) and `unimoc-native_sim` (the
+CI builds Jacobi, the NUCLEO-H743ZI and the simulation (workflow `build-firmware.yml`, one matrix row per target) and
+uploads them as the artifacts `unimoc-jacobi` and `unimoc-nucleo_h743zi` (`.elf`, `.hex`, `.bin`, `.map`) and `unimoc-native_sim` (the
 executable in a `.tar.gz`, which keeps its executable bit) of the workflow run.
 A merged `develop` to `main` pull request attaches them to a GitHub release (see
 [release_plan.md](release_plan.md)).
@@ -177,8 +177,13 @@ States: disabled, enabled, fault, blocked. The simulation mirrors this and
 offers `sim::SetExternalEnable()`.
 
 **Dead time.** `dead-time-ns` in the foc0 node (1 us on Jacobi, as in the
-legacy firmware of the 4850 power board: BSC040N08 with LM5109B; to be tuned
-with the scope). The layer rounds it up to a DTG step
+legacy firmware of the 4850 power board: LM5109B gate drivers; to be tuned
+with the scope). Both power stages are designed for 200 ns: the Jacobi power
+stage, and the legacy 4850 power board is capable of it as well
+(2026-11-08). The devicetree keeps 1 us until 200 ns is confirmed on the
+scope (shoot-through margin, switching edges at the full phase current).
+The factory `unimoc.control.dtc.dead_time` of the STM32H7 profile is
+`dead-time-ns`; identification M1 measures the effective value. The layer rounds it up to a DTG step
 (`hardware/stm32_dead_time.hpp`, 5 ns steps at 200 MHz up to 635 ns, coarser
 above) and fails `Initialize()` if it is longer than the field can encode. Two parallel
 MOSFETs per switch would need roughly twice the value.
@@ -214,15 +219,19 @@ stage is no longer enabled (trip, external break, e-stop), and
 - The app board files of the simulation are named for the 64-bit target
   (`app/boards/native_sim_native_64.*`); the 32-bit `native_sim` build does
   not pick them up.
-- The Jacobi pins follow the proposal of `docs/drive4850_h7_plan.md`; the
-  board is not drawn yet. The HSE (8 MHz) is an assumption. The gate driver
-  enable `PWM_EN` (PE7) is in the devicetree but not driven by the platform
-  yet. Not run on hardware yet.
-- Limits (STM32H7 and sim profile): `max_phase_current` 60 A is the hard trip
-  limit of the power stage (the INA240A2 chain saturates at about +-66 A, so
-  it stays inside the sensor range), `max_motor_current` and the factory
-  `motor_i_max` 50 A limit the current controller. The battery current limits
-  are still the old values.
+- The Jacobi pins follow the drawn schematic (Tecnologic/unimoc_jacobi,
+  `docs/h743_logic_board.md`, 2026-11-08); the NUCLEO-H743ZI pins follow the
+  Nucleo adapter (branch `nucleo-adapter`). `PWM_EN` is the break input PE15
+  on both. Jacobi is not run on hardware yet.
+- Limits per board (foc0): `max-phase-current-amps` is the hard trip limit
+  (Jacobi 120 A of ±160 A sensing; the legacy 4850 board 60 A of about
+  ±124 A with an INA240A1), `max-motor-current-amps` the highest motor current
+  setting (100 A / 50 A), `dc-link-millivolts` the DC-link derate, trip and
+  maximum (45 / 48 / 50 V: both power stages have 60 V FETs). The analog
+  scaling takes `shunt-nano-ohm`, `current-amplifier-gain` and
+  `voltage-divider-ohms` (both boards INA240A1, gain 20), the battery current
+  limits `battery-current-amps` (drive, charge: Jacobi 45 / 20 A, the legacy
+  board 50 / 20 A).
 - Nothing watches the power stage after the startup run is DONE except the
   per-sample overcurrent trip; the hardware break still works. The board has no
   comparators on the current channels; the analog watchdog is not configured.
