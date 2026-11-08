@@ -179,9 +179,8 @@ struct ControlTiming {
 
 /// True when @p frequency is one of kPwmFrequencies.
 [[nodiscard]] constexpr bool IsPwmFrequency(const unit::Frequency frequency) noexcept {
-  return std::ranges::any_of(kPwmFrequencies, [frequency](const unit::Frequency kFrequency) {
-    return kFrequency == frequency;
-  });
+  return std::ranges::any_of(kPwmFrequencies,
+                             [frequency](const unit::Frequency candidate) { return candidate == frequency; });
 }
 
 /**
