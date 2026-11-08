@@ -53,7 +53,7 @@ simulation.
 | Category | Capability |
 |---|---|
 | **Motor types** | PMSM, ASM (induction), EESM (wound-rotor synchronous) |
-| **Observers** | Back-EMF / PLL (PMSM) fused with Hall sensors, ASM rotor-flux Luenberger, EESM excitation LPF |
+| **Observers** | Back-EMF / PLL (PMSM) fused with Hall sensors, ASM rotor-flux Luenberger, EESM excitation LPF; with the outputs open the PMSM observer follows the coasting motor from the measured phase voltages, so the drive engages on a spinning motor without Hall sensors |
 | **Control** | MTPA, field-weakening, ASM flux PI, EESM excitation PI (current or flux mode) |
 | **Position** | Absolute multi-turn tracker (±4096+ rev), cascaded P+PI position controller, homing state machine |
 | **Modulation** | Space Vector PWM (SVPWM), dead-time compensation; current PI every half PWM period, every period (valley sample, symmetric pulses) or every second or fourth period (control divider, the fastest the processor runs by default); PWM frequency selectable from the motor inductance; inline current sensors or low-side shunts (foc0 `current-sense`: valley sample in PWM mode 2, no step every half period, duty capped for the sample) |
@@ -70,6 +70,11 @@ simulation.
 Surface-mount and interior-PM motors.
 Control path: MechanicalObserver (back-EMF PLL) → MTPA → FieldWeakening → SVM.
 Low speed and standstill: Hall sensors (edges and sector) fused with the back-EMF observer.
+Outputs open (disengaged, tripped): the flux observer integrates the measured
+phase voltages, the back-EMF of the open terminals, and their magnitude and
+sense of rotation give the speed, so the estimate stays with a coasting motor
+(also reversed or stopped) and the next engage starts from the right angle
+and speed. Below about 0.3 V of back-EMF the motor counts as standing.
 
 ### ASM — Asynchronous (Induction) Motor
 Squirrel-cage induction motors.
@@ -1042,15 +1047,19 @@ beginning.
 
 ## Motor Identification
 
-The drive measures the electrical data of a PMSM at standstill
+The drive measures the electrical data of a PMSM at standstill and its flux
+linkage by a coast-down
 ([docs/motor_identification_plan.md](docs/motor_identification_plan.md),
-milestones I0 to I2). Run it after the startup aid, disengaged, with the
+milestones I0 to I3). Run it after the startup aid, disengaged, with the
 nameplate current limit in `unimoc.motor.limits.i_max`; the motor may jerk
-once while it aligns, the shaft need not be locked.
+once while it aligns, the shaft need not be locked for M1 and M2. M3 spins
+the motor: it runs only when requested and only once the operator confirmed
+the free shaft.
 
 | Command | Code | Parameter | Effect |
 |---------|------|-----------|--------|
-| START_IDENTIFICATION | `0x0201` (513) | `M1`, `M2` or `M1,M2` (empty: both) | releases the outputs and runs the measurements; refused while engaged, while the startup aid runs or after an emergency stop |
+| START_IDENTIFICATION | `0x0201` (513) | `M1`, `M2`, `M3` or a list such as `M1,M2,M3` (empty: `M1,M2`) | releases the outputs and runs the measurements; refused while engaged, while the startup aid runs or after an emergency stop |
+| CONTINUE | `0x0202` (514) | `shaft-free` | M3 waits for it (state WAITING, needs SHAFT_FREE), then spins the motor up |
 | ABORT | `0x0204` (516) | none | ends the run with the outputs off |
 
 - **M1, stator resistance and dead time:** a d current at five levels of each
@@ -1063,21 +1072,39 @@ once while it aligns, the shaft need not be locked.
   the q axis, its amplitude scaled until the current answers with 10 % of the
   limit; the impedance U / I gives L from its imaginary part, its real part
   must agree with R of M1 within 20 %.
+- **M3, psi_PM by coast-down (shaft free, at rest):** after the confirmation a
+  q current of 30 % of the limit aligns the rotor at a forced angle and an I/f
+  ramp (half the forward speed limit in 5 s) spins it up until the back-EMF
+  estimate |u - R i - j omega L i| reaches 25 % of the DC link line to line
+  for about 0.1 s (at most half the speed limit). Then all switches open and
+  the motor coasts: the phase-voltage sense measures the back-EMF, the
+  frequency of each electrical period from the zero crossings and its mean
+  magnitude, so psi = |e| / omega needs neither the pole pairs nor R or L.
+  The periods above 10 % of the start speed count; it passes with at least
+  three within 3 % of their mean. The run ends when the speed fell below
+  10 % of the start, when the shaft turns the other way, at standstill or
+  after 60 s; the outputs stay off.
 
 The progress is the commissioning status message with procedure
-IDENTIFICATION (step 1 M1, 2 the d axis, 3 the q axis, 4 DONE, 5 FAULT),
+IDENTIFICATION (step 1 M1, 2 the d axis, 3 the q axis, 6 M3, 4 DONE, 5 FAULT),
 the results are read-only registers, NaN until measured:
 `unimoc.identify.result.R`, `.dead_time`, `.dead_time_voltage`, `.L_d`,
-`.L_q`, `.L` and `.R_ac` (the M2 check). The run writes no setting; apply the
+`.L_q`, `.L`, `.R_ac` (the M2 check), `.flux_pm` and `.flux_pm_spread` (the
+M3 check). The run writes no setting; apply the
 reviewed values to `unimoc.motor.stator.R`, `unimoc.motor.pmsm.L_d`, `.L_q`,
-`unimoc.motor.stator.L` and `unimoc.control.dtc.dead_time` (APPLY_IDENTIFICATION,
+`unimoc.motor.stator.L`, `unimoc.motor.pmsm.flux_pm` and `unimoc.control.dtc.dead_time` (APPLY_IDENTIFICATION,
 the gains and the cypilot card follow, milestone I6). Every wait of the run
 is counted in control cycles, so it takes the same virtual time in a paused
-simulation. Not run on the board yet.
+simulation. Not run on the board yet; M3 needs a bench check of the
+gate-driver idle levels (both gates of a leg low while MOE = 0) and of the
+phase-voltage sense with open terminals first.
 
 ```
 y cmd 42 513 M1,M2                 # START_IDENTIFICATION
 y r 42 unimoc.identify.result.R
+y cmd 42 513 M3                    # coast-down: the motor spins
+y cmd 42 514 shaft-free            # CONTINUE once the shaft turns freely
+y r 42 unimoc.identify.result.flux_pm
 ```
 
 ---

@@ -56,6 +56,11 @@ struct AngleReference {
   /// Rotation from a sample to the middle of the interval its duties apply
   /// to (omega x output delay, docs/hotpath_plan.md D4).
   system::SinCos<unit::Ratio> out;
+
+  /// Electrical speed of the reference: the observer's estimate, or the
+  /// speed of the identification's forced angle. The decoupling feedforward
+  /// of the current PI works in this frame, so it takes this speed.
+  unit::AngularVelocity speed;
 };
 
 /**

@@ -143,6 +143,15 @@ bool SlowUpdate::RunOnce() noexcept {
     forced_now_.speed = forced_now_.speed + (forced_now_.acceleration * kDtSlow);
   }
   const bool kUseForced = kForced != kForcedOff;
+  if (!kUseForced && forced_last_) {
+    // Back from a forced angle: the estimate ran in the background on currents
+    // in a frame that was not its own (and learned a load torque from them). It
+    // restarts where the forced angle left the rotor, the flux observer anew.
+    mech_obs.Reset(observer::WrapAngle(forced_now_.angle + (forced_now_.speed * kDtSlow)), forced_now_.speed);
+    flux_obs.Reset();
+    emf_speed_.Reset();
+  }
+  forced_last_ = kUseForced;
   forced_published_.Write(kUseForced ? forced_now_ : ForcedAngle{});
   const unit::AngularVelocity kOmega = kUseForced ? forced_now_.speed : mech_obs.omega;
   const unit::Angle kStep = kOmega * kDtFast;
@@ -151,6 +160,7 @@ bool SlowUpdate::RunOnce() noexcept {
   next.sc = system::SinCos<unit::Ratio>(kUseForced ? forced_now_.angle : mech_obs.theta);
   next.step = system::SinCos<unit::Ratio>(kStep);
   next.out = system::SinCos<unit::Ratio>(kStep * state.output_delay_steps);
+  next.speed = kOmega;
 
   // -------------------------------------------------------------------------
   // 5. Publish: the control steps take the new reference.
@@ -267,7 +277,7 @@ void SlowUpdate::MeasureCoast(const CycleRecord& cycle, const bool outputs_open)
       coast_meter_.Add(cycle.u_ab_samples[k], isr_->state.dt_fast);
     }
   }
-  coast_status_.Write(CoastStatus{true, coast_meter_.Standstill(), coast_meter_.GetResult()});
+  coast_status_.Write(CoastStatus{kGeneration, true, coast_meter_.Standstill(), coast_meter_.GetResult()});
 }
 
 // =============================================================================

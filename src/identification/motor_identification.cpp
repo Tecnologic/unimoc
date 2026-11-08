@@ -380,6 +380,7 @@ void MotorIdentification::RunFluxLinkage() noexcept {
       if (slow_->TakeWindow(window)) {
         // The rotor stands at the current: the forced angle ramps up from there.
         DriveSpin(Angle{}, (speed_limit_ * kSpinUpSpeedFraction) / (1.0_s * kSpinUpRampSeconds));
+        spin_up_hits_ = 0U;
         phase_ = Phase::kRamp;
         slow_->RequestWindow(kRampWindowCycles);
       }
@@ -397,10 +398,17 @@ void MotorIdentification::RunFluxLinkage() noexcept {
     case Phase::kCoast: {
       const bool kTimedOut = slow_->TakeWindow(window);
       const current_control::SlowUpdate::CoastStatus kCoast = slow_->GetCoast();
+      if (kCoast.generation != coast_generation_ && !kTimedOut) {
+        return;  // the observer has not started this coast's meter yet
+      }
       const bool kSlow = kCoast.result.periods > 0U &&
                          Abs(kCoast.result.last_speed) <
                              Abs(kCoast.result.start_speed) * CoastDownMeter{}.min_speed_fraction;
-      if (kTimedOut || kCoast.standstill || kSlow) {
+      // A free coast does not reverse: a period the other way round means a load drives the shaft.
+      const bool kReversed =
+          kCoast.result.periods > 0U &&
+          (kCoast.result.last_speed < AngularVelocity{}) != (kCoast.result.start_speed < AngularVelocity{});
+      if (kTimedOut || kCoast.standstill || kSlow || kReversed) {
         FinishFluxLinkage();
       }
       return;
@@ -421,10 +429,10 @@ void MotorIdentification::OnSpinUpWindow(const IdentificationWindowResult& windo
                             (kSpeed * (kInductance * window.current_mean.d));
   // The line-to-line peak is sqrt(3) times the phase peak (the amplitude-invariant magnitude).
   const Voltage kTarget = window.dc_link_mean * (kSpinUpBackEmf / std::numbers::sqrt3_v<float>);
-  const bool kBackEmfReached = !(Hypot(kBackEmfD, kBackEmfQ) < kTarget);
+  spin_up_hits_ = Hypot(kBackEmfD, kBackEmfQ) < kTarget ? 0U : static_cast<uint8_t>(spin_up_hits_ + 1U);
   const bool kSpeedReached = !(Abs(kSpeed) < Abs(speed_limit_ * kSpinUpSpeedFraction));
   ++point_;
-  if (kBackEmfReached || kSpeedReached) {
+  if (spin_up_hits_ >= kSpinUpHits || kSpeedReached) {
     slow_->HoldForcedSpeed();
     phase_ = Phase::kHold;
     slow_->RequestWindow(kHoldCycles);
@@ -440,13 +448,15 @@ void MotorIdentification::StartCoast() noexcept {
   slow_->ReleaseForcedAngle();
   CoastDownMeter meter{};
   meter.standstill_samples = kStandstillCycles * isr_->state.timing.steps_per_cycle;
-  slow_->StartCoast(meter);
+  coast_generation_ = slow_->StartCoast(meter);
   phase_ = Phase::kCoast;
   slow_->RequestWindow(kCoastTimeoutCycles);
 }
 
 void MotorIdentification::FinishFluxLinkage() noexcept {
-  const CoastDownMeter::Result kResult = slow_->GetCoast().result;
+  const current_control::SlowUpdate::CoastStatus kCoast = slow_->GetCoast();
+  const CoastDownMeter::Result kResult =
+      kCoast.generation == coast_generation_ ? kCoast.result : CoastDownMeter::Result{};
   slow_->StopCoast();
   results_.flux_periods = kResult.periods;
   if (kResult.periods > 0U) {
@@ -526,8 +536,9 @@ Status MotorIdentification::GetStatus() const noexcept {
   } else if (step_ == Step::kFluxLinkage) {
     status.needs_shaft_free = phase_ == Phase::kWaitShaftFree;
     status.progress = FluxLinkageProgress(phase_);
-    if (phase_ == Phase::kCoast) {
-      status.counter = slow_->GetCoast().result.periods;
+    const current_control::SlowUpdate::CoastStatus kCoast = slow_->GetCoast();
+    if (phase_ == Phase::kCoast && kCoast.generation == coast_generation_) {
+      status.counter = kCoast.result.periods;
     }
   } else if (step_ == Step::kDone) {
     status.progress = 100U;

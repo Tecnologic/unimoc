@@ -455,8 +455,8 @@ class CurrentControlIsr {
   // Algorithm instances (owned here; parameters loaded by Init())
   // =========================================================================
 
-  /// Kalman mechanical observer — state updated by SlowUpdate; omega
-  /// read by the control step for the decoupling feedforward.
+  /// Kalman mechanical observer — state updated by SlowUpdate; the control
+  /// step takes its angle and speed from the angle reference SlowUpdate writes.
   observer::MechanicalObserver<float> mech_obs{};
 
   /// d/q-axis PI current controller.
@@ -527,6 +527,7 @@ class CurrentControlIsr {
 
   // Control step only: the state of the running cycle.
   system::SinCos<unit::Ratio> angle_;  ///< Park angle of the present sample.
+  unit::AngularVelocity speed_;        ///< Speed of the angle reference (decoupling feedforward).
   uint32_t reference_sample_{0U};      ///< AngleReference::sample of the last reference taken.
   IdentificationDrive drive_{};        ///< The identification's drive of the cycle.
   bool drive_active_{false};           ///< drive_ applies to the cycle.

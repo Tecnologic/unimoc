@@ -216,6 +216,7 @@ class SlowUpdate {
 
   /// State of the coast-down meter of M3 (StartCoast()).
   struct CoastStatus {
+    uint32_t generation{0U};                          ///< The StartCoast() this status belongs to.
     bool running{false};                              ///< The meter takes the samples of the open outputs.
     bool standstill{false};                           ///< The back-EMF stayed below its minimum.
     identification::CoastDownMeter::Result result{};  ///< The periods measured so far.
@@ -227,10 +228,17 @@ class SlowUpdate {
    * From the next cycle on, every cycle with the outputs open feeds its phase
    * voltages to a CoastDownMeter started with @p meter's parameters;
    * GetCoast() returns its result. One thread starts, reads and stops.
+   *
+   * @return The generation of this coast: a status of GetCoast() with another
+   *         generation is older (the observer has not run since).
    */
-  void StartCoast(const identification::CoastDownMeter& meter) noexcept {
+  uint32_t StartCoast(const identification::CoastDownMeter& meter) noexcept {
     coast_parameters_.Write(meter);
-    coast_generation_.fetch_add(1U, std::memory_order_release);
+    uint32_t generation = coast_generation_.fetch_add(1U, std::memory_order_release) + 1U;
+    if (generation == 0U) {
+      generation = coast_generation_.fetch_add(1U, std::memory_order_release) + 1U;  // 0 means none
+    }
+    return generation;
   }
 
   /// Stops the coast-down meter; its last result stays readable.
@@ -288,6 +296,7 @@ class SlowUpdate {
   std::atomic<uint8_t> forced_state_{kForcedOff};
   std::atomic<bool> forced_hold_{false};
   ForcedAngle forced_now_{};                 ///< Observer only: the forced angle of the next cycle.
+  bool forced_last_{false};                  ///< Observer only: the last cycle used the forced angle.
   SeqLock<ForcedAngle> forced_published_{};  ///< forced_now_ for the identification thread.
 
   /// Measurement window: requested by generation, done when window_done_ equals it.

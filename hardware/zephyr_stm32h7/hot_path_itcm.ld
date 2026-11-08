@@ -44,6 +44,9 @@
 *(.text._ZNK6unimoc7control*)
 *(.text._ZN6unimoc8observer*)
 *(.text._ZNK6unimoc8observer*)
+/* The coast-down meter of M3, fed by the slow update. */
+*(.text._ZN6unimoc14identification14CoastDownMeter*)
+*(.text._ZNK6unimoc14identification14CoastDownMeter*)
 
 /* Trace sampling after each control cycle (cymon Tick). */
 *(.text._ZN6unimoc5trace14OnControlCycle*)

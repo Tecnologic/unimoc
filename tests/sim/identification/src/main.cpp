@@ -187,12 +187,62 @@ ZTEST_F(sim_identification, test_m3_measures_the_flux_linkage_by_a_coast_down) {
   zexpect_true(results.flux_periods >= MotorIdentification::kMinFluxPeriods);
   zexpect_not_equal(kStatus.passed & (1U << static_cast<uint8_t>(Step::kFluxLinkage)), 0U);
   zexpect_equal(kStatus.failed, 0U);
-  // The spin-up ends at the back-EMF target: 25 % of the DC link line to line.
+  // The spin-up ends at the back-EMF target, 25 % of the DC link line to line, within the
+  // windows that average the swing of the rotor about the forced angle (about 0.1 s).
   const AngularVelocity kTarget = ((kDcLink * 0.25F / std::numbers::sqrt3_v<float>) / kFlux) * 1.0_rad;
-  zexpect_within(top_speed, kTarget, kTarget * 0.15F);
+  zexpect_true(top_speed > kTarget * 0.9F && top_speed < kTarget * 1.5F, "the top speed misses the target");
   UNIMOC_EXPECT_NEAR(results.coast_speed, top_speed, top_speed * 0.05F);
   zexpect_not_equal(kPowerStage.GetState(), PowerStageState::kEnabled, "the outputs stay off");
   zexpect_equal(identification.Confirm(true), ConfirmResult::kNotWaiting);
+}
+
+ZTEST_F(sim_identification, test_m3_with_a_flux_in_the_settings_follows_the_coast) {
+  // With psi in the settings the decoupling feedforward and the open-output tracking take part:
+  // the feedforward must use the forced speed (the observer's runs off in the background), and
+  // the observer must follow the coast from where the forced angle left it.
+  unimoc::settings::NvmSettings settings = fixture->settings;
+  settings.flux_pm = kFlux;
+  settings.motor_i_max = 50.0_A;
+  settings.current_kp_q = 0.6_V_per_A;
+  zassert_true(unimoc::current_control::StartRuntime(settings, unimoc::hardware::kMotors[0], 60.0_A));
+  sim::SetFreeRunning(false);
+  unimoc::sim::SimulationParameters parameters = unimoc::sim::ParametersFromSettings(settings);
+  parameters.dc_link_voltage = kDcLink;
+  zassert_equal(sim::Plant().Configure(parameters), unimoc::sim::Status::kOk);
+  sim::Plant().SetShaftMode(unimoc::sim::ShaftMode::kFree);
+  MotorIdentification identification{CurrentControlIsr::Instance(), SlowUpdate::Instance()};
+  identification.Configure(settings);
+  zassert_equal(identification.Start(unimoc::identification::kMeasureFluxLinkage), StartResult::kStarted);
+  identification.RunOnce();
+  zassert_equal(identification.Confirm(true), ConfirmResult::kAccepted);
+
+  bool loaded = false;
+  uint32_t coast_cycles = 0U;
+  for (uint32_t i = 0; i < 600000U && identification.IsActive(); ++i) {
+    sim::StepCycle();
+    identification.RunOnce();
+    if (kPowerStage.GetState() != PowerStageState::kEnabled && !loaded) {
+      // No friction in this plant: a load slows the coast down (only now, it would turn the free shaft back).
+      sim::Plant().SetInput(unimoc::sim::SimulationInput{0.01_Nm, Voltage{}});
+      loaded = true;
+    }
+    if (loaded && ++coast_cycles == 4800U) {
+      // 0.3 s into the coast the estimate is the shaft's.
+      UNIMOC_EXPECT_NEAR(CurrentControlIsr::Instance().mech_obs.omega,
+                         sim::Plant().Output().electrical_speed,
+                         Abs(sim::Plant().Output().electrical_speed) * 0.01F);
+    }
+  }
+  sim::Plant().SetInput(unimoc::sim::SimulationInput{});
+  zassert_true(loaded, "the run reached the coast");
+  zexpect_true(coast_cycles > 4800U);
+  zexpect_false(CurrentControlIsr::Instance().state.overcurrent_tripped);
+  zexpect_equal(identification.GetStatus().step, Step::kDone);
+  UNIMOC_EXPECT_NEAR(identification.GetResults().flux_pm, kFlux, kFlux * 0.02F);
+  zassert_true(unimoc::current_control::StartRuntime(fixture->settings,
+                                                     unimoc::hardware::kMotors[0],
+                                                     fixture->settings.motor_i_max * 1.2F));
+  sim::SetFreeRunning(false);
 }
 
 ZTEST_F(sim_identification, test_abort_and_a_lost_enable_end_the_run) {

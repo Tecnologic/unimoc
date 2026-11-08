@@ -97,6 +97,7 @@ bool CurrentControlIsr::Init(const settings::NvmSettings& settings,
   }
   state.angles.active.store(0U, std::memory_order_release);
   angle_ = system::SinCos<unit::Ratio>{};
+  speed_ = unit::AngularVelocity{};
   reference_sample_ = 0U;
   record_index_ = 0U;
   cycle_controlled_ = false;
@@ -279,6 +280,7 @@ void CurrentControlIsr::AdvanceAngle(const uint32_t sample) noexcept {
     // A new reference: normally of this very sample, later when the observer was late.
     reference_sample_ = reference.sample;
     angle_ = reference.sc;
+    speed_ = reference.speed;
     for (uint32_t k = reference.sample; k < sample && k < reference.sample + state.timing.steps_per_cycle;
          ++k) {
       angle_ = system::Rotated(angle_, reference.step);
@@ -383,7 +385,9 @@ system::Rotor<unit::Voltage> CurrentControlIsr::ControlVoltage(const Identificat
     return held_voltage_;
   }
   holding_ = false;
-  return cc.Update(state.i_ref, i_dq, mech_obs.omega, state.dt_fast, dc_link);
+  // The speed of the angle reference: the forced speed during the
+  // identification (the observer's estimate is not the frame's speed then).
+  return cc.Update(state.i_ref, i_dq, speed_, state.dt_fast, dc_link);
 }
 
 system::Stator<unit::Ratio> CurrentControlIsr::DeadTimeRatio(

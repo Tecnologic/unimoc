@@ -153,6 +153,24 @@ ZTEST(coast_down_meter, test_reverse_rotation_and_standstill) {
   zexpect_true(kMeter.Standstill(), "the back-EMF stays below its minimum");
 }
 
+ZTEST(coast_down_meter, test_a_reversal_is_not_counted) {
+  // A load stops the shaft and drives it back: only the periods of the coast count.
+  CoastDownMeter meter;
+  meter.Start();
+  float omega = 600.0F;
+  float theta = 0.0F;
+  for (uint32_t k = 0U; k < static_cast<uint32_t>(4.0F / kSampleSeconds); ++k) {
+    theta += omega * kSampleSeconds;
+    omega -= 600.0F * kSampleSeconds;  // through zero after 1 s, then -1800 rad/s after 4 s
+    meter.Add(BackEmf(theta, omega), kSample);
+  }
+  const CoastDownMeter::Result kResult = meter.GetResult();
+  zexpect_true(kResult.start_speed > 500.0_rad_per_s);
+  zexpect_true(kResult.last_speed < -1500.0_rad_per_s, "the last period runs backwards");
+  UNIMOC_EXPECT_NEAR(kResult.flux, kFlux, kFlux * 0.005F);
+  zexpect_true(kResult.periods < 100U, "periods %u: the backward ones are not counted", kResult.periods);
+}
+
 ZTEST(coast_down_meter, test_no_periods_without_back_emf) {
   CoastDownMeter meter;
   meter.Start();

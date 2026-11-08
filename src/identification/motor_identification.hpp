@@ -170,7 +170,12 @@ class MotorIdentification {
   static constexpr uint32_t kAlignCycles = 8000U;
   static constexpr uint32_t kHoldCycles = 3200U;
   /// Window of the spin-up checks [control cycles].
-  static constexpr uint32_t kRampWindowCycles = 64U;
+  /// A light rotor swings about the forced angle (I/f has no damping but the
+  /// friction): the window averages the swing, and the target must hold in
+  /// kSpinUpHits windows in a row (about 0.1 s at 16 kHz), so a peak of the
+  /// swing does not end the ramp.
+  static constexpr uint32_t kRampWindowCycles = 512U;
+  static constexpr uint8_t kSpinUpHits = 3U;
   /// Longest coast [control cycles] (60 s at 16 kHz).
   static constexpr uint32_t kCoastTimeoutCycles = 960000U;
   /// Fewest periods and their spread that pass M3.
@@ -270,6 +275,8 @@ class MotorIdentification {
   Phase phase_{Phase::kSettle};
   uint8_t requested_{0U};
   unit::AngularVelocity speed_limit_;
+  uint8_t spin_up_hits_{0U};       ///< M3: windows in a row at the back-EMF target.
+  uint32_t coast_generation_{0U};  ///< M3: SlowUpdate::StartCoast() of the running coast.
   bool started_{false};
   Fault fault_{Fault::kNone};
   uint32_t passed_{0U};

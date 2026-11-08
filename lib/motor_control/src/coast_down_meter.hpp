@@ -41,8 +41,8 @@ using namespace unit;
  * - psi = mean |e| / omega.
  *
  * The result is the mean psi of the periods above `min_speed_fraction` of the
- * speed of the first period, the spread their largest relative deviation from
- * that mean. A period in which the magnitude fell below `min_back_emf` is
+ * speed of the first period and in its direction, the spread their largest
+ * relative deviation from that mean. A period in which the magnitude fell below `min_back_emf` is
  * dropped. The meter reports standstill once the magnitude stayed below
  * `min_back_emf` for `standstill_samples` samples.
  */
@@ -160,7 +160,9 @@ class CoastDownMeter {
       has_start_ = true;
     }
     last_speed_ = speed;
-    if (Abs(speed) < Abs(start_speed_) * min_speed_fraction) {
+    // Slower than the fraction of the start, or the other way round (a load drives the shaft): not counted.
+    if (Abs(speed) < Abs(start_speed_) * min_speed_fraction ||
+        (speed < unit::AngularVelocity{}) != (start_speed_ < unit::AngularVelocity{})) {
       return;
     }
     flux_sum_ += flux;

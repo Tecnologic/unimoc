@@ -40,10 +40,11 @@ Items 1 to 5 are done (2026-10-31, one pull request); 6 is next.
 4. Done: **Virtual time for the simulation**: the drive's timeouts in virtual time
    and run-until ("Hot path and Zephyr port", SIL P2). Deterministic sim and
    pytest runs for everything below.
-5. Done (firmware): **Motor identification I0 to I2** (forced angle, the
+5. Done (firmware): **Motor identification I0 to I3** (forced angle, the
    `MotorIdentification` FSM and `unimoc.identify.result.*`, M1 with dead time
-   in the sim inverter, M2). The next feature line; the decisions are taken
-   (plan section 9). I3 (phase-voltage sense in the sim) follows; the
+   in the sim inverter, M2, M3 by coast-down on the phase-voltage sense, which
+   also lets the observer follow a coasting motor). The decisions are taken
+   (plan section 9). I4 (pole pairs, Hall offset) follows; the
    cypilot side (C0) is in its own repository.
 6. **Fourth half bridge**: in the sim inverter, then the platform-independent
    auxiliary output with the chopper role for the PMSM ("Cart system",
@@ -179,7 +180,8 @@ Plan: [docs/motor_identification_plan.md](docs/motor_identification_plan.md) (al
  - [x] I1 (2026-10-31): M1 stator resistance and dead time (regression over five levels of each sign at three angles, without the dead-time compensation); dead time in the sim inverter. Sim: R and t_dead within 0.1 % of the plant.
  - [x] I2 (2026-10-31): M2 L_d and L_q (a sine at f_pwm / 64 per axis on the held PI voltage, single-bin phasors with the exact phase of every sample, Z = U / I). Sim: within 0.2 %. Open: the saturation option (L_d at three biases).
  - [ ] Identification on the board (I7 covers the bench comparison): the rotor alignment at each M1 angle with a free shaft, the settle time, the M2 amplitude adaptation on a real winding.
- - [ ] I3: phase voltages in `ControlCycleSamples` (STM32H7: `va`, `vb`, `vc`, on Jacobi from the new taps; the sim plant with open outputs), their calibration in the startup aid's DUTY_FORCE steps; M3 flux linkage by coast-down.
+ - [x] I3, firmware (2026-11-08): phase voltages in the sample (`CurrentSample::phase_voltages`; STM32H7: `va`, `vb`, `vc` of the same trigger; the sim plant with the back-EMF of the open terminals), M3 flux linkage by coast-down (CONTINUE "shaft-free", I/f spin-up, `CoastDownMeter`, `unimoc.identify.result.flux_pm`); with the outputs open the observer follows the coasting motor from them (docs/hotpath_plan.md, "Outputs open").
+ - [ ] I3 open: the phase-voltage gains in the startup aid's DUTY_FORCE steps (`unimoc.startup.gain_va/vb/vc`; until then the DC-link gain); bench check of the sense with open terminals (the lowest terminal a diode drop below 0 V clips in the ADC, the noise floor against the 0.3 V standstill band); the cypilot card for M3 (the shaft-free prompt); a damped I/f (a light rotor swings about the forced angle).
  - [ ] I4: M4 pole pairs (measured, or entered and checked); M5 Hall offset and order.
  - [ ] I5: M6 inertia and friction (the coast of M3, torque steps).
  - [ ] I6: M7 derived gains; review, comparison and approval in cypilot, apply and store, motor profiles.

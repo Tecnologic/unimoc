@@ -251,21 +251,81 @@ every eighth cycle).
 ### Control step
 
 1. The sample from the hardware (scaled, a disturbed phase reconstructed),
-   then the calibration of the startup aid. Repeat of the overcurrent and
-   overvoltage checks on the calibrated sample, latch, neutral duties.
+   with the phase voltages of the same trigger, then the calibration of the
+   startup aid (the phase voltages take the DC-link gain).
 2. Angle of the sample: the new reference or one rotation step on.
-3. Clarke and Park with that angle; sums for the record.
-4. PI with decoupling (dt = one control step).
+3. Clarke and Park with that angle; sums for the record, the Clarke of the
+   phase voltages into it. Repeat of the overcurrent and overvoltage checks
+   on the calibrated sample, latch, neutral duties; a tripped cycle still
+   hands its record to the observer (the outputs are open, the observer
+   follows the coasting motor).
+4. PI with decoupling (dt = one control step), at the speed of the angle
+   reference (the estimate, or the identification's forced speed).
 5. Inverse Park with the angle at the middle of the interval the duties apply to,
    dead-time compensation from this sample's current, SVM (one division by
    V_dc), duties into the preload.
 
 ### Observer
 
-1. Flux observer with the mean current and voltage of the cycle.
+1. Flux observer with the mean current and voltage of the cycle; with the
+   outputs open the measured phase voltages instead (below).
 2. Mechanical prediction (torque from i_d, i_q).
 3. Hall edges and sector.
-4. Angle reference of the next cycle, flip.
+4. Angle reference of the next cycle (angle, rotations and speed), flip.
+
+### Outputs open
+
+Disengaged, tripped or in the coast of M3 the voltage demand does not reach
+the motor, and the flux observer had nothing to integrate: it restarted on
+every cycle and the mechanical observer only predicted, so the estimated
+angle and speed went stale while the motor coasted and the next engage
+applied the decoupling omega psi on a wrong frame. On a platform with a
+phase-voltage sense (`CurrentSample::phase_voltages_valid`: the STM32H7
+boards, the sim plant) the terminals carry the back-EMF alone, and the
+observer now uses it:
+
+- **Angle:** the flux observer integrates the measured voltages. They are
+  stator-frame samples already, so the flux change of the cycle is their sum;
+  it reaches half a step past the last sample, (N - 1/2) steps after the
+  first. The mean is turned into the frame of the estimate at that instant
+  (theta + omega (N - 1/2) T_step), and the flux observer, which turns it
+  back with the estimate of the first sample, integrates the flux of the
+  first sample: the estimate settles on the angle of the samples (in the
+  simulation within 1e-4 rad at 200 to 2000 rad/s, both directions). A mean
+  of the samples in their own frames would leave half a cycle of rotation in
+  the estimate (measured: 2 steps ahead).
+- **Speed:** `BackEmfSpeed` measures |omega| = |e| / psi from the RMS
+  magnitude of the cycle and the sign from the sense in which the vector
+  turns (the vector alone cannot tell omega from -omega with the angle half
+  a revolution on). Its noise is 0.1 V of back-EMF plus 5 % of the speed (the
+  uncertainty of psi), so the angle measurement keeps the speed right while
+  the motor turns; the speed measurement pulls in a reversed or a stopped
+  motor, which the angle alone cannot. Below 0.3 V of back-EMF the motor
+  counts as standing (speed 0, the band as its noise).
+
+The flux observer is no longer reset by a disengage: its state runs on and
+the engage starts from it (in the simulation 0.8 A peak at 1200 rad/s
+electrical, engaged at zero current, `sim_coast_tracking`). From scratch it
+settles with its own gains (C_d, C_q), in the simulation within 0.3 s.
+Without a phase-voltage sense, or without a permanent magnet (psi = 0),
+nothing changes: the flux observer restarts on every open cycle. The phase
+voltages are scaled with the DC-link gain of the startup aid; their own gains
+(`gain_va/vb/vc`) and a bench check of the sense with open terminals are open
+(TODO.md, I3).
+
+**Handover from a forced angle.** During the identification the control
+steps work at a forced angle and the observer runs on in the background, on
+currents in a frame that is not its own: its estimate runs off (in the
+simulation of an I/f spin-up -3000 rad/s and a load torque of several N m on
+1e-4 kg m^2). When the forced angle is released (the coast of M3, the end of
+a run) the mechanical observer restarts at the forced angle and speed, the
+flux observer anew. The angle reference carries its speed
+(`AngleReference::speed`: the estimate, or the forced speed), and the
+decoupling feedforward of the current PI takes it from there: with the
+observer's speed during I/f the feedforward put tens of volts on the wrong
+axis and tripped the overcurrent (sim_identification,
+`test_m3_with_a_flux_in_the_settings_follows_the_coast`). The control step no
+longer reads `mech_obs.omega` while the observer writes it.
 
 ### Measured on the NUCLEO-H743ZI (M0)
 

@@ -15,15 +15,17 @@ uint16 COMMAND_START_STARTUP_AID = 0x0200
 # FAILURE when the outputs cannot be released (external enable missing).
 uint16 COMMAND_START_IDENTIFICATION = 0x0201
 # Starts the motor identification; the parameter names the measurements,
-# "M1" (stator resistance, dead time), "M2" (L_d, L_q) or "M1,M2" (empty:
-# both). BAD_STATE while engaged, while a procedure runs or after an emergency
+# "M1" (stator resistance, dead time), "M2" (L_d, L_q), "M3" (psi_PM by a
+# coast-down: spins the motor) or a list such as "M1,M2,M3" (empty: "M1,M2").
+# BAD_STATE while engaged, while a procedure runs or after an emergency
 # stop, BAD_PARAMETER for an unknown measurement, FAILURE when the outputs
 # cannot be released.
 uint16 COMMAND_CONTINUE = 0x0202
 # Continues with the next step once the present one has measured; the
 # parameter is the confirmation the step waits for (see needs), for example
 # "motor-connected". BAD_STATE while the step measures or no procedure runs,
-# BAD_PARAMETER for a missing or wrong confirmation.
+# BAD_PARAMETER for a missing or wrong confirmation. M3 of the identification
+# waits for "shaft-free" before it spins the motor up.
 uint16 COMMAND_SET_READING = 0x0203
 # An external meter reading in base units: "vdc=48.1" [V] or "current=0.85"
 # [A]. BAD_PARAMETER when malformed, not finite or not positive.
@@ -42,7 +44,7 @@ uint8 PROCEDURE_IDENTIFICATION = 2
 uint8 step
 # The step of the procedure. The startup aid: its FsmState (0 IDLE ..
 # 12 DONE, 13 FAULT; README, "Hardware Bring-Up Guide"). The identification:
-# 0 IDLE, 1 M1, 2 M2 d axis, 3 M2 q axis, 4 DONE, 5 FAULT.
+# 0 IDLE, 1 M1, 2 M2 d axis, 3 M2 q axis, 4 DONE, 5 FAULT, 6 M3.
 
 uint8 state
 uint8 STATE_IDLE = 0
