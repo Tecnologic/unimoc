@@ -58,14 +58,22 @@ done (2026-11-08); 8 is next.
    (`docs/ebike_plan.md`). New pycyphal tests come with each bus feature.
 8. **ASM and EESM plants, then the motor-type selection in the runtime**
    ("Motor types"), including the libm-free `atan2` of the ASM flux angle
-   and the excitation setpoint (SIL P2).
+   and the excitation setpoint (SIL P2). Decided 2026-11-08: the field
+   current loop runs in the excitation module, the drive sends it a field
+   current setpoint and decides that setpoint itself, a bus setpoint
+   overrides it (`docs/system_plan.md` section 5.2.1).
 9. **Cyphal file service and firmware update, sim part**: `uavcan.file.Read`
    and `BEGIN_SOFTWARE_UPDATE` into a simulated bank 2; serving the register
    description file over it (F3). The bank swap and the bootloader wait for
-   the board.
+   the board. Decided 2026-11-08: a UNIMOC image header (magic, version,
+   size, board name, CRC32) checked before the swap.
 10. **Structure for the cart**: split `app/` into `apps/drive/` and
     `apps/vdc/` with `lib/vehicle/` (the VDC, pedal unit and BMS boards are
-    STM32H7 based and share `hardware/zephyr_stm32h7`).
+    STM32H7 based and share `hardware/zephyr_stm32h7`). Decided 2026-11-08:
+    a skeleton VDC with it (node, heartbeat, the readiness of the four
+    drives, wheel commands from a torque request register, the drive status
+    collected; `lib/vehicle/` with the torque split), on `native_sim` and
+    the NUCLEO-H743ZI.
 11. **SIL coordinator** (one process, N motor nodes, shared virtual clock,
     load models, the host executable; SIL P2) and the simulator chapter of
     `README.md`. Multi-node over `vcan` cannot run in the container.
@@ -227,8 +235,8 @@ no motor-type selection and runs the PMSM path only, and `lib/sim` has only
 `PmsmModel` (`MotorSimulation` rejects other types with
 `kUnsupportedMotorType`).
 
- - [ ] ASM plant in `lib/sim` (`AsmModel`: stator and rotor flux d/q model with rotor resistance and magnetizing inductance) behind the `MotorModel` concept; plant tests (slip, torque direction, flux build-up).
- - [ ] EESM plant in `lib/sim` (`EesmModel`: d/q model with saliency and a field winding, psi_f = L_m i_f, field voltage from `ElectricalInput::field_voltage`); plant tests (field build-up and decay, torque with and without excitation).
+ - [x] (2026-11-08) ASM plant in `lib/sim` (`AsmModel`: stator and rotor flux d/q model with rotor resistance and magnetizing inductance) behind the `MotorModel` concept; plant tests (slip, torque direction, flux build-up).
+ - [x] (2026-11-08) EESM plant in `lib/sim` (`EesmModel`: d/q model with saliency and a field winding, psi_f = L_m i_f, field voltage from `ElectricalInput::field_voltage`); plant tests (field build-up and decay, torque with and without excitation).
  - [x] DC-link model in the sim (2026-10-31, `lib/sim/src/dc_link_model.hpp`): capacitor, battery with internal resistance and a contactor (`unimoc.sim.dc_link_capacitance`, `.battery_resistance`, `.contactor_closed`; the ideal source stays the default), the body-diode charging of the open bridge as an averaged six-step rectifier (decision 2), the dead time of the bridge. Open: the chopper (with the fourth half bridge), a test of the regenerative derating against the capacitor.
  - [ ] Motor-type selection in the runtime: ASM path (flux observer and controller; the `atan2` of `asm_flux_observer::flux_angle` must go without libm before it enters the control cycle) and EESM path (excitation controller and observer, excitation setpoint over Cyphal, the open "excitation" of the SIL setpoint item); closed-loop sim tests per motor type.
  - [ ] Hardware: the excitation and chopper board (separate module, not the drive) on the bench, after it exists.

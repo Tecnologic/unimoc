@@ -269,18 +269,24 @@ The plant contract and the first model exist as the header-only target
 - `MotorSimulation` is the one API for every motor type. `Configure()` takes
   `SimulationParameters`; `ParametersFromSettings()` (or the `NvmSettings`
   overload of `Configure()`) makes the motor type follow
-  `NvmSettings::motor_type`. A type without a model is rejected with
-  `Status::kUnsupportedMotorType` and the previous configuration stays active.
+  `NvmSettings::motor_type`. A type without a model would be rejected with
+  `Status::kUnsupportedMotorType` and the previous configuration stays active
+  (every `MotorType` has one since 2026-11-08).
 - Per step (normally half a PWM period): averaged inverter voltage from the held
   duties, electrical model step with the mechanical state held, shaft step,
   Hall evaluation. `Output()` returns the sample at the end of the step: phase
   currents and voltages, DC-link voltage, torque, mechanical and electrical
   angle and speed, and the Hall signals.
 - Electrical models fulfil the `MotorModel` concept (`motor_model.hpp`) and are
-  held in a `std::variant`, so there is no heap and no virtual dispatch. Only
-  `PmsmModel` exists so far (backward-Euler d/q model with saliency). ASM and
-  EESM models plug in behind the same concept; `ElectricalInput` already carries
-  the field voltage for the EESM.
+  held in a `std::variant`, so there is no heap and no virtual dispatch.
+  `PmsmModel` (backward-Euler d/q model with saliency), `AsmModel` (squirrel
+  cage, stator and rotor flux linkages in the rotor frame, 2026-11-08) and
+  `EesmModel` (d/q with saliency and the field winding, `psi_f = L_m i_f`, the
+  field voltage from `SimulationInput::field_voltage`, 2026-11-08) are the
+  three models. `ParametersFromSettings()` takes the ASM from `unimoc.motor.asm.*`
+  and the EESM stator and `L_m` from the motor settings; the EESM field winding
+  is derived (coupling 0.8, field time constant 25 ms), since the excitation
+  module, not the drive, knows the real winding.
 - `MechanicalModel` integrates inertia, load torque, viscous and Coulomb
   friction, or imposes a speed (dynamometer, locked rotor). The electrical
   angle is derived exactly from the mechanical `RotorAngle` with

@@ -113,7 +113,7 @@ record.
 | USB | Firmware update (DFU) only, later. The CDC-ACM console and the shell were dropped (2026-10-21): the bench log is on RTT, the log also goes out as `uavcan.diagnostic.Record`. | One operating interface; USB stays the recovery path. |
 | Settings | Cyphal registers on the existing `SettingsStore` (`docs/settings_plan.md`). | Already designed that way. |
 | Fourth half bridge on the 4850 | ~~One auxiliary half bridge per drive~~ (2026-10-23). **Changed 2026-11-03: Jacobi has three phases only**; the EESM excitation is a second module on the bus, the brake chopper stays in the BMS (section 5.2.1). | Keeps the logic board and the power board connector simple. Costs the local chopper: above the back-EMF peak a PMSM keeps charging the DC link through the body diodes after a trip (section 7.1), so the BMS chopper must hold the DC link. |
-| Firmware update | Cyphal file service into flash bank 2 (dual-bank flash: 2 MB H743, `docs/settings_plan.md`); USB DFU as recovery. | Update all nodes over the bus without opening the cart. |
+| Firmware update | Cyphal file service into flash bank 2 (dual-bank flash: 2 MB H743, `docs/settings_plan.md`); USB DFU as recovery. An image carries a UNIMOC header (magic, version, size, board name, CRC32 of the payload), checked after the download, before the bank swap (decided 2026-11-08; signatures come with the bootloader). | Update all nodes over the bus without opening the cart. |
 
 ## 5. Hardware Plan
 
@@ -180,6 +180,19 @@ becomes a second module on the bus that the drive commands over Cyphal; the
 brake chopper of the PMSM case stays in the BMS controller (section 5.5). The
 requirements below (decided 2026-10-23 for a half bridge on the drive) now
 apply to that module.
+
+Decided 2026-11-08 for the drive-to-module link:
+
+- **The field current loop runs in the excitation module**
+  (`ExcitationController`, `ExcitationObserver`). The drive publishes a
+  field current setpoint (`unimoc.excitation.Setpoint.0.1`: field current,
+  enable) and subscribes the module's status (`unimoc.excitation.Status.0.1`:
+  measured field current, field voltage, fault). The `native_sim` platform
+  runs a simulated module that feeds the field voltage of the EESM plant.
+- **The drive decides the field current** from its operating point (the
+  rated field current, reduced in field weakening, within
+  `unimoc.excitation.i_f_min`/`i_f_max`); an excitation setpoint on the bus
+  overrides it while fresh, like the other setpoints (tests, the VDC).
 
 The role of the extra half bridge follows the motor type (`unimoc.motor.type`):
 
