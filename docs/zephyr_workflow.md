@@ -105,7 +105,9 @@ once (over SWD). Keep the key outside the repository (`*.pem` is not committed);
 it as a GitHub secret, write it to a temporary file in `build-firmware.yml` and pass the
 path as above. Losing the key means no more over-the-bus updates for the boards with its
 public half; a leaked key means reflashing them with a new bootloader. Back it up offline.
-Wiring the secret into CI is open in `TODO.md`.
+CI signs release builds with the secret `MCUBOOT_SIGNING_KEY` (`build-firmware.yml`: written to a
+temporary file, removed afterwards; the release fails if the secret is missing or the debug key
+was used). Pull request and `develop` builds are signed with the debug key.
 
 There is no watchdog: an image that hangs before it confirms is not swapped back until
 something resets the board.

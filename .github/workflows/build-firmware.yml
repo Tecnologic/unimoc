@@ -11,6 +11,10 @@ on:
         description: Name the files by the version alone (no commit)
         type: boolean
         default: false
+    secrets:
+      MCUBOOT_SIGNING_KEY:
+        description: ECDSA P-256 private key (PEM) that signs the STM32H7 images; release builds only
+        required: false
 
 permissions:
   contents: read
@@ -51,8 +55,43 @@ jobs:
       - name: Install Nunavut
         run: pip install -r unimoc/scripts/requirements-cyphal.txt
 
+      # Release builds of the STM32H7 boards are signed with the release key (docs/zephyr_workflow.md,
+      # "Signing key"). Other builds (pull requests, forks) have no secret and use the public MCUboot debug
+      # key: never flash those artifacts on a real board.
+      - name: Signing key
+        if: inputs.release && matrix.build_args == '--sysbuild'
+        env:
+          KEY: ${{ secrets.MCUBOOT_SIGNING_KEY }}
+        run: |
+          if [[ -z "$KEY" ]]; then
+            echo "::error::MCUBOOT_SIGNING_KEY is not available: a release must not be signed with the debug key"
+            exit 1
+          fi
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/signing.pem"
+          echo "SIGN_ARGS=-DSB_CONFIG_BOOT_SIGNATURE_KEY_FILE=\"$RUNNER_TEMP/signing.pem\"" >> "$GITHUB_ENV"
+
       - name: Build
-        run: west build -p always ${{ matrix.build_args }} -b ${{ matrix.board }} unimoc/apps/drive -d build/${{ matrix.target }}
+        run: |
+          extra=()
+          if [[ -n "${SIGN_ARGS:-}" ]]; then
+            extra=(-- "$SIGN_ARGS")
+          fi
+          west build -p always ${{ matrix.build_args }} -b ${{ matrix.board }} unimoc/apps/drive \
+              -d build/${{ matrix.target }} "${extra[@]}" 2>&1 | tee build.log
+          exit "${PIPESTATUS[0]}"
+
+      - name: Check the signing key
+        if: inputs.release && matrix.build_args == '--sysbuild'
+        run: |
+          if grep -q "default MCUboot signing key" build.log; then
+            echo "::error::the release was signed with the MCUboot debug key"
+            exit 1
+          fi
+
+      - name: Remove the signing key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/signing.pem"
 
       - name: Collect the files
         run: |
