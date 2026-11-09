@@ -26,7 +26,10 @@ modules) and no access to cypilot's branches beyond its own repository.
 ### Tier 1: in the development container, in this order
 
 Items 1 to 5 are done (2026-10-31, one pull request); 6 is dropped, 7 to 10
-are done (2026-11-08); 11 is next.
+are done (2026-11-08); 11 is next. Items 12 to 15 (2026-11-09) are the empty
+and no-battery operation with the pedal generator (`docs/system_plan.md`
+section 7.2); 12 is small, safety-relevant and independent of 11, so it can
+go first.
 
 1. Done: **Zephyr 4.5 update** ("Hot path and Zephyr port"). First, so every later
    change lands on the new baseline while the diff against 4.4 is still only
@@ -95,6 +98,29 @@ are done (2026-11-08); 11 is next.
 11. **SIL coordinator** (one process, N motor nodes, shared virtual clock,
     load models, the host executable; SIL P2) and the simulator chapter of
     `README.md`. Multi-node over `vcan` cannot run in the container.
+12. **Undervoltage derating of the drive current** ("Cart system"; system
+    plan section 7.2.1): `DcLinkLimit` derates the drive current from
+    `unimoc.battery.limits.undervoltage_derate_voltage` (33 V) to zero at
+    `unimoc.battery.limits.cutoff_voltage` (30 V), not the charge current;
+    filtered Vdc for this limit only, settings validation, the flag in the
+    drive status. ztest plus a sim scenario with a low, soft battery
+    (`unimoc.sim.dc_link_voltage`, `battery_resistance`): settles in the band
+    without oscillating.
+13. **Pedal generator control, single node** ("Cart system"; section
+    7.2.3): local engage while the shaft turns, braking torque = min of the
+    rider law and the DC-link voltage loop (38 V), low-side short above
+    42 V, runs with the contactor open; `unimoc.cart.GeneratorStatus`. Sim:
+    a DC-link load (`unimoc.sim.dc_link_load`), the pedals as
+    `unimoc.sim.imposed_speed`; scenarios with a battery (charges it) and
+    with the contactor open (holds 38 V, clamps instead of tripping).
+14. **VDC: battery status and power budget** ("Cart system"; sections 7.2.2
+    and 7.2.4): the battery status and the generator status into the speed
+    limit and the torque request in `lib/vehicle/`, regen off without a
+    battery, the drives' charge limit 0 on "no battery". ztests and the
+    pycyphal VDC test.
+15. **No-battery scenario, multi-node** (after 11): start-up by the
+    generator from 0 V, then limp-home on the pedal state with the DC link
+    held in the band, and the empty battery with four drives sharing it.
 
 ### Tier 2: decisions, no hardware needed (yours)
 
@@ -104,6 +130,14 @@ are done (2026-11-08); 11 is next.
  - VDC part (STM32H7; `docs/system_plan.md` section 12); the EESM excitation module (section 5.2.1).
  - Limp-home reverse (direction selector) and the VDC reaction to a lost
    drive.
+ - Empty and no battery (`docs/system_plan.md` section 7.2, open question
+   10): undervoltage thresholds of the real pack, generator setpoint and
+   clamp, the generator status message.
+ - Hardware outside Jacobi for the no-battery case (section 7.2.6): the
+   clamp or chopper without the BMS (on the excitation and chopper module?),
+   the supply of the VDC, pedal unit and display from about 10 V, the
+   generator gearbox (at most 45 V at the highest cadence), `PWM_EN` wiring
+   from the DC link side.
 
 ### Tier 3: needs another machine
 
@@ -117,7 +151,11 @@ M0 timing with the flux observer and Hall fusion running (then the DTCM
 decision), M8 first step and remainder, ZMS and the dual-bank option, Cyphal
 on the NUCLEO-H743ZI and Jacobi and the CAN
 FD bus test C2 (then the bit rate and the Jacobi bit timing), identification
-I7, regenerative braking on a dyno.
+I7, regenerative braking on a dyno. For the no-battery operation (section
+7.2.6, no Jacobi change expected): the logic start-up of Jacobi on a slowly
+rising lab supply (restart loop? brown-out level), the generator with a
+hoverboard motor (short-circuit current, flying start), the undervoltage
+derating on the real pack, then the cart started from the pedals alone.
 
 ## Decisions
 
@@ -230,6 +268,10 @@ Plan: [docs/motor_identification_plan.md](docs/motor_identification_plan.md) (al
  - [ ] Regenerative braking, open parts (the drive side, the BMS limits and the reporting to the VDC are done): the estimated speed in the limit on a dyno (the observer's torque model expects the shaft to slow; settles within some 300 ms in the sim), the Jacobi voltage ratings from the schematic. Done 2026-10-31: the per-sample overvoltage check in the sample interrupt (raw DC-link counts, `SetOvervoltageCounts()`; not run on the board).
  - [x] (2026-11-08, tier 1 item 10) Split `app/` into `apps/drive/` and `apps/vdc/` (later `apps/pedal/` and `apps/bms/`) and add `lib/vehicle/`; `AGENTS.md`, `README.md` and `docs/zephyr_workflow.md` updated. The VDC firmware lives in this repository (decided); the VDC MCU is an STM32H7. The skeleton VDC: system plan section 5.3.
  - [ ] VDC beyond the skeleton (system plan sections 5.3 and 7): the pedal state as the torque request (pedal map), the speed limit and the fault display of a lost drive, the battery status, stored registers (settings storage, ExecuteCommand, plug-and-play), the firmware update, a release artifact (`build-firmware.yml`), the control loop in its own thread, yaw-rate control and state estimation in `lib/vehicle/`, a VDC board (Zuse).
+ - [ ] Undervoltage derating of the drive current (system plan section 7.2.1): `DcLinkLimit` gets the mirror of the regen derating, the drive current falls from `unimoc.battery.limits.undervoltage_derate_voltage` (33 V) to zero at `unimoc.battery.limits.cutoff_voltage` (30 V), charge current not derated; a low-pass filtered DC-link reading for this limit only; settings validation (band wider than battery resistance × drive current, cut-off above the logic drop-out, below the regen derate start); "undervoltage derated" flag in a new minor version of `unimoc.cart.DriveStatus`. Testable now: ztest in `unimoc.lib.motor_control`, sim scenario with the DC-link model (low open-circuit voltage, high `unimoc.sim.battery_resistance`): the drive sags into the band and settles without oscillation.
+ - [ ] Empty battery (system plan section 7.2.2): the VDC reads the battery status (state of charge, discharge limit) into the speed limit and the torque request, and shows it; the BMS keeps the contactor closed at discharge limit 0 and opens it (announced) only at the hard deep-discharge limit.
+ - [ ] Pedal generator Drais (system plan section 7.2.3): a generator control in the drive (local engage while the cranks turn, braking torque = min of rider law and DC-link voltage loop to 38 V, low-side short above 42 V instead of a trip, feeds the DC link with the contactor open), `unimoc.cart.GeneratorStatus` (pedal power, cadence, DC-link voltage, "no battery"), a sim plant with a pedal torque source on the shaft. Hardware: gearbox for at most 45 V at the highest cadence, the short-circuit current of the hoverboard motor, start-up voltage of the logic on a lab supply ramp (expected about 10 V, enable from about 13 V).
+ - [ ] No battery (system plan section 7.2.4): wheel drives take charge limit 0 while a fresh generator status says "no battery"; the VDC power budget from the generator power, regen off, speed limit, display; multi-node sim scenario (needs tier 1 item 11): battery-less start-up by the generator, then limp-home on the pedal state with the DC link held in the band. Hardware: bulk capacitance on the shared DC link, a clamp or chopper without the BMS, a supply for VDC, pedal unit and display from about 10 V.
  - [ ] BMS controller as `apps/bms/` with `lib/battery/` (system plan section 5.5): board (a new STM32H7 board, Volta), cell monitoring front end, contactor and precharge, battery status message. It needs its own brake chopper: the drives have none (system plan section 5.2.1).
 
 ## GUI
