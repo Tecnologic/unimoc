@@ -20,11 +20,15 @@
 		zephyr,itcm = &itcm;
 	};
 
-	/* Status LEDs of hardware/status_leds.hpp on LD1 (green), LD2 (yellow) and LD3 (red). */
+	/*
+	 * Status LEDs of hardware/status_leds.hpp on LD1 (green), LD2 (yellow) and LD3 (red).
+	 * The CAN traffic shares LD1 with RUN: traffic makes it blink fast.
+	 */
 	aliases {
 		unimoc-led-run = &green_led;
 		unimoc-led-pwm = &yellow_led;
 		unimoc-led-error = &red_led;
+		unimoc-led-can = &green_led;
 	};
 
 	/* LD3 (PB14) is a plain GPIO output here; the board file wires it to TIM12 PWM. */

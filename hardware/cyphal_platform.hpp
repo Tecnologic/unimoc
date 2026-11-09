@@ -41,6 +41,9 @@ namespace unimoc::hardware {
  */
 void StartCyphal(settings::SettingsStore& store) noexcept;
 
+/// Counter of the CAN frames received and sent so far (wraps); 0 until the CAN interface is up.
+[[nodiscard]] uint32_t CyphalTrafficCount() noexcept;
+
 /// @name Implemented by each platform
 /// @{
 

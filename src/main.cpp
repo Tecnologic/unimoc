@@ -97,11 +97,13 @@ int main() {
   // Outer loop (speed, position, setpoints) of motor 0, below the observer.
   unimoc::hardware::StartControlThread();
 
-  // RUN, PWM and ERROR LEDs; the error LED also flashes for a missed deadline.
-  unimoc::hardware::StartStatusLeds([]() noexcept {
-    return unimoc::hardware::timing::DutyOverruns() +
-           unimoc::current_control::CurrentControlIsr::Instance().state.observer_overruns;
-  });
+  // RUN, PWM, ERROR and CAN traffic LEDs; the error LED also flashes for a missed deadline.
+  unimoc::hardware::StartStatusLeds(
+      []() noexcept {
+        return unimoc::hardware::timing::DutyOverruns() +
+               unimoc::current_control::CurrentControlIsr::Instance().state.observer_overruns;
+      },
+      unimoc::hardware::CyphalTrafficCount);
 
   // Cyphal/CAN: setpoints, registers, telemetry and the log (motor 0).
   unimoc::hardware::StartCyphal(settings_store);

@@ -207,6 +207,8 @@ void CyphalThread(void* /*unused*/, void* /*unused*/, void* /*unused*/) {
 
 }  // namespace
 
+uint32_t CyphalTrafficCount() noexcept { return g_can_media.TrafficCount(); }
+
 void StartCyphal(settings::SettingsStore& store) noexcept {
   g_store = &store;
   k_thread_create(&g_cyphal_thread,
