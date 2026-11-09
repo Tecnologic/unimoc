@@ -85,7 +85,7 @@ every command of the script fails when the copies differ from
 - PRs into `develop` stay squash-merged; the PR **title** is the commit. A
   `pull_request` job (`amannn/action-semantic-pull-request`) enforces
   `type(scope): subject`. Scopes follow the layout: `motor_control`, `cyphal`,
-  `dsdl`, `drive`, `startup`, `jacobi`, `h7`, `sim`, `ci`, `docs`.
+  `dsdl`, `drive`, `vdc`, `vehicle`, `startup`, `jacobi`, `h7`, `sim`, `ci`, `docs`.
 - A DSDL or register/subject-ID change is always `feat!`/`fix!`, because it
   changes the bus protocol (`AGENTS.md`).
 - The `develop` to `main` PR is merged with a **merge commit** (not squash),
