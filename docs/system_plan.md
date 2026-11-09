@@ -490,6 +490,9 @@ The pedal unit only publishes measurements. Each drive decides on its own:
 | BMS lost (timeout) | Drives fall back to a conservative regenerative limit stored in their settings; VDC limits the speed and shows the fault. The chopper keeps working locally. |
 | BMS opens the contactor | Drives ramp the regenerative torque to zero; the chopper holds the DC link; the VDC shows the fault and the driver uses the mechanical brake. |
 | Chopper overtemperature | BMS lowers the published charge limit; drives brake less, the mechanical brake covers the rest. |
+| Battery empty (contactor closed, low state of charge) | BMS lowers the discharge limit, each drive also derates its drive current on the DC-link voltage (section 7.2); regenerative braking stays at full strength and charges the battery; VDC limits the speed and shows it. |
+| No battery (contactor open, pack removed or dead) with the pedal generator | Generator holds the DC link, drives take only what it delivers (undervoltage derating), no regenerative braking, mechanical brake only (section 7.2). |
+| No battery without the pedal generator | No DC link, nothing runs; the mechanical brake stops the cart. |
 | E-stop | Hard-wired to the external enable and break input of every power stage; independent of the bus. The mechanical brake stops the cart. |
 
 The fallback logic runs in a Zephyr thread of the drive, never in the hot
@@ -548,6 +551,155 @@ the simulation, not on hardware):
   Parking needs the mechanical brake (or a parking brake).
 - **Power stage off (fault, E-stop):** no electric braking at all; the
   mechanical emergency brake must stop the cart from top speed on its own.
+
+### 7.2 Empty battery, no battery and the pedal generator
+
+Proposal (2026-11-09), nothing of it is built. It covers three cases that
+look alike on the DC link but need different reactions:
+
+| Case | What the battery can do | DC link |
+|---|---|---|
+| **Empty battery** | Contactor closed, low state of charge. Gives little power, sags under load, takes charge current at full rate. | Stiff, low (about 30 to 33 V on 3 × 12 V lead-acid or 10S Li-ion), sags with the load. |
+| **No battery** | Contactor open (BMS deep-discharge cut-off, fault), pack removed or failed open. Takes and gives nothing. | Only the bulk capacitors of the drives (a few hundred µF): at 200 W they hold the voltage for milliseconds. |
+| **BMS lost** | Unknown; the battery itself is fine (existing case, section 7). | Stiff. |
+
+An empty battery is the good case for braking: it takes regenerative
+current better than a full one. A missing battery is the bad case: no
+buffer and no sink.
+
+#### 7.2.1 Undervoltage derating in the drive
+
+The drive gets the mirror image of the regenerative derating of
+`DcLinkLimit` (`lib/motor_control/src/dc_link_limit.hpp`): the **drive
+(discharge) current** falls linearly from its full value at
+`unimoc.battery.limits.undervoltage_derate_voltage` to zero at
+`unimoc.battery.limits.cutoff_voltage`. The charge current is not derated
+at low voltage, so braking and the pedal generator keep charging an empty
+battery.
+
+- **Local, every control cycle, in every mode** (VDC, limp-home,
+  accelerator, e-bike), like the overvoltage derating. It does not need the
+  bus, the VDC or the BMS, so it also holds the DC link while those nodes
+  boot or are lost.
+- **Values depend on the battery, not on the board:** settings registers
+  with factory values for the 36 V cart (to check on the real pack):
+  derate from 33 V, zero at 30 V. That is about 1.83 to 1.67 V per cell on
+  18 lead-acid cells under load, and 3.3 to 3.0 V per cell on 10S Li-ion.
+  The cut-off must stay above the voltage at which the logic and the gate
+  supply drop out (about 13 V on Jacobi: LM5008 in dropout, `PWM_EN` needs
+  12 V).
+- **Stable against the internal resistance:** the derating is a droop. With
+  the battery resistance R and the summed drive current limit I of all
+  drives on the pack, the loop gain is R × I / (derate band); it must stay
+  below 1, so the band must be wider than R × I (0.05 Ω × 45 A ≈ 2.3 V, hence
+  3 V). The DC-link reading is low-pass filtered (a few ms) for this limit
+  only; the overvoltage check keeps the raw value.
+- **Sag is not empty:** a cold or high-resistance battery sags at high
+  current and gets derated as well. That is wanted, it protects the cells;
+  the state of charge comes from the BMS, not from the drive.
+- **Status:** the drive status gets an "undervoltage derated" flag next to
+  "regen derated" (a new minor version of `unimoc.cart.DriveStatus`, the
+  extent leaves room).
+- **Without a BMS** (the 3 × 12 V lead-acid cart today) this derating is the
+  only deep-discharge protection besides the key switch.
+
+#### 7.2.2 Empty battery
+
+- **BMS:** lowers `discharge_current_limit` with the state of charge and the
+  cell voltage under load; at the cell cut-off it publishes 0 but keeps the
+  contactor closed, so braking and the pedal generator can still charge.
+  It opens the contactor (announced, `CONTACTOR_OPENING`) only at the hard
+  deep-discharge limit, because the logic of the cart keeps drawing about
+  10 to 15 W. From then on it is the "no battery" case.
+- **Drives:** take the smaller of the BMS limit (times
+  `unimoc.cart.battery_share`) and the undervoltage derating. Limp-home works
+  as before: the brake pedal brakes at the full charge limit, the drive
+  pedal gets what the battery still gives.
+- **VDC:** shows the state of charge, lowers the speed limit and the torque
+  request with the discharge limit, and adds the power of the pedal
+  generator to the budget (7.2.4).
+- **Pedal generator:** charges the battery with what the rider delivers
+  (7.2.3); the drives may take that power on top of the discharge limit.
+
+#### 7.2.3 Pedal generator (Drais)
+
+A Jacobi (later Barlow) with a hoverboard motor behind a gearbox on the
+pedals. It is a drive in the cart, with one control law that covers both
+cases:
+
+- **Self-start:** with no battery the switched-off bridge rectifies the
+  back-EMF through the body diodes. From about 10 V on the DC link the
+  logic boards boot, from about 13 V the drives can be enabled. Gear the
+  pedals so the highest cadence of a rider stays below about 45 V
+  (hoverboard motor about 36 V line-to-line peak at 350 rpm, so about 4 to
+  5:1 for 60 to 90 rpm); firmware cannot stop the body diodes.
+- **Local engage**, like the e-bike control (engage on demand while the
+  cranks turn, `DriveNode::SetLocalControl()`), so it runs before the VDC
+  is up.
+- **Braking torque = the smaller of** the rider law (torque over cadence,
+  the pedal feel) and a **DC-link voltage loop** to a setpoint above the
+  derate band of 7.2.1 (proposal 38 V). With a battery connected the voltage
+  loop saturates and the rider law sets the power, so it charges the
+  battery. Without a battery the voltage loop sets the torque and the pedal
+  resistance follows the load of the cart. No mode switch is needed.
+- **Overvoltage:** above the setpoint plus a margin (proposal 42 V) the
+  generator shorts the motor through the low-side switches (zero vector)
+  instead of tripping; a trip would leave the body diodes charging the
+  DC link. The short-circuit current of the motor (ψ / L) must stay below the
+  phase current limit; to check on the motor.
+- **Exception to "contactor open, no battery current":** the generator keeps
+  feeding the DC link with the contactor open, limited by its voltage loop.
+- **Status:** publishes a generator status (proposed
+  `unimoc.cart.GeneratorStatus`: pedal power, cadence, DC-link voltage, a
+  "no battery" flag set while the voltage loop is in control, i.e. not
+  saturated, or the BMS reports the contactor open).
+
+#### 7.2.4 No battery
+
+- **Wheel drives:** while a fresh generator status says "no battery", the
+  charge limit is 0 (there is no sink; the generator cannot motor) and the
+  drive current is limited by the undervoltage derating of 7.2.1 only. The
+  generator's setpoint (38 V) sits above the derate band (33 to 30 V), so the
+  drives take full power while the generator keeps up and fade to zero
+  before the logic drops out. Without a generator status the existing rule
+  stays: contactor open, no battery current.
+- **Braking:** mechanical only. Should a drive brake anyway (a missing
+  generator status), the overvoltage derating (45 to 48 V on Jacobi) bounds
+  it; with the small bulk capacitance the DC link rises by about 20 V per
+  ms at 10 A, so this is a last line, not a brake.
+- **VDC:** the power budget is the pedal power of the generator status
+  minus a margin, split over the wheels as the torque split does today;
+  regenerative braking off, speed limit low, "no battery" on the display.
+  The VDC smooths the use of the power; the drives' local derating holds
+  the DC link. The VDC is too slow for that itself (250 Hz wheel command
+  plus bus latency against milliseconds of capacitor buffer) and boots
+  last.
+- **Supplies:** the VDC, the pedal unit and the display need a supply from
+  the DC link that starts at about 10 V.
+- **Hardware:** a larger bulk capacitor on the shared DC link (a few mF) and
+  a clamp or chopper that works without the BMS, since the BMS and its
+  chopper are usually gone with the battery.
+- **Power:** 200 W at the pedals gives about 120 to 140 W at the wheels after
+  gearbox, generator, inverters, wheel motors and about 10 to 15 W of
+  logic: walking to jogging pace on the flat.
+
+#### 7.2.5 Who does what
+
+| Item | Where | Why |
+|---|---|---|
+| Undervoltage derating of the drive current | Each drive (`DcLinkLimit`) | Milliseconds; must work without bus, VDC and BMS |
+| DC-link voltage loop and short-circuit clamp of the generator | Generator drive (Drais) | Same, and it must run before the VDC is up |
+| Charge limit 0 without battery | Drives, from the generator status | Limp-home must be safe without the VDC |
+| Detect empty and no battery, power budget, speed limit, display | VDC (`lib/vehicle/`) | System state, not time-critical |
+| Discharge limit over state of charge, contactor kept closed when empty | BMS | Knows the cells |
+| Bulk capacitance, clamp without BMS, gearing for at most 45 V | Hardware | Firmware cannot stop the body diodes |
+
+**Tests in the simulation:** the DC-link model (`unimoc.sim.dc_link_*`,
+`battery_resistance`, `contactor_closed`) covers the empty battery (low
+open-circuit voltage, high resistance) and the open contactor for one
+drive now; the generator with the wheel drives needs the multi-node SIL
+coordinator (`TODO.md`, tier 1 item 11) and a plant for the generator
+(pedal torque source on the shaft).
 
 ## 8. Software Architecture
 
@@ -636,6 +788,11 @@ Not a safety concept; a list of what one must cover.
    (2026-11-03, confirmed 2026-11-08); the excitation and chopper are a
    separate board with its own open points (placement, comparator routing,
    field and resistor ratings, de-excitation of the EESM).
+10. **Empty and no battery (section 7.2):** the undervoltage thresholds on
+    the real pack (33 / 30 V proposed), the generator setpoint and clamp
+    (38 / 42 V), the gear ratio of the pedal generator, the generator status
+    message, the bulk capacitance and the clamp without the BMS, and how the
+    BMS of a lead-acid pack detects "empty".
 
 ## 13. Risks
 
@@ -649,6 +806,11 @@ Not a safety concept; a list of what one must cover.
 - **Pure regenerative braking:** the service brake depends on the drives,
   the battery state and the bus; covered by the limp-home path, the brake
   chopper and the mechanical emergency brake (section 7.1).
+- **No battery:** without a battery the DC link has milliseconds of buffer;
+  the cart only runs from the pedal generator if every drive derates on
+  undervoltage and the generator clamps overvoltage (section 7.2). Until
+  both exist, a missing battery means a dead cart, and a pedal generator
+  driven hard can push the DC link past the trip through the body diodes.
 - **Chopper in hardware:** the comparator-to-timer path of the H743 has to be
   confirmed in the schematic (BMS and the separate excitation and chopper
   board);
