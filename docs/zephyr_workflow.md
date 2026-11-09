@@ -215,13 +215,63 @@ stays IDLE. While a run is active `RunOnce()` leaves for FAULT as soon as the
 stage is no longer enabled (trip, external break, e-stop), and
 `EnterFault()` calls `Disable()`. `tests/sim/overcurrent` covers these paths.
 
+## Cyphal on the NUCLEO-H743ZI (bench, 2026-11-09)
+
+First run of the drive application as a Cyphal node on a real board, with a
+TJA1051 module on FDCAN1 and a CAN FD USB adapter. The tests are
+`tests/integration/cyphal_hw/` (manual, not in CI); its README has the bench
+setup, the wiring and the commands. What the bench showed:
+
+- **Adapter.** A CAN FD adapter with a SocketCAN driver is needed. A MKS CANable
+  V2.0 (STM32G431) runs CANnectivity (Zephyr, `gs_usb`, USB id `1209:ca01`) and
+  gives `can0`; the factory slcan firmware (`16d0:117e`) is classic CAN only, and
+  mainline candleLight_fw has no STM32G431 target. Bring-up:
+  `sudo ip link set can0 up type can bitrate 1000000 dbitrate 1000000 fd on`.
+  Frames sent into a bus nobody acknowledges can stall the adapter's transmit
+  queue (`No buffer space available`); a replug clears it.
+- **Frames.** CAN FD frames of 64 bytes at 1 Mbit/s in both phases (the overlay
+  setting for classic transceivers), without bit rate switch. The slcan adapter
+  was used for the first checks with `CONFIG_UNIMOC_CYPHAL_CAN_FD=n`; plug-and-play
+  never completed over it and is not pursued (FD is the target).
+- **Plug-and-play.** `yakut monitor --plug-and-play <db>` (or the allocator of the
+  test client) gives the fresh drive a node-ID; the anonymous requests repeat every
+  second. The ID is saved with the settings.
+- **Bare-board prerequisites.** The drive reports health nominal and the power
+  stage *disabled* only when the three phase current inputs are inside the raw
+  overcurrent window (1055 to 3041 counts at the 60 A limit; mid scale, 1.65 V)
+  and the break input PE15 is jumpered to 3V3. With floating inputs a trip is
+  latched at boot, and without the jumper the stage is *blocked*; STANDBY then does
+  not clear the trip (it comes back at once). Both states keep the settings save
+  gate closed (`PowerStageSaveGate` needs `kDisabled`): `STORE_PERSISTENT_STATES`
+  returns BAD_STATE and the node-ID of the plug-and-play allocation is not stored,
+  so the drive asks for an ID again after every restart.
+- **Checked on the board:** node services (GetInfo, heartbeat, port list), the
+  register list (about 190 registers in a multi-frame transfer), register write and
+  read back, the publish rates (drive status 50 Hz, telemetry 20 Hz, commissioning
+  0.5 Hz), the cymon capture (62.5 us tick, 8 channels), diagnostic records
+  (`uavcan.diagnostic.Record`, port 8184), `ExecuteCommand` (STORE, RESTART,
+  EMERGENCY_STOP, FACTORY_RESET, RESET_TIMING, an unknown code), persistence of the
+  node-ID and of a stored setting across a restart, the emergency stop (latched until
+  a restart, an engage is refused), the engage with the loss of the master (readiness
+  timeout disengages), and the factory reset (defaults, node-ID cleared, a new
+  allocation is kept).
+- **Refused by design:** `BEGIN_SOFTWARE_UPDATE` returns failure without touching
+  flash: only `native_sim` has a firmware bank (flash writer and bootloader are open).
+- **Not checked:** the control loop on a motor, a trip while engaged, the
+  commissioning sequence (it enables the outputs), the TCAN334 standby pin and the
+  4 Mbit/s data phase (Jacobi).
+- **Seen once:** `can_mcan: Message lost on FIFO0` in the log on the classic-frame
+  build right after boot; not seen with CAN FD.
+
 ## Known issues
 
 - Cyphal on Jacobi is built only: FDCAN1 with PLL2 Q (80 MHz) as kernel
   clock, CAN FD frames without bit rate switch at 1 Mbit/s like the other
-  nodes, although the TCAN334 handles CAN FD data rates; a bus with
-  classic-only adapters needs `CONFIG_UNIMOC_CYPHAL_CAN_FD=n`. Bit timing,
-  the standby pin and the bus are checked on the board.
+  nodes, although the TCAN334 handles CAN FD data rates. The same FDCAN1 setup
+  runs on the NUCLEO-H743ZI (previous section); the TCAN334 standby pin and the bus
+  of Jacobi are still to be checked on the board. A bus with classic-only
+  adapters needs `CONFIG_UNIMOC_CYPHAL_CAN_FD=n`, which is not supported
+  (plug-and-play never completed over classic frames).
 - The console and the log of Jacobi are on SEGGER RTT, those of the Nucleo on
   the ST-LINK virtual COM port. USB and the shell are not used; USB returns
   for DFU recovery.
