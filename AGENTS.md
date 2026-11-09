@@ -122,7 +122,8 @@ Read `README.md` for the supported motor types and public features, and
   `unimoc.app.drive.cyphal_integration` in `apps/drive/testcase.yaml`, pytest harness; the
   e-bike build in `unimoc.app.drive.cyphal_integration.ebike`, marker `ebike`) and
   a pycyphal node drives it over an slcan pseudo terminal;
-  `tests/integration/vdc_sim/` does the same for the VDC (scenario
+  `tests/integration/cyphal_hw/` is a manual pytest of a real board on a CAN FD adapter (not
+  twister, not CI; `--hardware`, README there); `tests/integration/vdc_sim/` does the same for the VDC (scenario
   `unimoc.app.vdc.cyphal_integration` in `apps/vdc/testcase.yaml`, the client
   plays the wheel drives; the DSDL compile is shared in
   `tests/integration/unimoc_dsdl.py`). They are skipped

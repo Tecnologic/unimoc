@@ -181,9 +181,12 @@ interfaces and the simulation registers are platform specific.
 
 > **Status:** integrated and tested on `native_sim` (ztest scenarios
 > `unimoc.lib.cyphal` and `unimoc.sim.cyphal_drive`, and by hand with yakut).
-> Jacobi and the NUCLEO-H743ZI build with the node on FDCAN1 but have not
-> run on a board; CAN FD frames run at 1 Mbit/s without bit rate switch
-> (`boards/unimoc/jacobi/unimoc_jacobi.dts`).  The firmware update over
+> The NUCLEO-H743ZI runs the node on FDCAN1 with a transceiver module and a
+> CAN FD adapter (2026-11-09: plug-and-play, registers, subjects, traces, the
+> engage, persistence; manual pytest `tests/integration/cyphal_hw/`,
+> `docs/zephyr_workflow.md`, "Cyphal on the NUCLEO-H743ZI"). Jacobi builds with
+> the node on FDCAN1 but has not run on a board; CAN FD frames run at 1 Mbit/s
+> without bit rate switch (`boards/unimoc/jacobi/unimoc_jacobi.dts`).  The firmware update over
 > Cyphal (`BEGIN_SOFTWARE_UPDATE`, `uavcan.file.Read` from the commanding
 > node, the UNIMOC image header checked, `unimoc.update.*`) runs on
 > `native_sim` into a RAM bank; the boards refuse it until flash bank 2 and
