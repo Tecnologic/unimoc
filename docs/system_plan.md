@@ -694,12 +694,45 @@ cases:
 | Discharge limit over state of charge, contactor kept closed when empty | BMS | Knows the cells |
 | Bulk capacitance, clamp without BMS, gearing for at most 45 V | Hardware | Firmware cannot stop the body diodes |
 
+#### 7.2.6 Hardware: no change on Jacobi
+
+Checked against the Jacobi schematic (2026-11-09). Everything of 7.2 runs
+on the existing board; the additions sit outside it:
+
+- **Logic from the DC link:** the LM5008 is fed from `+BATT` of the power
+  board (J103 pin 1 → `+BATT_LOGIC` → J501), not from a separate battery
+  input, so the generator powers the logic of every drive through the
+  shared DC link. Its operating range starts at 6 V (9.5 V recommended).
+- **Generator:** the low-side short of the clamp, the current in the short
+  (phase shunts, ±160 A) and a flying start on a turning motor (phase
+  voltage sense Va/Vb/Vc, Hall input) are all on the board.
+- **Undervoltage derating:** the Vdc divider reads up to 73.8 V with 16 bits;
+  enough resolution at 30 V.
+- **Bulk capacitance:** 6 × 56 µF + 3 × 10 µF ≈ 370 µF per power board, about
+  1.8 mF for four wheel drives and the generator: 0.3 J between 38 V and
+  33 V, 1.6 ms at 200 W. Enough for the local derating (a control cycle is
+  62.5 µs); more capacitance goes on the shared DC link outside the
+  drives, if the bench asks for it.
+- **Outside Jacobi:** the clamp or chopper without the BMS (fits the
+  separate excitation and chopper module of section 5.2.1), the supply of
+  the VDC, pedal unit and display from about 10 V, the gearbox of the
+  generator, and the wiring of `PWM_EN` (J501 pin 3) from the DC link side
+  through the key switch, so the enable has 12 V as soon as the generator
+  turns.
+- **To check on the bench** (no change expected): the start-up of the logic
+  on a slowly rising supply (a weak source that sags when the MCU starts can
+  make the logic restart a few times until the rider pedals faster; if it
+  stays in that loop, a start threshold on the LM5008 `RON/SD` pin is the
+  fix), and the brown-out level of the H743 in the option bytes.
+
 **Tests in the simulation:** the DC-link model (`unimoc.sim.dc_link_*`,
 `battery_resistance`, `contactor_closed`) covers the empty battery (low
 open-circuit voltage, high resistance) and the open contactor for one
-drive now; the generator with the wheel drives needs the multi-node SIL
-coordinator (`TODO.md`, tier 1 item 11) and a plant for the generator
-(pedal torque source on the shaft).
+drive now. A single generator node needs a load on the simulated DC link
+(proposed `unimoc.sim.dc_link_load`, a power or a resistance; the pedals are
+`unimoc.sim.imposed_speed` or `load_torque` on the shaft). The generator
+with the wheel drives needs the multi-node SIL coordinator (`TODO.md`, tier
+1 item 11).
 
 ## 8. Software Architecture
 
