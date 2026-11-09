@@ -8,6 +8,15 @@ tests:
       - unimoc_jacobi
       - nucleo_h743zi
     tags: [unimoc, app]
+  # With MCUboot (sysbuild): the signed image, the flash layout, the firmware update bank of the STM32H7
+  # (hardware/zephyr_stm32h7/firmware_bank.cpp). The other scenarios build the application alone.
+  unimoc.app.drive.build.mcuboot:
+    build_only: true
+    sysbuild: true
+    platform_allow:
+      - unimoc_jacobi
+      - nucleo_h743zi
+    tags: [unimoc, app]
   # The M0 timing probes in the interrupts (CONFIG_UNIMOC_HOT_PATH_TIMING).
   unimoc.app.drive.build.timing:
     build_only: true

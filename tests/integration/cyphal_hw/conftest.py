@@ -39,14 +39,24 @@ def pytest_addoption(parser) -> None:
                     help="also run the tests that engage the drive, i.e. enable the power stage outputs")
     group.addoption("--allow-factory-reset", action="store_true",
                     help="also run FACTORY_RESET: it erases the settings and the stored node-ID")
-    group.addoption("--allow-flash-bank", action="store_true",
-                    help="the board has a firmware bank: do not expect BEGIN_SOFTWARE_UPDATE to be refused")
+    group.addoption("--no-bootloader", action="store_true",
+                    help="the board runs the application without MCUboot (no sysbuild): expect BEGIN_SOFTWARE_UPDATE to be refused")
+    group.addoption("--update-image", type=Path, default=None,
+                    help="UNIMOC update image (scripts/make_firmware_image.py) of this board with a HIGHER version than the "
+                         "running firmware: runs the update tests; the board then runs this image")
+    group.addoption("--unconfirmed-image", type=Path, default=None,
+                    help="UNIMOC update image newer than --update-image, built with CONFIG_UNIMOC_UPDATE_CONFIRM_DELAY_MS "
+                         "so long that it does not confirm itself: checks the swap back (after --update-image)")
+    group.addoption("--current-image", type=Path, default=None,
+                    help="UNIMOC update image of the running firmware (same version): checks that it is refused as not newer")
 
 
 def pytest_configure(config) -> None:
     config.addinivalue_line("markers", "engage: enables the power stage outputs (needs --allow-engage)")
     config.addinivalue_line("markers", "factory_reset: erases the settings (needs --allow-factory-reset)")
-    config.addinivalue_line("markers", "no_flash_bank: for a board without a firmware bank (skipped with --allow-flash-bank)")
+    config.addinivalue_line("markers", "no_bootloader: for a build without MCUboot (needs --no-bootloader)")
+    config.addinivalue_line("markers", "swap_back: swaps an image in that never confirms (needs --unconfirmed-image)")
+    config.addinivalue_line("markers", "update: swaps a new image in (needs --update-image, runs last, changes the firmware)")
 
 
 def pytest_collection_modifyitems(config, items) -> None:
@@ -57,8 +67,12 @@ def pytest_collection_modifyitems(config, items) -> None:
             item.add_marker(pytest.mark.skip(reason="enables the power stage outputs: pass --allow-engage"))
         elif "factory_reset" in item.keywords and not config.getoption("--allow-factory-reset"):
             item.add_marker(pytest.mark.skip(reason="erases settings and node-ID: pass --allow-factory-reset"))
-        elif "no_flash_bank" in item.keywords and config.getoption("--allow-flash-bank"):
-            item.add_marker(pytest.mark.skip(reason="the board has a firmware bank"))
+        elif "no_bootloader" in item.keywords and not config.getoption("--no-bootloader"):
+            item.add_marker(pytest.mark.skip(reason="the board runs MCUboot: pass --no-bootloader for a build without it"))
+        elif "swap_back" in item.keywords and config.getoption("--unconfirmed-image") is None:
+            item.add_marker(pytest.mark.skip(reason="needs --unconfirmed-image (README.md)"))
+        elif "update" in item.keywords and config.getoption("--update-image") is None:
+            item.add_marker(pytest.mark.skip(reason="swaps the firmware: pass --update-image <image>"))
 
 
 @pytest.fixture(scope="session")

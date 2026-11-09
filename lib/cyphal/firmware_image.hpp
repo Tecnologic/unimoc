@@ -37,7 +37,9 @@ namespace unimoc::cyphal {
  * | 20 | 4 | CRC32 (IEEE 802.3, reflected) of the payload |
  * | 24 | 16 | board name, zero padded (`unimoc_jacobi`, `nucleo_h743zi`, `native_sim`) |
  *
- * `scripts/make_firmware_image.py` writes it. Signatures come with the bootloader.
+ * `scripts/make_firmware_image.py` writes it. The payload is the image of the bootloader
+ * (STM32H7: the MCUboot image `zephyr.signed.bin`, signed; the bootloader checks hash and
+ * signature at the swap). native_sim: any file.
  */
 struct FirmwareImageHeader {
   static constexpr std::size_t kSize = 40U;
@@ -72,6 +74,8 @@ enum class ImageStatus : uint8_t {
   kWrongSize,    ///< The file is not header plus payload.
   kTooLarge,     ///< The payload does not fit the bank.
   kBadChecksum,  ///< The CRC32 of the payload does not match.
+  kNoBootImage,  ///< The payload is no image of the bootloader (flash boards: no MCUboot header).
+  kNotNewer,     ///< The bootloader would not take it over: its version is not higher than the running one.
 };
 
 /// Incremental CRC32 (IEEE 802.3, polynomial 0xEDB88320 reflected): Crc32Update(Crc32Init(), data) ... Final.

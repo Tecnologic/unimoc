@@ -123,8 +123,8 @@ log is on RTT and on the bus. The phase order below is the plan.
   control cycle; tested with ztest (`unimoc.lib.cymon`, `unimoc.lib.cyphal`)
   and pycyphal (`unimoc.app.drive.cyphal_integration`). The `Tick()` cost on the
   board (M0) is not measured.
-- Open: firmware update (file service into bank
-  2); speed and position setpoints (need the control thread, M7); the startup
+- Firmware update: file service into slot 1 with MCUboot, see
+  `docs/zephyr_workflow.md`. Open: speed and position setpoints (need the control thread, M7); the startup
   FSM registers; the board run (transceiver, bit timing).
 
 ### Phase 6 - Cyphal/UDP (simulation fallback only)

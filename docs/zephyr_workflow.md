@@ -37,8 +37,8 @@ CMake >= 3.28 (Zephyr's minimum since 4.5) and Ninja are required. The CI job
 ## Build
 
     west build -b native_sim/native/64 unimoc/apps/drive -d unimoc/apps/drive/build/sim   # host simulation (Cyphal: README.md)
-    west build -b unimoc_jacobi unimoc/apps/drive -d unimoc/apps/drive/build/jacobi         # Jacobi drive (STM32H743VI)
-    west build -b nucleo_h743zi unimoc/apps/drive -d unimoc/apps/drive/build/h743           # STM32H7 platform on a NUCLEO-H743ZI
+    west build --sysbuild -b unimoc_jacobi unimoc/apps/drive -d unimoc/apps/drive/build/jacobi  # Jacobi drive (STM32H743VI) with MCUboot
+    west build --sysbuild -b nucleo_h743zi unimoc/apps/drive -d unimoc/apps/drive/build/h743    # STM32H7 platform on a NUCLEO-H743ZI with MCUboot
     west build -b native_sim/native/64 unimoc/apps/vdc -d unimoc/apps/vdc/build/sim       # VDC simulation (node-ID 1)
     west build -b nucleo_h743zi unimoc/apps/vdc -d unimoc/apps/vdc/build/h743             # VDC on a NUCLEO-H743ZI
 
@@ -48,6 +48,72 @@ controller"). Both share `lib/`, `hardware/zephyr_common` and the platforms;
 twister builds both with `-T unimoc` (scenarios `unimoc.app.drive.*` and
 `unimoc.app.vdc.*`). The VDC on the Nucleo is flashed like the drive, with
 the OpenOCD configuration of `apps/drive/boards/`.
+
+### Bootloader and firmware update (STM32H7)
+
+The H7 boards run **MCUboot** (`zephyr/Kconfig.sysbuild` selects it for
+`unimoc_jacobi` and `nucleo_h743zi`): build them with `--sysbuild`, which builds
+MCUboot (`apps/drive/sysbuild/`, `apps/drive/sysbuild.conf`) next to the application and
+signs the image (`zephyr.signed.bin`, ECDSA P-256). `west flash` writes both. Without
+`--sysbuild` the application is linked into slot 0 without a header and the
+board runs without bootloader (it refuses `BEGIN_SOFTWARE_UPDATE`); twister builds that
+way, plus the scenario `unimoc.app.drive.build.mcuboot`.
+
+Flash layout (`dts/unimoc/stm32h743_flash_layout.dtsi`, shared by Jacobi, the Nucleo
+overlay and the MCUboot image; 128 KB sectors):
+
+| Address | Size | Partition | Bank |
+|---|---|---|---|
+| `0x08000000` | 128 KB | MCUboot (30 KB used) | 1 |
+| `0x08020000` | 768 KB | `slot0`: the running image | 1 |
+| `0x080e0000` | 128 KB | unused | 1 |
+| `0x08100000` | 768 KB | `slot1`: the update | 2 |
+| `0x081c0000` | 256 KB | settings (ZMS) | 2 |
+
+An image may take 512 KB (the slot less two sectors: MCUboot's swap using move and the
+trailer); the application links to that limit, today it takes 225 KB. The update runs in the
+Cyphal thread (`hardware/zephyr_stm32h7/firmware_bank.cpp`):
+
+1. `BEGIN_SOFTWARE_UPDATE <path>` (refused while engaged): the drive reads the file with
+   `uavcan.file.Read` from the commanding node. The UNIMOC header (`scripts/make_firmware_image.py`,
+   `lib/cyphal/firmware_image.hpp`) is checked first (board name), the payload behind it, the
+   MCUboot image, goes into slot 1 with the sectors erased as the download reaches them (a sector erase
+   takes about a second and stops the node for that time; the download needs about 12 s).
+2. The CRC32 of the payload is checked, then the MCUboot header of slot 1: its version
+   (major.minor.revision) must be higher than the running one (`unimoc.update.result` 9
+   otherwise; MCUboot enforces the same, `CONFIG_MCUBOOT_DOWNGRADE_PREVENTION`). Then the drive
+   requests a **test swap** (`boot_request_upgrade`); `unimoc.update.state` is 2.
+3. The operator sends `RESTART` (or the power is cycled). MCUboot checks hash and signature of
+   slot 1 and swaps the images (tens of seconds, the node is silent meanwhile).
+4. The new image runs **on trial**. After `CONFIG_UNIMOC_UPDATE_CONFIRM_DELAY_MS` (10 s) in the
+   Cyphal thread it confirms itself (`boot_write_img_confirmed`, log "update image
+   confirmed"). A reset before that swaps the old image back.
+
+**Signing key.** A build without a key setting uses the public MCUboot debug key
+`root-ec-p256.pem` (it prints a warning): anyone can sign an image for such a board. For a
+release, generate an ECDSA P-256 key pair once, keep the private key secret and build with it:
+
+    # once, on a trusted machine (imgtool comes with MCUboot: pip install imgtool)
+    imgtool keygen -k unimoc_release_ec256.pem -t ecdsa-p256
+    # the build: the key is a sysbuild setting
+    west build --sysbuild -b unimoc_jacobi unimoc/apps/drive -- -DSB_CONFIG_BOOT_SIGNATURE_KEY_FILE=\"/path/unimoc_release_ec256.pem\"
+
+MCUboot embeds the public half and signs with the private one, so the bootloader and every
+update image must come from the same key; a board flashed with the debug-key bootloader
+accepts only debug-key images, and moving to a release key means reflashing the bootloader
+once (over SWD). Keep the key outside the repository (`*.pem` is not committed); in CI store
+it as a GitHub secret, write it to a temporary file in `build-firmware.yml` and pass the
+path as above. Losing the key means no more over-the-bus updates for the boards with its
+public half; a leaked key means reflashing them with a new bootloader. Back it up offline.
+Wiring the secret into CI is open in `TODO.md`.
+
+There is no watchdog: an image that hangs before it confirms is not swapped back until
+something resets the board.
+
+The update image of a build: `scripts/make_firmware_image.py --board nucleo_h743zi --vcs <git hash>
+build/h743/drive/zephyr/zephyr.signed.bin image.bin` (the version comes from the MCUboot header).
+yakut sends it like any file: serve it with `yakut file-server` and command the drive with
+`BEGIN_SOFTWARE_UPDATE`, or use the test below.
 
 The Nucleo's on-board ST-LINK (ST firmware) is flashed and debugged through
 OpenOCD's DAP interface (`apps/drive/boards/nucleo_h743zi_openocd.cfg`; the VS Code
@@ -255,8 +321,14 @@ setup, the wiring and the commands. What the bench showed:
   a restart, an engage is refused), the engage with the loss of the master (readiness
   timeout disengages), and the factory reset (defaults, node-ID cleared, a new
   allocation is kept).
-- **Refused by design:** `BEGIN_SOFTWARE_UPDATE` returns failure without touching
-  flash: only `native_sim` has a firmware bank (flash writer and bootloader are open).
+- **Firmware update (2026-11-09):** `test_firmware_update_*` (`--update-image`, see the README of
+  `tests/integration/cyphal_hw/`): wrong board, a corrupt payload and an image that is not newer are
+  refused (the node keeps running); a newer image downloads in about 12 s, the swap after `RESTART`
+  takes tens of seconds, the new version runs, confirms itself after 10 s and stays after another
+  restart; an image that does not confirm is swapped back by a reset (`--unconfirmed-image`).
+  Found on the board: the file-read transfer-ID did not wrap at 32, which stopped every download
+  longer than 32 chunks (the simulation tests were shorter; `unimoc.lib.cyphal` has the case now).
+  A build without MCUboot refuses the command (`--no-bootloader`).
 - **Not checked:** the control loop on a motor, a trip while engaged, the
   commissioning sequence (it enables the outputs), the TCAN334 standby pin and the
   4 Mbit/s data phase (Jacobi).

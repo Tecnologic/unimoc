@@ -643,7 +643,7 @@ void SetPlantRate(const settings::NvmSettings& settings) noexcept {
 constexpr uint32_t kUpdateBankSize = 1024U * 1024U;
 std::array<std::byte, kUpdateBankSize> g_update_bank{};
 
-bool EraseUpdateBank() noexcept {
+bool BeginUpdateBank() noexcept {
   g_update_bank.fill(std::byte{0xFF});
   return true;
 }
@@ -664,7 +664,14 @@ bool ReadUpdateBank(const uint32_t offset, const std::span<std::byte> data) noex
   return true;
 }
 
-constexpr cyphal::FirmwareBank kUpdateBank{EraseUpdateBank, WriteUpdateBank, ReadUpdateBank, kUpdateBankSize};
+bool FinishUpdateBank() noexcept { return true; }
+
+constexpr cyphal::FirmwareBank kUpdateBank{BeginUpdateBank,
+                                           WriteUpdateBank,
+                                           FinishUpdateBank,
+                                           ReadUpdateBank,
+                                           /*activate=*/nullptr,
+                                           kUpdateBankSize};
 
 /// Serves the register description file, written into a host temporary file at the start.
 class RegisterFileSource final : public cyphal::FileSource {

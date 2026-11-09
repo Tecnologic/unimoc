@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Sysbuild defaults of the UNIMOC module: the STM32H7 boards run MCUboot, so
+# that a firmware update over Cyphal (docs/system_plan.md, firmware update)
+# swaps the image in the second flash bank in. The simulation has no
+# bootloader.
+
+choice BOOTLOADER
+	default BOOTLOADER_MCUBOOT if BOARD_NUCLEO_H743ZI || BOARD_UNIMOC_JACOBI
+endchoice

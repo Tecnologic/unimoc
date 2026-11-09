@@ -23,15 +23,19 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # The STM32H7 boards build with MCUboot (sysbuild): bootloader, signed image and update image.
           - target: jacobi
             board: unimoc_jacobi
             artifact: unimoc-jacobi
+            build_args: --sysbuild
           - target: nucleo_h743zi
             board: nucleo_h743zi
             artifact: unimoc-nucleo_h743zi
+            build_args: --sysbuild
           - target: sim
             board: native_sim/native/64
             artifact: unimoc-native_sim
+            build_args: ""
     steps:
       - uses: actions/checkout@v7
         with:
@@ -48,7 +52,7 @@ jobs:
         run: pip install -r unimoc/scripts/requirements-cyphal.txt
 
       - name: Build
-        run: west build -p always -b ${{ matrix.board }} unimoc/apps/drive -d build/${{ matrix.target }}
+        run: west build -p always ${{ matrix.build_args }} -b ${{ matrix.board }} unimoc/apps/drive -d build/${{ matrix.target }}
 
       - name: Collect the files
         run: |

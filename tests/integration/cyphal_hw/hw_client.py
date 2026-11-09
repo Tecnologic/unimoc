@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import asyncio
+import shutil
 import tempfile
 import time
 from pathlib import Path
@@ -16,6 +17,7 @@ from typing import Any
 
 import pycyphal
 import pycyphal.application
+import pycyphal.application.file
 import pycyphal.application.plug_and_play
 from pycyphal.transport.can import CANTransport
 from pycyphal.transport.can.media.socketcan import SocketCANMedia
@@ -114,6 +116,9 @@ class HwClient:
         self.node.start()
         # Gives an anonymous drive its node-ID (uavcan.pnp.NodeIDAllocationData).
         self.allocator = pycyphal.application.plug_and_play.CentralizedAllocator(self.node, self._db)
+        # The file server the drive downloads a firmware update from (BEGIN_SOFTWARE_UPDATE).
+        self.file_root = Path(tempfile.mkdtemp(prefix="unimoc_hw_files_"))
+        self.file_server = pycyphal.application.file.FileServer(self.node, [self.file_root])
         self.heartbeat = self.node.make_subscriber(uavcan.node.Heartbeat_1_0)
         self.port_list = self.node.make_subscriber(uavcan.node.port.List_1_0)
         self.diagnostic = self.node.make_subscriber(uavcan.diagnostic.Record_1_1, PORT_DIAGNOSTIC)
@@ -142,20 +147,40 @@ class HwClient:
                 return self.drive
         raise AssertionError(f"no heartbeat of a drive on {self.iface}: adapter up (see README), drive powered, FD frames?")
 
-    def wait_for_restart(self, timeout: float = 60.0) -> int:
-        """After RESTART or FACTORY_RESET: waits until a heartbeat with a small uptime arrives (the node-ID may be new).
+    def wait_for_restart(self, timeout: float = 60.0, max_uptime: int = 30) -> int:
+        """After RESTART or FACTORY_RESET: waits for the new start (the node-ID may be new).
 
-        The board is down within a second of the command; the first two seconds
-        are skipped so that a heartbeat from before the restart cannot match.
+        The old image can still send heartbeats for a moment, with an uptime that may be small as well,
+        so a heartbeat only counts after the node was seen gone (a gap) or its uptime went backwards.
         """
-        self.sleep(2.0)
+        self.sleep(1.0)
         deadline = time.monotonic() + timeout
+        previous: int | None = None
+        restarted = False
         while time.monotonic() < deadline:
             result = self._run(self.heartbeat.receive_for(2.0))
-            if result is not None and result[1].source_node_id != LOCAL and result[0].uptime < 30:
+            if result is None:
+                restarted = True  # silence: the board is down (or the bootloader swaps)
+                continue
+            if result[1].source_node_id == LOCAL:
+                continue
+            uptime = result[0].uptime
+            if (previous is not None and uptime < previous) or uptime <= 2:
+                restarted = True  # the uptime went backwards, or this is the first heartbeat of a start
+            previous = uptime
+            if restarted and uptime < max_uptime:
                 self.drive = result[1].source_node_id
                 return self.drive
         raise AssertionError("the drive did not come back after the restart")
+
+    def serve_file(self, content: bytes | Path, name: str = "unimoc_update.bin") -> str:
+        """Makes @p content the file @p name of this node's file server; returns the path to give BEGIN_SOFTWARE_UPDATE."""
+        target = self.file_root / name
+        if isinstance(content, Path):
+            shutil.copyfile(content, target)
+        else:
+            target.write_bytes(content)
+        return name
 
     # --- Services --------------------------------------------------------------------
 
@@ -175,6 +200,18 @@ class HwClient:
 
     def get_info(self) -> uavcan.node.GetInfo_1_0.Response:
         return self.call(uavcan.node.GetInfo_1_0, uavcan.node.GetInfo_1_0.Request())
+
+    def get_info_after_restart(self, timeout: float = 30.0) -> uavcan.node.GetInfo_1_0.Response:
+        """GetInfo, repeated for a while: after a long silence (the bootloader swaps the images) the adapter, whose
+        frames nobody acknowledged meanwhile, can need a moment on the bus again (README.md, bench setup)."""
+        deadline = time.monotonic() + timeout
+        while True:
+            try:
+                return self.get_info()
+            except AssertionError:
+                if time.monotonic() > deadline:
+                    raise
+                self.sleep(1.0)
 
     def access(self, name: str, value: uavcan.register.Value_1_0 | None = None):
         request = uavcan.register.Access_1_0.Request(

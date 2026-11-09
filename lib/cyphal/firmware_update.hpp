@@ -26,14 +26,26 @@
 
 namespace unimoc::cyphal {
 
-/// The bank an update is written into (STM32H7: flash bank 2; native_sim: a buffer). Thread context.
+/**
+ * @brief The bank an update is written into (STM32H7: slot 1 of MCUboot in flash bank 2; native_sim: a
+ * buffer).
+ *
+ * The bank holds the payload of the image (the file without the UNIMOC header), from offset 0. Thread
+ * context.
+ */
 struct FirmwareBank {
-  /// Erases the bank; false: no bank (the update is refused).
-  bool (*erase)() noexcept;
+  /// Prepares a sequential write from offset 0; false: no bank (the update is refused).
+  /// The flash bank erases the sectors as the writes reach them, so that this does not stall the node.
+  bool (*begin)() noexcept;
   /// Writes @p data at @p offset (sequential, from 0).
   bool (*write)(uint32_t offset, std::span<const std::byte> data) noexcept;
+  /// Writes out what write() still buffers (called once, after the last write).
+  bool (*finish)() noexcept;
   /// Reads back @p data.size() bytes at @p offset.
   bool (*read)(uint32_t offset, std::span<std::byte> data) noexcept;
+  /// Makes the bootloader take the checked image over at the next start (it runs once, and confirms
+  /// itself, or the bootloader swaps back). kOk, or why not (kNoBootImage, kNotNewer). Null: nothing to do.
+  ImageStatus (*activate)() noexcept;
   /// Bytes the bank holds.
   uint32_t capacity;
 };
@@ -48,13 +60,15 @@ struct FileReadRequest {
 /**
  * @brief Downloads an image from a file server (the node that sent BEGIN_SOFTWARE_UPDATE) and checks it.
  *
- * Begin() erases the bank; Poll() then hands out one uavcan.file.Read request
- * at a time (256 bytes each), OnResponse() writes its data. A short answer is
- * the end of the file: the header (FirmwareImageHeader) is checked against the
- * board and the file size, and the CRC32 of the payload read back from the
- * bank. A request without an answer is repeated after kTimeoutUs, up to
- * kRetries times. kReady means the bank holds a checked image: the swap at the
- * next restart is the bootloader's (not on native_sim).
+ * Begin() prepares the bank; Poll() then hands out one uavcan.file.Read request
+ * at a time (256 bytes each), OnResponse() writes its data. The first answer
+ * carries the header (FirmwareImageHeader), checked against the board before
+ * anything is written; the bank gets the payload behind it. A short answer is
+ * the end of the file: the size is checked and the CRC32 of the payload read
+ * back from the bank. A request without an answer is repeated after
+ * kTimeoutUs, up to kRetries times. kReady means the bank holds a checked
+ * image and the bootloader was told to take it over at the next restart (the
+ * swap is the bootloader's, not on native_sim).
  */
 class FirmwareUpdate {
  public:
@@ -77,8 +91,8 @@ class FirmwareUpdate {
    * @return False while a download runs, without a bank, or for an empty or too long path.
    */
   [[nodiscard]] bool Begin(const uint8_t server, const std::string_view path) noexcept {
-    if (state_ == State::kDownloading || path.empty() || path.size() > kMaxPath || bank_->erase == nullptr ||
-        !bank_->erase()) {
+    if (state_ == State::kDownloading || path.empty() || path.size() > kMaxPath || bank_->begin == nullptr ||
+        !bank_->begin()) {
       return false;
     }
     std::copy(path.begin(), path.end(), path_.begin());
@@ -134,11 +148,22 @@ class FirmwareUpdate {
       Fail(ImageStatus::kOk, error);
       return;
     }
-    if (received_ + data.size() > bank_->capacity) {
+    std::span<const std::byte> payload = data;
+    if (received_ == 0U) {
+      // The header leads the file: it is checked before the bank is touched.
+      const ImageStatus kChecked = CheckHeader(data);
+      if (kChecked != ImageStatus::kOk) {
+        Fail(kChecked, 0U);
+        return;
+      }
+      payload = data.subspan(FirmwareImageHeader::kSize);
+    }
+    const uint64_t kBankOffset = (received_ == 0U) ? 0U : received_ - FirmwareImageHeader::kSize;
+    if (kBankOffset + payload.size() > bank_->capacity) {
       Fail(ImageStatus::kTooLarge, 0U);
       return;
     }
-    if (!data.empty() && !bank_->write(static_cast<uint32_t>(received_), data)) {
+    if (!payload.empty() && !bank_->write(static_cast<uint32_t>(kBankOffset), payload)) {
       Fail(ImageStatus::kOk, kErrorBank);
       return;
     }
@@ -165,33 +190,39 @@ class FirmwareUpdate {
     state_ = State::kFailed;
   }
 
+  /// Parses the header at the start of the file and checks it against the board and the bank.
+  [[nodiscard]] ImageStatus CheckHeader(const std::span<const std::byte> first) noexcept {
+    const ImageStatus kParsed = ParseImageHeader(first, header_);
+    if (kParsed != ImageStatus::kOk) {
+      return kParsed;
+    }
+    if (header_.Board() != board_) {
+      return ImageStatus::kWrongBoard;
+    }
+    if (header_.payload_size > bank_->capacity) {
+      return ImageStatus::kTooLarge;
+    }
+    return ImageStatus::kOk;
+  }
+
   void Verify() noexcept {
     std::array<std::byte, kChunk> chunk{};
     if (received_ < FirmwareImageHeader::kSize) {
       Fail(ImageStatus::kTooShort, 0U);
       return;
     }
-    if (!bank_->read(0U, std::span<std::byte>{chunk.data(), FirmwareImageHeader::kSize})) {
-      Fail(ImageStatus::kOk, kErrorBank);
-      return;
-    }
-    const ImageStatus kParsed =
-        ParseImageHeader(std::span<const std::byte>{chunk.data(), FirmwareImageHeader::kSize}, header_);
-    if (kParsed != ImageStatus::kOk) {
-      Fail(kParsed, 0U);
-      return;
-    }
-    if (header_.Board() != board_) {
-      Fail(ImageStatus::kWrongBoard, 0U);
-      return;
-    }
     if (static_cast<uint64_t>(header_.payload_size) + FirmwareImageHeader::kSize != received_) {
       Fail(ImageStatus::kWrongSize, 0U);
       return;
     }
+    if (bank_->finish != nullptr && !bank_->finish()) {
+      Fail(ImageStatus::kOk, kErrorBank);
+      return;
+    }
     uint32_t crc = Crc32Init();
-    for (uint64_t offset = FirmwareImageHeader::kSize; offset < received_; offset += kChunk) {
-      const auto kLength = static_cast<std::size_t>(std::min<uint64_t>(kChunk, received_ - offset));
+    for (uint64_t offset = 0U; offset < header_.payload_size; offset += kChunk) {
+      const auto kLength =
+          static_cast<std::size_t>(std::min<uint64_t>(kChunk, header_.payload_size - offset));
       const std::span<std::byte> kPart{chunk.data(), kLength};
       if (!bank_->read(static_cast<uint32_t>(offset), kPart)) {
         Fail(ImageStatus::kOk, kErrorBank);
@@ -202,6 +233,13 @@ class FirmwareUpdate {
     if (Crc32Final(crc) != header_.payload_crc) {
       Fail(ImageStatus::kBadChecksum, 0U);
       return;
+    }
+    if (bank_->activate != nullptr) {
+      const ImageStatus kActivated = bank_->activate();
+      if (kActivated != ImageStatus::kOk) {
+        Fail(kActivated, 0U);
+        return;
+      }
     }
     state_ = State::kReady;
   }
