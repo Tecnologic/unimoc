@@ -13,9 +13,10 @@ external API requires different wording.
 | **controller** | A software control algorithm or, when the context is explicit, the drive electronics. Prefer **drive** for the complete device. |
 | **motor** | The electromechanical machine being controlled. Do not use **motor** for the drive electronics. |
 | **portable library** | The HAL-free code in `lib/`, intended to work on the host and on embedded targets. |
-| **firmware** | The Zephyr application in `app/` and the code it builds from `src/`, `hardware/`, and `boards/`. |
+| **firmware** | A Zephyr application in `apps/` (`apps/drive/`, `apps/vdc/`) and the code it builds from `src/`, `hardware/`, and `boards/`. |
+| **VDC** | The vehicle dynamics controller: the central node of the cart that arms the wheel drives and sends them the wheel command (`apps/vdc/`, `src/vdc/`, `lib/vehicle/`; `docs/system_plan.md`, section 5.3). Not a drive. |
 | **Zephyr** | The RTOS that runs the firmware. It is the primary OS for everything outside the hot path. |
-| **twister scenario** | One test application under `tests/` with a `testcase.yaml`, built and run by Zephyr's twister (ztest on `native_sim`, build-only on `unimoc_jacobi` and `nucleo_h743zi`). |
+| **twister scenario** | One test application under `tests/` (or an application of `apps/`) with a `testcase.yaml`, built and run by Zephyr's twister (ztest on `native_sim`, build-only on `unimoc_jacobi` and `nucleo_h743zi`). |
 | **SCA** | Zephyr static code analysis; here clang-tidy through CodeChecker (`scripts/twister_sca.sh`). |
 | **native_sim** | Zephyr's Linux simulation target. It runs the firmware application against the PMSM plant on the host. |
 | **unit type** | A `unit::Unit` of `lib/units/units.hpp` (`Current`, `Voltage`, ...): a `float` with a period and a **dimension**. Prefer it to a raw `float` for every physical quantity. |

@@ -44,8 +44,8 @@ for example `-p native_sim/native/64` or `-T unimoc/tests/lib/units`.
 ```text
 west twister -T unimoc/tests/lib/motor_control -p native_sim/native/64   # one suite, no SCA
 west twister -T unimoc -p native_sim/native/64 -p unimoc_jacobi          # everything, no SCA
-west build -b native_sim/native/64 unimoc/app -d unimoc/app/build/sim
-west build -b unimoc_jacobi unimoc/app -d unimoc/app/build/jacobi
+west build -b native_sim/native/64 unimoc/apps/drive -d unimoc/apps/drive/build/sim
+west build -b unimoc_jacobi unimoc/apps/drive -d unimoc/apps/drive/build/jacobi
 ```
 
 Use them while iterating; finish with the standard validation.
@@ -65,7 +65,7 @@ A new suite is a directory with `CMakeLists.txt`, `prj.conf`,
 
 ## clang-tidy rules
 
-- The root `.clang-tidy` applies to `src/`, `hardware/`, `tests/` and `app/`
+- The root `.clang-tidy` applies to `src/`, `hardware/`, `tests/` and `apps/`
   sources and to the headers of `lib/` (except the `lib/cymon` submodule).
   The analysis needs `clang-tidy` and `CodeChecker` in `PATH`;
   `twister_sca.sh` stops when one is missing. CI uses the distribution's

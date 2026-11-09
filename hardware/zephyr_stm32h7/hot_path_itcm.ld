@@ -2,7 +2,7 @@
  * Hot path of the STM32H7 in ITCM (zero wait states, no flash cache misses).
  *
  * Included into Zephyr's .itcm output section (zephyr_linker_sources
- * ITCM_SECTION, app/CMakeLists.txt); the startup code copies it from flash.
+ * ITCM_SECTION, apps/drive/CMakeLists.txt); the startup code copies it from flash.
  * The .itcm section comes before .text in the linker script, so these
  * patterns take the functions before the generic *(.text.*). They match the
  * per-function sections of -ffunction-sections by mangled name, which also

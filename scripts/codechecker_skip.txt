@@ -1,8 +1,8 @@
 -*/twister-out*
 -*/zephyr/include/generated/*
--*/unimoc/app/build/*
+-*/unimoc/apps/*/build/*
 -*/unimoc/build/*
-+*/unimoc/app/*
++*/unimoc/apps/*
 +*/unimoc/hardware/*
 +*/unimoc/lib/*
 +*/unimoc/src/*

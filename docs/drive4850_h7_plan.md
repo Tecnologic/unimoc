@@ -218,7 +218,7 @@ module. The notes below stay for that module if it uses an H743.
 
 Started 2026-11-01 on a first-revision NUCLEO-H743ZI (silicon rev. Y), so
 the platform runs before the logic board is drawn. The board is Zephyr's
-`nucleo_h743zi`; `app/boards/nucleo_h743zi.overlay` and `.conf` add the
+`nucleo_h743zi`; `apps/drive/boards/nucleo_h743zi.overlay` and `.conf` add the
 UNIMOC parts. Running on the board since 2026-11-03 with the outputs off
 (M0 timings in `docs/hotpath_plan.md`, section 4); the bench steps below are tracked in `TODO.md`.
 

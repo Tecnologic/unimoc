@@ -15,8 +15,8 @@
 # Each drive also opens its slcan pseudo terminals; the log of drive k names
 # them. Ctrl+C (or SIGTERM) stops all drives.
 #
-# The executable is --exe, $UNIMOC_SIM_EXE, or a west build of unimoc/app for
-# native_sim/native/64 in build/sim or unimoc/app/build/sim. On Windows run it
+# The executable is --exe, $UNIMOC_SIM_EXE, or a west build of unimoc/apps/drive for
+# native_sim/native/64 in build/sim or unimoc/apps/drive/build/sim. On Windows run it
 # in WSL2 with the tools that use the bus.
 set -euo pipefail
 
@@ -66,7 +66,7 @@ if ! [[ "$first_id" =~ ^[0-9]+$ ]] || ((first_id < 1 || first_id + drives - 1 > 
 fi
 
 if [[ -z "$exe" ]]; then
-  for candidate in "$repo/../build/sim/zephyr/zephyr.exe" "$repo/app/build/sim/zephyr/zephyr.exe"; do
+  for candidate in "$repo/../build/sim/zephyr/zephyr.exe" "$repo/apps/drive/build/sim/zephyr/zephyr.exe"; do
     if [[ -x "$candidate" ]]; then
       exe="$candidate"
       break
@@ -75,7 +75,7 @@ if [[ -z "$exe" ]]; then
 fi
 if [[ -z "$exe" || ! -x "$exe" ]]; then
   echo "sim_cluster.sh: no native_sim executable; build one with" >&2
-  echo "  west build -b native_sim/native/64 unimoc/app -d build/sim" >&2
+  echo "  west build -b native_sim/native/64 unimoc/apps/drive -d build/sim" >&2
   echo "or pass --exe (the release asset unimoc-native_sim-*.tar.gz holds one)" >&2
   exit 1
 fi

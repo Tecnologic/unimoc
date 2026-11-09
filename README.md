@@ -142,16 +142,23 @@ lib/
 │   ├── rotor_system.hpp          # d/q rotating reference frame
 │   ├── stator_system.hpp         # α/β stationary reference frame
 │   └── three_phase_system.hpp    # Three-phase (a/b/c) vector
-└── units/
-    └── units.hpp                 # SI units with dimension exponents
+├── units/
+│   └── units.hpp                 # SI units with dimension exponents
+└── vehicle/                      # VDC: vehicle dynamics of the cart (apps/vdc)
+    └── src/
+        ├── wheel.hpp             # Wheels, axles and sides of the cart
+        ├── drive_monitor.hpp     # Drive status of the four wheels: fresh, available, torque window
+        └── torque_split.hpp      # Torque request onto the wheels, without a yaw moment
 ```
 
 ---
 
 ## Firmware Architecture
 
-The firmware is one Zephyr application (`app/`). At 32 kHz PWM the execution
-contexts are (details in [`docs/hotpath_plan.md`](docs/hotpath_plan.md)):
+The firmware of the bus nodes is one Zephyr application each in `apps/`:
+`apps/drive/` (the motor drive, described here) and `apps/vdc/` (the vehicle
+dynamics controller, below). At 32 kHz PWM the execution contexts of the drive
+are (details in [`docs/hotpath_plan.md`](docs/hotpath_plan.md)):
 
 | Context | Runs | Latency |
 |---|---|---|
@@ -209,7 +216,7 @@ libcanard, O1Heap and the public regulated data types are pinned in
 `yakut monitor --plug-and-play <db>` answers) and stores the allocated ID.
 The simulation starts with node-ID 10 (`--node-id=<n>` overrides it per
 process, `--cart-wheel=<n>` the cart wheel).  GetInfo reports the name from `uavcan.node.description`, the
-hardware version of the platform, the software version from `app/VERSION`, the
+hardware version of the platform, the software version from `apps/drive/VERSION`, the
 git hash as `software_vcs_revision_id` and the hwinfo device ID as unique-ID
 (also the register `uavcan.node.unique_id`).  A changed node-ID or port-ID
 takes effect after a restart.
@@ -245,7 +252,7 @@ also while engaged; `disengaged`; `restart`) and one line of help. The
 simulation writes all of it as JSON and exits:
 
 ```sh
-unimoc/app/build/sim/zephyr/zephyr.exe -flash=/tmp/fresh.bin --describe-registers=registers.json
+unimoc/apps/drive/build/sim/zephyr/zephyr.exe -flash=/tmp/fresh.bin --describe-registers=registers.json
 ```
 
 One entry per register in the order of `uavcan.register.List`: name, value
@@ -347,6 +354,37 @@ it engages again only after a readiness other than `ENGAGED` (re-arm).
 `STANDBY` while disengaged acknowledges a latched trip or fault without
 releasing the outputs; the settings can only be stored without one.
 
+### Vehicle dynamics controller (VDC)
+
+`apps/vdc/` is the second application: the central node of the cart
+(`docs/system_plan.md`, section 5.3), on `native_sim` and the NUCLEO-H743ZI
+for now. It has no hot path; its Cyphal node runs in a Zephyr thread
+(`hardware/zephyr_common/vdc_runtime.cpp`, application core
+`src/vdc/vdc_node.cpp`, portable logic in `lib/vehicle/`). The skeleton:
+
+- **Readiness.** For each wheel drive of `unimoc.vdc.drive_node_ids`
+  (default 10, 11, 12, 13; 255: no drive) the readiness on 1024 + its
+  node-ID at `unimoc.vdc.readiness_rate` (10 Hz): `ENGAGED` while
+  `unimoc.vdc.engage` is 1, `STANDBY` otherwise.
+- **Drive status.** The `unimoc.cart.DriveStatus` of each wheel, from the
+  node configured for it. A wheel is available while its status is not
+  older than `unimoc.vdc.status_timeout` (0.1 s), the drive is engaged with
+  its power stage on, without a trip and not in limp-home.
+- **Wheel command.** At `unimoc.vdc.cycle_rate` (250 Hz) the torque
+  request `unimoc.vdc.torque_request` (N m, positive forward) split onto the
+  available wheels: `unimoc.vdc.front_share` (0.5) on the front axle, both
+  wheels of an axle the same torque within the smaller torque window of the
+  two, so a lost drive takes its axle out and the other axle takes the
+  request (no yaw moment). Zero for every wheel while not engaged.
+- **State.** `unimoc.vdc.drive_available`, `.wheel_speed`,
+  `.estimated_torque` and `.wheel_torque` (per wheel, read-only); the
+  heartbeat health is ADVISORY while a configured drive is not available.
+
+The registers live in RAM: every start begins with the defaults; the
+node-ID is `CONFIG_UNIMOC_VDC_NODE_ID` (1; `--node-id=<n>` in the
+simulation). The port-IDs are the ones of the drives (wheel command 110,
+drive status 214) and read-only.
+
 ### Board inputs and the accelerator
 
 The drive reads the slow inputs of its board every spin
@@ -402,7 +440,7 @@ T9N) and the display (KT-LCD8, Kunteng protocol) feed the assist law (`lib/ebike
 - `native_sim`: a simulated rider and display (`hardware/zephyr_sim/sim_ebike.hpp`) drive the control in the
   tests (`sim_cyphal_drive` attaches the control itself); the simulation app keeps the bus readiness for the
   pytest integration tests, so `CONFIG_UNIMOC_EBIKE` is off there too. Built with it
-  (`-DCONFIG_UNIMOC_EBIKE=y`, the pytest scenario `unimoc.app.cyphal_integration.ebike`), the simulated rider
+  (`-DCONFIG_UNIMOC_EBIKE=y`, the pytest scenario `unimoc.app.drive.cyphal_integration.ebike`), the simulated rider
   and display are registers (volatile): `unimoc.sim.pedal_cadence` [rad/s, 0: standstill],
   `unimoc.sim.pedal_torque` [N m, at standstill the sensor offset], `unimoc.sim.display_on` (bit: the display
   polls), `unimoc.sim.display_level` (0 to 7), `unimoc.sim.display_max_speed` [km/h, 10 to 63],
@@ -503,7 +541,7 @@ STM32H7; `hardware/hot_path_timing.hpp`).  Read-only registers:
 | `unimoc.timing.pwm_suggestion` | real32[3] | PWM frequency for the inductance of the running settings [Hz], the ripple there and at the running frequency [A peak to peak] |
 
 ```sh
-west build -b unimoc_jacobi unimoc/app -d unimoc/app/build/jacobi -- -DCONFIG_UNIMOC_HOT_PATH_TIMING=y
+west build -b unimoc_jacobi unimoc/apps/drive -d unimoc/apps/drive/build/jacobi -- -DCONFIG_UNIMOC_HOT_PATH_TIMING=y
 yakut call 10 uavcan.register.access '{name: {name: unimoc.timing.control_cycle}}'
 yakut cmd 10 768                               # RESET_TIMING: new statistics
 ```
@@ -540,11 +578,11 @@ two kinds of CAN interfaces:
 
 ```sh
 pip install -r unimoc/scripts/requirements-cyphal-tools.txt   # yakut, python-can
-west build -b native_sim/native/64 unimoc/app -d unimoc/app/build/sim
+west build -b native_sim/native/64 unimoc/apps/drive -d unimoc/apps/drive/build/sim
 
 # with vcan (once, as root): modprobe vcan; ip link add vcan0 type vcan;
 #                            ip link set vcan0 mtu 72 up
-unimoc/app/build/sim/zephyr/zephyr.exe        # prints "uart_1 connected to pseudotty: /dev/pts/N"
+unimoc/apps/drive/build/sim/zephyr/zephyr.exe        # prints "uart_1 connected to pseudotty: /dev/pts/N"
 
 . unimoc/scripts/sim_yakut_env.sh             # vcan0, or: . unimoc/scripts/sim_yakut_env.sh /dev/pts/N
 yakut call 10 uavcan.node.getinfo
@@ -1174,13 +1212,17 @@ Run these from the west workspace root, which contains `unimoc/` and `zephyr/`:
 
 ```bash
 # Linux host simulation (native_sim)
-west build -b native_sim/native/64 unimoc/app -d unimoc/app/build/sim
+west build -b native_sim/native/64 unimoc/apps/drive -d unimoc/apps/drive/build/sim
 
 # Jacobi, 36 V / 45 A drive (STM32H743VI)
-west build -b unimoc_jacobi unimoc/app -d unimoc/app/build/jacobi
+west build -b unimoc_jacobi unimoc/apps/drive -d unimoc/apps/drive/build/jacobi
 
 # STM32H7 platform on a NUCLEO-H743ZI (bring-up for Jacobi)
-west build -b nucleo_h743zi unimoc/app -d unimoc/app/build/h743
+west build -b nucleo_h743zi unimoc/apps/drive -d unimoc/apps/drive/build/h743
+
+# The vehicle dynamics controller (VDC): simulation and NUCLEO-H743ZI
+west build -b native_sim/native/64 unimoc/apps/vdc -d unimoc/apps/vdc/build/sim
+west build -b nucleo_h743zi unimoc/apps/vdc -d unimoc/apps/vdc/build/h743
 
 ```
 
@@ -1190,7 +1232,7 @@ follow the proposal of `docs/drive4850_h7_plan.md`. The image is 197 KB
 flash, 84 KB RAM.
 
 The NUCLEO-H743ZI build (`hardware/zephyr_stm32h7`, pins in
-`app/boards/nucleo_h743zi.overlay`) has not run on the board yet either. It
+`apps/drive/boards/nucleo_h743zi.overlay`) has not run on the board yet either. It
 runs the core at 400 MHz, the limit of silicon rev. Y of the first Nucleo
 revision; PE15 (TIM1_BKIN) is the external enable and has to be tied to 3V3
 to release the outputs. The log is on the ST-LINK virtual COM port.
@@ -1199,9 +1241,10 @@ to release the outputs. The log is on the ST-LINK virtual COM port.
 
 All tests run under twister on `native_sim`; there is no hosted test build.
 `tests/lib/<library>/` (ztest) covers the libraries, `tests/sim/` (ztest) runs
-the application core against the simulated drive, and
-`tests/integration/cyphal_sim/` (pytest with pycyphal) drives the running
-simulation over Cyphal. From the west workspace root:
+the application core against the simulated drive, `tests/vdc/` the VDC node on
+an in-memory bus, and `tests/integration/cyphal_sim/` and `vdc_sim/` (pytest
+with pycyphal) drive the running simulations of the drive and the VDC over
+Cyphal. From the west workspace root:
 
 ```bash
 # All scenarios on native_sim, unimoc_jacobi and nucleo_h743zi, with clang-tidy as static analysis (as in CI)
@@ -1211,7 +1254,8 @@ unimoc/scripts/twister_sca.sh
 unimoc/scripts/check_format.sh
 
 # pycyphal integration tests of the simulation (needs scripts/requirements-cyphal-tools.txt)
-west twister -T unimoc/app -p native_sim/native/64 --scenario unimoc.app.cyphal_integration
+west twister -T unimoc/apps/drive -p native_sim/native/64 --scenario unimoc.app.drive.cyphal_integration
+west twister -T unimoc/apps/vdc -p native_sim/native/64 --scenario unimoc.app.vdc.cyphal_integration
 
 # One suite without static analysis, while iterating
 west twister -T unimoc/tests/lib/motor_control -p native_sim/native/64
@@ -1229,7 +1273,7 @@ the API documentation.
 A release is made by merging a pull request from `develop` into `main` (merge
 commit). Nothing is tagged by hand ([docs/release_plan.md](docs/release_plan.md)):
 
-- The version is in the Zephyr version file `app/VERSION`. While the
+- The version is in the Zephyr version file `apps/drive/VERSION`. While the
   `develop` to `main` pull request is open, the *Release prepare* workflow
   commits the next version and `CHANGELOG.md` to `develop` and comments the
   release on the pull request. The label `release-as:X.Y.Z` forces a version.

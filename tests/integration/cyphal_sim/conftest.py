@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
 # pycyphal integration tests of the native_sim drive (scenario
-# unimoc.app.cyphal_integration in app/testcase.yaml). Twister builds the
+# unimoc.app.drive.cyphal_integration in apps/drive/testcase.yaml). Twister builds the
 # application and starts it (fixture `dut`); a pycyphal node connects to the
 # first slcan pseudo terminal of the simulation, so no SocketCAN is needed.
 # Skipped when pycyphal, python-can or pyserial are not installed
@@ -11,10 +11,8 @@
 from __future__ import annotations
 
 import asyncio
-import fcntl
 import logging
 import os
-import tempfile
 import re
 import sys
 from pathlib import Path
@@ -25,39 +23,10 @@ pytest.importorskip("pycyphal")
 pytest.importorskip("can")
 pytest.importorskip("serial")
 
-import pycyphal.dsdl  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from unimoc_dsdl import compile_dsdl  # noqa: E402
 
-_REPO = Path(__file__).resolve().parents[3]
-_PUBLIC_DSDL = _REPO.parent / "modules" / "lib" / "public_regulated_data_types"
-_CYMON_DSDL = _REPO / "lib" / "cymon" / "dsdl" / "cymon"
-_NAMESPACES = [_PUBLIC_DSDL / "uavcan", _PUBLIC_DSDL / "reg", _REPO / "dsdl" / "unimoc", _CYMON_DSDL]
-_GENERATED = Path(tempfile.gettempdir()) / "unimoc_pycyphal"
-
-
-def _compile_dsdl() -> None:
-    """Compiles the DSDL namespaces once, again when a vendor type changes.
-
-    Explicitly, not by the pycyphal import hook: the workspace root is on
-    sys.path, so `import unimoc` would find the repository instead of the
-    generated package. The output directory goes first on sys.path.
-    """
-    stamp = _GENERATED / ".stamp"
-    sources = [*(_REPO / "dsdl").rglob("*.dsdl"), *_CYMON_DSDL.rglob("*.dsdl")]
-    newest = max(path.stat().st_mtime for path in sources)
-    _GENERATED.mkdir(parents=True, exist_ok=True)
-    # Twister runs the pytest scenarios in parallel: one compiles, the others wait for it.
-    with open(_GENERATED.parent / "unimoc_pycyphal.lock", "w") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
-        if not stamp.exists() or stamp.stat().st_mtime < newest:
-            for namespace in _NAMESPACES:
-                pycyphal.dsdl.compile(namespace, [str(path) for path in _NAMESPACES], _GENERATED)
-            stamp.touch()
-    sys.path.insert(0, str(_GENERATED))
-    sys.modules.pop("unimoc", None)
-    sys.modules.pop("cymon", None)
-
-
-_compile_dsdl()
+compile_dsdl()
 
 # Twister runs pytest at DEBUG; pycyphal logs every frame there.
 for _name in ("pycyphal", "can", "nunavut", "pydsdl"):
@@ -116,7 +85,7 @@ def configure_test_motor(client: SimClient) -> None:
 
 def pytest_configure(config) -> None:
     config.addinivalue_line(
-        "markers", "ebike: needs the e-bike build (CONFIG_UNIMOC_EBIKE, scenario unimoc.app.cyphal_integration.ebike)")
+        "markers", "ebike: needs the e-bike build (CONFIG_UNIMOC_EBIKE, scenario unimoc.app.drive.cyphal_integration.ebike)")
 
 
 @pytest.fixture(scope="session")

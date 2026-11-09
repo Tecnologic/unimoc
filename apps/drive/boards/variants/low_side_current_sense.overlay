@@ -2,7 +2,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
  * Build check of the low-side shunt mode of the STM32H7 platform
- * (scenario unimoc.app.build.low_side): foc0 measures the phase currents
+ * (scenario unimoc.app.drive.build.low_side): foc0 measures the phase currents
  * with low-side shunts. No board has them yet.
  */
 

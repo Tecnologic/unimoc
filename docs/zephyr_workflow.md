@@ -10,9 +10,9 @@ in a `prj.conf`, `zephyr/CMakeLists.txt` declares the library targets
 (`unimoc_lib`, `unimoc_sim`), which the application and the tests link;
 `zephyr/Kconfig` holds `CONFIG_UNIMOC`, the platform choice and the log level.
 Platform selection is done by the build (board -> Kconfig `UNIMOC_PLATFORM_*` ->
-`app/CMakeLists.txt`), never by `#ifdef`. Pinout and mapping live in
+`apps/drive/CMakeLists.txt`), never by `#ifdef`. Pinout and mapping live in
 `boards/unimoc/jacobi/unimoc_jacobi.dts` (node `foc0`, binding
-`unimoc,foc-stm32h7`) and, for the NUCLEO-H743ZI, `app/boards/nucleo_h743zi.overlay`.
+`unimoc,foc-stm32h7`) and, for the NUCLEO-H743ZI, `apps/drive/boards/nucleo_h743zi.overlay`.
 
 ## Setup (Linux, on Windows inside WSL)
 
@@ -36,21 +36,30 @@ CMake >= 3.28 (Zephyr's minimum since 4.5) and Ninja are required. The CI job
 
 ## Build
 
-    west build -b native_sim/native/64 unimoc/app -d unimoc/app/build/sim   # host simulation (Cyphal: README.md)
-    west build -b unimoc_jacobi unimoc/app -d unimoc/app/build/jacobi         # Jacobi drive (STM32H743VI)
-    west build -b nucleo_h743zi unimoc/app -d unimoc/app/build/h743           # STM32H7 platform on a NUCLEO-H743ZI
+    west build -b native_sim/native/64 unimoc/apps/drive -d unimoc/apps/drive/build/sim   # host simulation (Cyphal: README.md)
+    west build -b unimoc_jacobi unimoc/apps/drive -d unimoc/apps/drive/build/jacobi         # Jacobi drive (STM32H743VI)
+    west build -b nucleo_h743zi unimoc/apps/drive -d unimoc/apps/drive/build/h743           # STM32H7 platform on a NUCLEO-H743ZI
+    west build -b native_sim/native/64 unimoc/apps/vdc -d unimoc/apps/vdc/build/sim       # VDC simulation (node-ID 1)
+    west build -b nucleo_h743zi unimoc/apps/vdc -d unimoc/apps/vdc/build/h743             # VDC on a NUCLEO-H743ZI
+
+`apps/drive/` is the motor drive, `apps/vdc/` the vehicle dynamics controller
+of the cart (`docs/system_plan.md`, section 5.3; README, "Vehicle dynamics
+controller"). Both share `lib/`, `hardware/zephyr_common` and the platforms;
+twister builds both with `-T unimoc` (scenarios `unimoc.app.drive.*` and
+`unimoc.app.vdc.*`). The VDC on the Nucleo is flashed like the drive, with
+the OpenOCD configuration of `apps/drive/boards/`.
 
 The Nucleo's on-board ST-LINK (ST firmware) is flashed and debugged through
-OpenOCD's DAP interface (`app/boards/nucleo_h743zi_openocd.cfg`; the VS Code
+OpenOCD's DAP interface (`apps/drive/boards/nucleo_h743zi_openocd.cfg`; the VS Code
 task `Zephyr: flash h743` and the launch configuration use it):
 
-    west flash -d unimoc/app/build/h743 --runner openocd --config unimoc/app/boards/nucleo_h743zi_openocd.cfg
+    west flash -d unimoc/apps/drive/build/h743 --runner openocd --config unimoc/apps/drive/boards/nucleo_h743zi_openocd.cfg
 
 The board's default OpenOCD configuration uses the hla interface, which cannot
 drive the reset line or read the H7 debug registers with this probe. A plain
 `west flash` uses STM32CubeProgrammer and needs `STM32_Programmer_CLI` installed.
 
-Jacobi is flashed with a J-Link over SWD (`west flash -d unimoc/app/build/jacobi
+Jacobi is flashed with a J-Link over SWD (`west flash -d unimoc/apps/drive/build/jacobi
 --runner openocd`, `boards/unimoc/jacobi/support/openocd.cfg`, or `--runner
 jlink`); its log is on SEGGER RTT.
 
@@ -139,16 +148,16 @@ Kconfig: `CONFIG_UNIMOC_CYPHAL` (app `prj.conf`), `..._CAN_FD`, `..._CAN_BRS`
 and `..._LOG_LEVEL` (log lines up to info as diagnostic records),
 `..._SLCAN` (native_sim); the traces have `CONFIG_UNIMOC_TRACE_BUFFER_BYTES`
 (8192), `..._VARS` (32) and `..._CHANNELS` (8). The simulation runs in real time
-(`CONFIG_NATIVE_SIM_SLOWDOWN_TO_REAL_TIME`, `app/boards/native_sim_native_64.conf`).
+(`CONFIG_NATIVE_SIM_SLOWDOWN_TO_REAL_TIME`, `apps/drive/boards/native_sim_native_64.conf`).
 Tests: `unimoc.lib.cyphal` (transport and node against a second libcanard
 node), `unimoc.lib.cymon` (cymon-lib with the Kconfig limits, captures and
 the generated `cymon.*` serialization), `unimoc.sim.cyphal_drive` (DriveNode with the plant) and
-`unimoc.app.cyphal_integration`: twister's pytest harness starts the real
+`unimoc.app.drive.cyphal_integration`: twister's pytest harness starts the real
 application, and pycyphal (`tests/integration/cyphal_sim/`) checks
 heartbeat, GetInfo, the port list, registers, arming, setpoints, telemetry,
 diagnostics, the simulation registers, trace captures (cymon) and a store
 across a restart over the
-first slcan pseudo terminal. `unimoc.app.cyphal_integration.ebike` runs the
+first slcan pseudo terminal. `unimoc.app.drive.cyphal_integration.ebike` runs the
 same harness on the e-bike build (`CONFIG_UNIMOC_EBIKE`) with the tests of
 marker `ebike` only (`test_ebike_sim.py`: the simulated rider and display
 over the `unimoc.sim.pedal_*` and `unimoc.sim.display_*` registers); the
@@ -217,11 +226,11 @@ stage is no longer enabled (trip, external break, e-stop), and
   the ST-LINK virtual COM port. USB and the shell are not used; USB returns
   for DFU recovery.
 - The pytest scenario runs pytest with `-p no:platformdirs`
-  (`app/testcase.yaml`): platformdirs 4.13 registers a pytest plugin, and on
+  (`apps/drive/testcase.yaml`): platformdirs 4.13 registers a pytest plugin, and on
   the CI runner (`pip --user` on the system Python) an older platformdirs on
   the path makes its import fail before any test runs.
 - The app board files of the simulation are named for the 64-bit target
-  (`app/boards/native_sim_native_64.*`); the 32-bit `native_sim` build does
+  (`apps/drive/boards/native_sim_native_64.*`); the 32-bit `native_sim` build does
   not pick them up.
 - The Jacobi pins follow the drawn schematic (Tecnologic/unimoc_jacobi,
   `docs/h743_logic_board.md`, 2026-11-08); the NUCLEO-H743ZI pins follow the

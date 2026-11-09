@@ -865,6 +865,84 @@ inline constexpr const char* kNodeUniqueId = "uavcan.node.unique_id";
 /// Type: bit[1] (read-only)
 inline constexpr const char* kSettingsPending = "unimoc.settings.pending";
 
+// ---- Vehicle dynamics controller (apps/vdc, docs/system_plan.md section 5.3) ----
+// The VDC keeps its registers in RAM: every start begins with the defaults
+// of src/vdc/vdc_node.hpp (no settings storage yet).
+
+/// Wheel command publication of the VDC (port-ID kSubWheelCommand of the drives).
+/// Data type: unimoc.cart.WheelCommand.0.1
+/// Type: natural16[1] (read-only)
+inline constexpr const char* kPubWheelCommandId = "uavcan.pub.wheel_command.id";
+/// Type name of the wheel command publication. Type: string (read-only)
+inline constexpr const char* kPubWheelCommandType = "uavcan.pub.wheel_command.type";
+
+/// Drive status subscription of the VDC (port-ID kPubDriveStatus of the drives).
+/// Data type: unimoc.cart.DriveStatus.0.1
+/// Type: natural16[1] (read-only)
+inline constexpr const char* kSubDriveStatusId = "uavcan.sub.drive_status.id";
+/// Type name of the drive status subscription. Type: string (read-only)
+inline constexpr const char* kSubDriveStatusType = "uavcan.sub.drive_status.type";
+
+/// Readiness publications of the VDC, one per wheel: kSubReadinessBase plus
+/// the node-ID of the wheel's drive (unimoc.vdc.drive_node_ids), kUnsetPortId
+/// without a drive.
+/// Data type: reg.udral.service.common.Readiness.0.1
+/// Type: natural16[1] (read-only)
+inline constexpr const char* kPubReadinessFrontLeftId = "uavcan.pub.readiness_front_left.id";
+inline constexpr const char* kPubReadinessFrontRightId = "uavcan.pub.readiness_front_right.id";
+inline constexpr const char* kPubReadinessRearLeftId = "uavcan.pub.readiness_rear_left.id";
+inline constexpr const char* kPubReadinessRearRightId = "uavcan.pub.readiness_rear_right.id";
+/// Type names of the readiness publications. Type: string (read-only)
+inline constexpr const char* kPubReadinessFrontLeftType = "uavcan.pub.readiness_front_left.type";
+inline constexpr const char* kPubReadinessFrontRightType = "uavcan.pub.readiness_front_right.type";
+inline constexpr const char* kPubReadinessRearLeftType = "uavcan.pub.readiness_rear_left.type";
+inline constexpr const char* kPubReadinessRearRightType = "uavcan.pub.readiness_rear_right.type";
+
+/// Node-ID of the drive of each wheel (front left, front right, rear left,
+/// rear right); 255: no drive on that wheel.
+/// Type: natural8[4] (read/write)
+inline constexpr const char* kVdcDriveNodeIds = "unimoc.vdc.drive_node_ids";
+
+/// 1: the VDC arms its drives (readiness ENGAGED); 0: STANDBY.
+/// Type: bit[1] (read/write)
+inline constexpr const char* kVdcEngage = "unimoc.vdc.engage";
+
+/// Total wheel torque the VDC distributes, positive forward [N m].
+/// Type: real32[1] (read/write)
+inline constexpr const char* kVdcTorqueRequest = "unimoc.vdc.torque_request";
+
+/// Share of the torque request on the front axle, 0 to 1.
+/// Type: real32[1] (read/write)
+inline constexpr const char* kVdcFrontShare = "unimoc.vdc.front_share";
+
+/// Rate of the wheel command [Hz].
+/// Type: real32[1] (read/write)
+inline constexpr const char* kVdcCycleRate = "unimoc.vdc.cycle_rate";
+
+/// Rate of the readiness of each drive [Hz].
+/// Type: real32[1] (read/write)
+inline constexpr const char* kVdcReadinessRate = "unimoc.vdc.readiness_rate";
+
+/// Age after which the drive status of a wheel counts as lost [s].
+/// Type: real32[1] (read/write)
+inline constexpr const char* kVdcStatusTimeout = "unimoc.vdc.status_timeout";
+
+/// 1 per wheel whose drive follows the VDC (fresh status, engaged, no trip, not in limp-home).
+/// Type: natural8[4] (read-only)
+inline constexpr const char* kVdcDriveAvailable = "unimoc.vdc.drive_available";
+
+/// Wheel speed of each drive status, cart frame [rad/s].
+/// Type: real32[4] (read-only)
+inline constexpr const char* kVdcWheelSpeed = "unimoc.vdc.wheel_speed";
+
+/// Torque estimate of each drive status, cart frame [N m].
+/// Type: real32[4] (read-only)
+inline constexpr const char* kVdcEstimatedTorque = "unimoc.vdc.estimated_torque";
+
+/// Torque of each wheel in the last wheel command [N m].
+/// Type: real32[4] (read-only)
+inline constexpr const char* kVdcWheelTorque = "unimoc.vdc.wheel_torque";
+
 }  // namespace reg
 
 // ============================================================================

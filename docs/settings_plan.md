@@ -121,7 +121,7 @@ enabled ports on one subject-ID or two services on one service-ID
 (`HasPortIdCollision()`); the publication and subscription of the cymon
 trigger may share one subject. GetInfo takes the hardware and
 software versions from the firmware (`hardware_interface_config.hpp`,
-`app/VERSION`), not from the settings.
+`apps/drive/VERSION`), not from the settings.
 
 ## Register description file
 

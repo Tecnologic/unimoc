@@ -1,0 +1,29 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+tests:
+  unimoc.app.vdc.build:
+    build_only: true
+    platform_allow:
+      - native_sim/native/64
+      - nucleo_h743zi
+    tags: [unimoc, app, vdc]
+  # The simulated VDC as a Cyphal node, tested from pycyphal over its slcan
+  # pseudo terminal (tests/integration/vdc_sim); the client plays the four
+  # wheel drives. Needs pycyphal, python-can and pyserial
+  # (scripts/requirements-cyphal-tools.txt); skipped without them.
+  unimoc.app.vdc.cyphal_integration:
+    harness: pytest
+    platform_allow:
+      - native_sim/native/64
+    integration_platforms:
+      - native_sim/native/64
+    harness_config:
+      pytest_root:
+        - "../../tests/integration/vdc_sim"
+      pytest_dut_scope: session
+      # As for the drive (apps/drive/testcase.yaml): no platformdirs plugin.
+      pytest_args:
+        - "-p"
+        - "no:platformdirs"
+    timeout: 300
+    tags: [unimoc, app, vdc, cyphal]
