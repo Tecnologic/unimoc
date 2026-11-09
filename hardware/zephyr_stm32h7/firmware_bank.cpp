@@ -23,12 +23,9 @@
 #include <zephyr/devicetree.h>
 #include <zephyr/dfu/flash_img.h>
 #include <zephyr/dfu/mcuboot.h>
-#include <zephyr/logging/log.h>
 #include <zephyr/storage/flash_map.h>
 #include <algorithm>
 #include <array>
-
-LOG_MODULE_REGISTER(unimoc_update, CONFIG_UNIMOC_LOG_LEVEL);
 
 namespace unimoc::hardware {
 namespace {
@@ -82,7 +79,7 @@ bool Read(const uint32_t offset, const std::span<std::byte> data) noexcept {
   if (flash_area_open(kSlot1, &area) != 0) {
     return false;
   }
-  const int kResult = flash_area_read(area, offset, data.data(), data.size());
+  const int kResult = flash_area_read(area, static_cast<off_t>(offset), data.data(), data.size());
   flash_area_close(area);
   return kResult == 0;
 }
@@ -97,28 +94,24 @@ bool ReadVersion(const uint8_t area_id, std::array<uint32_t, 3>& version) noexce
   return true;
 }
 
+/// MCUboot (downgrade prevention) leaves an image that is not newer in the slot and starts the old one.
+bool IsNewerThanRunning(const std::array<uint32_t, 3>& update) noexcept {
+  std::array<uint32_t, 3> running{};
+  return !ReadVersion(kSlot0, running) ||
+         std::lexicographical_compare(running.begin(), running.end(), update.begin(), update.end());
+}
+
 cyphal::ImageStatus Activate() noexcept {
   std::array<uint32_t, 3> update{};
   if (!ReadVersion(kSlot1, update)) {
     return cyphal::ImageStatus::kNoBootImage;
   }
-  std::array<uint32_t, 3> running{};
-  // MCUboot (downgrade prevention) leaves an image that is not newer in the slot and starts the old one.
-  if (ReadVersion(kSlot0, running) &&
-      !std::lexicographical_compare(running.begin(), running.end(), update.begin(), update.end())) {
-    LOG_WRN("update image %u.%u.%u is not newer than %u.%u.%u",
-            update[0],
-            update[1],
-            update[2],
-            running[0],
-            running[1],
-            running[2]);
+  if (!IsNewerThanRunning(update)) {
     return cyphal::ImageStatus::kNotNewer;
   }
   if (boot_request_upgrade(BOOT_UPGRADE_TEST) != 0) {
     return cyphal::ImageStatus::kNoBootImage;
   }
-  LOG_INF("update image %u.%u.%u in slot 1: swap at the next start", update[0], update[1], update[2]);
   return cyphal::ImageStatus::kOk;
 }
 
@@ -134,11 +127,9 @@ bool ConfirmRunningImage(const uint64_t now_us) noexcept {
     return false;
   }
   if (boot_write_img_confirmed() != 0) {
-    LOG_ERR("the new image could not be confirmed");
     return false;
   }
   confirmed = true;
-  LOG_INF("update image confirmed");
   return true;
 }
 
