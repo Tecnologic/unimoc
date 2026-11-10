@@ -49,3 +49,5 @@ __pycache__
 # twister output (when run from inside the repository)
 twister-out*/
 flash.bin
+unimoc_release_ec256.pem
+*.pem

@@ -55,6 +55,11 @@ HEALTH_NOMINAL = 0
 HEALTH_CAUTION = 2
 
 
+UPDATE_IDLE, UPDATE_DOWNLOADING, UPDATE_READY, UPDATE_FAILED = 0, 1, 2, 3
+RESULT_OK, RESULT_BAD_BOARD, RESULT_BAD_CRC, RESULT_NO_BOOT_IMAGE, RESULT_NOT_NEWER = 0, 4, 7, 8, 9
+HEADER_SIZE = 40
+
+
 def acknowledge(drive: HwClient) -> None:
     """STANDBY acknowledges a latched trip or fault without releasing the outputs."""
     drive.hold_readiness(STANDBY)
@@ -218,11 +223,11 @@ def test_unsaved_setting_is_gone_after_a_restart(clean_drive: HwClient) -> None:
 
 # --- Firmware update ---------------------------------------------------------------------
 
-@pytest.mark.no_flash_bank
-def test_firmware_update_is_refused_without_a_bank(drive: HwClient) -> None:
-    """The H7 boards have no flash writer and bootloader yet (README.md, Cyphal status): a refusal, nothing erased."""
+@pytest.mark.no_bootloader
+def test_firmware_update_is_refused_without_a_bootloader(drive: HwClient) -> None:
+    """A build without MCUboot has no slot 1 (README.md): a refusal, nothing erased."""
     assert drive.command(CMD_BEGIN_SOFTWARE_UPDATE, "image.bin") == STATUS_FAILURE
-    assert drive.read("unimoc.update.state") == 0
+    assert drive.read("unimoc.update.state") == UPDATE_IDLE
     assert drive.read("unimoc.update.received") == 0
 
 
@@ -266,3 +271,105 @@ def test_factory_reset_restores_defaults_and_clears_the_node_id(clean_drive: HwC
     # The new allocation is saved: it survives another restart without the allocator.
     assert drive.command(CMD_RESTART) == STATUS_SUCCESS
     assert drive.wait_for_restart() == new_id
+
+
+# --- Firmware update over the bus (very last: the board runs another image afterwards) ----
+
+def run_update(drive: HwClient, image: bytes, timeout: float = 240.0) -> int:
+    """Serves @p image, starts the update and waits until it is ready or failed; returns the state."""
+    path = drive.serve_file(image)
+    assert drive.command(CMD_BEGIN_SOFTWARE_UPDATE, path) == STATUS_SUCCESS
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        state = drive.read("unimoc.update.state")
+        if state in (UPDATE_READY, UPDATE_FAILED):
+            return state
+        drive.sleep(1.0)
+    raise AssertionError(f"the update neither finished nor failed within {timeout} s")
+
+
+@pytest.mark.update
+def test_firmware_update_refuses_images_before_the_swap(clean_drive: HwClient, request) -> None:
+    """Wrong board, a corrupt payload and an image that is not newer end in kFailed; the drive keeps running."""
+    drive = clean_drive
+    image = request.config.getoption("--update-image").read_bytes()
+    board = bytearray(image)
+    board[24:40] = b"unimoc_jacobi".ljust(16, b"\0")
+    assert run_update(drive, bytes(board)) == UPDATE_FAILED
+    assert drive.read("unimoc.update.result") == RESULT_BAD_BOARD
+    assert drive.read("unimoc.update.received") == 0, "a wrong board is refused before anything is written"
+
+    corrupt = bytearray(image)
+    corrupt[HEADER_SIZE + 4096] ^= 0x01
+    assert run_update(drive, bytes(corrupt)) == UPDATE_FAILED
+    assert drive.read("unimoc.update.result") == RESULT_BAD_CRC
+
+    current = request.config.getoption("--current-image")
+    if current is not None:
+        assert run_update(drive, current.read_bytes()) == UPDATE_FAILED
+        assert drive.read("unimoc.update.result") == RESULT_NOT_NEWER
+
+    assert drive.command(CMD_BEGIN_SOFTWARE_UPDATE, "missing.bin") == STATUS_SUCCESS
+    drive.sleep(5.0)
+    assert drive.read("unimoc.update.state") == UPDATE_FAILED
+    assert drive.read("unimoc.update.file_error") == 2  # uavcan.file.Error NOT_FOUND
+    assert drive.latest_heartbeat().mode.value == 0, "back to operational after the failed update"
+
+
+@pytest.mark.update
+def test_firmware_update_swaps_the_new_image_in_and_confirms_it(clean_drive: HwClient, request) -> None:
+    """Download over uavcan.file.Read into slot 1, RESTART: MCUboot swaps, the new image runs and confirms itself."""
+    drive = clean_drive
+    image = request.config.getoption("--update-image").read_bytes()
+    major, minor = image[6], image[7]
+    before = drive.get_info()
+    assert (before.software_version.major, before.software_version.minor) < (major, minor), \
+        "the update image must be newer than the running firmware (MCUboot refuses a downgrade)"
+
+    assert run_update(drive, image) == UPDATE_READY
+    assert drive.read("unimoc.update.result") == RESULT_OK
+    assert drive.read("unimoc.update.received") == len(image)
+    assert list(drive.access("unimoc.update.version").value.natural8.value) == [major, minor]
+    assert drive.get_info().software_version.minor == before.software_version.minor, "the old image runs until the restart"
+
+    # The swap needs the bootloader to move the sectors of both images: tens of seconds.
+    assert drive.command(CMD_RESTART) == STATUS_SUCCESS
+    drive.wait_for_restart(timeout=180.0)
+    after = drive.get_info_after_restart()
+    assert (after.software_version.major, after.software_version.minor) == (major, minor)
+    assert drive.read("unimoc.update.state") == UPDATE_IDLE
+
+    # On trial until the image confirms itself on the bus (firmware_bank.cpp); a restart after that keeps it.
+    mark = drive.record_mark()
+    drive.wait_for_record("confirmed", mark, timeout=30.0)
+    assert drive.command(CMD_RESTART) == STATUS_SUCCESS
+    drive.wait_for_restart(timeout=60.0)
+    final = drive.get_info_after_restart()
+    assert (final.software_version.major, final.software_version.minor) == (major, minor), \
+        "the confirmed image stays; an unconfirmed one would have been swapped back"
+
+
+@pytest.mark.swap_back
+def test_an_unconfirmed_image_is_swapped_back_at_the_next_reset(clean_drive: HwClient, request) -> None:
+    """The safety net of the update: a new image that does not confirm itself is replaced by the old one."""
+    drive = clean_drive
+    image = request.config.getoption("--unconfirmed-image").read_bytes()
+    major, minor = image[6], image[7]
+    old = drive.get_info()
+    assert (old.software_version.major, old.software_version.minor) < (major, minor)
+
+    assert run_update(drive, image) == UPDATE_READY
+    assert drive.command(CMD_RESTART) == STATUS_SUCCESS
+    drive.wait_for_restart(timeout=180.0)
+    trial = drive.get_info_after_restart()
+    assert (trial.software_version.major, trial.software_version.minor) == (major, minor), "the new image runs on trial"
+    mark = drive.record_mark()
+    drive.sleep(15.0)  # longer than the delay of an ordinary image: this one does not confirm
+    assert all("confirmed" not in record for record in drive.records[mark:])
+
+    assert drive.command(CMD_RESTART) == STATUS_SUCCESS  # a reset while on trial
+    drive.wait_for_restart(timeout=180.0)
+    back = drive.get_info_after_restart()
+    assert (back.software_version.major, back.software_version.minor) == (old.software_version.major,
+                                                                          old.software_version.minor), \
+        "MCUboot swaps the unconfirmed image back"

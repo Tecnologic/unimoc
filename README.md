@@ -189,8 +189,9 @@ interfaces and the simulation registers are platform specific.
 > without bit rate switch (`boards/unimoc/jacobi/unimoc_jacobi.dts`).  The firmware update over
 > Cyphal (`BEGIN_SOFTWARE_UPDATE`, `uavcan.file.Read` from the commanding
 > node, the UNIMOC image header checked, `unimoc.update.*`) runs on
-> `native_sim` into a RAM bank; the boards refuse it until flash bank 2 and
-> the bootloader exist.  The simulation serves its register description
+> `native_sim` into a RAM bank and, with MCUboot (`west build --sysbuild`), on the
+> NUCLEO-H743ZI into flash slot 1 and swaps the new image in at the next restart
+> (`docs/zephyr_workflow.md`, "Bootloader and firmware update"; Jacobi builds, not run).  The simulation serves its register description
 > file as `registers.json` over `uavcan.file.Read`.  Speed, position and UDRAL servo
 > setpoints run the outer loop in the control thread; the startup FSM runs
 > over the commissioning commands and status message (Hardware Bring-Up Guide).  The cymon traces run on both

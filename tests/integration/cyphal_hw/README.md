@@ -9,8 +9,7 @@ board's state.
 What they check (`test_cyphal_hw.py`): plug-and-play, GetInfo, heartbeat, the port
 list, the registers (list, write, read back, restore), the publish rates, the cymon
 trace capture, the emergency stop, persistence of the node-ID and of the settings
-across a restart, the refusal of a firmware update on a board without a flash bank,
-the engage with the loss of the master, and the factory reset.
+across a restart, the firmware update with MCUboot (options below), the engage with the loss of the master, and the factory reset.
 
 ## Bench setup
 
@@ -77,6 +76,10 @@ A drive without a node-ID gets one from the centralized allocator of the test cl
 | `--hardware` | required, otherwise all tests are skipped |
 | `--can-iface can0` | SocketCAN interface (default `can0`) |
 | `--allow-engage` | also run the engage test: enables the power stage outputs for a few seconds, torque setpoint 0 |
+| `--update-image FILE` | runs the firmware update tests: refusals (wrong board, corrupt, not newer), then the download, the swap and the confirmation. **Changes the firmware**: the board runs `FILE` afterwards (reflash to go back). `FILE` is an update image (`scripts/make_firmware_image.py`, `docs/zephyr_workflow.md`) of this board with a **higher version** than the running firmware |
+| `--current-image FILE` | the update image of the running firmware: checks the refusal "not newer" |
+| `--unconfirmed-image FILE` | an image newer than `--update-image`, built with `-Ddrive_CONFIG_UNIMOC_UPDATE_CONFIRM_DELAY_MS=3600000`: checks that a reset swaps it back (runs after the other update tests; the board ends on the version of `--update-image`) |
+| `--no-bootloader` | the board runs a build without MCUboot (no `--sysbuild`): expects the refusal of `BEGIN_SOFTWARE_UPDATE` |
 | `--allow-factory-reset` | also run FACTORY_RESET: erases the settings and the stored node-ID (the test allocates again and checks that the new ID is kept) |
 | `--allow-flash-bank` | the board has a firmware bank: skip the test that expects `BEGIN_SOFTWARE_UPDATE` to be refused |
 
@@ -88,5 +91,4 @@ test leaves the board at factory settings with a freshly allocated node-ID.
 The control loop on a motor (no motor, no power stage on the bench; `estimated_torque`
 shows only the ADC offsets), a trip while engaged (needs a current input driven out of
 the window), the commissioning sequence (it enables the outputs once the break is
-released), and the firmware update itself (the H7 boards have no flash writer and
-bootloader yet).
+released), and the update of a board that runs a motor (the update tests run disengaged).

@@ -41,13 +41,24 @@ constexpr std::size_t kImageSize = FirmwareImageHeader::kSize + kPayloadSize;
 
 // ----- A RAM bank ---------------------------------------------------------------
 
-constexpr uint32_t kBankSize = 4096U;
+constexpr uint32_t kBankSize = 16384U;
 std::array<std::byte, kBankSize> g_bank{};
 bool g_bank_fails{false};
 
-bool Erase() noexcept {
+bool g_activated{false};
+ImageStatus g_activate_result{ImageStatus::kOk};
+
+bool Begin() noexcept {
   g_bank.fill(std::byte{0xFF});
+  g_activated = false;
   return true;
+}
+
+bool Finish() noexcept { return true; }
+
+ImageStatus Activate() noexcept {
+  g_activated = (g_activate_result == ImageStatus::kOk);
+  return g_activate_result;
 }
 
 bool Write(const uint32_t offset, const std::span<const std::byte> data) noexcept {
@@ -66,8 +77,8 @@ bool ReadBank(const uint32_t offset, const std::span<std::byte> data) noexcept {
   return true;
 }
 
-constexpr FirmwareBank kBank{Erase, Write, ReadBank, kBankSize};
-constexpr FirmwareBank kSmallBank{Erase, Write, ReadBank, 512U};
+constexpr FirmwareBank kBank{Begin, Write, Finish, ReadBank, Activate, kBankSize};
+constexpr FirmwareBank kSmallBank{Begin, Write, Finish, ReadBank, Activate, 512U};
 constexpr FirmwareBank kNoBank{};
 
 // ----- Images -------------------------------------------------------------------
@@ -79,9 +90,11 @@ void PutLe32(std::span<std::byte> bytes, const std::size_t offset, const uint32_
 }
 
 /// An image as scripts/make_firmware_image.py writes it.
-std::array<std::byte, kImageSize> MakeImage(const std::string_view board = kBoard) {
-  std::array<std::byte, kImageSize> image{};
-  const std::span<std::byte> kPayload{image.data() + FirmwareImageHeader::kSize, kPayloadSize};
+template <std::size_t kPayloadBytes = kPayloadSize>
+std::array<std::byte, FirmwareImageHeader::kSize + kPayloadBytes> MakeImage(
+    const std::string_view board = kBoard) {
+  std::array<std::byte, FirmwareImageHeader::kSize + kPayloadBytes> image{};
+  const std::span<std::byte> kPayload{image.data() + FirmwareImageHeader::kSize, kPayloadBytes};
   for (std::size_t i = 0U; i < kPayload.size(); ++i) {
     kPayload[i] = static_cast<std::byte>((i * 7U) & 0xFFU);
   }
@@ -93,7 +106,7 @@ std::array<std::byte, kImageSize> MakeImage(const std::string_view board = kBoar
   image[7] = std::byte{5U};
   PutLe32(image, 8U, 0x89ABCDEFU);
   PutLe32(image, 12U, 0x01234567U);
-  PutLe32(image, 16U, kPayloadSize);
+  PutLe32(image, 16U, kPayloadBytes);
   PutLe32(image, 20U, Crc32Final(Crc32Update(Crc32Init(), kPayload)));
   std::copy(board.begin(), board.end(), reinterpret_cast<char*>(image.data() + 24U));
   return image;
@@ -161,7 +174,9 @@ ZTEST(firmware_update, test_a_good_image_is_ready_in_the_bank) {
   zexpect_equal(update.Result(), ImageStatus::kOk);
   zexpect_equal(update.Received(), kImageSize);
   zexpect_equal(update.Header().software_minor, 5U);
-  zexpect_true(std::equal(kImage.begin(), kImage.end(), g_bank.begin()));
+  // The bank holds the payload behind the UNIMOC header, and the bootloader was told to take it over.
+  zexpect_true(std::equal(kImage.begin() + FirmwareImageHeader::kSize, kImage.end(), g_bank.begin()));
+  zexpect_true(g_activated);
 }
 
 ZTEST(firmware_update, test_a_file_of_whole_chunks_ends_with_an_empty_read) {
@@ -229,6 +244,36 @@ ZTEST(firmware_update, test_a_bad_image_fails_with_its_reason) {
     g_bank_fails = false;
     zexpect_equal(update.FileError(), FirmwareUpdate::kErrorBank);
   }
+}
+
+ZTEST(firmware_update, test_the_bootloader_can_refuse_the_image) {
+  const auto kImage = MakeImage();
+  uint64_t now = 0U;
+  for (const ImageStatus kRefusal : {ImageStatus::kNotNewer, ImageStatus::kNoBootImage}) {
+    g_activate_result = kRefusal;
+    FirmwareUpdate update{kBank, kBoard};
+    zassert_true(update.Begin(7U, "a"));
+    Serve(update, kImage, now);
+    zexpect_equal(update.GetState(), FirmwareUpdate::State::kFailed);
+    zexpect_equal(update.Result(), kRefusal);
+    zexpect_false(g_activated);
+  }
+  g_activate_result = ImageStatus::kOk;
+}
+
+ZTEST(firmware_update, test_a_wrong_image_is_refused_before_the_bank_is_written) {
+  const auto kImage = MakeImage("unimoc_jacobi");
+  g_bank.fill(std::byte{0x5A});
+  FirmwareUpdate update{kBank, kBoard};
+  zassert_true(update.Begin(7U, "a"));
+  g_bank.fill(std::byte{0x5A});
+  uint64_t now = 0U;
+  Serve(update, kImage, now);
+  zexpect_equal(update.Result(), ImageStatus::kWrongBoard);
+  zexpect_equal(update.Received(), 0U);
+  zexpect_true(std::all_of(g_bank.begin(), g_bank.end(), [](const std::byte kByte) {
+    return kByte == std::byte{0x5A};
+  }));
 }
 
 ZTEST(firmware_update, test_a_silent_server_is_retried_then_given_up) {
@@ -372,7 +417,22 @@ ZTEST(firmware_update, test_the_service_downloads_over_file_read) {
   zexpect_equal(ReadNatural(pair.update, 0U), 2U);  // ready
   zexpect_equal(ReadNatural(pair.update, 1U), 0U);  // ok
   zexpect_equal(ReadNatural(pair.update, 3U), kImageSize);
-  zexpect_true(std::equal(kImage.begin(), kImage.end(), g_bank.begin()));
+  zexpect_true(std::equal(kImage.begin() + FirmwareImageHeader::kSize, kImage.end(), g_bank.begin()));
+}
+
+ZTEST(firmware_update, test_a_long_download_wraps_the_five_bit_transfer_id) {
+  // 12 KB: 49 requests, so the transfer-ID of the request wraps at 32; the response carries it modulo 32.
+  static const auto kImage = MakeImage<12000U>();
+  Pair& pair = MakePair(kImage);
+  zassert_true(pair.update.Start(pair.drive));
+  zassert_true(pair.server.AddServer(port::kFileRead, FileServer::kRequestExtent, pair.file_server));
+  zassert_true(pair.drive.Start(kDriveId, pair.now));
+  zassert_true(pair.server.Start(kServerId, pair.now));
+  zassert_equal(pair.update.Begin(kServerId, Path("fw/unimoc.bin")).status, cmd::kStatusSuccess);
+  pair.Run(400U);
+  zassert_equal(pair.update.Update().GetState(), FirmwareUpdate::State::kReady);
+  zexpect_equal(pair.source.Reads(), 48U);  // 12040 bytes: 47 full reads and a short one
+  zexpect_true(std::equal(kImage.begin() + FirmwareImageHeader::kSize, kImage.end(), g_bank.begin()));
 }
 
 ZTEST(firmware_update, test_an_unknown_file_fails_with_not_found) {
