@@ -1,0 +1,24 @@
+/*
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ *
+ * First power-on of the legacy 4850 power board on the Nucleo adapter
+ * (docs/zephyr_workflow.md, "Nucleo adapter bring-up"): the DC link comes
+ * from a current-limited 12 V bench supply, the gate drivers from J601.
+ * Added on top of the board overlay:
+ *
+ *   west build --sysbuild -b nucleo_h743zi unimoc/apps/drive -d unimoc/apps/drive/build/h743_bench -- \
+ *     -Ddrive_EXTRA_DTC_OVERLAY_FILE=boards/variants/nucleo_bench_12v.overlay
+ *
+ * The hard trip is 20 A (the startup aid runs at 10 % of it), the motor
+ * current at most 10 A, the battery 3 A / 1 A, and the DC link trips at 16 V.
+ * The DC-link maximum of 20 V rejects stored settings of the 36 V profile
+ * (trip 48 V), so the drive starts from the factory values; a factory reset
+ * is not needed, but stored settings return with the normal build.
+ */
+
+&foc0 {
+	max-phase-current-amps = <20>;
+	max-motor-current-amps = <10>;
+	battery-current-amps = <3 1>;
+	dc-link-millivolts = <14000 16000 20000>;
+};

@@ -8,8 +8,8 @@
  *    @file cyphal_platform.cpp
  *    @brief Cyphal platform part of the STM32H7 platform.
  *
- *    One CAN interface (the chosen zephyr,canbus, FDCAN1) and no platform
- *    registers. An optional standby pin of the transceiver
+ *    One CAN interface (the chosen zephyr,canbus, FDCAN1) and the read-only
+ *    bench registers `unimoc.h7.*` (bench_registers.hpp). An optional standby pin of the transceiver
  *    (can-standby-gpios of zephyr,user) is driven inactive before the
  *    controller starts. Not run on hardware yet.
  *
@@ -21,6 +21,7 @@
 
 #include "cyphal_platform.hpp"
 #include <zephyr/sys/util.h>
+#include "bench_registers.hpp"
 #include "can_transceiver.hpp"
 #include "drive_node.hpp"
 #include "firmware_bank.hpp"
@@ -33,7 +34,9 @@ void CyphalPlatformInit() noexcept { InitCanTransceiver(); }
 
 std::span<cyphal::CanMedia* const> CyphalPlatformInterfaces() noexcept { return {}; }
 
-void CyphalPlatformStart(cyphal::CyphalNode& /*node*/, const settings::NvmSettings& /*settings*/) noexcept {}
+void CyphalPlatformStart(cyphal::CyphalNode& node, const settings::NvmSettings& /*settings*/) noexcept {
+  (void)node.AddRegisterProvider(BenchRegisters());
+}
 
 void CyphalPlatformTraceSignals(cymon::Device& /*device*/) noexcept {}
 

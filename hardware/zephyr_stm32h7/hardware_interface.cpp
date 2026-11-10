@@ -24,6 +24,7 @@
 #include <array>
 #include <cmath>
 #include "analog_scaling.hpp"
+#include "bench_registers.hpp"
 #include "foc_stm32h7.hpp"
 #include "foc_stm32h7_dt.hpp"
 #include "hot_path_interface.hpp"
@@ -65,6 +66,9 @@ const settings::SettingsProfile kSettingsProfile = [] {
   // Hard trip limit and motor current limit of the power stage: foc0 of the board.
   profile.capabilities.max_phase_current = 1.0_A * static_cast<float>(foc_stm32h7::kMaxPhaseCurrentAmps);
   profile.capabilities.max_motor_current = 1.0_A * static_cast<float>(foc_stm32h7::kMaxMotorCurrentAmps);
+  // The factory motor current fits a board with a lower limit too (the bench profile of the Nucleo).
+  profile.factory_settings.motor_i_max =
+      std::min(profile.factory_settings.motor_i_max, profile.capabilities.max_motor_current);
   profile.capabilities.max_battery_drive_current = profile.factory_settings.battery_drive_current_max;
   profile.capabilities.max_battery_charge_current = profile.factory_settings.battery_charge_current_max;
   // DC link from foc0 dc-link-millivolts of the board (derate, trip, max):
@@ -307,6 +311,8 @@ uint32_t GetTimerClockFrequency() noexcept {
 }
 
 }  // namespace
+
+uint8_t PresentHallCode() noexcept { return g_hall_ready ? ReadHallCode() : 0U; }
 
 uint32_t timing::DutyOverruns() noexcept { return foc_stm32h7::DutyOverruns(); }
 
