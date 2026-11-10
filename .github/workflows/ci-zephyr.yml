@@ -57,6 +57,7 @@ jobs:
     uses: ./.github/workflows/build-firmware.yml
     with:
       release: ${{ needs.plan.outputs.release == 'true' }}
+    secrets: inherit
 
   twister:
     runs-on: ubuntu-24.04

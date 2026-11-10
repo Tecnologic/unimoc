@@ -209,6 +209,31 @@ config UNIMOC_CYPHAL_SLCAN
 	  kernels without vcan): UAVCAN__CAN__IFACE="slcan:/dev/pts/<n>",
 	  UAVCAN__CAN__MTU=8, UAVCAN__CAN__BITRATE="1000000 1000000".
 
+config UNIMOC_FIRMWARE_UPDATE_FLASH
+	bool "Firmware update into flash slot 1 for MCUboot"
+	default y
+	depends on UNIMOC_PLATFORM_STM32H7 && BOOTLOADER_MCUBOOT
+	select FLASH
+	select FLASH_MAP
+	select STREAM_FLASH
+	select IMG_MANAGER
+	select IMG_ERASE_PROGRESSIVELY
+	help
+	  BEGIN_SOFTWARE_UPDATE downloads the image over uavcan.file.Read into
+	  slot 1 (flash bank 2), erasing the sectors as the download reaches
+	  them, and asks MCUboot to swap it in at the next start. The new
+	  image runs once and confirms itself after a few seconds on the bus,
+	  otherwise MCUboot swaps back (hardware/zephyr_stm32h7/firmware_bank.cpp).
+	  Without MCUboot in the build (no sysbuild) the board refuses updates.
+
+config UNIMOC_UPDATE_CONFIRM_DELAY_MS
+	int "Time a swapped-in image runs before it confirms itself [ms]"
+	default 10000
+	depends on UNIMOC_FIRMWARE_UPDATE_FLASH
+	help
+	  A reset before that swaps the previous image back. The hardware test of
+	  the swap back builds an image with a long delay (tests/integration/cyphal_hw).
+
 endif # UNIMOC_CYPHAL
 
 module = UNIMOC

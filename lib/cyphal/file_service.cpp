@@ -126,7 +126,8 @@ void FirmwareUpdateService::Spin(const uint64_t now_us) noexcept {
   if (uavcan_file_Read_Request_1_1_serialize_(&read, OutputBytes(buffer), &size) < 0) {
     return;
   }
-  ++transfer_id_;
+  // Transfer-IDs have five bits: the response carries the request's modulo 32.
+  transfer_id_ = static_cast<uint8_t>((transfer_id_ + 1U) & 0x1FU);
   awaiting_ = true;
   // A request the transport refuses is repeated after FirmwareUpdate::kTimeoutUs.
   (void)node_->Request(port::kFileRead,
@@ -200,11 +201,11 @@ RegisterDescription FirmwareUpdateService::Describe(const std::size_t index) con
     case UpdateRegister::kResult:
       return ReadOnly("",
                       "Image check: 0 ok, 1 too short, 2 no UNIMOC image, 3 header version, 4 board, 5 size, "
-                      "6 too large, 7 CRC");
+                      "6 too large, 7 CRC, 8 no bootloader image, 9 not newer than the running image");
     case UpdateRegister::kFileError:
       return ReadOnly("", "uavcan.file.Error of a failed read; 65535 no answer, 65534 bank error");
     case UpdateRegister::kReceived:
-      return ReadOnly("B", "Bytes of the image written into the update bank");
+      return ReadOnly("B", "Bytes of the update file received (header and image)");
     case UpdateRegister::kVersion:
       return ReadOnly("", "Software version (major, minor) of the checked image in the bank");
     case UpdateRegister::kCount:

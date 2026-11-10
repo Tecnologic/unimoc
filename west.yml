@@ -26,6 +26,10 @@ manifest:
           - cmsis
           - cmsis_6
           - hal_stm32
+          - mcuboot
+          - mbedtls
+          - tf-psa-crypto
+          - tf-psa-crypto-drivers
           - picolibc
           - segger
 

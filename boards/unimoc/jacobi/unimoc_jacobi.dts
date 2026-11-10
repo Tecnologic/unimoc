@@ -272,31 +272,5 @@
 	status = "okay";
 };
 
-/*
- * Flash, 2 x 1 MB banks with 128 KB sectors: the image in bank 1, the DFU
- * slot and the settings in bank 2, so that a settings erase does not stall
- * the code.
- */
-&flash0 {
-	partitions {
-		compatible = "fixed-partitions";
-		#address-cells = <1>;
-		#size-cells = <1>;
-
-		slot0_partition: partition@0 {
-			label = "image-0";
-			reg = <0x00000000 DT_SIZE_K(1024)>;
-		};
-
-		slot1_partition: partition@100000 {
-			label = "image-1";
-			reg = <0x00100000 DT_SIZE_K(768)>;
-		};
-
-		/* Settings: ZMS on two sectors. */
-		storage_partition: partition@1c0000 {
-			label = "storage";
-			reg = <0x001c0000 DT_SIZE_K(256)>;
-		};
-	};
-};
+/* Flash: MCUboot, the two image slots and the settings (dts/unimoc/stm32h743_flash_layout.dtsi). */
+#include <unimoc/stm32h743_flash_layout.dtsi>

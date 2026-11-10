@@ -141,7 +141,7 @@ on `main` are queued so a release run is never cancelled.
 
   | target | board | files |
   |---|---|---|
-  | `jacobi` | `unimoc_jacobi` | `.elf`, `.hex`, `.bin`, `.map` |
+  | `jacobi`, `nucleo_h743zi` | `unimoc_jacobi`, `nucleo_h743zi` (sysbuild with MCUboot) | `.elf`, `.hex`, `.bin`, `.map` of the drive, `-bootloader.hex`, `-signed.hex`/`-signed.bin`, `-update.bin` (the file `BEGIN_SOFTWARE_UPDATE` downloads) |
   | `sim` | `native_sim/native/64` | `unimoc-native_sim-<ver>.tar.gz` |
 
   A new board or simulator is one more matrix row (name, board, file list).
