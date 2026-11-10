@@ -61,6 +61,9 @@ class ZephyrCanMedia final : public cyphal::CanMedia {
   /// Frames dropped because the receive queue was full.
   [[nodiscard]] uint32_t RxOverruns() const noexcept { return rx_overruns_; }
 
+  /// Frames received and queued for sending so far (wraps); the traffic LED watches it for change.
+  [[nodiscard]] uint32_t TrafficCount() const noexcept { return traffic_.load(std::memory_order_relaxed); }
+
  private:
   static void OnFrame(const struct device* device, struct can_frame* frame, void* user_data);
   static void OnStateChange(const struct device* device,
@@ -84,6 +87,7 @@ class ZephyrCanMedia final : public cyphal::CanMedia {
   uint32_t rx_overruns_{0U};
   std::atomic<uint8_t> bus_state_{static_cast<uint8_t>(cyphal::CanBusState::kErrorActive)};
   std::atomic<uint32_t> bus_off_count_{0U};
+  std::atomic<uint32_t> traffic_{0U};
 };
 
 }  // namespace unimoc::hardware

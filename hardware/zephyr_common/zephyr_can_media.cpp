@@ -68,6 +68,8 @@ void ZephyrCanMedia::OnFrame(const struct device* /*device*/,
   }
   if (k_msgq_put(&self->rx_queue_, frame, K_NO_WAIT) != 0) {
     ++self->rx_overruns_;
+  } else {
+    self->traffic_.fetch_add(1U, std::memory_order_relaxed);
   }
   if (self->wake_ != nullptr) {
     k_sem_give(self->wake_);
@@ -117,6 +119,9 @@ bool ZephyrCanMedia::Push(const cyphal::CanFrame& frame) noexcept {
   std::memcpy(std::begin(out.data), frame.data.data(), std::min<std::size_t>(frame.size, sizeof(out.data)));
   // With a callback, can_send() queues the frame and does not wait for the transmission.
   const int kResult = can_send(device_, &out, K_NO_WAIT, [](const struct device*, int, void*) {}, nullptr);
+  if (kResult == 0) {
+    traffic_.fetch_add(1U, std::memory_order_relaxed);
+  }
   return kResult == 0;
 }
 

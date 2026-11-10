@@ -37,6 +37,7 @@
 		unimoc-led-run = &led_run;
 		unimoc-led-pwm = &led_pwm;
 		unimoc-led-error = &led_error;
+		unimoc-led-can = &led_mode;
 	};
 
 	/*
