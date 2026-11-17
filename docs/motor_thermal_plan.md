@@ -140,7 +140,7 @@ parameters in the drive.
   `CurrentLimitScale()`. ztest in `tests/lib/motor_control`: steady state
   `T_w = T_amb + P (R_ws + R_sa)`, winding time constant, R_s(T), derating,
   correction, large-step robustness.
-- **T2 – R_s estimator (lib).** `lib/motor_control/src/resistance_temperature_estimator.hpp`:
+- **T2 – R_s estimator (lib).** `lib/motor_control/src/stator_resistance_estimator.hpp`:
   the window sums of decision 3 and the validity gates. ztest with
   synthetic cycles: exact R at standstill, speed and saliency terms
   removed, gates reject high speed and low current.

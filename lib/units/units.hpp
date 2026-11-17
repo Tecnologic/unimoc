@@ -415,6 +415,8 @@ using Voltage = Unit<float, std::ratio<1>, dim::Voltage>;
 using Temperature = Unit<float, std::ratio<1>, dim::Temperature>;
 /// Power in watts (W).
 using Power = Unit<float, std::ratio<1>, dim::Power>;
+/// Energy in joules (J).
+using Energy = Unit<float, std::ratio<1>, dim::Energy>;
 /// Magnetic flux in webers (Wb).
 using MagneticFlux = Unit<float, std::ratio<1>, dim::MagneticFlux>;
 /// Resistance in ohms.
