@@ -148,6 +148,15 @@ inline constexpr const char* kThermalRsSpeedMax = "unimoc.motor.thermal.rs_speed
 inline constexpr const char* kThermalRsCurrentMin = "unimoc.motor.thermal.rs_current_min";
 /// Time constant of the correction from the stator resistance [s]; 0 off.
 inline constexpr const char* kThermalRsCorrectionTime = "unimoc.motor.thermal.rs_correction_time";
+/// Estimated winding temperature [degC]. Type: real32[1] (read-only, volatile)
+inline constexpr const char* kMotorTemperatureWinding = "unimoc.motor.temperature.winding";
+/// Estimated stator temperature [degC]. Type: real32[1] (read-only, volatile)
+inline constexpr const char* kMotorTemperatureStator = "unimoc.motor.temperature.stator";
+/// Winding temperature of the last stator resistance estimate [degC]; NaN: none.
+/// Type: real32[1] (read-only, volatile)
+inline constexpr const char* kMotorTemperatureRs = "unimoc.motor.temperature.rs";
+/// RMS of |i_dq| over the last window of the thermal model [A]. Type: real32[1] (read-only, volatile)
+inline constexpr const char* kMotorTemperatureCurrent = "unimoc.motor.temperature.current";
 /// Time constant of the correction from a motor temperature sensor [s]; 0: only reported.
 inline constexpr const char* kThermalSensorCorrectionTime = "unimoc.motor.thermal.sensor_correction_time";
 

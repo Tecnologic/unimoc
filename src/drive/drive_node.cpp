@@ -223,6 +223,10 @@ enum class StateRegister : uint8_t {
   kAccelerator,
   kBrake,
   kBoardReady,
+  kWindingTemperature,
+  kStatorTemperature,
+  kRsTemperature,
+  kThermalCurrent,
 };
 
 struct StateRegisterEntry {
@@ -231,7 +235,7 @@ struct StateRegisterEntry {
   const char* unit;
 };
 
-constexpr std::array<StateRegisterEntry, 7> kStateRegisters{{
+constexpr std::array<StateRegisterEntry, 11> kStateRegisters{{
     {cyphal::reg::kSettingsPending, "1 while written settings wait for the disengage", nullptr},
     {cyphal::reg::kCanBusOffCount, "CAN bus-off events since the start", nullptr},
     {cyphal::reg::kBoardPowerBoard,
@@ -243,6 +247,14 @@ constexpr std::array<StateRegisterEntry, 7> kStateRegisters{{
     {cyphal::reg::kBoardReady,
      "1 while the board inputs allow the engage (power board, gate supply)",
      nullptr},
+    {cyphal::reg::kMotorTemperatureWinding, "Estimated winding temperature of the thermal model", "degC"},
+    {cyphal::reg::kMotorTemperatureStator, "Estimated stator temperature of the thermal model", "degC"},
+    {cyphal::reg::kMotorTemperatureRs,
+     "Winding temperature of the last stator resistance estimate (low speed, enough current); NaN: none",
+     "degC"},
+    {cyphal::reg::kMotorTemperatureCurrent,
+     "RMS motor current of the last 0.1 s window of the thermal model",
+     "A"},
 }};
 
 [[nodiscard]] float VoltageOrNaN(const std::optional<unit::Voltage>& voltage) noexcept {
@@ -289,6 +301,22 @@ cyphal::RegisterFlags DriveInfoRegisters::Read(const std::size_t index,
         break;
       case StateRegister::kBoardReady:
         cyphal::SetBit(value, board_->verdict.ready);
+        break;
+      case StateRegister::kWindingTemperature:
+        cyphal::SetReal32(value, OuterLoop::Instance().Status().winding_temperature.Value());
+        break;
+      case StateRegister::kStatorTemperature:
+        cyphal::SetReal32(value, OuterLoop::Instance().Status().stator_temperature.Value());
+        break;
+      case StateRegister::kRsTemperature: {
+        const current_control::OuterStatus kOuter = OuterLoop::Instance().Status();
+        cyphal::SetReal32(value,
+                          kOuter.rs_estimate > unit::Resistance{} ? kOuter.rs_temperature.Value()
+                                                                  : std::numeric_limits<float>::quiet_NaN());
+        break;
+      }
+      case StateRegister::kThermalCurrent:
+        cyphal::SetReal32(value, OuterLoop::Instance().Status().thermal_current.Value());
         break;
       default:
         cyphal::SetEmpty(value);

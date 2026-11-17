@@ -208,6 +208,7 @@ void OuterLoop::Step() noexcept {
   status.stator_temperature = thermal_.Stator();
   status.stator_resistance = thermal_.StatorResistance();
   status.thermally_derated = current_limit_ < active_.current_limit;
+  status.thermal_current = thermal_current_;
   status.rs_estimate = rs_estimate_;
   status.rs_temperature = rs_temperature_;
   status.rs_rejected = rs_rejected_;
@@ -396,6 +397,7 @@ void OuterLoop::UpdateThermal() noexcept {
   if (kWindow.sequence != thermal_sequence_) {
     thermal_sequence_ = kWindow.sequence;
     thermal_.Step(kWindow.current_squared, active_.thermal_ambient, kWindow.duration);
+    thermal_current_ = unit::Sqrt(kWindow.current_squared);
     // The winding temperature the measured resistance stands for corrects the
     // model slowly: each estimate by its share of the correction time constant.
     if (kWindow.resistance_estimates > 0U) {

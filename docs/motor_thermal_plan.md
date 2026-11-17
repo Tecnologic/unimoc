@@ -1,8 +1,11 @@
 # Plan: Motor Temperature Estimate and Loss-Aware Battery Current Limit
 
-Status: 2026-11-17. Steps T1 to T5 are implemented and tested under twister
+Status: 2026-11-17. Steps T1 to T6 are implemented and tested under twister
 on `native_sim` (`tests/lib/motor_control`, `tests/lib/sim`,
-`tests/sim/motor_thermal`); T6 is open. Nothing is verified on hardware.
+`tests/sim/motor_thermal`, the pytest of `tests/integration/cyphal_sim`),
+except the standstill R_s measurement when armed, which is dropped
+(decision 5). Nothing is verified on hardware; section 6 is the bench
+procedure.
 
 ## 1. Goal
 
@@ -60,7 +63,17 @@ mechanical power and with it the estimated battery current is zero.
    `unimoc.motor.thermal.rs_current_min`. At low speed and high current the
    resistive voltage dominates; the residual inverter error (dead time after
    compensation, switch drops) is a voltage offset that the current threshold
-   keeps small. A window with too few valid cycles is discarded. 1 % error
+   keeps small. A window with too few valid cycles is discarded.
+
+   The voltage is the controller's demand `u_dq`; the dead-time compensation
+   acts on the duties. The estimate is therefore exactly as good as the
+   compensation (sim, 500 ns dead time at 32 kHz: below 0.3 % error with the
+   matching compensation, about twice the resistance without it). Jacobi's
+   phase voltage filters (about 2 µs) do not average the PWM, so the measured
+   phase voltages cannot replace the demand while the bridge switches. Two
+   gates keep a wrong compensation out of the model: a window whose
+   temperature lies outside [ambient − 40 K, `limit` + 40 K], or more than
+   80 K from the model, is not used (`OuterStatus::rs_rejected`). 1 % error
    in R_s is 2.5 K, so the estimate corrects the model slowly, not replaces
    it: `T_w += (T_Rs − T_w) · dt_window / τ_corr` (a first-order observer,
    `unimoc.motor.thermal.rs_correction_time`, 0 disables). The housing
@@ -73,22 +86,26 @@ mechanical power and with it the estimated battery current is zero.
    runs in the zero-latency context.
 5. **Start value.** Without a sensor the model starts at the ambient
    temperature (`unimoc.motor.thermal.ambient`, default 25 °C) and the first
-   valid R_s window pulls it to the real winding temperature. A dedicated
-   standstill R_s measurement when the drive is armed (a short d current, two
-   levels, as M1) is step T5 and optional: it touches the arming sequence and
-   is done only after the online estimate works in the simulation.
+   valid R_s window pulls it to the real winding temperature. There is no
+   standstill R_s measurement when the drive is armed (decision of
+   2026-11-17): nothing may hold off or stop a drive that is armed while it
+   turns. The online estimate and a motor sensor find a warm motor instead.
 6. **A motor sensor wins.** When the platform measures the motor temperature
-   (`TemperatureMeasurements::motor`, Jacobi PC5), it corrects the housing
-   mass (most sensors sit on the end winding or the stator iron) with its own
-   time constant; the R_s correction still acts on the winding. Without a
-   sensor the bus reports the estimate.
+   (`TemperatureMeasurements::motor`, Jacobi PC5, a 10k NTC), it corrects the
+   stator mass (most sensors sit on the end winding or the stator iron) with
+   `unimoc.motor.thermal.sensor_correction_time` (default 10 s, 0: only
+   reported); both masses move, the modelled gradient stays. The R_s
+   correction still acts on the winding. An open input (no NTC, above 98 % of
+   full scale) or a short (below 1 %) gives no reading. Without a sensor the
+   bus reports the estimate. The model's R_s(T) also goes to the flux
+   observer (PMSM, EESM) and the ASM observer.
 7. **Thermal derating.** The motor current limit falls linearly from
    `unimoc.motor.thermal.derate_start` (default 100 °C) to zero at
    `unimoc.motor.thermal.limit` (default 130 °C; class F insulation is
    155 °C). The derated limit replaces `current_limit` in the outer loop, so
    the speed controller bounds and the torque limits of `DriveStatus` follow
-   it. A new flag "thermally derated" goes into a later minor version of
-   `unimoc.cart.DriveStatus`; until then the reduced torque limits carry it.
+   it. `unimoc.cart.DriveStatus.0.2` appends the flag `thermally_derated`
+   (still 18 bytes; a 0.1 message decodes as 0.2 with the flag false).
 8. **Battery current with copper losses.** `DcLinkLimit` estimates the
    battery power as `P = k_t i_q ω + 3/2 R_s(T) |i|²` (inverter losses left
    out). The drive limit is then a quadratic in i_q; `Limit()` solves it in
@@ -122,6 +139,13 @@ mechanical power and with it the estimated battery current is zero.
 | `unimoc.motor.thermal.rs_speed_max` | rad/s (el.) | 100 | Largest electrical speed of an R_s window |
 | `unimoc.motor.thermal.rs_current_min` | A | 3 | Smallest current magnitude of an R_s window |
 | `unimoc.motor.thermal.rs_correction_time` | s | 30 | Time constant of the R_s correction; 0 off |
+| `unimoc.motor.thermal.sensor_correction_time` | s | 10 | Time constant of the motor sensor correction; 0: only reported |
+
+Read-only state (not stored): `unimoc.motor.temperature.winding`,
+`.stator` [°C] (the model), `.rs` [°C] (the last R_s window; NaN: none),
+`.current` [A] (RMS of the last 0.1 s window). The cymon traces 12 to 15
+carry `winding_temperature`, `stator_temperature`, `rs_estimate` and
+`rs_temperature`.
 
 The defaults are a guess for the hoverboard hub motor (copper about
 0.4 kg, stator and rim about 3 kg; 50 W copper loss at 15 A gives a
@@ -131,12 +155,15 @@ run: constant current, the winding temperature from R_s over time.
 
 ## 4. Simulation
 
-The plant (`lib/sim`) gets the same two-mass network with its own
-parameters (`unimoc.sim.motor_thermal_*`, ambient) and a stator resistance
-that follows the winding temperature. The plant's true winding temperature
-is traced, so the tests compare the estimate with it, including a model
-started too cold (the R_s correction must pull it in) and wrong thermal
-parameters in the drive.
+The plant (`lib/sim`) has the same two-mass network
+(`sim::MotorThermalParameters`, off by default) and a stator resistance that
+follows the winding temperature. Registers: `unimoc.sim.motor_heating`,
+`unimoc.sim.motor_temperature` (truth, writable for a warm start),
+`unimoc.sim.motor_sensor` (a sensor on the stator). `tests/sim/motor_thermal`
+compares the estimate with the plant: heating and cooling, a warm start
+found by R_s and by the sensor, the dead time with and without its
+compensation, the derating, the battery current at standstill against the
+DC-link model.
 
 ## 5. Steps
 
@@ -157,19 +184,60 @@ parameters in the drive.
   (heat up at standstill, estimate within 5 K of the plant; cold start
   pulled in). Docs: `README.md`, `CONTEXT.md`.
 - **T5 – Copper losses in `DcLinkLimit`.** Quadratic drive limit of
-  decision 8, ztest in `dc_link_limit_test.cpp`. Open: a sim check of the
-  battery current at standstill against the DC-link model.
-- **T6 – Optional:** standstill R_s measurement when armed (decision 5),
-  motor sensor fusion on Jacobi (decision 6), R_s(T) in the flux observer,
-  the "thermally derated" flag in `DriveStatus`.
+  decision 8, ztest in `dc_link_limit_test.cpp`, sim check of the battery
+  current at standstill against the DC-link model.
+- **T6 – Done 2026-11-17:** motor sensor fusion (decision 6, the NTC input
+  of Jacobi with open/short detection), R_s(T) in the observers,
+  `DriveStatus.0.2` with `thermally_derated`, the plausibility gates of the
+  R_s estimate, the state registers and traces, the heat run tools
+  (section 6). Dropped: the standstill R_s measurement when armed.
 
-## 6. Hardware assumptions and open points
+## 6. Bench procedure and open points
+
+**Dead-time compensation first.** Run the identification M1 with the motor
+connected and take its results: `unimoc.identify.result.R` into
+`unimoc.motor.stator.R`, `unimoc.identify.result.dead_time` into
+`unimoc.control.dtc.dead_time`. Set `unimoc.motor.stator.R_temperature` to
+the winding temperature of that run (a cold motor: the room). Then check
+the R_s estimate: hold 30 to 50 % of the rated current on the locked rotor
+of the cold motor for a few seconds and read `unimoc.motor.temperature.rs`.
+It must show the room temperature within about 5 K at two currents (say
+10 A and 20 A). A reading that falls as the current rises means a dead time
+under-compensated, one that rises over-compensated; correct the dead time
+before trusting the correction.
+
+**Heat run.** Locked rotor (or a slow dyno), the motor cold, at constant
+current, and log once per second:
+
+```sh
+. unimoc/scripts/sim_yakut_env.sh               # or the UAVCAN__* variables of the bench bus
+unimoc/scripts/thermal_log.py 10 > run.csv       # drive node-ID 10
+```
+
+Heat at about the rated current until the winding is near its derate
+temperature (with the hub motor about an hour), then cool down at a small
+measuring current (3 to 5 A; below `rs_current_min` there is no R_s) for as
+long again: the cool-down separates the two masses. A thermocouple on the
+end winding or the housing can be added as a column. Then fit:
+
+```sh
+unimoc/scripts/thermal_fit.py run.csv --current current --winding rs \
+    --resistance <R> --reference <R_temperature> --ambient <room>
+```
+
+It prints the four registers and the time constants
+(`thermal_fit.py --self-test` recovers a synthetic run within 1 %; with the
+winding temperature alone the capacities within about 10 %). Write them,
+and run the motor again at a different current to check the estimate
+against `unimoc.motor.temperature.rs`.
+
+**Open points**
 
 - α_Cu holds for copper windings; aluminium windings need 4.03e-3 /K
   (a register if such a motor appears).
-- The R_s correction relies on the dead-time compensation and on the
-  commanded voltage reaching the motor. On Jacobi the measured phase
-  voltages can replace the commanded ones; to be checked on the bench.
-- The thermal parameters of a real motor need a heat run on the bench.
+- The check of the R_s estimate and the heat run of the hub motor on the
+  bench (above); nothing is verified on hardware.
+- The motor NTC of Jacobi is assumed to be a 10k, beta 3950 on the stator;
+  other sensors (KTY, PT1000) need their own conversion.
 - The ambient temperature is a register; the power stage temperature may be
   a better proxy for an enclosed drive (to decide on hardware).

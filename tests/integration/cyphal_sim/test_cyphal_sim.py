@@ -664,6 +664,31 @@ def test_paused_drive_timeouts_follow_virtual_time(sim: SimClient):
         sim.write("unimoc.sim.paused", natural8(0))
 
 
+def test_thermal_state_registers_follow_the_heated_winding(sim: SimClient):
+    """The registers a heat run logs (scripts/thermal_log.py) against the plant truth."""
+    sim.hold(0.2, SLEEP)
+    sim.expect(sim.telemetry, lambda t: not t.engaged)
+    shaft_mode = sim.read("unimoc.sim.shaft_mode")
+    assert sim.write("unimoc.sim.motor_heating", natural8(1))  # restarts the plant at 25 degC
+    try:
+        assert sim.write("unimoc.sim.shaft_mode", natural8(1)) == 1  # locked rotor
+        assert sim.read("unimoc.motor.temperature.winding") == pytest.approx(25.0, abs=1.0)
+        sim.hold(3.0, ENGAGED, sim.current_setpoint(0.0, 15.0))
+        assert sim.read("unimoc.motor.temperature.current") == pytest.approx(15.0, abs=0.5)
+        winding = sim.read("unimoc.motor.temperature.winding")
+        truth = sim.read("unimoc.sim.motor_temperature")
+        assert winding > 25.5  # heated
+        assert winding == pytest.approx(truth, abs=1.0)
+        assert sim.read("unimoc.motor.temperature.stator") < winding
+        # Standstill, 15 A and the ideal bridge of the plant: the resistance gives the winding.
+        assert sim.read("unimoc.motor.temperature.rs") == pytest.approx(truth, abs=2.0)
+    finally:
+        sim.hold(0.2, SLEEP)
+        sim.expect(sim.telemetry, lambda t: not t.engaged)
+        assert not sim.write("unimoc.sim.motor_heating", natural8(0))
+        sim.write("unimoc.sim.shaft_mode", natural8(shaft_mode))
+
+
 def test_dc_link_capacitor_registers(sim: SimClient):
     sim.hold(0.2, SLEEP)
     assert sim.read("unimoc.sim.dc_link_capacitance") == 0.0  # the ideal source by default

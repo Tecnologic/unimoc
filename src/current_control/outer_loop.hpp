@@ -97,6 +97,8 @@ struct OuterStatus {
   unit::Resistance stator_resistance;
   /// The motor current limit is reduced by the winding temperature.
   bool thermally_derated{false};
+  /// RMS of the measured |i_dq| over the last window of the thermal model.
+  unit::Current thermal_current;
   /// Last stator resistance estimate of the observer (zero: none yet).
   unit::Resistance rs_estimate;
   /// Winding temperature that rs_estimate stands for.
@@ -352,6 +354,7 @@ class OuterLoop {
   uint32_t thermal_sequence_{0U};             ///< Last ThermalWindow taken.
   unit::Current current_limit_;               ///< The motor current limit at the winding temperature.
   unit::Resistance rs_estimate_;              ///< Last resistance estimate of the observer.
+  unit::Current thermal_current_;             ///< RMS current of the last thermal window.
   unit::Temperature rs_temperature_;          ///< Its winding temperature.
   bool rs_rejected_{false};                   ///< It lay outside the plausible band.
 };

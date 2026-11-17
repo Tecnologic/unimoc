@@ -24,7 +24,7 @@
 1 src/current_control/current_control_isr.cpp
 2 src/current_control/slow_update.cpp
 11 src/drive/commissioning.cpp
-34 src/drive/drive_node.cpp
+38 src/drive/drive_node.cpp
 1 src/drive/settings_register_provider.cpp
 7 src/drive/timing_registers.cpp
 8 src/ebike/ebike_control.cpp

@@ -646,7 +646,9 @@ are released, the plant restarts) heats the simulated winding with the same
 two-mass network as the drive's estimate (the factory thermal parameters)
 and lets its stator resistance follow the winding temperature;
 `unimoc.sim.motor_temperature` [°C] reads the winding temperature of the
-plant and sets winding and stator (a motor still warm).
+plant and sets winding and stator (a motor still warm);
+`unimoc.sim.motor_sensor` (bit) fits a motor temperature sensor that reads
+the stator temperature of the plant.
 
 Deterministic runs: `unimoc.sim.paused` (bit) stops the cycle timer, also
 across a settings restart of the controller; then a write of
@@ -694,10 +696,23 @@ stands for pulls the estimate in with the time constant
 `.rs_correction_time` (0 off). A drive started with a warm motor thus finds
 its temperature once it carries current at low speed. The current limit
 falls linearly from `.derate_start` to zero at `.limit`, and with it the
-torque limits of `unimoc.cart.DriveStatus`. Where the platform measures the
-motor temperature, the bus reports the sensor; otherwise the estimate. The
-factory thermal parameters are a guess for the hoverboard hub motor; a heat
-run on the bench gives the real ones.
+torque limits of `unimoc.cart.DriveStatus` (flag `thermally_derated`,
+version 0.2). Where the platform measures the motor temperature (Jacobi: a
+10k NTC on PC5; an open or shorted input counts as none), the sensor
+corrects the stator mass with `.sensor_correction_time` (0: only reported)
+and the bus reports the sensor; otherwise the estimate. The resistance at
+the estimated temperature also goes to the flux observer.
+
+The stator resistance estimate rests on the dead-time compensation
+(`unimoc.control.dtc.*`, measured by M1): without it a dead time looks like
+a hot winding. An estimate outside [ambient − 40 K, `.limit` + 40 K] or more
+than 80 K from the model is not used. Read-only registers for the bench:
+`unimoc.motor.temperature.winding`, `.stator`, `.rs` (the temperature of the
+last resistance estimate; NaN: none) [°C] and `.current` [A RMS]; the cymon
+traces 12 to 15 carry the same. The factory thermal parameters are a guess
+for the hoverboard hub motor: `scripts/thermal_log.py` logs a heat run and
+`scripts/thermal_fit.py` fits the four parameters to it (procedure:
+`docs/motor_thermal_plan.md`, section 6).
 
 ## NVM-Backed Settings
 
