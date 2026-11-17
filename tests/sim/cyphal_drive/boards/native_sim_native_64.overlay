@@ -1,0 +1,7 @@
+/*
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ *
+ * The settings partition of the simulated drive (apps/drive/boards/native_sim_native_64.overlay).
+ */
+
+#include <unimoc/native_sim_settings_storage.dtsi>

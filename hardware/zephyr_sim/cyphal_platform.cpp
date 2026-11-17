@@ -74,6 +74,7 @@ struct PlantInputs {
   float dc_link_voltage{48.0F};
   float dc_link_capacitance{0.0F};  ///< [F]; 0: the ideal source.
   float battery_resistance{0.05F};  ///< [Ohm], with a DC-link capacitor.
+  bool motor_heating{false};        ///< The winding heats, R_s follows (sim::MotorThermalParameters).
   bool contactor_closed{true};
   bool external_enable{true};
   bool follow_settings{true};
@@ -99,8 +100,9 @@ void ApplyInputs() noexcept {
   sim::SetExternalEnable(g_inputs.external_enable);
 }
 
-/// The DC link of the registers on top of the given plant parameters.
+/// The DC link and the motor heating of the registers on top of the given plant parameters.
 ::unimoc::sim::SimulationParameters WithDcLink(::unimoc::sim::SimulationParameters parameters) noexcept {
+  parameters.thermal.enabled = g_inputs.motor_heating;
   parameters.dc_link_voltage = unit::Voltage{g_inputs.dc_link_voltage};
   parameters.dc_link.capacitance = unit::Capacitance{g_inputs.dc_link_capacitance};
   parameters.dc_link.battery_resistance = unit::Resistance{g_inputs.battery_resistance};
@@ -137,12 +139,14 @@ enum class SimRegister : uint8_t {
   kGateSupply,
   kAccelerator,
   kBrake,
+  kMotorHeating,
+  kMotorTemperature,
 };
 
 /// Most control cycles one write of `unimoc.sim.advance` runs (1 s of virtual time at 16 kHz).
 constexpr int64_t kMaxAdvanceCycles = 16000;
 
-constexpr std::array<std::string_view, 21> kNames{
+constexpr std::array<std::string_view, 23> kNames{
     "unimoc.sim.shaft_mode",
     "unimoc.sim.imposed_speed",
     "unimoc.sim.load_torque",
@@ -164,6 +168,8 @@ constexpr std::array<std::string_view, 21> kNames{
     "unimoc.sim.gate_supply",
     "unimoc.sim.accelerator",
     "unimoc.sim.brake",
+    "unimoc.sim.motor_heating",
+    "unimoc.sim.motor_temperature",
 };
 
 constexpr float kInf = std::numeric_limits<float>::infinity();
@@ -234,6 +240,16 @@ constexpr std::array<cyphal::RegisterDescription, kNames.size()> kDescriptions{{
     {"V", 0.0F, 30.0F, RegisterEffect::kImmediate, "Gate driver supply +12P"},
     {"V", 0.0F, 3.3F, RegisterEffect::kImmediate, "Output of the accelerator (throttle) sensor"},
     {"V", 0.0F, 3.3F, RegisterEffect::kImmediate, "Output of the brake lever sensor"},
+    {{},
+     -kInf,
+     kInf,
+     RegisterEffect::kImmediate,
+     "1: the simulated winding heats and its resistance follows (restarts the plant)"},
+    {"degC",
+     -50.0F,
+     200.0F,
+     RegisterEffect::kImmediate,
+     "Winding temperature of the simulated motor (truth); a write sets winding and stator"},
 }};
 
 /**
@@ -279,6 +295,33 @@ bool WriteDcLink(const bool capacitance, const float value) noexcept {
     return false;
   }
   return true;
+}
+
+/// Switches the heating of the simulated winding and restarts the plant; false: refused.
+bool WriteMotorHeating(const bool heating) noexcept {
+  if (kPowerStage.GetState() == PowerStageState::kEnabled) {
+    return false;
+  }
+  const PlantInputs kPrevious = g_inputs;
+  g_inputs.motor_heating = heating;
+  if (ConfigurePlant(WithDcLink(sim::Plant().Parameters())) != ::unimoc::sim::Status::kOk) {
+    g_inputs = kPrevious;
+    return false;
+  }
+  return true;
+}
+
+/// Sets winding and stator of the simulated motor to one temperature [°C].
+RegisterWriteResult WriteMotorTemperature(const float value) noexcept {
+  const cyphal::RegisterDescription& limits =
+      kDescriptions[static_cast<std::size_t>(SimRegister::kMotorTemperature)];
+  if (value < limits.minimum || value > limits.maximum) {
+    return RegisterWriteResult::kOutOfRange;
+  }
+  const unsigned int kKey = irq_lock();
+  sim::Plant().SetMotorTemperature(unit::Temperature{value});
+  irq_unlock(kKey);
+  return RegisterWriteResult::kAccepted;
 }
 
 /// Sets one of the simulated board inputs; the voltages within the limits of their descriptions.
@@ -385,6 +428,12 @@ class SimRegisters final : public cyphal::RegisterProvider {
       case SimRegister::kBrake:
         cyphal::SetReal32(value, sim::SimBoardInputs().brake.value_or(Voltage{}).Value());
         break;
+      case SimRegister::kMotorHeating:
+        cyphal::SetBit(value, g_inputs.motor_heating);
+        break;
+      case SimRegister::kMotorTemperature:
+        cyphal::SetReal32(value, sim::Plant().Output().winding_temperature.Value());
+        break;
     }
     return {true, false};
   }
@@ -470,6 +519,11 @@ class SimRegisters final : public cyphal::RegisterProvider {
       case SimRegister::kAccelerator:
       case SimRegister::kBrake:
         return WriteBoardInput(static_cast<SimRegister>(index), kValue);
+      case SimRegister::kMotorHeating:
+        return WriteMotorHeating(kValue != 0.0F) ? RegisterWriteResult::kAccepted
+                                                 : RegisterWriteResult::kOutOfRange;
+      case SimRegister::kMotorTemperature:
+        return WriteMotorTemperature(kValue);
     }
     ApplyInputs();
     return RegisterWriteResult::kAccepted;

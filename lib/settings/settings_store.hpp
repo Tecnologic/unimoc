@@ -88,6 +88,27 @@ template <unit::UnitLike U>
          unit::IsFinite(settings.asm_flux_psi_r);
 }
 
+[[nodiscard]] inline bool IsFiniteThermal(const NvmSettings& settings) noexcept {
+  return unit::IsFinite(settings.stator_r_temperature) && unit::IsFinite(settings.thermal_ambient) &&
+         unit::IsFinite(settings.thermal_c_winding) && unit::IsFinite(settings.thermal_c_stator) &&
+         unit::IsFinite(settings.thermal_r_winding) && unit::IsFinite(settings.thermal_r_stator) &&
+         unit::IsFinite(settings.thermal_derate_start) && unit::IsFinite(settings.thermal_limit) &&
+         unit::IsFinite(settings.thermal_rs_speed_max) && unit::IsFinite(settings.thermal_rs_current_min) &&
+         unit::IsFinite(settings.thermal_rs_correction_time);
+}
+
+/// The thermal model: positive capacities and resistances, the derating band in order.
+[[nodiscard]] inline bool IsValidThermal(const NvmSettings& settings) noexcept {
+  return settings.thermal_c_winding > ZeroOf(settings.thermal_c_winding) &&
+         settings.thermal_c_stator > ZeroOf(settings.thermal_c_stator) &&
+         settings.thermal_r_winding > ZeroOf(settings.thermal_r_winding) &&
+         settings.thermal_r_stator > ZeroOf(settings.thermal_r_stator) &&
+         settings.thermal_derate_start < settings.thermal_limit &&
+         settings.thermal_rs_speed_max >= ZeroOf(settings.thermal_rs_speed_max) &&
+         settings.thermal_rs_current_min >= ZeroOf(settings.thermal_rs_current_min) &&
+         settings.thermal_rs_correction_time >= ZeroOf(settings.thermal_rs_correction_time);
+}
+
 [[nodiscard]] inline bool IsFinite(const NvmSettings& settings) noexcept {
   return unit::IsFinite(settings.stator_r) && unit::IsFinite(settings.stator_l) &&
          unit::IsFinite(settings.motor_i_max) && unit::IsFinite(settings.motor_omega_max) &&
@@ -128,7 +149,7 @@ template <unit::UnitLike U>
          unit::IsFinite(settings.cart_timeout) && unit::IsFinite(settings.cart_status_rate) &&
          unit::IsFinite(settings.cart_torque_ramp) && unit::IsFinite(settings.cart_limp_home_torque) &&
          unit::IsFinite(settings.cart_standstill_speed) && unit::IsFinite(settings.cart_battery_share) &&
-         IsFiniteEbike(settings);
+         IsFiniteEbike(settings) && IsFiniteThermal(settings);
 }
 
 [[nodiscard]] inline bool IsValidEnumValues(const NvmSettings& settings) noexcept {
@@ -388,7 +409,7 @@ template <std::size_t kCount>
     return SettingsStatus::kOutOfRange;
   }
 
-  if (!IsValidEbike(settings)) {
+  if (!IsValidEbike(settings) || !IsValidThermal(settings)) {
     return SettingsStatus::kOutOfRange;
   }
 

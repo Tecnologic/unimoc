@@ -7,7 +7,10 @@
  * - uart1 to uart4: pseudo terminals with the slcan protocol (classic CAN)
  *   for hosts without vcan, one per tool process; they form one bus. The
  *   boot output names them ("uart_1 connected to pseudotty: /dev/pts/N").
+ * - The settings partition of 64 KB (dts/unimoc/native_sim_settings_storage.dtsi).
  */
+
+#include <unimoc/native_sim_settings_storage.dtsi>
 
 / {
 	chosen {

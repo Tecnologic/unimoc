@@ -179,10 +179,33 @@ template <std::size_t kSize>
                                  : std::numeric_limits<float>::quiet_NaN();
 }
 
+/// The motor temperature for the bus: the sensor where the platform has one, else the
+/// winding temperature of the thermal model (docs/motor_thermal_plan.md, decision 6).
+[[nodiscard]] unit::Temperature MotorTemperature(const hardware::TemperatureMeasurements& measured,
+                                                 const current_control::OuterStatus& outer) noexcept {
+  return measured.motor.value_or(outer.winding_temperature);
+}
+
 /// Measured current in the rotor frame of the observer angle (a snapshot without locking the control cycle).
 [[nodiscard]] system::Rotor<unit::Current> MeasuredCurrent(const CurrentControlIsr& isr) noexcept {
   const system::SinCos<unit::Ratio> kSinCos(isr.mech_obs.theta);
   return isr.state.phase_currents.ToStator().ToRotor(kSinCos);
+}
+
+/**
+ * @brief Battery current of the drive: the mechanical power and the copper losses at the
+ * estimated winding temperature over the DC-link voltage (the estimate of control::DcLinkLimit).
+ * @return Nothing without a DC-link reading.
+ */
+[[nodiscard]] std::optional<unit::Current> BatteryCurrent(const CurrentControlIsr& isr,
+                                                          const current_control::OuterStatus& outer,
+                                                          const unit::Torque torque) noexcept {
+  const unit::Voltage kDcLink = isr.state.dc_link;
+  if (!(kDcLink > unit::Voltage{})) {
+    return std::nullopt;
+  }
+  const unit::Power kCopper = (outer.stator_resistance * MeasuredCurrent(isr).LengthSquared()) * 1.5F;
+  return ((torque * outer.speed) + kCopper) / kDcLink;
 }
 
 }  // namespace
@@ -560,10 +583,9 @@ void DriveNode::SpinLocalControl(const uint64_t now_us) noexcept {
   vehicle.torque_min = kOuter.torque_min;
   vehicle.torque_max = kOuter.torque_max;
   vehicle.dc_link = isr.state.dc_link;
-  // Battery current from the mechanical power, as in the drive status.
-  vehicle.battery_current =
-      (isr.state.dc_link > unit::Voltage{}) ? (kTorque * kOuter.speed) / isr.state.dc_link : unit::Current{};
-  vehicle.motor_temperature = motor_->GetTemperatureMeasurements().motor.value_or(unit::Temperature{});
+  // Battery current from the mechanical power and the copper losses, as in the drive status.
+  vehicle.battery_current = BatteryCurrent(isr, kOuter, kTorque).value_or(unit::Current{});
+  vehicle.motor_temperature = MotorTemperature(motor_->GetTemperatureMeasurements(), kOuter);
   vehicle.engaged = engaged_;
   vehicle.faulted = rearm_required_;
 
@@ -1254,12 +1276,12 @@ void DriveNode::PublishDriveStatus() noexcept {
   status.drive_torque_limit = kDriveLimit.Value();
   status.brake_torque_limit = kBrakeLimit.Value();
   status.dc_link_voltage = state.dc_link.Value();
-  // Battery current from the mechanical power (the estimate of control::DcLinkLimit).
-  status.dc_link_current = (state.dc_link > unit::Voltage{})
-                               ? ((kTorque * kOuter.speed) / state.dc_link).Value()
-                               : std::numeric_limits<float>::quiet_NaN();
+  // Battery current from the mechanical power and the copper losses (the estimate of control::DcLinkLimit).
+  const std::optional<unit::Current> kBatteryCurrent = BatteryCurrent(isr, kOuter, kTorque);
+  status.dc_link_current =
+      kBatteryCurrent.has_value() ? kBatteryCurrent->Value() : std::numeric_limits<float>::quiet_NaN();
   status.power_stage_temperature = Kelvin(kTemperatures.bridge);
-  status.motor_temperature = Kelvin(kTemperatures.motor);
+  status.motor_temperature = Kelvin(MotorTemperature(kTemperatures, kOuter));
   status.wheel = cart_wheel_;
   status.power_stage = static_cast<uint8_t>(ReportedPowerStage());
   status.engaged = engaged_;

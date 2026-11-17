@@ -121,6 +121,34 @@ inline constexpr const char* kStatorR = "unimoc.motor.stator.R";
 /// Type: real32[1] (read/write, persistent)
 inline constexpr const char* kStatorL = "unimoc.motor.stator.L";
 
+/// Winding temperature at which unimoc.motor.stator.R was measured [°C].
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kStatorRTemperature = "unimoc.motor.stator.R_temperature";
+
+// --- Thermal model of the motor (docs/motor_thermal_plan.md) ---
+// Type of each: real32[1] (read/write, persistent)
+
+/// Ambient temperature, start value of the estimate [°C].
+inline constexpr const char* kThermalAmbient = "unimoc.motor.thermal.ambient";
+/// Heat capacity of the winding [J/K].
+inline constexpr const char* kThermalCWinding = "unimoc.motor.thermal.C_winding";
+/// Heat capacity of the stator and the housing [J/K].
+inline constexpr const char* kThermalCStator = "unimoc.motor.thermal.C_stator";
+/// Thermal resistance from the winding to the stator [K/W].
+inline constexpr const char* kThermalRWinding = "unimoc.motor.thermal.R_winding";
+/// Thermal resistance from the stator to the ambient [K/W].
+inline constexpr const char* kThermalRStator = "unimoc.motor.thermal.R_stator";
+/// Winding temperature where the current derating starts [°C].
+inline constexpr const char* kThermalDerateStart = "unimoc.motor.thermal.derate_start";
+/// Winding temperature at zero current [°C].
+inline constexpr const char* kThermalLimit = "unimoc.motor.thermal.limit";
+/// Largest electrical speed of a stator resistance window [rad/s].
+inline constexpr const char* kThermalRsSpeedMax = "unimoc.motor.thermal.rs_speed_max";
+/// Smallest current of a stator resistance window [A].
+inline constexpr const char* kThermalRsCurrentMin = "unimoc.motor.thermal.rs_current_min";
+/// Time constant of the correction from the stator resistance [s]; 0 off.
+inline constexpr const char* kThermalRsCorrectionTime = "unimoc.motor.thermal.rs_correction_time";
+
 // --- PMSM / EESM parameters ---
 
 /// Permanent-magnet flux linkage ψ_PM [Wb].

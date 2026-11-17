@@ -141,10 +141,10 @@ class StatorResistanceEstimator {
   }
 
   Parameters parameters_{};
-  unit::Power power_{};
-  CurrentSquared current_squared_{};
-  unit::Energy first_energy_{};
-  unit::Energy last_energy_{};
+  unit::Power power_;
+  CurrentSquared current_squared_;
+  unit::Energy first_energy_;
+  unit::Energy last_energy_;
   uint32_t count_{0U};
 };
 

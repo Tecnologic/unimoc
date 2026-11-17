@@ -112,6 +112,12 @@ class MotorThermalModel {
                                        const unit::Temperature start = 25.0_degC) noexcept
       : parameters_(parameters), winding_(start), stator_(start) {}
 
+  /**
+   * @brief Replaces the parameters and keeps the temperatures (new settings of a warm motor).
+   * @param parameters Motor parameters.
+   */
+  constexpr void SetParameters(const Parameters& parameters) noexcept { parameters_ = parameters; }
+
   /// @return The parameters of the model.
   [[nodiscard]] constexpr const Parameters& GetParameters() const noexcept { return parameters_; }
 

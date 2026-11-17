@@ -1,7 +1,8 @@
 # Plan: Motor Temperature Estimate and Loss-Aware Battery Current Limit
 
-Status: 2026-11-17. Plan; step T1 in progress. Nothing is verified on
-hardware.
+Status: 2026-11-17. Steps T1 to T5 are implemented and tested under twister
+on `native_sim` (`tests/lib/motor_control`, `tests/lib/sim`,
+`tests/sim/motor_thermal`); T6 is open. Nothing is verified on hardware.
 
 ## 1. Goal
 
@@ -90,13 +91,17 @@ mechanical power and with it the estimated battery current is zero.
    `unimoc.cart.DriveStatus`; until then the reduced torque limits carry it.
 8. **Battery current with copper losses.** `DcLinkLimit` estimates the
    battery power as `P = k_t i_q ω + 3/2 R_s(T) |i|²` (inverter losses left
-   out). The limit is then a quadratic in i_q; `Limit()` solves it in closed
-   form for the largest i_q of the requested sign within the motoring and
-   the charge window, `AllowedTorque()` gets the same bound for the speed
-   controller. At standstill the drive limit now bounds the current to
-   `sqrt(2 V_dc I_drive / (3 R_s))`. While braking the copper losses lower
-   the charge current, so the charge limit stays on the safe side.
-   `DriveStatus.dc_link_current` uses the same estimate.
+   out). The drive limit is then a quadratic in i_q; `Limit()` solves it in
+   closed form for the largest i_q of the requested sign, `AllowedTorque()`
+   gets the same bound for the speed controller. At standstill the drive
+   limit now bounds the current to `sqrt(2 V_dc I_drive / (3 R_s))`. The
+   charge limit keeps the mechanical power alone: the losses lower the real
+   charge current below it, also when R_s or the winding temperature is
+   estimated too high. A loss-aware charge limit would let too much current
+   into the battery in that case, and at low speed it would lift the braking
+   bound entirely (the losses can take all the braking power), which in the
+   simulation fed back through the speed estimate of a dyno.
+   `DriveStatus.dc_link_current` uses the full estimate with the losses.
 9. **Battery limits stay with the BMS and `unimoc.cart.battery_share`**
    (user decision 2026-11-17). The VDC knows the share and gets the
    resulting torque limits through `DriveStatus`; `WheelCommand` is not
@@ -151,9 +156,9 @@ parameters in the drive.
   current limit, estimate on the bus when no sensor is fitted, sim scenario
   (heat up at standstill, estimate within 5 K of the plant; cold start
   pulled in). Docs: `README.md`, `CONTEXT.md`.
-- **T5 – Copper losses in `DcLinkLimit`.** Quadratic limit of decision 8,
-  ztest in `dc_link_limit_test.cpp`, sim check of the battery current at
-  standstill against the DC-link model.
+- **T5 – Copper losses in `DcLinkLimit`.** Quadratic drive limit of
+  decision 8, ztest in `dc_link_limit_test.cpp`. Open: a sim check of the
+  battery current at standstill against the DC-link model.
 - **T6 – Optional:** standstill R_s measurement when armed (decision 5),
   motor sensor fusion on Jacobi (decision 6), R_s(T) in the flux observer,
   the "thermally derated" flag in `DriveStatus`.

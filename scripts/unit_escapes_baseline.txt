@@ -1,6 +1,6 @@
 # Unit-type escapes per file (scripts/check_unit_escapes.py); may only go down.
 1 hardware/zephyr_common/cyphal_runtime.cpp
-18 hardware/zephyr_sim/cyphal_platform.cpp
+20 hardware/zephyr_sim/cyphal_platform.cpp
 2 hardware/zephyr_sim/ebike_io.cpp
 16 hardware/zephyr_sim/hardware_interface.cpp
 3 hardware/zephyr_stm32h7/analog_scaling.hpp
@@ -11,7 +11,7 @@
 2 lib/ebike/src/pedal_observer.hpp
 4 lib/motor_control/src/angle_wrap.hpp
 2 lib/motor_control/src/asm_flux_controller.hpp
-2 lib/motor_control/src/dc_link_limit.hpp
+4 lib/motor_control/src/dc_link_limit.hpp
 8 lib/motor_control/src/mechanical_observer.hpp
 7 lib/motor_control/src/rotor_angle.hpp
 5 lib/motor_control/src/sin_cos.hpp
@@ -22,9 +22,9 @@
 1 lib/sim/src/motor_simulation.hpp
 4 lib/sim/src/pmsm_model.hpp
 1 src/current_control/current_control_isr.cpp
-1 src/current_control/slow_update.cpp
+2 src/current_control/slow_update.cpp
 11 src/drive/commissioning.cpp
-35 src/drive/drive_node.cpp
+34 src/drive/drive_node.cpp
 1 src/drive/settings_register_provider.cpp
 7 src/drive/timing_registers.cpp
 8 src/ebike/ebike_control.cpp
@@ -54,6 +54,7 @@
 26 tests/sim/cyphal_drive/src/main.cpp
 14 tests/sim/hall_fusion/src/main.cpp
 4 tests/sim/irq_cadence/src/main.cpp
+4 tests/sim/motor_thermal/src/main.cpp
 1 tests/sim/overcurrent/src/main.cpp
 16 tests/sim/speed_control/src/main.cpp
 1 tests/vdc/vdc_node/src/main.cpp

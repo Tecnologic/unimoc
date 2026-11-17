@@ -24,6 +24,7 @@ external API requires different wording.
 | **hardware layer** | Platform-specific code that connects the portable library to ADCs, PWM, timers, NVM, gate drivers, and other peripherals. Its platform is `zephyr_stm32h7` or `zephyr_sim`. |
 | **Jacobi** | The 36 V / 45 A drive (100 A peak phase current, 60 V FETs): the STM32H743 redesign of the hardware_4850 logic board with its own power board (Tecnologic/unimoc_jacobi), built with `-b unimoc_jacobi`. Drive hardware is named after pioneers of electric drives (`docs/system_plan.md`). |
 | **plant** | The simulated motor with its inverter, shaft and position sensor (`MotorSimulation` in `lib/sim/`). The firmware controls it on `native_sim`, including the ztest scenarios in `tests/sim/`. |
+| **winding temperature estimate** | The temperature of the motor winding from the two-mass thermal model of the copper losses (`control::MotorThermalModel`), corrected at low speed by the measured **stator resistance** (`docs/motor_thermal_plan.md`). It derates the motor current and sets R_s(T) of the battery current estimate. |
 | **power stage** | The inverter output stage behind `PowerStageInterface`: enable, disable, trip, and a latched fault. |
 
 ## Runtime Terms

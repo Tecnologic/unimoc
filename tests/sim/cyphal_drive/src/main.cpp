@@ -1267,7 +1267,14 @@ ZTEST(sim_cyphal_drive, test_wheel_command_drives_the_plant_and_the_drive_status
   zexpect_within(status.dc_link_voltage, 48.0F, 0.5F);
   zexpect_true(status.drive_torque_limit > 0.0F);
   zexpect_true(status.brake_torque_limit > 0.0F);
-  zexpect_true(std::isnan(status.motor_temperature), "the simulation measures no temperature");
+  // The simulation measures no motor temperature: the drive reports its
+  // winding estimate, here near the 25 °C ambient of the factory settings.
+  zexpect_within(status.motor_temperature,
+                 298.15F,
+                 2.0F,
+                 "motor %f K",
+                 static_cast<double>(status.motor_temperature));
+  zexpect_true(std::isnan(status.power_stage_temperature), "the simulation measures no bridge temperature");
 }
 
 ZTEST(sim_cyphal_drive, test_limp_home_on_the_pedals_then_stop_without_them) {

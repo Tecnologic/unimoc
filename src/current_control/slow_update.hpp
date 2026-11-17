@@ -24,10 +24,12 @@
 #include "hall_fusion.hpp"
 #include "hardware_interface.hpp"
 #include "mailbox.hpp"
+#include "motor_thermal_model.hpp"
 #include "motor_type.hpp"
 #include "nvm_settings.hpp"
 #include "pmsm_flux_observer.hpp"
 #include "rotor_system.hpp"
+#include "stator_resistance_estimator.hpp"
 
 /**
  * @namespace unimoc global namespace
@@ -37,6 +39,24 @@
  * @namespace current_control current-control subsystem namespace
  */
 namespace unimoc::current_control {
+
+/**
+ * @brief Copper loss data of the observer for the thermal model of the outer loop.
+ *
+ * Published every ThermalWindow period (control::MotorThermalModel::kStepPeriod)
+ * by SlowUpdate (docs/motor_thermal_plan.md, decision 4).
+ */
+struct ThermalWindow {
+  /// Square of a current [A^2].
+  using CurrentSquared = decltype(unit::Current{} * unit::Current{});
+
+  uint32_t sequence{0U};              ///< Counts the published windows; 0: none yet.
+  CurrentSquared current_squared;     ///< Mean |i_dq|^2 of the measured current over the window.
+  unit::Time duration;                ///< Length of the window.
+  unit::Resistance resistance;        ///< Mean of the stator resistance estimates completed in the window.
+  uint32_t resistance_estimates{0U};  ///< Number of those estimates; 0: no estimate.
+  unit::Time resistance_time;         ///< Time the resistance estimates cover together.
+};
 
 /**
  * @brief Observer update that runs after each control cycle, below the control cycle.
@@ -61,6 +81,8 @@ namespace unimoc::current_control {
  *     the **inactive** buffer.
  *  6. Atomically flips the buffer; the control steps advance the angle from
  *     the new reference.
+ *  7. Sums |i_dq|^2 and runs the stator resistance estimate for the thermal
+ *     model of the outer loop (Thermal(), docs/motor_thermal_plan.md).
  *
  * The estimate before the state prediction refers to the first sample of the
  * cycle that just finished; the Hall edges are projected to that time.
@@ -171,6 +193,9 @@ class SlowUpdate {
 
   /// ASM: estimated rotor flux magnitude of the last cycle; zero otherwise.
   [[nodiscard]] unit::MagneticFlux RotorFlux() const noexcept { return rotor_flux_.Read(); }
+
+  /// The last copper loss window for the thermal model; any thread below the observer.
+  [[nodiscard]] ThermalWindow Thermal() const noexcept { return thermal_.Read(); }
 
   // =========================================================================
   // Main execution
@@ -320,6 +345,18 @@ class SlowUpdate {
   /// Outputs open: flux observer and speed from the phase voltages of the cycle.
   void TrackBackEmf(const CycleRecord& cycle, const system::Rotor<unit::Current>& current_dq) noexcept;
 
+  /**
+   * @brief Sums |i_dq|^2 and the stator resistance windows of a cycle for the thermal model.
+   * @param cycle Record of the cycle.
+   * @param current_dq Mean current of the cycle.
+   * @param omega Electrical speed estimate.
+   * @param resistance_valid The cycle may feed the resistance estimate (outputs on, no forced angle).
+   */
+  void AccumulateThermal(const CycleRecord& cycle,
+                         const system::Rotor<unit::Current>& current_dq,
+                         unit::AngularVelocity omega,
+                         bool resistance_valid) noexcept;
+
   /// Feeds the phase voltages of an open-output cycle to the coast-down meter.
   void MeasureCoast(const CycleRecord& cycle, bool outputs_open) noexcept;
 
@@ -392,6 +429,14 @@ class SlowUpdate {
   /// ASM: gains of the speed adaptation, rad/s per (A Wb) and per (A Wb s).
   decltype(unit::AngularVelocity{} / unit::Torque{}) speed_kp_{200.0F};
   decltype(unit::AngularVelocity{} / (unit::Torque{} * unit::Time{})) speed_ki_{20000.0F};
+
+  // Thermal model data (AccumulateThermal()); observer only, except thermal_.
+  control::StatorResistanceEstimator resistance_estimator_{};
+  bool estimate_resistance_{false};  ///< PMSM and EESM: the balance of the estimator holds.
+  ThermalWindow thermal_window_{};   ///< The window being summed.
+  uint32_t thermal_cycles_{0U};      ///< Cycles summed into it.
+  uint32_t thermal_window_cycles_{1U};
+  SeqLock<ThermalWindow> thermal_{};
 };
 
 }  // namespace unimoc::current_control

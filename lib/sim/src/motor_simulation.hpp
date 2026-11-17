@@ -733,9 +733,9 @@ class MotorSimulation {
   /// Thermal network of the winding (MotorThermalParameters).
   control::MotorThermalModel thermal_;
   /// Integral of |i_dq|^2 since the last thermal step.
-  ChargeSquared thermal_energy_{};
+  ChargeSquared thermal_energy_;
   /// Time since the last thermal step.
-  unit::Time thermal_time_{};
+  unit::Time thermal_time_;
 };
 
 }  // namespace unimoc::sim

@@ -178,7 +178,7 @@ def test_registers_json_describes_every_register_on_the_bus(dut, sim: SimClient,
 
     # The persistent settings, among them the e-bike registers past the 128th.
     settings = [entry for entry in entries if entry["persistent"] and entry["mutable"]]
-    assert len(settings) == 144
+    assert len(settings) == 155
     assert "unimoc.ebike.display_timeout" in by_name
 
 
@@ -246,7 +246,8 @@ def test_wheel_command_and_drive_status(sim: SimClient):
     assert not status.limp_home
     assert status.wheel == 0
     assert status.dc_link_voltage == pytest.approx(48.0, abs=0.5)
-    assert math.isnan(status.motor_temperature)
+    # No motor sensor in the simulation: the winding estimate, near the 25 °C ambient.
+    assert status.motor_temperature == pytest.approx(298.15, abs=2.0)
     sim.hold(0.2, SLEEP)
 
 

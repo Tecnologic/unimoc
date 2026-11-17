@@ -63,6 +63,10 @@ template <typename Dim>
     return "N m";
   } else if constexpr (std::is_same_v<Dim, dim::Inertia>) {
     return "kg m^2";
+  } else if constexpr (std::is_same_v<Dim, unit::DimensionQuotient<dim::Energy, dim::Temperature>>) {
+    return "J/K";
+  } else if constexpr (std::is_same_v<Dim, unit::DimensionQuotient<dim::Temperature, dim::Power>>) {
+    return "K/W";
   } else {
     return {};
   }
