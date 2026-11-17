@@ -303,4 +303,75 @@ ZTEST(motor_simulation, test_reset_returns_to_standstill) {
   zexpect_equal(output.hall.code, 5U);
 }
 
+namespace {
+
+/// The test motor with a heated winding.
+SimulationParameters ThermalParameters() {
+  SimulationParameters parameters = ParametersFromSettings(TestSettings());
+  parameters.thermal.enabled = true;
+  parameters.thermal.ambient = 25.0_degC;
+  parameters.thermal.start = 25.0_degC;
+  return parameters;
+}
+
+}  // namespace
+
+ZTEST(motor_simulation, test_without_heating_the_resistance_stays) {
+  MotorSimulation simulation;
+  zassert_equal(simulation.Configure(TestSettings()), Status::kOk);
+  simulation.SetShaftMode(ShaftMode::kImposedSpeed, AngularVelocity{});
+  simulation.SetBridgeEnabled(true);
+  zassert_true(RunCommutated(simulation, {2.0_V, 0.0_V}, 40000));
+  UNIMOC_EXPECT_FLOAT_EQ(simulation.Output().stator_resistance, 0.1_Ohm);
+  UNIMOC_EXPECT_FLOAT_EQ(simulation.Output().winding_temperature, 25.0_degC);
+  UNIMOC_EXPECT_NEAR(simulation.Output().rotor_current.d, 20.0_A, 0.01_A);
+}
+
+ZTEST(motor_simulation, test_heated_winding_raises_the_resistance) {
+  MotorSimulation simulation;
+  zassert_equal(simulation.Configure(ThermalParameters()), Status::kOk);
+  UNIMOC_EXPECT_FLOAT_EQ(simulation.Output().stator_resistance, 0.1_Ohm);
+  simulation.SetShaftMode(ShaftMode::kImposedSpeed, AngularVelocity{});
+  simulation.SetBridgeEnabled(true);
+  // 2 V along d at standstill: 20 A cold, 60 W of copper losses.
+  zassert_true(RunCommutated(simulation, {2.0_V, 0.0_V}, 400000));  // 10 s
+  const auto& output = simulation.Output();
+  // About 60 W into 150 J/K for 10 s: the winding is 3 K to 4 K warmer.
+  zexpect_true(output.winding_temperature > 27.0_degC, "the winding heats");
+  zexpect_true(output.winding_temperature < 30.0_degC, "not faster than the losses allow");
+  zexpect_true(output.stator_temperature < output.winding_temperature, "the housing lags");
+  // The resistance follows the winding, the current at constant voltage falls.
+  const Resistance kExpected = 0.1_Ohm * (1.0_ratio + (unimoc::control::kCopperTemperatureCoefficient *
+                                                       (output.winding_temperature - 25.0_degC)));
+  UNIMOC_EXPECT_NEAR(output.stator_resistance, kExpected, 1e-6_Ohm);
+  UNIMOC_EXPECT_NEAR(output.rotor_current.d, 2.0_V / output.stator_resistance, 0.02_A);
+  zexpect_true(output.rotor_current.d < 19.9_A, "less current through the warm winding");
+}
+
+ZTEST(motor_simulation, test_a_warm_motor_starts_with_its_resistance) {
+  MotorSimulation simulation;
+  zassert_equal(simulation.Configure(ThermalParameters()), Status::kOk);
+  simulation.SetMotorTemperature(125.0_degC);
+  UNIMOC_EXPECT_FLOAT_EQ(simulation.Output().winding_temperature, 125.0_degC);
+  UNIMOC_EXPECT_NEAR(simulation.Output().stator_resistance, 0.1393_Ohm, 1e-5_Ohm);
+  simulation.SetShaftMode(ShaftMode::kImposedSpeed, AngularVelocity{});
+  simulation.SetBridgeEnabled(true);
+  zassert_true(RunCommutated(simulation, {2.0_V, 0.0_V}, 4000));
+  UNIMOC_EXPECT_NEAR(simulation.Output().rotor_current.d, 2.0_V / 0.1393_Ohm, 0.05_A);
+  // Reset() returns to the start temperature of the parameters.
+  simulation.Reset();
+  UNIMOC_EXPECT_FLOAT_EQ(simulation.Output().winding_temperature, 25.0_degC);
+  UNIMOC_EXPECT_FLOAT_EQ(simulation.Output().stator_resistance, 0.1_Ohm);
+}
+
+ZTEST(motor_simulation, test_invalid_thermal_parameters_are_rejected) {
+  MotorSimulation simulation;
+  SimulationParameters parameters = ThermalParameters();
+  parameters.thermal.network.stator_capacity = HeatCapacity{};
+  zexpect_equal(simulation.Configure(parameters), Status::kInvalidThermalParameters);
+  // Without heating the network is not checked.
+  parameters.thermal.enabled = false;
+  zexpect_equal(simulation.Configure(parameters), Status::kOk);
+}
+
 ZTEST_SUITE(motor_simulation, nullptr, nullptr, nullptr, nullptr, nullptr);

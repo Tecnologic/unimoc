@@ -62,6 +62,8 @@ enum class Status : std::uint8_t {
   kInvalidDeadTime,
   /// The integration step is not positive.
   kInvalidTimeStep,
+  /// A heat capacity or a thermal resistance of the motor is not positive.
+  kInvalidThermalParameters,
 };
 
 /**

@@ -25,6 +25,7 @@
 #include "inverter_model.hpp"
 #include "mechanical_model.hpp"
 #include "motor_model.hpp"
+#include "motor_thermal_model.hpp"
 #include "motor_type.hpp"
 #include "nvm_settings.hpp"
 #include "pmsm_model.hpp"
@@ -32,6 +33,34 @@
 #include "units.hpp"
 
 namespace unimoc::sim {
+
+/**
+ * @brief Thermal network of the simulated motor (docs/motor_thermal_plan.md, section 4).
+ *
+ * The same two-mass network as control::MotorThermalModel, with its own
+ * parameters. While enabled, the stator resistance of a PMSM or EESM follows
+ * the winding temperature: the resistance of the motor parameters is the one
+ * at `network.reference_temperature`, `network.stator_resistance` is ignored.
+ * An induction motor keeps its resistances.
+ */
+struct MotorThermalParameters {
+  /// Heat the motor and let the stator resistance follow; off keeps a constant resistance.
+  bool enabled{false};
+  /// Capacities, thermal resistances and the temperature coefficient.
+  control::MotorThermalModel::Parameters network{
+      .stator_resistance = unit::Resistance{},
+      .reference_temperature = unit::operator""_degC(25.0L),
+      .temperature_coefficient = control::kCopperTemperatureCoefficient,
+      .winding_capacity = unit::operator""_J_per_K(150.0L),
+      .stator_capacity = unit::operator""_J_per_K(1500.0L),
+      .winding_to_stator = unit::operator""_K_per_W(0.4L),
+      .stator_to_ambient = unit::operator""_K_per_W(0.8L),
+  };
+  /// Ambient temperature.
+  unit::Temperature ambient{unit::operator""_degC(25.0L)};
+  /// Temperature of winding and stator after Configure() and Reset().
+  unit::Temperature start{unit::operator""_degC(25.0L)};
+};
 
 /**
  * @brief Complete parameter set of one simulated drive.
@@ -58,6 +87,8 @@ struct SimulationParameters {
   InverterParameters inverter;
   /// DC-link capacitor and battery resistance; the default (no capacitor) is the ideal source.
   DcLinkParameters dc_link;
+  /// Heating of the winding; off by default.
+  MotorThermalParameters thermal;
 };
 
 /**
@@ -138,6 +169,12 @@ struct SimulationOutput {
   unit::Current field_current;
   /// Electromagnetic torque.
   unit::Torque electromagnetic_torque;
+  /// Winding temperature (simulation truth); the start temperature without heating.
+  unit::Temperature winding_temperature;
+  /// Stator and housing temperature (simulation truth).
+  unit::Temperature stator_temperature;
+  /// Stator phase resistance at the winding temperature (simulation truth).
+  unit::Resistance stator_resistance;
   /// Mechanical shaft angle.
   system::RotorAngle mechanical_angle;
   /// Mechanical shaft speed.
@@ -223,6 +260,15 @@ class MotorSimulation {
       return kModelStatus;
     }
 
+    if (parameters.thermal.enabled) {
+      control::MotorThermalModel::Parameters network = parameters.thermal.network;
+      network.stator_resistance = std::visit(ResistanceVisitor{}, model);
+      if (!network.Valid()) {
+        return Status::kInvalidThermalParameters;
+      }
+      thermal_ = control::MotorThermalModel(network, parameters.thermal.start);
+    }
+
     parameters_ = parameters;
     model_ = model;
     pole_pairs_ = pole_pairs;
@@ -270,6 +316,7 @@ class MotorSimulation {
    */
   constexpr void Reset() noexcept {
     std::visit(ResetVisitor{}, model_);
+    SetMotorTemperature(parameters_.thermal.start);
     mechanics_.Reset();
     inverter_ = InverterModel{};
     inverter_.SetDeadTime(parameters_.inverter.dead_time);
@@ -277,6 +324,21 @@ class MotorSimulation {
     UpdateOutput();
     hall_.Reset(output_.electrical_angle);
     output_.hall = hall_.Signals();
+  }
+
+  /**
+   * @brief Sets the winding and the stator to one temperature, such as a motor still warm.
+   *
+   * Without heating (MotorThermalParameters::enabled) only the reported
+   * temperatures change.
+   *
+   * @param temperature Temperature of winding and stator.
+   */
+  constexpr void SetMotorTemperature(const unit::Temperature temperature) noexcept {
+    thermal_.Reset(temperature);
+    thermal_energy_ = ChargeSquared{};
+    thermal_time_ = unit::Time{};
+    ApplyWindingTemperature();
   }
 
   /**
@@ -418,6 +480,7 @@ class MotorSimulation {
 
     const ElectricalOutput kElectrical = std::visit(OutputVisitor{}, model_);
     mechanics_.Step(kElectrical.torque, input_.load_torque, time_step);
+    StepThermal(kElectrical.rotor_current, time_step);
 
     UpdateOutput();
     output_.terminal_voltages = TerminalVoltages(conduction, connected, kDcLink);
@@ -462,6 +525,26 @@ class MotorSimulation {
     template <MotorModel M>
     constexpr void operator()(M& model) const noexcept {
       model.Reset();
+    }
+  };
+
+  /// Returns the stator resistance of the held model at the reference temperature.
+  struct ResistanceVisitor {
+    constexpr unit::Resistance operator()(const std::monostate& /*unused*/) const noexcept { return {}; }
+    template <MotorModel M>
+    constexpr unit::Resistance operator()(const M& model) const noexcept {
+      return model.Parameters().stator_resistance;
+    }
+  };
+
+  /// Sets the stator resistance of a PMSM or EESM; an induction motor keeps its own.
+  struct SetResistanceVisitor {
+    unit::Resistance resistance;
+    constexpr void operator()(std::monostate& /*unused*/) const noexcept {}
+    constexpr void operator()(AsmModel& /*unused*/) const noexcept {}
+    template <MotorModel M>
+    constexpr void operator()(M& model) const noexcept {
+      model.SetStatorResistance(resistance);
     }
   };
 
@@ -577,6 +660,43 @@ class MotorSimulation {
     return {kPhases.a - kLowest, kPhases.b - kLowest, kPhases.c - kLowest};
   }
 
+  /// Charge squared [A^2 s], the integral of |i_dq|^2 over the thermal step.
+  using ChargeSquared = decltype(unit::Current{} * unit::Current{} * unit::Time{});
+
+  /**
+   * @brief Integrates |i_dq|^2 and steps the thermal network at its own period.
+   *
+   * The network steps at control::MotorThermalModel::kStepPeriod with the mean
+   * |i_dq|^2, not at the electrical step: its temperatures are floats.
+   */
+  constexpr void StepThermal(const system::Rotor<unit::Current>& current,
+                             const unit::Time time_step) noexcept {
+    if (!parameters_.thermal.enabled) {
+      return;
+    }
+    thermal_energy_ += current.LengthSquared() * time_step;
+    thermal_time_ += time_step;
+    if (thermal_time_ < control::MotorThermalModel::kStepPeriod) {
+      return;
+    }
+    thermal_.Step(thermal_energy_ / thermal_time_, parameters_.thermal.ambient, thermal_time_);
+    thermal_energy_ = ChargeSquared{};
+    thermal_time_ = unit::Time{};
+    ApplyWindingTemperature();
+  }
+
+  /// Hands the resistance at the winding temperature to the motor model and the output.
+  constexpr void ApplyWindingTemperature() noexcept {
+    output_.winding_temperature = thermal_.Winding();
+    output_.stator_temperature = thermal_.Stator();
+    if (!parameters_.thermal.enabled) {
+      output_.stator_resistance = std::visit(ResistanceVisitor{}, model_);
+      return;
+    }
+    output_.stator_resistance = thermal_.StatorResistance();
+    std::visit(SetResistanceVisitor{output_.stator_resistance}, model_);
+  }
+
   /** @brief Recomputes the output sample from the states. */
   constexpr void UpdateOutput() noexcept {
     const ElectricalOutput kElectrical = std::visit(OutputVisitor{}, model_);
@@ -610,6 +730,12 @@ class MotorSimulation {
   SimulationInput input_;
   /// Output sample at the end of the last step.
   SimulationOutput output_;
+  /// Thermal network of the winding (MotorThermalParameters).
+  control::MotorThermalModel thermal_;
+  /// Integral of |i_dq|^2 since the last thermal step.
+  ChargeSquared thermal_energy_{};
+  /// Time since the last thermal step.
+  unit::Time thermal_time_{};
 };
 
 }  // namespace unimoc::sim
