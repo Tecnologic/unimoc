@@ -26,6 +26,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <numbers>
+#include <optional>
 #include "foc_stm32h7_dt.hpp"
 #include "units.hpp"
 
@@ -137,6 +138,24 @@ inline constexpr float kNtcAdcStep = (kAdcResolution - 1.0F) / static_cast<float
   const std::size_t kLowerClamped = (kLower >= kNtcTableSize) ? kNtcTableSize - 1 : kLower;
   const float kFraction = kPosition - static_cast<float>(kLowerClamped);
   return unit::Temperature{kTable[kLowerClamped] + kFraction * (kTable[kUpper] - kTable[kLowerClamped])};
+}
+
+/**
+ * @brief Temperature of an NTC input that may have no sensor, such as the motor's.
+ *
+ * Above 98 % of full scale the input is open (more than 490 kOhm, below
+ * about -43 degC): no NTC is connected. Below 1 % it is shorted (about
+ * 100 Ohm, above about 220 degC). Both give no reading, so the drive falls
+ * back to its estimate (docs/motor_thermal_plan.md, decision 6).
+ */
+[[nodiscard]] inline std::optional<unit::Temperature> CountsToSensorTemperature(const uint32_t raw) noexcept {
+  constexpr float kOpen = 0.98F * (kAdcResolution - 1.0F);
+  constexpr float kShort = 0.01F * (kAdcResolution - 1.0F);
+  const auto kCounts = static_cast<float>(raw);
+  if (kCounts > kOpen || kCounts < kShort) {
+    return std::nullopt;
+  }
+  return CountsToTemperature(raw);
 }
 
 }  // namespace unimoc::hardware::analog

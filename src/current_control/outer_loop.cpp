@@ -71,6 +71,7 @@ void OuterLoop::Init(const settings::NvmSettings& settings, CurrentControlIsr& i
                                              .limit = settings.thermal_limit};
   parameters.thermal_ambient = settings.thermal_ambient;
   parameters.rs_correction_time = settings.thermal_rs_correction_time;
+  parameters.sensor_correction_time = settings.thermal_sensor_correction_time;
   parameters_.Write(parameters);
   SetGains(parameters.gains);  // live gains handed over before are older than these
 }
@@ -273,6 +274,7 @@ void OuterLoop::LoadParameters(const Parameters& parameters) noexcept {
   }
   current_limit_ = parameters.current_limit * thermal_.CurrentLimitScale();
   speed_.torque_limit = parameters.torque_constant * current_limit_;
+  SlowUpdate::Instance().SetStatorResistance(thermal_.StatorResistance());  // a warm motor at once
   // The controller restarted with these settings: the observer angle starts
   // again at zero, so the position is counted anew from here.
   tracking_ = false;
@@ -386,6 +388,13 @@ void OuterLoop::UpdateThermal() noexcept {
       thermal_.Correct(thermal_.TemperatureFromResistance(kWindow.resistance),
                        kWindow.resistance_time / active_.rs_correction_time);
     }
+    // A motor sensor sees the stator mass: it corrects with its own time constant.
+    const MotorSensor kSensor = motor_sensor_.Read();
+    if (kSensor.valid && active_.sensor_correction_time > Time{}) {
+      thermal_.CorrectStator(kSensor.temperature, kWindow.duration / active_.sensor_correction_time);
+    }
+    // The observers follow the warm winding.
+    SlowUpdate::Instance().SetStatorResistance(thermal_.StatorResistance());
   }
   current_limit_ = active_.current_limit * thermal_.CurrentLimitScale();
 }

@@ -255,7 +255,7 @@ TemperatureMeasurements GetTemperatureMeasurements() noexcept {
     measurements.bridge = analog::CountsToTemperature(kRaw.bridge_temperature);
   }
   if constexpr (kMotorTemperatureAvailable) {
-    measurements.motor = analog::CountsToTemperature(kRaw.motor_temperature);
+    measurements.motor = analog::CountsToSensorTemperature(kRaw.motor_temperature);  // nothing without an NTC
   }
   return measurements;
 }

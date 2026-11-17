@@ -151,6 +151,7 @@ void ForEachRegister(const Visitor& visit, Settings&... settings) {
   visit(Setting(reg::kThermalRsSpeedMax, "Largest electrical speed at which the stator resistance corrects the temperature estimate", AtLeast(0.0F)), settings.thermal_rs_speed_max...);
   visit(Setting(reg::kThermalRsCurrentMin, "Smallest current at which the stator resistance corrects the temperature estimate", AtLeast(0.0F)), settings.thermal_rs_current_min...);
   visit(Setting(reg::kThermalRsCorrectionTime, "Time constant of the correction from the stator resistance; 0 off", AtLeast(0.0F)), settings.thermal_rs_correction_time...);
+  visit(Setting(reg::kThermalSensorCorrectionTime, "Time constant of the correction from a motor temperature sensor (stator mass); 0: the sensor is only reported", AtLeast(0.0F)), settings.thermal_sensor_correction_time...);
   visit(Setting(reg::kMotorIMax, "Largest motor current (stator vector), up to the hardware limit", AtLeast(0.0F)), settings.motor_i_max...);
   visit(Setting(reg::kMotorOmegaMax, "Largest electrical speed forward", AtLeast(0.0F)), settings.motor_omega_max...);
   visit(Setting(reg::kMotorOmegaMin, "Largest electrical speed in reverse, negative", AtMost(0.0F)), settings.motor_omega_min...);

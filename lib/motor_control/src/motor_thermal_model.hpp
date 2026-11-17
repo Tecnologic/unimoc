@@ -226,6 +226,25 @@ class MotorThermalModel {
   }
 
   /**
+   * @brief Pulls the estimate towards a measured stator (housing) temperature, such as a motor sensor's.
+   *
+   * Both masses move by the same amount, as in Correct(): a sensor on the
+   * stator iron or the end winding sees the slow mass, the modelled gradient
+   * to the winding stays.
+   *
+   * @param measured Measured stator temperature.
+   * @param weight Share of the difference taken over, clamped to [0, 1].
+   */
+  constexpr void CorrectStator(const unit::Temperature measured, const unit::Ratio weight) noexcept {
+    if (!unit::IsFinite(measured) || !unit::IsFinite(weight)) {
+      return;
+    }
+    const unit::Temperature kShift = (measured - stator_) * weight.Clamp(0.0_ratio, 1.0_ratio);
+    winding_ += kShift;
+    stator_ += kShift;
+  }
+
+  /**
    * @brief Share of the motor current limit allowed at the estimated winding temperature.
    * @return 1 up to `derate_start`, falling linearly to 0 at `limit`.
    */

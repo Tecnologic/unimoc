@@ -141,12 +141,13 @@ enum class SimRegister : uint8_t {
   kBrake,
   kMotorHeating,
   kMotorTemperature,
+  kMotorSensor,
 };
 
 /// Most control cycles one write of `unimoc.sim.advance` runs (1 s of virtual time at 16 kHz).
 constexpr int64_t kMaxAdvanceCycles = 16000;
 
-constexpr std::array<std::string_view, 23> kNames{
+constexpr std::array<std::string_view, 24> kNames{
     "unimoc.sim.shaft_mode",
     "unimoc.sim.imposed_speed",
     "unimoc.sim.load_torque",
@@ -170,6 +171,7 @@ constexpr std::array<std::string_view, 23> kNames{
     "unimoc.sim.brake",
     "unimoc.sim.motor_heating",
     "unimoc.sim.motor_temperature",
+    "unimoc.sim.motor_sensor",
 };
 
 constexpr float kInf = std::numeric_limits<float>::infinity();
@@ -250,6 +252,11 @@ constexpr std::array<cyphal::RegisterDescription, kNames.size()> kDescriptions{{
      200.0F,
      RegisterEffect::kImmediate,
      "Winding temperature of the simulated motor (truth); a write sets winding and stator"},
+    {{},
+     -kInf,
+     kInf,
+     RegisterEffect::kImmediate,
+     "1: a motor temperature sensor reads the stator temperature of the simulated motor"},
 }};
 
 /**
@@ -434,6 +441,9 @@ class SimRegisters final : public cyphal::RegisterProvider {
       case SimRegister::kMotorTemperature:
         cyphal::SetReal32(value, sim::Plant().Output().winding_temperature.Value());
         break;
+      case SimRegister::kMotorSensor:
+        cyphal::SetBit(value, sim::MotorSensor());
+        break;
     }
     return {true, false};
   }
@@ -524,6 +534,9 @@ class SimRegisters final : public cyphal::RegisterProvider {
                                                  : RegisterWriteResult::kOutOfRange;
       case SimRegister::kMotorTemperature:
         return WriteMotorTemperature(kValue);
+      case SimRegister::kMotorSensor:
+        sim::SetMotorSensor(kValue != 0.0F);
+        return RegisterWriteResult::kAccepted;
     }
     ApplyInputs();
     return RegisterWriteResult::kAccepted;

@@ -218,6 +218,10 @@ struct NvmSettings {
   /// Register: `unimoc.motor.thermal.rs_correction_time`
   unit::Time thermal_rs_correction_time{30.0_s};
 
+  /// Time constant of the correction from a motor temperature sensor [s]; 0: the sensor is only reported.
+  /// Register: `unimoc.motor.thermal.sensor_correction_time`
+  unit::Time thermal_sensor_correction_time{10.0_s};
+
   // =========================================================================
   // PMSM / EESM parameters
   // =========================================================================

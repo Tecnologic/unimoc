@@ -42,6 +42,7 @@
 #include "hardware_interface.hpp"
 #include <zephyr/kernel.h>
 #include <array>
+#include <atomic>
 #include <cmath>
 #include <limits>
 #include <optional>
@@ -186,10 +187,11 @@ uint64_t g_half_period_ns = 0U;
 
 struct k_timer g_cycle_timer;
 bool g_free_running = false;
-bool g_paused = false;       // SetPaused(): Initialize() leaves the timer stopped
-uint64_t g_cycle_ns = 0U;    // exact cycle period
-uint64_t g_elapsed_ns = 0U;  // ideal time of the last expiry since the start
-uint64_t g_elapsed_us = 0U;  // the same, rounded down to the 1 us kernel tick
+std::atomic<bool> g_motor_sensor{false};  // sim::SetMotorSensor()
+bool g_paused = false;                    // SetPaused(): Initialize() leaves the timer stopped
+uint64_t g_cycle_ns = 0U;                 // exact cycle period
+uint64_t g_elapsed_ns = 0U;               // ideal time of the last expiry since the start
+uint64_t g_elapsed_us = 0U;               // the same, rounded down to the 1 us kernel tick
 
 system::ThreePhase<Current> MeasuredCurrents() noexcept {
   return g_current_override ? g_override_currents : g_filtered_currents;
@@ -423,7 +425,16 @@ system::ThreePhase<Voltage> GetPhaseVoltages() noexcept { return g_filtered_volt
 // The delays of the sense filters of the simulation: none unless SetSenseFilters() set them.
 SenseDelays GetSenseDelays() noexcept { return g_sense_filters; }
 
-TemperatureMeasurements GetTemperatureMeasurements() noexcept { return {}; }
+// Only the optional motor sensor: it reads the stator temperature of the plant.
+TemperatureMeasurements GetTemperatureMeasurements() noexcept {
+  TemperatureMeasurements measurements{};
+  if (g_motor_sensor.load(std::memory_order_relaxed)) {
+    const unsigned int kIrqKey = irq_lock();
+    measurements.motor = g_plant.Output().stator_temperature;
+    irq_unlock(kIrqKey);
+  }
+  return measurements;
+}
 
 void SetOvercurrentLimit(const Current limit) noexcept { g_overcurrent_limit = limit; }
 
@@ -457,6 +468,10 @@ void TripPowerStage() noexcept { PowerStageTrip(); }
 }  // namespace hot_path
 
 namespace sim {
+
+void SetMotorSensor(const bool present) noexcept { g_motor_sensor.store(present, std::memory_order_relaxed); }
+
+bool MotorSensor() noexcept { return g_motor_sensor.load(std::memory_order_relaxed); }
 
 void SetExternalEnable(const bool present) noexcept {
   g_power_stage.external_enable = present;

@@ -4,7 +4,7 @@
  * Settings storage of the simulated drive: 64 KB (16 sectors of 4 KB) in
  * place of the 16 KB of the native_sim board, which no longer hold every
  * register of the drive with the free sector of the ZMS garbage collection
- * (155 registers, docs/motor_thermal_plan.md). The space comes from the
+ * (156 registers, docs/motor_thermal_plan.md). The space comes from the
  * MCUboot scratch partition, which native_sim does not use.
  *
  *   0x000de000   72 KB  scratch_partition

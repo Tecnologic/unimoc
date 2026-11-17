@@ -160,6 +160,8 @@ void Start(const unimoc::settings::NvmSettings& settings, const Temperature plan
 }
 
 void Before(void* /*unused*/) {
+  sim::SetMotorSensor(false);
+  OuterLoop::Instance().SetMotorSensorTemperature(std::nullopt);
   sim::ClearPhaseCurrentOverride();
   sim::SetExternalEnable(true);
 }
@@ -185,6 +187,11 @@ ZTEST_F(sim_motor_thermal, test_estimate_follows_the_heated_winding) {
   UNIMOC_EXPECT_NEAR(OuterLoop::Instance().Status().stator_resistance,
                      sim::Plant().Output().stator_resistance,
                      1.5e-3_Ohm);
+  // The flux observer works with the warm resistance, not with that of the settings.
+  UNIMOC_EXPECT_NEAR(SlowUpdate::Instance().flux_obs.rs,
+                     OuterLoop::Instance().Status().stator_resistance,
+                     1e-4_Ohm);
+  zexpect_true(SlowUpdate::Instance().flux_obs.rs > fixture->settings.stator_r * 1.1F, "the warm winding");
   // And it cools down with the plant.
   OuterLoop::Instance().SetSetpoint(OuterSetpoint{});
   RunSeconds(5U);
@@ -210,6 +217,32 @@ ZTEST_F(sim_motor_thermal, test_without_correction_a_cold_estimate_stays_cold) {
   RunSeconds(6U);
   zexpect_true(PlantWinding() - EstimatedWinding() > 30.0_degC,
                "the model alone does not see the warm start");
+}
+
+ZTEST_F(sim_motor_thermal, test_a_motor_sensor_pulls_the_estimate_to_a_warm_motor) {
+  // The motor is warm; the drive starts at the ambient, the stator resistance
+  // correction is off: only the sensor on the stator can find the temperature.
+  unimoc::settings::NvmSettings settings = fixture->settings;
+  settings.thermal_sensor_correction_time = 1.0_s;
+  Start(settings, 70.0_degC);
+  sim::SetMotorSensor(true);
+  UNIMOC_EXPECT_NEAR(EstimatedWinding(), 25.0_degC, 0.5_degC);
+  for (unsigned step = 0U; step < 50U; ++step) {
+    // As the drive does in its spin: the reading of the platform to the outer loop.
+    OuterLoop::Instance().SetMotorSensorTemperature(
+        unimoc::hardware::kMotors[0].GetTemperatureMeasurements().motor);
+    RunMs(100U);
+  }
+  UNIMOC_EXPECT_NEAR(EstimatedWinding(), PlantWinding(), 2.0_degC);
+  UNIMOC_EXPECT_NEAR(OuterLoop::Instance().Status().stator_temperature,
+                     sim::Plant().Output().stator_temperature,
+                     2.0_degC);
+  // Without a reading the model runs on alone.
+  sim::SetMotorSensor(false);
+  OuterLoop::Instance().SetMotorSensorTemperature(
+      unimoc::hardware::kMotors[0].GetTemperatureMeasurements().motor);
+  RunMs(500U);
+  UNIMOC_EXPECT_NEAR(EstimatedWinding(), PlantWinding(), 2.0_degC);
 }
 
 ZTEST_F(sim_motor_thermal, test_hot_winding_derates_the_current) {

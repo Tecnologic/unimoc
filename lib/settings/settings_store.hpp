@@ -94,7 +94,8 @@ template <unit::UnitLike U>
          unit::IsFinite(settings.thermal_r_winding) && unit::IsFinite(settings.thermal_r_stator) &&
          unit::IsFinite(settings.thermal_derate_start) && unit::IsFinite(settings.thermal_limit) &&
          unit::IsFinite(settings.thermal_rs_speed_max) && unit::IsFinite(settings.thermal_rs_current_min) &&
-         unit::IsFinite(settings.thermal_rs_correction_time);
+         unit::IsFinite(settings.thermal_rs_correction_time) &&
+         unit::IsFinite(settings.thermal_sensor_correction_time);
 }
 
 /// The thermal model: positive capacities and resistances, the derating band in order.
@@ -106,7 +107,8 @@ template <unit::UnitLike U>
          settings.thermal_derate_start < settings.thermal_limit &&
          settings.thermal_rs_speed_max >= ZeroOf(settings.thermal_rs_speed_max) &&
          settings.thermal_rs_current_min >= ZeroOf(settings.thermal_rs_current_min) &&
-         settings.thermal_rs_correction_time >= ZeroOf(settings.thermal_rs_correction_time);
+         settings.thermal_rs_correction_time >= ZeroOf(settings.thermal_rs_correction_time) &&
+         settings.thermal_sensor_correction_time >= ZeroOf(settings.thermal_sensor_correction_time);
 }
 
 [[nodiscard]] inline bool IsFinite(const NvmSettings& settings) noexcept {

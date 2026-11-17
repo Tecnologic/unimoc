@@ -17,6 +17,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <optional>
 #include "asm_flux_controller.hpp"
 #include "battery_limits.hpp"
 #include "current_control_isr.hpp"
@@ -215,6 +216,18 @@ class OuterLoop {
    */
   void RestartThermal() noexcept { thermal_restart_.store(true, std::memory_order_release); }
 
+  /**
+   * @brief Hands the reading of a motor temperature sensor to the thermal model.
+   *
+   * It corrects the stator mass with `unimoc.motor.thermal.sensor_correction_time`
+   * (docs/motor_thermal_plan.md, decision 6). Nothing: no sensor. One writer:
+   * the drive (Cyphal thread).
+   */
+  void SetMotorSensorTemperature(const std::optional<unit::Temperature> temperature) noexcept {
+    motor_sensor_.Write(MotorSensor{.valid = temperature.has_value(),
+                                    .temperature = temperature.value_or(unit::Temperature{})});
+  }
+
   /// State after the last step; any thread below the control thread.
   [[nodiscard]] OuterStatus Status() const noexcept { return status_.Read(); }
 
@@ -261,6 +274,7 @@ class OuterLoop {
     control::MotorThermalModel::Parameters thermal;  ///< Thermal model of the winding.
     unit::Temperature thermal_ambient;               ///< Ambient and start temperature.
     unit::Time rs_correction_time;                   ///< Correction from the stator resistance; 0 off.
+    unit::Time sensor_correction_time;               ///< Correction from a motor sensor; 0 off.
   };
 
   /// Angle and speed estimate handed from the observer.
@@ -291,6 +305,12 @@ class OuterLoop {
   CurrentControlIsr* isr_{nullptr};
   Mailbox<OuterSetpoint> setpoint_{};
   Mailbox<BatteryLimits> battery_{};
+  /// Reading of a motor temperature sensor (SetMotorSensorTemperature()).
+  struct MotorSensor {
+    bool valid{false};
+    unit::Temperature temperature;
+  };
+  Mailbox<MotorSensor> motor_sensor_{};
   Mailbox<Parameters> parameters_{};
   Mailbox<Gains> gains_{};
   std::atomic<uint32_t> gains_generation_{0U};  ///< Counts SetGains(); the control thread compares.

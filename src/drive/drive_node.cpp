@@ -662,6 +662,7 @@ void DriveNode::SpinEngagement(const uint64_t now_us) noexcept {
     ClearSetpoint();
   }
   OuterLoop::Instance().SetBatteryLimits(cart_.Battery(now_us));
+  OuterLoop::Instance().SetMotorSensorTemperature(motor_->GetTemperatureMeasurements().motor);
 }
 
 void DriveNode::LoadParameters(const settings::NvmSettings& settings) noexcept {

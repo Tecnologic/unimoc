@@ -184,6 +184,18 @@ class SlowUpdate {
    */
   void SetFieldFlux(const unit::MagneticFlux flux) noexcept { field_flux_.Write(flux); }
 
+  /**
+   * @brief Hands the stator resistance at the estimated winding temperature to the observers.
+   *
+   * The flux observer (PMSM, EESM) or the rotor flux observer (ASM) takes it
+   * from the next cycle on (docs/motor_thermal_plan.md); Init() starts them
+   * with the resistance of the settings. One writer: the outer loop (control
+   * thread); a value that is not positive is ignored.
+   */
+  void SetStatorResistance(const unit::Resistance resistance) noexcept {
+    stator_resistance_.Write(resistance);
+  }
+
   /// The motor type the observer runs for (from Init()).
   [[nodiscard]] system::MotorType MotorType() const noexcept { return motor_type_; }
 
@@ -419,13 +431,14 @@ class SlowUpdate {
   system::Rotor<unit::MagneticFlux> flux_setpoint_{0.0F, 0.0F};
 
   system::MotorType motor_type_{system::MotorType::kPmsm};
-  Mailbox<unit::MagneticFlux> field_flux_{};    ///< EESM: L_m i_f, from the drive thread.
-  Mailbox<unit::AngularVelocity> slip_{};       ///< ASM: slip of the last cycle, for the outer loop.
-  Mailbox<unit::MagneticFlux> rotor_flux_{};    ///< ASM: |psi_r| of the last cycle.
-  unit::MagneticFlux asm_flux_reference_;       ///< ASM: |psi_r*| (bounds the slip at a small flux).
-  unit::Angle last_flux_angle_;                 ///< ASM: flux angle of the last cycle.
-  unit::AngularVelocity field_speed_;           ///< ASM: synchronous speed (rotor speed plus slip).
-  unit::AngularVelocity rotor_speed_integral_;  ///< ASM: integral part of the adapted rotor speed.
+  Mailbox<unit::MagneticFlux> field_flux_{};       ///< EESM: L_m i_f, from the drive thread.
+  Mailbox<unit::Resistance> stator_resistance_{};  ///< R_s(T) of the thermal model, from the control thread.
+  Mailbox<unit::AngularVelocity> slip_{};          ///< ASM: slip of the last cycle, for the outer loop.
+  Mailbox<unit::MagneticFlux> rotor_flux_{};       ///< ASM: |psi_r| of the last cycle.
+  unit::MagneticFlux asm_flux_reference_;          ///< ASM: |psi_r*| (bounds the slip at a small flux).
+  unit::Angle last_flux_angle_;                    ///< ASM: flux angle of the last cycle.
+  unit::AngularVelocity field_speed_;              ///< ASM: synchronous speed (rotor speed plus slip).
+  unit::AngularVelocity rotor_speed_integral_;     ///< ASM: integral part of the adapted rotor speed.
   /// ASM: gains of the speed adaptation, rad/s per (A Wb) and per (A Wb s).
   decltype(unit::AngularVelocity{} / unit::Torque{}) speed_kp_{200.0F};
   decltype(unit::AngularVelocity{} / (unit::Torque{} * unit::Time{})) speed_ki_{20000.0F};

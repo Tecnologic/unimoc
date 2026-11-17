@@ -69,6 +69,7 @@ void SlowUpdate::Init(const settings::NvmSettings& settings,
   slip_.Write(unit::AngularVelocity{});
   rotor_flux_.Write(unit::MagneticFlux{});
   asm_obs.R_s = settings.asm_r_s;
+  stator_resistance_.Write(motor_type_ == system::MotorType::kAsm ? settings.asm_r_s : settings.stator_r);
   asm_obs.R_r = settings.asm_r_r;
   asm_obs.L_s = settings.asm_l_s;
   asm_obs.L_r = settings.asm_l_r;
@@ -137,6 +138,12 @@ bool SlowUpdate::RunOnce() noexcept {
   // -------------------------------------------------------------------------
   const CycleRecord& cycle = state.records[state.observer_buffer];
   const system::Rotor<unit::Current> kCurrentDqMean = cycle.i_dq_mean;
+  // The stator resistance at the estimated winding temperature (outer loop).
+  const unit::Resistance kStatorResistance = stator_resistance_.Read();
+  if (kStatorResistance > unit::Resistance{}) {
+    flux_obs.rs = kStatorResistance;
+    asm_obs.R_s = kStatorResistance;
+  }
   AccumulateWindow(cycle);
 
   // -------------------------------------------------------------------------

@@ -434,6 +434,7 @@ void Before(void* /*unused*/) {
   sim::ClearHallCodeOverride();
   sim::SetFreeRunning(false);
   sim::SetExternalEnable(true);
+  sim::SetMotorSensor(false);
   sim::SetBoardInputs(sim::DefaultBoardInputs());
   sim::ResetExcitation();
   sim::ClearPhaseCurrentOverride();

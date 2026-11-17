@@ -16,6 +16,7 @@
 
 #include "motor_thermal_model.hpp"
 #include <zephyr/ztest.h>
+#include <limits>
 #include "unimoc_test.hpp"
 
 namespace unimoc::control::test {
@@ -144,6 +145,22 @@ ZTEST(motor_thermal_model, test_correction_moves_both_masses) {
   // A negative weight changes nothing.
   model.Correct(10.0_degC, -1.0_ratio);
   UNIMOC_EXPECT_FLOAT_EQ(model.Winding(), 90.0_degC);
+}
+
+ZTEST(motor_thermal_model, test_stator_correction_keeps_the_gradient) {
+  MotorThermalModel model{kParameters, 25.0_degC};
+  Run(model, 15.0_A, 60.0_s, MotorThermalModel::kStepPeriod);
+  const Temperature kGradient = model.Winding() - model.Stator();
+  zexpect_true(kGradient > 5.0_degC, "the winding leads the stator");
+  // A sensor on the housing reads 40 degC: the whole estimate moves with it.
+  model.CorrectStator(40.0_degC, 1.0_ratio);
+  UNIMOC_EXPECT_FLOAT_EQ(model.Stator(), 40.0_degC);
+  UNIMOC_EXPECT_NEAR(model.Winding(), 40.0_degC + kGradient, 1e-4_degC);
+  // A partial weight takes a share; NaN changes nothing.
+  model.CorrectStator(50.0_degC, 0.25_ratio);
+  UNIMOC_EXPECT_NEAR(model.Stator(), 42.5_degC, 1e-4_degC);
+  model.CorrectStator(Temperature{std::numeric_limits<float>::quiet_NaN()}, 1.0_ratio);
+  UNIMOC_EXPECT_NEAR(model.Stator(), 42.5_degC, 1e-4_degC);
 }
 
 ZTEST(motor_thermal_model, test_current_limit_derating) {

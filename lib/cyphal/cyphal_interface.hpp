@@ -148,6 +148,8 @@ inline constexpr const char* kThermalRsSpeedMax = "unimoc.motor.thermal.rs_speed
 inline constexpr const char* kThermalRsCurrentMin = "unimoc.motor.thermal.rs_current_min";
 /// Time constant of the correction from the stator resistance [s]; 0 off.
 inline constexpr const char* kThermalRsCorrectionTime = "unimoc.motor.thermal.rs_correction_time";
+/// Time constant of the correction from a motor temperature sensor [s]; 0: only reported.
+inline constexpr const char* kThermalSensorCorrectionTime = "unimoc.motor.thermal.sensor_correction_time";
 
 // --- PMSM / EESM parameters ---
 
