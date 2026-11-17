@@ -631,7 +631,7 @@ inline constexpr const char* kSubBatteryStatusId = "uavcan.sub.battery_status.id
 inline constexpr const char* kSubBatteryStatusType = "uavcan.sub.battery_status.type";
 
 /// State of the drive for the VDC.
-/// Data type: unimoc.cart.DriveStatus.0.1
+/// Data type: unimoc.cart.DriveStatus.0.2
 /// Type: natural16[1] (read/write, persistent)
 inline constexpr const char* kPubDriveStatusId = "uavcan.pub.drive_status.id";
 /// Type name of the drive status publication. Type: string (read-only)
@@ -907,7 +907,7 @@ inline constexpr const char* kPubWheelCommandId = "uavcan.pub.wheel_command.id";
 inline constexpr const char* kPubWheelCommandType = "uavcan.pub.wheel_command.type";
 
 /// Drive status subscription of the VDC (port-ID kPubDriveStatus of the drives).
-/// Data type: unimoc.cart.DriveStatus.0.1
+/// Data type: unimoc.cart.DriveStatus.0.2
 /// Type: natural16[1] (read-only)
 inline constexpr const char* kSubDriveStatusId = "uavcan.sub.drive_status.id";
 /// Type name of the drive status subscription. Type: string (read-only)
@@ -1153,7 +1153,7 @@ inline constexpr uint16_t kPubTelemetry = 212U;
 inline constexpr uint16_t kPubSimPlant = 213U;
 
 /// State of the drive for the vehicle dynamics controller.
-/// Data type: unimoc.cart.DriveStatus.0.1
+/// Data type: unimoc.cart.DriveStatus.0.2
 /// Register: `uavcan.pub.drive_status.id`
 inline constexpr uint16_t kPubDriveStatus = 214U;
 

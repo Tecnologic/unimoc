@@ -39,8 +39,8 @@ PORT_READINESS = 1024 + LOCAL
 
 ENGAGED = reg.udral.service.common.Readiness_0_1.ENGAGED
 STANDBY = reg.udral.service.common.Readiness_0_1.STANDBY
-POWER_STAGE_ENABLED = unimoc.cart.DriveStatus_0_1.POWER_STAGE_ENABLED
-POWER_STAGE_DISABLED = unimoc.cart.DriveStatus_0_1.POWER_STAGE_DISABLED
+POWER_STAGE_ENABLED = unimoc.cart.DriveStatus_0_2.POWER_STAGE_ENABLED
+POWER_STAGE_DISABLED = unimoc.cart.DriveStatus_0_2.POWER_STAGE_DISABLED
 
 
 def bit(value: bool) -> uavcan.register.Value_1_0:
@@ -85,7 +85,7 @@ class VdcClient:
         self.heartbeat = self.node.make_subscriber(uavcan.node.Heartbeat_1_0)
         self.wheel_command = self.node.make_subscriber(unimoc.cart.WheelCommand_0_1, PORT_WHEEL_COMMAND)
         self.readiness = self.node.make_subscriber(reg.udral.service.common.Readiness_0_1, PORT_READINESS)
-        self.drive_status = self.node.make_publisher(unimoc.cart.DriveStatus_0_1, PORT_DRIVE_STATUS)
+        self.drive_status = self.node.make_publisher(unimoc.cart.DriveStatus_0_2, PORT_DRIVE_STATUS)
         self._status_task = asyncio.ensure_future(self._publish_status())
 
     async def _publish_status(self) -> None:
@@ -93,7 +93,7 @@ class VdcClient:
         while True:
             for wheel, reporting in enumerate(self.wheels_reporting):
                 if reporting:
-                    await self.drive_status.publish(unimoc.cart.DriveStatus_0_1(
+                    await self.drive_status.publish(unimoc.cart.DriveStatus_0_2(
                         wheel_speed=1.0,
                         estimated_torque=0.5,
                         drive_torque_limit=50.0,

@@ -25,7 +25,7 @@
 #include <uavcan/si/unit/electric_current/Scalar_1_0.h>
 #include <uavcan/si/unit/torque/Scalar_1_0.h>
 #include <unimoc/cart/BatteryStatus_0_1.h>
-#include <unimoc/cart/DriveStatus_0_1.h>
+#include <unimoc/cart/DriveStatus_0_2.h>
 #include <unimoc/cart/PedalState_0_1.h>
 #include <unimoc/cart/WheelCommand_0_1.h>
 #include <unimoc/drive/CommissioningStatus_0_1.h>
@@ -278,7 +278,7 @@ struct Rig {
   }
 
   /// Waits for a drive status published from now on.
-  bool DriveStatus(unimoc_cart_DriveStatus_0_1& status) {
+  bool DriveStatus(unimoc_cart_DriveStatus_0_2& status) {
     Transfer transfer{};
     while (client.Receive(rx, transfer) == ReceiveResult::kReceived) {
     }
@@ -287,7 +287,7 @@ struct Rig {
       while (client.Receive(rx, transfer) == ReceiveResult::kReceived) {
         if (transfer.port_id == unimoc::cyphal::kPubDriveStatus) {
           std::size_t size = transfer.payload.size();
-          return unimoc_cart_DriveStatus_0_1_deserialize_(&status, In(transfer.payload), &size) >= 0;
+          return unimoc_cart_DriveStatus_0_2_deserialize_(&status, In(transfer.payload), &size) >= 0;
         }
       }
     }
@@ -1254,12 +1254,12 @@ ZTEST(sim_cyphal_drive, test_wheel_command_drives_the_plant_and_the_drive_status
       30U);
   zexpect_within(CurrentControlIsr::Instance().state.i_ref.q, 2.0_A, 1e-3_A);
 
-  unimoc_cart_DriveStatus_0_1 status{};
+  unimoc_cart_DriveStatus_0_2 status{};
   zassert_true(rig.DriveStatus(status));
   zexpect_true(status.engaged);
   zexpect_false(status.limp_home);
   zexpect_equal(status.wheel, unimoc_cart_WheelCommand_0_1_WHEEL_FRONT_LEFT);
-  zexpect_equal(status.power_stage, unimoc_cart_DriveStatus_0_1_POWER_STAGE_ENABLED);
+  zexpect_equal(status.power_stage, unimoc_cart_DriveStatus_0_2_POWER_STAGE_ENABLED);
   zexpect_within(status.estimated_torque,
                  kTorque.Value(),
                  (0.5_A * kTorqueConstant).Value(),
@@ -1276,6 +1276,7 @@ ZTEST(sim_cyphal_drive, test_wheel_command_drives_the_plant_and_the_drive_status
                  "motor %f K",
                  static_cast<double>(status.motor_temperature));
   zexpect_true(std::isnan(status.power_stage_temperature), "the simulation measures no bridge temperature");
+  zexpect_false(status.thermally_derated);
 }
 
 ZTEST(sim_cyphal_drive, test_limp_home_on_the_pedals_then_stop_without_them) {
@@ -1299,7 +1300,7 @@ ZTEST(sim_cyphal_drive, test_limp_home_on_the_pedals_then_stop_without_them) {
   }
   zassert_true(rig.drive.IsEngaged(), "limp-home keeps the drive engaged without the readiness");
   zexpect_within(CurrentControlIsr::Instance().state.i_ref.q, 2.0_A, 1e-3_A);
-  unimoc_cart_DriveStatus_0_1 status{};
+  unimoc_cart_DriveStatus_0_2 status{};
   rig.Pedals(1.0F, 0.0F);
   zassert_true(rig.DriveStatus(status));
   zexpect_true(status.limp_home);
@@ -1322,7 +1323,7 @@ ZTEST(sim_cyphal_drive, test_battery_status_of_the_bms_replaces_the_battery_limi
       },
       500U);
   zassert_true(rig.drive.IsEngaged());
-  unimoc_cart_DriveStatus_0_1 status{};
+  unimoc_cart_DriveStatus_0_2 status{};
   rig.Battery(30.0F, 0.5F);
   zassert_true(rig.DriveStatus(status));
   zexpect_within(status.brake_torque_limit,

@@ -14,7 +14,7 @@
  *    See the repository LICENSE file for details.
  */
 #include <reg/udral/service/common/Readiness_0_1.h>
-#include <unimoc/cart/DriveStatus_0_1.h>
+#include <unimoc/cart/DriveStatus_0_2.h>
 #include <unimoc/cart/WheelCommand_0_1.h>
 #include <zephyr/ztest.h>
 #include <array>
@@ -114,18 +114,18 @@ struct Rig {
 
   /// Publishes a drive status of @p wheel from the test node.
   void PublishStatus(const Wheel wheel, const bool engaged = true, const float drive_limit = 50.0F) {
-    unimoc_cart_DriveStatus_0_1 status{};
+    unimoc_cart_DriveStatus_0_2 status{};
     status.wheel = static_cast<uint8_t>(Index(wheel));
     status.wheel_speed = 2.0F;
     status.estimated_torque = 3.0F;
     status.drive_torque_limit = drive_limit;
     status.brake_torque_limit = 50.0F;
     status.engaged = engaged;
-    status.power_stage = engaged ? unimoc_cart_DriveStatus_0_1_POWER_STAGE_ENABLED
-                                 : unimoc_cart_DriveStatus_0_1_POWER_STAGE_DISABLED;
-    std::array<std::byte, unimoc_cart_DriveStatus_0_1_SERIALIZATION_BUFFER_SIZE_BYTES_> buffer{};
+    status.power_stage = engaged ? unimoc_cart_DriveStatus_0_2_POWER_STAGE_ENABLED
+                                 : unimoc_cart_DriveStatus_0_2_POWER_STAGE_DISABLED;
+    std::array<std::byte, unimoc_cart_DriveStatus_0_2_SERIALIZATION_BUFFER_SIZE_BYTES_> buffer{};
     std::size_t size = buffer.size();
-    zassert_true(unimoc_cart_DriveStatus_0_1_serialize_(&status,
+    zassert_true(unimoc_cart_DriveStatus_0_2_serialize_(&status,
                                                         reinterpret_cast<uint8_t*>(buffer.data()),
                                                         &size) >= 0);
     zassert_true(drives.Publish(status_publisher, std::span<const std::byte>{buffer.data(), size}));

@@ -24,7 +24,7 @@
 #include <uavcan/si/unit/electric_current/Scalar_1_0.h>
 #include <uavcan/si/unit/torque/Scalar_1_0.h>
 #include <unimoc/cart/BatteryStatus_0_1.h>
-#include <unimoc/cart/DriveStatus_0_1.h>
+#include <unimoc/cart/DriveStatus_0_2.h>
 #include <unimoc/cart/PedalState_0_1.h>
 #include <unimoc/cart/WheelCommand_0_1.h>
 #include <unimoc/drive/CommissioningStatus_0_1.h>
@@ -76,7 +76,7 @@ constexpr std::array<InfoRegister, 24> kInfoRegisters{{
     {cyphal::reg::kSubWheelCommandType, "unimoc.cart.WheelCommand.0.1"},
     {cyphal::reg::kSubPedalStateType, "unimoc.cart.PedalState.0.1"},
     {cyphal::reg::kSubBatteryStatusType, "unimoc.cart.BatteryStatus.0.1"},
-    {cyphal::reg::kPubDriveStatusType, "unimoc.cart.DriveStatus.0.1"},
+    {cyphal::reg::kPubDriveStatusType, "unimoc.cart.DriveStatus.0.2"},
     {cyphal::reg::kPubCommissioningType, "unimoc.drive.CommissioningStatus.0.1"},
     {cyphal::reg::kPubHomingStateType, "uavcan.primitive.scalar.Natural8.1.0"},
     {cyphal::reg::kPubExcitationCommandType, "unimoc.excitation.Command.0.1"},
@@ -1271,7 +1271,7 @@ void DriveNode::PublishDriveStatus() noexcept {
   const unit::Torque kBrakeLimit = unit::Max(kForward ? -kCartMin : kCartMax, unit::Torque{});
   const hardware::TemperatureMeasurements kTemperatures = motor_->GetTemperatureMeasurements();
 
-  unimoc_cart_DriveStatus_0_1 status{};
+  unimoc_cart_DriveStatus_0_2 status{};
   status.wheel_speed = kSpeed.Value();
   status.estimated_torque = cart_.ToCart(kTorque).Value();
   status.drive_torque_limit = kDriveLimit.Value();
@@ -1288,12 +1288,13 @@ void DriveNode::PublishDriveStatus() noexcept {
   status.engaged = engaged_;
   status.limp_home = cart_mode_ == CartMode::kLimpHome;
   status.regen_derated = kOuter.regen_derated;
+  status.thermally_derated = kOuter.thermally_derated;
   status.overcurrent_tripped = state.overcurrent_tripped;
   status.overvoltage_tripped = state.overvoltage_tripped;
 
-  std::array<std::byte, unimoc_cart_DriveStatus_0_1_SERIALIZATION_BUFFER_SIZE_BYTES_> buffer{};
+  std::array<std::byte, unimoc_cart_DriveStatus_0_2_SERIALIZATION_BUFFER_SIZE_BYTES_> buffer{};
   std::size_t size = buffer.size();
-  if (unimoc_cart_DriveStatus_0_1_serialize_(&status, reinterpret_cast<uint8_t*>(buffer.data()), &size) >=
+  if (unimoc_cart_DriveStatus_0_2_serialize_(&status, reinterpret_cast<uint8_t*>(buffer.data()), &size) >=
       0) {
     (void)node_->Publish(drive_status_, std::span<const std::byte>{buffer.data(), size});
   }

@@ -285,7 +285,7 @@ validation decides, also on limits between registers or of the hardware
 | `uavcan.sub.wheel_command.id` | 110 | `unimoc.cart.WheelCommand.0.1` | Cart: torque per wheel from the VDC; the drive takes `unimoc.cart.wheel` |
 | `uavcan.sub.pedal_state.id` | 111 | `unimoc.cart.PedalState.0.1` | Cart: pedals for limp-home mode |
 | `uavcan.sub.battery_status.id` | 112 | `unimoc.cart.BatteryStatus.0.1` | Cart: current limits of the BMS, replace `unimoc.battery.limits.*` while fresh |
-| `uavcan.pub.drive_status.id` | 214 | `unimoc.cart.DriveStatus.0.1` | Cart: wheel speed, torque, drive and brake torque limits, DC link, flags at `unimoc.cart.status_rate` (50 Hz) |
+| `uavcan.pub.drive_status.id` | 214 | `unimoc.cart.DriveStatus.0.2` | Cart: wheel speed, torque, drive and brake torque limits, DC link, flags at `unimoc.cart.status_rate` (50 Hz) |
 | `uavcan.pub.commissioning.id` | 215 | `unimoc.drive.CommissioningStatus.0.1` | Commissioning (startup aid, motor identification): step, state, needs, progress, passed and failed steps; on every change, 2 Hz in a run, 0.5 Hz otherwise ([Commands and Status](#commands-and-status)) |
 | `uavcan.pub.homing_state.id` | 204 | `uavcan.primitive.scalar.Natural8.1.0` | Homing: 0 IDLE, 1 SEARCHING, 3 DONE, 4 FAULT; on every change, 2 Hz while searching, 0.5 Hz otherwise ([Homing](#homing)) |
 | `uavcan.pub.sim_plant.id` (sim only) | 213 | `unimoc.sim.Plant.0.1` | Plant truth: phase currents, shaft angle and speed, torque, Hall code |
@@ -361,7 +361,8 @@ The cart messages (`dsdl/unimoc/cart/`, section 6.2 of
   battery current (mechanical power and copper losses), temperatures in K
   (the motor: the sensor, else the estimated winding temperature; NaN when
   not measured), the power
-  stage, engaged, limp-home, regen derated and trip flags.
+  stage, engaged, limp-home, regen derated, thermally derated (0.2) and
+  trip flags.
 - **Bus-off.** The CAN controller leaves bus-off on its own; the drive
   drops every cart input at once (the torque ramps to zero), counts it in
   `unimoc.can.bus_off_count` and logs the return to the bus.

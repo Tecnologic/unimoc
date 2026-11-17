@@ -119,7 +119,7 @@ class DriveInfoRegisters final : public cyphal::RegisterProvider {
  * | `uavcan.sub.wheel_command.id` | unimoc.cart.WheelCommand.0.1 | torque of this drive's wheel (cart) |
  * | `uavcan.sub.pedal_state.id` | unimoc.cart.PedalState.0.1 | pedals for limp-home mode (cart) |
  * | `uavcan.sub.battery_status.id` | unimoc.cart.BatteryStatus.0.1 | battery current limits of the BMS |
- * | `uavcan.pub.drive_status.id` | unimoc.cart.DriveStatus.0.1 | state for the VDC at
+ * | `uavcan.pub.drive_status.id` | unimoc.cart.DriveStatus.0.2 | state for the VDC at
  * `unimoc.cart.status_rate` |
  *
  * The ports of the traces (`uavcan.srv.cymon_*`, `uavcan.*.cymon_trigger`)

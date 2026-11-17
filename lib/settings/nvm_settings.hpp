@@ -685,7 +685,7 @@ struct NvmSettings {
   /// Register: `uavcan.sub.battery_status.id`
   uint16_t sub_battery_status_id{cyphal::kSubBatteryStatus};
 
-  /// Drive status publication (unimoc.cart.DriveStatus.0.1).
+  /// Drive status publication (unimoc.cart.DriveStatus.0.2).
   /// Register: `uavcan.pub.drive_status.id`
   uint16_t pub_drive_status_id{cyphal::kPubDriveStatus};
 
