@@ -538,7 +538,8 @@ function pointer); the services run in the Cyphal thread
 | IDs | Variables |
 |---|---|
 | 0..11 | `i_d`, `i_q`, `i_d_ref`, `i_q_ref` [A], `u_d`, `u_q` [V], `electrical_angle` [rad, 0 to 2 pi], `electrical_speed` [rad/s] (observer, one cycle late), `dc_link_voltage` [V], `i_a`, `i_b`, `i_c` [A] (newest sample) |
-| 12.. (sim only) | Plant truth: `sim.i_a`..`sim.i_c`, `sim.i_d`, `sim.i_q`, `sim.electrical_angle`, `sim.electrical_speed`, `sim.mechanical_speed`, `sim.torque` |
+| 12..15 | Thermal model: `winding_temperature`, `stator_temperature` [degC], `rs_estimate` [Ohm] (the last stator resistance window of the observer), `rs_temperature` [degC] (its winding temperature; for the bench check of the dead-time compensation) |
+| 16.. (sim only) | Plant truth: `sim.i_a`..`sim.i_c`, `sim.i_d`, `sim.i_q`, `sim.electrical_angle`, `sim.electrical_speed`, `sim.mechanical_speed`, `sim.torque` |
 
 The sample period is a whole multiple of the control cycle; a capture of
 8 channels by 256 frames takes about 0.4 s of bus time at 1 Mbit/s.

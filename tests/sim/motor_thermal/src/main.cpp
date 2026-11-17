@@ -137,8 +137,11 @@ void* Setup() {
   return &fixture;
 }
 
-/// Starts plant and controller; the estimate at the ambient, the plant at @p plant_temperature.
-void Start(const unimoc::settings::NvmSettings& settings, const Temperature plant_temperature) {
+/// Starts plant and controller; the estimate at the ambient, the plant at @p plant_temperature
+/// with a bridge of @p dead_time (t_dead f_pwm).
+void Start(const unimoc::settings::NvmSettings& settings,
+           const Temperature plant_temperature,
+           const Ratio dead_time = Ratio{}) {
   OuterLoop::Instance().SetSetpoint(OuterSetpoint{});
   kPowerStage.Disable();
   zassert_equal(unimoc::settings::settings_store_internal::Validate(settings,
@@ -146,7 +149,9 @@ void Start(const unimoc::settings::NvmSettings& settings, const Temperature plan
                                                                         .GetSettingsProfile()
                                                                         .capabilities),
                 unimoc::settings::SettingsStatus::kSuccess);
-  zassert_equal(sim::Plant().Configure(HeatedPlant(settings)), unimoc::sim::Status::kOk);
+  unimoc::sim::SimulationParameters plant = HeatedPlant(settings);
+  plant.inverter.dead_time = dead_time;
+  zassert_equal(sim::Plant().Configure(plant), unimoc::sim::Status::kOk);
   sim::Plant().SetShaftMode(unimoc::sim::ShaftMode::kImposedSpeed, AngularVelocity{});
   sim::Plant().SetInput(unimoc::sim::SimulationInput{});
   sim::Reset();
@@ -243,6 +248,36 @@ ZTEST_F(sim_motor_thermal, test_a_motor_sensor_pulls_the_estimate_to_a_warm_moto
       unimoc::hardware::kMotors[0].GetTemperatureMeasurements().motor);
   RunMs(500U);
   UNIMOC_EXPECT_NEAR(EstimatedWinding(), PlantWinding(), 2.0_degC);
+}
+
+ZTEST_F(sim_motor_thermal, test_dead_time_compensation_carries_the_resistance_estimate) {
+  // A bridge with 500 ns dead time (1.6 % of the 32 kHz period, 0.77 V at
+  // 48 V) and the matching compensation: the estimate sees the winding.
+  unimoc::settings::NvmSettings settings = fixture->settings;
+  settings.dtc_f_pwm = 32.0_kHz;
+  settings.dtc_dead_time = 500e-9_s;
+  Start(settings, 25.0_degC, 0.016_ratio);
+  OuterLoop::Instance().SetSetpoint(Hold(20.0_A));
+  RunMs(500U);
+  const auto kStatus = OuterLoop::Instance().Status();
+  UNIMOC_EXPECT_NEAR(kStatus.rs_estimate, sim::Plant().Output().stator_resistance, 5e-4_Ohm);
+  UNIMOC_EXPECT_NEAR(kStatus.rs_temperature, PlantWinding(), 3.0_degC);
+  zexpect_false(kStatus.rs_rejected);
+}
+
+ZTEST_F(sim_motor_thermal, test_without_dead_time_compensation_the_estimate_is_rejected) {
+  // The same bridge without the compensation: the dead time looks like twice
+  // the resistance, some 250 degC. The band rejects it; the model runs on.
+  unimoc::settings::NvmSettings settings = fixture->settings;
+  settings.dtc_dead_time = 0.0_s;
+  settings.thermal_rs_correction_time = 1.0_s;
+  Start(settings, 25.0_degC, 0.016_ratio);
+  OuterLoop::Instance().SetSetpoint(Hold(20.0_A));
+  RunSeconds(3U);
+  const auto kStatus = OuterLoop::Instance().Status();
+  zexpect_true(kStatus.rs_rejected);
+  zexpect_true(kStatus.rs_temperature > 200.0_degC, "the inverter error as a temperature");
+  UNIMOC_EXPECT_NEAR(EstimatedWinding(), PlantWinding(), 3.0_degC);
 }
 
 ZTEST_F(sim_motor_thermal, test_hot_winding_derates_the_current) {

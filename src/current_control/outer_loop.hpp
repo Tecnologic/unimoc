@@ -97,6 +97,13 @@ struct OuterStatus {
   unit::Resistance stator_resistance;
   /// The motor current limit is reduced by the winding temperature.
   bool thermally_derated{false};
+  /// Last stator resistance estimate of the observer (zero: none yet).
+  unit::Resistance rs_estimate;
+  /// Winding temperature that rs_estimate stands for.
+  unit::Temperature rs_temperature;
+  /// The last estimate lay outside the plausible band and was not used
+  /// (docs/motor_thermal_plan.md, decision 3: a wrong dead-time compensation).
+  bool rs_rejected{false};
 };
 
 /**
@@ -344,6 +351,9 @@ class OuterLoop {
   std::atomic<bool> thermal_restart_{false};  ///< RestartThermal(): start at the ambient again.
   uint32_t thermal_sequence_{0U};             ///< Last ThermalWindow taken.
   unit::Current current_limit_;               ///< The motor current limit at the winding temperature.
+  unit::Resistance rs_estimate_;              ///< Last resistance estimate of the observer.
+  unit::Temperature rs_temperature_;          ///< Its winding temperature.
+  bool rs_rejected_{false};                   ///< It lay outside the plausible band.
 };
 
 }  // namespace unimoc::current_control

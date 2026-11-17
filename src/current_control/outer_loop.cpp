@@ -21,6 +21,17 @@ namespace unimoc::current_control {
 
 using namespace unit;
 
+namespace {
+
+/// Band beyond the ambient and the thermal limit in which a temperature from the stator resistance is
+/// plausible.
+constexpr Temperature kRsPlausibleMargin = 40.0_degC;
+
+/// Largest difference between a temperature from the stator resistance and the model that is used.
+constexpr Temperature kRsMaxInnovation = 80.0_degC;
+
+}  // namespace
+
 // =============================================================================
 // init — thread context, while disengaged
 // =============================================================================
@@ -197,6 +208,9 @@ void OuterLoop::Step() noexcept {
   status.stator_temperature = thermal_.Stator();
   status.stator_resistance = thermal_.StatorResistance();
   status.thermally_derated = current_limit_ < active_.current_limit;
+  status.rs_estimate = rs_estimate_;
+  status.rs_temperature = rs_temperature_;
+  status.rs_rejected = rs_rejected_;
 
   UpdateHoming(kSetpoint, kSpeed);
 
@@ -384,9 +398,19 @@ void OuterLoop::UpdateThermal() noexcept {
     thermal_.Step(kWindow.current_squared, active_.thermal_ambient, kWindow.duration);
     // The winding temperature the measured resistance stands for corrects the
     // model slowly: each estimate by its share of the correction time constant.
-    if (kWindow.resistance_estimates > 0U && active_.rs_correction_time > Time{}) {
-      thermal_.Correct(thermal_.TemperatureFromResistance(kWindow.resistance),
-                       kWindow.resistance_time / active_.rs_correction_time);
+    if (kWindow.resistance_estimates > 0U) {
+      rs_estimate_ = kWindow.resistance;
+      rs_temperature_ = thermal_.TemperatureFromResistance(kWindow.resistance);
+      // A temperature far outside the motor's range is an inverter error, not
+      // the winding (no or a wrong dead-time compensation): it is not used.
+      // So is one far from the model: a warm start differs by tens of kelvin,
+      // an uncompensated dead time by a hundred and more.
+      rs_rejected_ = !(rs_temperature_ > active_.thermal_ambient - kRsPlausibleMargin) ||
+                     !(rs_temperature_ < active_.thermal.limit + kRsPlausibleMargin) ||
+                     !(unit::Abs(rs_temperature_ - thermal_.Winding()) < kRsMaxInnovation);
+      if (!rs_rejected_ && active_.rs_correction_time > Time{}) {
+        thermal_.Correct(rs_temperature_, kWindow.resistance_time / active_.rs_correction_time);
+      }
     }
     // A motor sensor sees the stator mass: it corrects with its own time constant.
     const MotorSensor kSensor = motor_sensor_.Read();

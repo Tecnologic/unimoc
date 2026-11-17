@@ -507,6 +507,7 @@ def test_trace_variables_ports_and_registers(sim: SimClient):
     assert names[:12] == ["i_d", "i_q", "i_d_ref", "i_q_ref", "u_d", "u_q", "electrical_angle",
                           "electrical_speed", "dc_link_voltage", "i_a", "i_b", "i_c"]
     assert variables[1] == ("i_q", "A")
+    assert names[12:16] == ["winding_temperature", "stator_temperature", "rs_estimate", "rs_temperature"]
     assert ("sim.electrical_speed", "rad/s") in variables  # plant truth of the simulation
 
     info = sim.trace_buffer_info()

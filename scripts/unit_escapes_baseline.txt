@@ -30,7 +30,7 @@
 8 src/ebike/ebike_control.cpp
 1 src/identification/motor_identification.cpp
 8 src/startup/hw_startup.cpp
-12 src/trace/trace_signals.cpp
+16 src/trace/trace_signals.cpp
 20 src/vdc/vdc_node.cpp
 5 tests/common/unimoc_test.hpp
 4 tests/drive/cart_control/src/main.cpp
@@ -41,6 +41,7 @@
 12 tests/lib/motor_control/src/hall_decoder_test.cpp
 6 tests/lib/motor_control/src/hall_fusion_test.cpp
 4 tests/lib/motor_control/src/mechanical_observer_test.cpp
+1 tests/lib/motor_control/src/motor_thermal_model_test.cpp
 6 tests/lib/motor_control/src/position_tracker_test.cpp
 9 tests/lib/motor_control/src/rotor_angle_test.cpp
 1 tests/lib/motor_control/src/sin_cos_test.cpp
