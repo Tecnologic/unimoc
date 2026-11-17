@@ -319,7 +319,7 @@ class OuterLoop {
   cyphal::ControlMode mode_{cyphal::ControlMode::kTorque};
   bool was_active_{false};
   uint32_t steps_{0U};
-  control::MotorThermalModel thermal_{};
+  control::MotorThermalModel thermal_;
   bool thermal_started_{false};               ///< The model runs; it keeps its temperatures across Init().
   std::atomic<bool> thermal_restart_{false};  ///< RestartThermal(): start at the ambient again.
   uint32_t thermal_sequence_{0U};             ///< Last ThermalWindow taken.

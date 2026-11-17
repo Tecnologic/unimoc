@@ -60,7 +60,7 @@ struct DcLinkLimit {
   /// DC-link voltage at which no charge current is allowed.
   unit::Voltage trip;
   /// Stator phase resistance of the copper losses (at the winding temperature); zero: none.
-  unit::Resistance stator_resistance{};
+  unit::Resistance stator_resistance;
 
   /**
    * @brief Charge current allowed at a DC-link voltage.
@@ -223,25 +223,27 @@ struct DcLinkLimit {
   }
 
   /**
-   * @brief Roots of c x^2 + b x + k = 0 with c > 0, without cancellation.
-   * @param c Quadratic coefficient (positive).
-   * @param b Linear coefficient.
-   * @param k Constant.
+   * @brief Roots of a x^2 + b x + c = 0 with a > 0, without cancellation.
+   * @param quadratic Quadratic coefficient a (positive).
+   * @param linear Linear coefficient b.
+   * @param constant Constant c.
    */
-  [[nodiscard]] static Roots SolveQuadratic(const unit::Resistance c,
-                                            const unit::Voltage b,
-                                            const unit::Power k) noexcept {
-    const auto kDiscriminant = (b * b) - ((c * k) * 4.0F);
+  [[nodiscard]] static Roots SolveQuadratic(const unit::Resistance quadratic,
+                                            const unit::Voltage linear,
+                                            const unit::Power constant) noexcept {
+    const auto kDiscriminant = (linear * linear) - ((quadratic * constant) * 4.0F);
     if (kDiscriminant < decltype(kDiscriminant){}) {
       return {};
     }
     const unit::Voltage kRoot = unit::Sqrt(kDiscriminant);
-    const unit::Voltage kS = (b < unit::Voltage{}) ? (kRoot - b) * 0.5F : -(b + kRoot) * 0.5F;
-    if (kS == unit::Voltage{}) {
-      return {true, unit::Current{}, unit::Current{}};  // b = 0 and k = 0: a double root at zero
+    // -(b + sign(b) sqrt(D)) / 2: no difference of nearly equal numbers.
+    const unit::Voltage kHalfSum =
+        (linear < unit::Voltage{}) ? (kRoot - linear) * 0.5F : -(linear + kRoot) * 0.5F;
+    if (kHalfSum == unit::Voltage{}) {
+      return {true, unit::Current{}, unit::Current{}};  // b = 0 and c = 0: a double root at zero
     }
-    const unit::Current kFirst = kS / c;
-    const unit::Current kSecond = k / kS;
+    const unit::Current kFirst = kHalfSum / quadratic;
+    const unit::Current kSecond = constant / kHalfSum;
     return {true, unit::Min(kFirst, kSecond), unit::Max(kFirst, kSecond)};
   }
 };

@@ -431,7 +431,7 @@ class SlowUpdate {
   decltype(unit::AngularVelocity{} / (unit::Torque{} * unit::Time{})) speed_ki_{20000.0F};
 
   // Thermal model data (AccumulateThermal()); observer only, except thermal_.
-  control::StatorResistanceEstimator resistance_estimator_{};
+  control::StatorResistanceEstimator resistance_estimator_;
   bool estimate_resistance_{false};  ///< PMSM and EESM: the balance of the estimator holds.
   ThermalWindow thermal_window_{};   ///< The window being summed.
   uint32_t thermal_cycles_{0U};      ///< Cycles summed into it.
