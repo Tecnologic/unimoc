@@ -141,7 +141,8 @@ void* Setup() {
 /// with a bridge of @p dead_time (t_dead f_pwm).
 void Start(const unimoc::settings::NvmSettings& settings,
            const Temperature plant_temperature,
-           const Ratio dead_time = Ratio{}) {
+           const Ratio dead_time = Ratio{},
+           const Capacitance dc_link_capacitance = Capacitance{}) {
   OuterLoop::Instance().SetSetpoint(OuterSetpoint{});
   kPowerStage.Disable();
   zassert_equal(unimoc::settings::settings_store_internal::Validate(settings,
@@ -151,6 +152,7 @@ void Start(const unimoc::settings::NvmSettings& settings,
                 unimoc::settings::SettingsStatus::kSuccess);
   unimoc::sim::SimulationParameters plant = HeatedPlant(settings);
   plant.inverter.dead_time = dead_time;
+  plant.dc_link.capacitance = dc_link_capacitance;
   zassert_equal(sim::Plant().Configure(plant), unimoc::sim::Status::kOk);
   sim::Plant().SetShaftMode(unimoc::sim::ShaftMode::kImposedSpeed, AngularVelocity{});
   sim::Plant().SetInput(unimoc::sim::SimulationInput{});
@@ -278,6 +280,42 @@ ZTEST_F(sim_motor_thermal, test_without_dead_time_compensation_the_estimate_is_r
   zexpect_true(kStatus.rs_rejected);
   zexpect_true(kStatus.rs_temperature > 200.0_degC, "the inverter error as a temperature");
   UNIMOC_EXPECT_NEAR(EstimatedWinding(), PlantWinding(), 3.0_degC);
+}
+
+ZTEST_F(sim_motor_thermal, test_drive_limit_holds_the_battery_current_at_standstill) {
+  // A battery behind 50 mOhm and a 1 mF DC link, 1 A drive limit. 30 A on the
+  // locked rotor make no mechanical power, but 68 W of copper losses: 1.4 A
+  // from the battery. The limit with the losses takes the current back to
+  // about sqrt(48 W / 75 mOhm) = 25 A.
+  unimoc::settings::NvmSettings settings = fixture->settings;
+  settings.battery_drive_current_max = 1.0_A;
+  Start(settings, 25.0_degC, Ratio{}, 1e-3_F);
+  OuterLoop::Instance().SetSetpoint(Hold(30.0_A));
+  RunMs(300U);
+  // The mean battery current of the plant over 100 ms, against the drive's estimate.
+  Current plant_sum{};
+  Current estimate_sum{};
+  constexpr unsigned kSamples = 100U;
+  for (unsigned sample = 0U; sample < kSamples; ++sample) {
+    RunMs(1U);
+    const auto kStatus = OuterLoop::Instance().Status();
+    const unimoc::control::DcLinkLimit kEstimate{.drive_current_max = settings.battery_drive_current_max,
+                                                 .charge_current_max = settings.battery_charge_current_max,
+                                                 .regen_derate_start = settings.dc_link_regen_derate_start,
+                                                 .trip = settings.dc_link_trip,
+                                                 .stator_resistance = kStatus.stator_resistance};
+    plant_sum += sim::Plant().Output().battery_current;
+    estimate_sum += kEstimate.BatteryCurrent(sim::Plant().Output().rotor_current,
+                                             OuterLoop::MotorTorqueConstant(settings, MagneticFlux{}),
+                                             kStatus.speed,
+                                             CurrentControlIsr::Instance().state.dc_link);
+  }
+  const Current kPlantBattery = plant_sum / static_cast<float>(kSamples);
+  const Current kEstimatedBattery = estimate_sum / static_cast<float>(kSamples);
+  UNIMOC_EXPECT_NEAR(kPlantBattery, 1.0_A, 0.05_A);
+  UNIMOC_EXPECT_NEAR(kEstimatedBattery, kPlantBattery, 0.05_A);
+  const Current kLimited = OuterLoop::Instance().Status().current_reference.q;
+  zexpect_true(kLimited < 27.0_A && kLimited > 23.0_A, "the q current is limited at standstill");
 }
 
 ZTEST_F(sim_motor_thermal, test_hot_winding_derates_the_current) {
