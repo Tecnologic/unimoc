@@ -462,6 +462,13 @@ using MagneticFluxPerCurrentTime = Unit<float, std::ratio<1>, dim::Resistance>;
 /// Viscous rotational damping, torque per angular velocity [N m s/rad^2].
 using TorquePerAngularVelocity =
     Unit<float, std::ratio<1>, DimensionQuotient<dim::Torque, dim::AngularVelocity>>;
+/// Heat capacity in joules per kelvin (J/K).
+using HeatCapacity = Unit<float, std::ratio<1>, DimensionQuotient<dim::Energy, dim::Temperature>>;
+/// Thermal resistance in kelvin per watt (K/W).
+using ThermalResistance = Unit<float, std::ratio<1>, DimensionQuotient<dim::Temperature, dim::Power>>;
+/// Temperature coefficient in reciprocal kelvin (1/K), such as that of a resistance.
+using TemperatureCoefficient =
+    Unit<float, std::ratio<1>, DimensionQuotient<dim::Dimensionless, dim::Temperature>>;
 /// Variance of an angle measurement [rad^2], the noise of a Kalman angle update.
 using AngleVariance = Unit<float, std::ratio<1>, DimensionProduct<dim::Angle, dim::Angle>>;
 /// Variance of a speed measurement [(rad/s)^2], the noise of a Kalman speed update.
@@ -1245,6 +1252,40 @@ constexpr TorquePerAngularVelocity operator""_Nm_s_per_rad(unsigned long long va
  */
 constexpr Temperature operator""_degC(long double val) { return Temperature(static_cast<float>(val)); }
 constexpr Temperature operator""_degC(unsigned long long val) { return Temperature(static_cast<float>(val)); }
+
+/**
+ * @brief Creates a heat capacity literal.
+ * @param val Literal value in J/K.
+ * @return A heat capacity.
+ */
+constexpr HeatCapacity operator""_J_per_K(long double val) { return HeatCapacity(static_cast<float>(val)); }
+constexpr HeatCapacity operator""_J_per_K(unsigned long long val) {
+  return HeatCapacity(static_cast<float>(val));
+}
+
+/**
+ * @brief Creates a thermal resistance literal.
+ * @param val Literal value in K/W.
+ * @return A thermal resistance.
+ */
+constexpr ThermalResistance operator""_K_per_W(long double val) {
+  return ThermalResistance(static_cast<float>(val));
+}
+constexpr ThermalResistance operator""_K_per_W(unsigned long long val) {
+  return ThermalResistance(static_cast<float>(val));
+}
+
+/**
+ * @brief Creates a temperature coefficient literal.
+ * @param val Literal value in 1/K.
+ * @return A temperature coefficient.
+ */
+constexpr TemperatureCoefficient operator""_per_K(long double val) {
+  return TemperatureCoefficient(static_cast<float>(val));
+}
+constexpr TemperatureCoefficient operator""_per_K(unsigned long long val) {
+  return TemperatureCoefficient(static_cast<float>(val));
+}
 
 /**
  * @brief Tests whether a unit type has the given dimension, in any period.
