@@ -72,9 +72,30 @@ def write_version(version: str) -> None:
         )
 
 
+# Squash commits whose title does not describe them. The commit is history, so
+# its title cannot be fixed; it is left out of the change log and the bump.
+MISTITLED_COMMITS = (
+    # #51 only changed TODO.md and docs/system_plan.md but took the title of #44.
+    "44c1734335daab2f377c9911403177febdaa5056",
+)
+
+
+def skipped_commits() -> list[str]:
+    """Merge commits and mistitled squash commits, as git-cliff arguments.
+
+    A merge commit is recognized by its parents, not by its message: the
+    release merge into main can carry a Conventional title (v0.4.0, #42) and
+    would list its changes a second time.
+    """
+    merges = subprocess.run(
+        ["git", "rev-list", "--merges", "HEAD"], cwd=ROOT, check=True, capture_output=True, text=True
+    ).stdout.split()
+    return [arg for sha in (*merges, *MISTITLED_COMMITS) for arg in ("--skip-commit", sha)]
+
+
 def cliff(*args: str) -> str:
     result = subprocess.run(
-        ["git-cliff", "--config", str(ROOT / "cliff.toml"), *args],
+        ["git-cliff", "--config", str(ROOT / "cliff.toml"), *skipped_commits(), *args],
         cwd=ROOT,
         check=True,
         capture_output=True,
@@ -103,7 +124,9 @@ def next_version(forced: str | None) -> str:
 
 def releasable() -> bool:
     """Whether a fix, feature or similar change is waiting for a release."""
-    return bool(cliff("--unreleased", "--strip", "all").strip())
+    # The "## Unreleased" heading is printed without any change below it.
+    notes = cliff("--unreleased", "--strip", "all")
+    return any(line.startswith("- ") for line in notes.splitlines())
 
 
 def main() -> None:
@@ -135,8 +158,8 @@ def main() -> None:
             print("nothing to release")
             return
         write_version(version)
-        # git-cliff trims the blank line between the header and the first release.
-        CHANGELOG.write_text(cliff("--tag", f"v{version}").replace("by hand.\n##", "by hand.\n\n##", 1))
+        # git-cliff trims the blank line before each release heading.
+        CHANGELOG.write_text(re.sub(r"(?<=\S)\n(## )", r"\n\n\1", cliff("--tag", f"v{version}")))
         print(version)
 
 

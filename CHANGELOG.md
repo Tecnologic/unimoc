@@ -13,7 +13,6 @@ the commits (Conventional Commits); do not edit by hand.
 - **BREAKING** Board inputs, accelerator, ASM/EESM, firmware update (sim), small bus items (#48)
 - Track a coasting motor from the phase voltages, M3 flux linkage by coast-down, sense delays (#49)
 - **vdc:** **BREAKING** Apps/drive and apps/vdc, lib/vehicle, skeleton VDC (tier 1 item 10) (#50)
-- Zephyr 4.5, per-sample DC-link trip, sim DC link and drive time, motor identification M1/M2 (#44) (#51)
 - Firmware update over Cyphal on the STM32H7 with MCUboot (#53)
 - CAN traffic LED (#54)
 - **h7:** Bench registers and a 12 V bench build for the Nucleo adapter (#56)
@@ -22,22 +21,25 @@ the commits (Conventional Commits); do not edit by hand.
 ### Fixes
 
 - **jacobi:** Devicetree to the PCB layout rev 0.3, no CAN standby pin (#55)
+
 ## [0.4.0] - 2026-10-31
 
 ### Features
 
 - **drive:** **BREAKING** Unit types for observer and startup, startup aid and homing as commands (#40)
-- **drive:** **BREAKING** Unit types for observer and startup, startup aid and homing as commands (#40) (#42)
+
 ## [0.3.0] - 2026-10-25
 
 ### Features
 
 - **settings:** Register description file and the simulation cluster (#38)
+
 ## [0.2.0] - 2026-10-24
 
 ### Features
 
 - **drive:** **BREAKING** Readiness subject per drive and heartbeat status bits for cypilot (#36)
+
 ## [0.1.0] - 2026-10-24
 
 ### Features
@@ -53,8 +55,4 @@ the commits (Conventional Commits); do not edit by hand.
 - **SinCos:** Update class doc to reflect plain-value-type API
 - Make SinCos::normToOne non-throwing for -fno-exceptions firmware
 - **ci:** Commit the new CHANGELOG.md in release prepare (#34)
-
-### Release
-
-- First Zephyr release (develop to main) (#32)
 

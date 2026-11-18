@@ -91,6 +91,14 @@ every command of the script fails when the copies differ from
 - The `develop` to `main` PR is merged with a **merge commit** (not squash),
   so the individual changes stay in the history that git-cliff reads.
   Branch protection on `main` allows merge commits only.
+- Merge commits never enter the change log or the bump, whatever their
+  message: `scripts/release_version.py` skips them by their parents, and the
+  template drops the merge a tag points at (git-cliff keeps tagged commits).
+  The merge of #42 into `main` carried the title of #40 and listed it twice.
+- The change log is regenerated from the whole history on every release, so a
+  squash commit with a wrong title cannot be fixed by hand in `CHANGELOG.md`.
+  Its SHA goes into `MISTITLED_COMMITS` in `scripts/release_version.py`
+  (#51, a docs change with the title of #44).
 - No release is created if no releasable commit (`feat`, `fix`, `perf`,
   `refactor`, `!`) is in the range; `docs`, `ci`, `test`, `chore` alone do not
   bump.
