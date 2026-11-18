@@ -93,7 +93,9 @@ class StatorResistanceEstimator {
   /**
    * @brief Adds one control cycle.
    * @param sample Voltage, current, speed and flux of the cycle.
-   * @return The resistance of a window that this cycle completes; nothing otherwise.
+   * @return The resistance of a window that this cycle completes, also a
+   *         negative one (an inverter error larger than the resistive
+   *         voltage); nothing otherwise.
    */
   [[nodiscard]] constexpr std::optional<unit::Resistance> Add(const Sample& sample) noexcept {
     const CurrentSquared kCurrentSquared = sample.current.LengthSquared();
@@ -124,9 +126,11 @@ class StatorResistanceEstimator {
     const unit::Power kInductive = (last_energy_ - first_energy_) / parameters_.cycle;
     const unit::Resistance kResistance = (power_ - kInductive) / current_squared_;
     Restart();
-    if (!unit::IsFinite(kResistance) || !(kResistance > unit::Resistance{})) {
+    if (!unit::IsFinite(kResistance)) {
       return std::nullopt;
     }
+    // Not positive is possible: an over-compensated dead time. The caller
+    // gates it; it is reported, so the bench can see the direction.
     return kResistance;
   }
 

@@ -99,7 +99,9 @@ struct OuterStatus {
   bool thermally_derated{false};
   /// RMS of the measured |i_dq| over the last window of the thermal model.
   unit::Current thermal_current;
-  /// Last stator resistance estimate of the observer (zero: none yet).
+  /// An estimate of the stator resistance arrived since the start.
+  bool rs_valid{false};
+  /// Last stator resistance estimate of the observer; may be negative (an over-compensated dead time).
   unit::Resistance rs_estimate;
   /// Winding temperature that rs_estimate stands for.
   unit::Temperature rs_temperature;
@@ -357,6 +359,7 @@ class OuterLoop {
   unit::Current thermal_current_;             ///< RMS current of the last thermal window.
   unit::Temperature rs_temperature_;          ///< Its winding temperature.
   bool rs_rejected_{false};                   ///< It lay outside the plausible band.
+  bool rs_valid_{false};                      ///< An estimate arrived.
 };
 
 }  // namespace unimoc::current_control

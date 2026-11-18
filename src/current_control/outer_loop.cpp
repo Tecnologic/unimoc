@@ -209,6 +209,7 @@ void OuterLoop::Step() noexcept {
   status.stator_resistance = thermal_.StatorResistance();
   status.thermally_derated = current_limit_ < active_.current_limit;
   status.thermal_current = thermal_current_;
+  status.rs_valid = rs_valid_;
   status.rs_estimate = rs_estimate_;
   status.rs_temperature = rs_temperature_;
   status.rs_rejected = rs_rejected_;
@@ -285,6 +286,8 @@ void OuterLoop::LoadParameters(const Parameters& parameters) noexcept {
   thermal_.SetParameters(parameters.thermal);
   if (thermal_restart_.exchange(false, std::memory_order_acq_rel) || !thermal_started_) {
     thermal_.Reset(parameters.thermal_ambient);
+    rs_valid_ = false;
+    rs_rejected_ = false;
     thermal_started_ = true;
   }
   current_limit_ = parameters.current_limit * thermal_.CurrentLimitScale();
@@ -401,6 +404,7 @@ void OuterLoop::UpdateThermal() noexcept {
     // The winding temperature the measured resistance stands for corrects the
     // model slowly: each estimate by its share of the correction time constant.
     if (kWindow.resistance_estimates > 0U) {
+      rs_valid_ = true;
       rs_estimate_ = kWindow.resistance;
       rs_temperature_ = thermal_.TemperatureFromResistance(kWindow.resistance);
       // A temperature far outside the motor's range is an inverter error, not

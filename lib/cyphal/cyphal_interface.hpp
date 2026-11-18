@@ -155,6 +155,9 @@ inline constexpr const char* kMotorTemperatureStator = "unimoc.motor.temperature
 /// Winding temperature of the last stator resistance estimate [degC]; NaN: none.
 /// Type: real32[1] (read-only, volatile)
 inline constexpr const char* kMotorTemperatureRs = "unimoc.motor.temperature.rs";
+/// 1: the last stator resistance estimate lay outside the plausibility gates and was not used.
+/// Type: bit[1] (read-only, volatile)
+inline constexpr const char* kMotorTemperatureRsRejected = "unimoc.motor.temperature.rs_rejected";
 /// RMS of |i_dq| over the last window of the thermal model [A]. Type: real32[1] (read-only, volatile)
 inline constexpr const char* kMotorTemperatureCurrent = "unimoc.motor.temperature.current";
 /// Time constant of the correction from a motor temperature sensor [s]; 0: only reported.

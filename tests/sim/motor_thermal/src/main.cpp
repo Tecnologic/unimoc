@@ -318,6 +318,112 @@ ZTEST_F(sim_motor_thermal, test_drive_limit_holds_the_battery_current_at_standst
   zexpect_true(kLimited < 27.0_A && kLimited > 23.0_A, "the q current is limited at standstill");
 }
 
+namespace {
+
+/// Mechanical speed of the R_s check: the load motor of the bench turns the
+/// motor slowly (about 0.7 electrical revolutions per second at 7 pole pairs,
+/// below rs_speed_max), so the rotor angle runs through and the angle factor
+/// of the dead time averages out.
+constexpr AngularVelocity kCheckSpeed = 0.6_rad_per_s;
+
+/// The mean of the stator resistance estimates over 2 s at a current on the slowly turning rotor.
+Resistance ResistanceAt(const Current current) {
+  OuterLoop::Instance().SetSetpoint(Hold(current));
+  RunMs(300U);  // settle
+  Resistance sum{};
+  constexpr unsigned kReads = 40U;
+  for (unsigned read = 0U; read < kReads; ++read) {
+    RunMs(50U);
+    const auto kStatus = OuterLoop::Instance().Status();
+    zassert_true(kStatus.rs_valid);
+    sum += kStatus.rs_estimate;
+  }
+  return sum / static_cast<float>(kReads);
+}
+
+/**
+ * @brief The residual inverter voltage of the R_s check of the bench (cypilot plan section 7.9).
+ *
+ * The dead time missing from the compensation is a voltage of
+ * sign(i_x) V_dc dt f_pwm per phase; in the power balance of the estimator it
+ * adds V / |i| to the resistance, V = k V_dc dt f_pwm with the angle factor k
+ * of (2/3) sum |i_x| / |i| (2/sqrt(3) to 4/3, 4/pi on average over the rotor
+ * angle). With the resistance of the cold motor known (M1, at the room
+ * temperature) one current gives V = (R_apparent - R) |i|; a difference of
+ * two currents is far too sensitive to small changes of k.
+ */
+Voltage ResidualVoltage(const Current current, const Resistance cold_resistance) {
+  sim::Plant().SetShaftMode(unimoc::sim::ShaftMode::kImposedSpeed, kCheckSpeed);
+  return (ResistanceAt(current) - cold_resistance) * current;
+}
+
+/// The dead time that the residual voltage stands for, with the mean angle factor 4/pi.
+Time DeadTimeOf(const Voltage residual, const Frequency pwm) {
+  return residual / ((4.0F / kPi) * CurrentControlIsr::Instance().state.dc_link * pwm);
+}
+
+/**
+ * @brief The R_s check as cypilot runs it: correct the compensation by the residual, check again.
+ *
+ * The angle factor and the zero crossings make the step from V to dt
+ * uncertain by some 15 %; the direction is always right, so a few rounds
+ * converge.
+ * @return The compensated dead time after @p rounds.
+ */
+Time IterateDeadTime(unimoc::settings::NvmSettings settings,
+                     const Ratio bridge_dead_time,
+                     const unsigned rounds) {
+  settings.dtc_f_pwm = 32.0_kHz;
+  for (unsigned round = 0U; round < rounds; ++round) {
+    Start(settings, 25.0_degC, bridge_dead_time);
+    const Voltage kResidual = ResidualVoltage(15.0_A, settings.stator_r);
+    // A compensation cannot be negative: the step stops at zero.
+    settings.dtc_dead_time =
+        unimoc::unit::Max(settings.dtc_dead_time + DeadTimeOf(kResidual, 32.0_kHz), Time{});
+  }
+  return settings.dtc_dead_time;
+}
+
+/// The motor of the scenario with the thermal mass of the hub motor: the check heats it little.
+unimoc::settings::NvmSettings SlowHeating(const unimoc::settings::NvmSettings& settings) {
+  unimoc::settings::NvmSettings slow = settings;
+  slow.thermal_c_winding = 150.0_J_per_K;
+  slow.thermal_c_stator = 1500.0_J_per_K;
+  return slow;
+}
+
+}  // namespace
+
+ZTEST_F(sim_motor_thermal, test_the_residual_voltage_shows_the_direction_of_the_dead_time_error) {
+  unimoc::settings::NvmSettings settings = SlowHeating(fixture->settings);
+  settings.dtc_f_pwm = 32.0_kHz;
+  // 500 ns in the bridge (1.6 % of the 32 kHz period), no compensation: about +0.9 V.
+  settings.dtc_dead_time = 0.0_s;
+  Start(settings, 25.0_degC, 0.016_ratio);
+  const Voltage kUnder = ResidualVoltage(15.0_A, settings.stator_r);
+  zexpect_true(kUnder > 0.7_V && kUnder < 1.0_V, "under-compensated");
+  UNIMOC_EXPECT_NEAR(DeadTimeOf(kUnder, 32.0_kHz), 500e-9_s, 80e-9_s);
+  // An ideal bridge and 300 ns of compensation: negative, the estimate is not used.
+  settings.dtc_dead_time = 300e-9_s;
+  Start(settings, 25.0_degC);
+  const Voltage kOver = ResidualVoltage(15.0_A, settings.stator_r);
+  zexpect_true(kOver < -0.4_V && kOver > -0.6_V, "over-compensated");
+  zexpect_true(OuterLoop::Instance().Status().rs_rejected, "the model does not take it");
+  // The matching compensation: no residual, the estimate is the winding.
+  settings.dtc_dead_time = 500e-9_s;
+  Start(settings, 25.0_degC, 0.016_ratio);
+  UNIMOC_EXPECT_NEAR(ResidualVoltage(15.0_A, settings.stator_r), 0.0_V, 0.02_V);
+  UNIMOC_EXPECT_NEAR(OuterLoop::Instance().Status().rs_temperature, PlantWinding(), 3.0_degC);
+}
+
+ZTEST_F(sim_motor_thermal, test_three_rounds_of_the_check_find_the_dead_time) {
+  // From no compensation to the 500 ns of the bridge, and from 300 ns too many to none.
+  UNIMOC_EXPECT_NEAR(IterateDeadTime(SlowHeating(fixture->settings), 0.016_ratio, 3U), 500e-9_s, 10e-9_s);
+  unimoc::settings::NvmSettings over = SlowHeating(fixture->settings);
+  over.dtc_dead_time = 300e-9_s;
+  UNIMOC_EXPECT_NEAR(IterateDeadTime(over, Ratio{}, 3U), 0.0_s, 10e-9_s);
+}
+
 ZTEST_F(sim_motor_thermal, test_hot_winding_derates_the_current) {
   unimoc::settings::NvmSettings settings = fixture->settings;
   settings.thermal_derate_start = 50.0_degC;

@@ -227,6 +227,7 @@ enum class StateRegister : uint8_t {
   kStatorTemperature,
   kRsTemperature,
   kThermalCurrent,
+  kRsRejected,
 };
 
 struct StateRegisterEntry {
@@ -235,7 +236,7 @@ struct StateRegisterEntry {
   const char* unit;
 };
 
-constexpr std::array<StateRegisterEntry, 11> kStateRegisters{{
+constexpr std::array<StateRegisterEntry, 12> kStateRegisters{{
     {cyphal::reg::kSettingsPending, "1 while written settings wait for the disengage", nullptr},
     {cyphal::reg::kCanBusOffCount, "CAN bus-off events since the start", nullptr},
     {cyphal::reg::kBoardPowerBoard,
@@ -255,6 +256,10 @@ constexpr std::array<StateRegisterEntry, 11> kStateRegisters{{
     {cyphal::reg::kMotorTemperatureCurrent,
      "RMS motor current of the last 0.1 s window of the thermal model",
      "A"},
+    {cyphal::reg::kMotorTemperatureRsRejected,
+     "1: the last stator resistance estimate lay outside the plausibility gates (a wrong dead-time "
+     "compensation) and was not used",
+     nullptr},
 }};
 
 [[nodiscard]] float VoltageOrNaN(const std::optional<unit::Voltage>& voltage) noexcept {
@@ -311,12 +316,15 @@ cyphal::RegisterFlags DriveInfoRegisters::Read(const std::size_t index,
       case StateRegister::kRsTemperature: {
         const current_control::OuterStatus kOuter = OuterLoop::Instance().Status();
         cyphal::SetReal32(value,
-                          kOuter.rs_estimate > unit::Resistance{} ? kOuter.rs_temperature.Value()
-                                                                  : std::numeric_limits<float>::quiet_NaN());
+                          kOuter.rs_valid ? kOuter.rs_temperature.Value()
+                                          : std::numeric_limits<float>::quiet_NaN());
         break;
       }
       case StateRegister::kThermalCurrent:
         cyphal::SetReal32(value, OuterLoop::Instance().Status().thermal_current.Value());
+        break;
+      case StateRegister::kRsRejected:
+        cyphal::SetBit(value, OuterLoop::Instance().Status().rs_rejected);
         break;
       default:
         cyphal::SetEmpty(value);

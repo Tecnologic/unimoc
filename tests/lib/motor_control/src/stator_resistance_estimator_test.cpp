@@ -133,6 +133,22 @@ ZTEST(stator_resistance_estimator, test_an_inverter_offset_shows_as_a_small_erro
   UNIMOC_EXPECT_NEAR(*result, kResistance + (0.1_V / 30.0_A), 1e-5_Ohm);
 }
 
+ZTEST(stator_resistance_estimator, test_an_inverter_error_larger_than_the_resistive_voltage_is_reported) {
+  // An over-compensated dead time: 0.5 V against the current, 1.5 V of R i at
+  // 10 A gives 0.1 Ohm, at 3 A (0.45 V) a negative resistance. It is
+  // reported, the caller decides (the bench sees the direction).
+  StatorResistanceEstimator estimator{kParameters};
+  std::optional<Resistance> result;
+  for (uint32_t cycle = 0U; cycle < kWindow; ++cycle) {
+    StatorResistanceEstimator::Sample sample = Machine({0.0_A, 3.0_A}, {0.0_A, 3.0_A}, 0.0_rad_per_s);
+    sample.voltage.q -= 0.5_V;
+    result = estimator.Add(sample);
+  }
+  zassert_true(result.has_value());
+  UNIMOC_EXPECT_NEAR(*result, kResistance - (0.5_V / 3.0_A), 1e-5_Ohm);
+  zexpect_true(*result < Resistance{});
+}
+
 ZTEST_SUITE(stator_resistance_estimator, nullptr, nullptr, nullptr, nullptr, nullptr);
 
 }  // namespace unimoc::control::test
