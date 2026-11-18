@@ -21,6 +21,7 @@ the commits (Conventional Commits); do not edit by hand.
 ### Fixes
 
 - **jacobi:** Devicetree to the PCB layout rev 0.3, no CAN standby pin (#55)
+- Change log generation  (#60)
 
 ## [0.4.0] - 2026-10-31
 
