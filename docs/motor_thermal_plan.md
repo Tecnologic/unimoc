@@ -194,24 +194,71 @@ DC-link model.
 
 ## 6. Bench procedure and open points
 
-**Dead-time compensation first.** Run the identification M1 with the motor
-connected and take its results: `unimoc.identify.result.R` into
-`unimoc.motor.stator.R`, `unimoc.identify.result.dead_time` into
-`unimoc.control.dtc.dead_time`. Set `unimoc.motor.stator.R_temperature` to
-the winding temperature of that run (a cold motor: the room). Then check
-the R_s estimate: hold 30 to 50 % of the rated current on the locked rotor
-of the cold motor for a few seconds and read `unimoc.motor.temperature.rs`.
-It must show the room temperature within about 5 K at two currents (say
-10 A and 20 A). A reading that falls as the current rises means a dead time
-under-compensated, one that rises over-compensated; correct the dead time
-before trusting the correction.
+**The bench.** Two hoverboard hub motors with their shafts coupled, each on
+its own drive, run against each other (decided 2026-11-18). The motor under
+test (DUT) runs in current mode and makes the heat; the load motor runs in
+speed mode and holds the shaft: still, or slowly turning for the R_s check.
+At low speed almost no power flows through the shaft, so the supply only
+covers the copper losses of both motors (about 2 × 70 W at 15 A). Both
+drives estimate their temperatures, so one run heats and logs both motors.
 
-**Heat run.** Locked rotor (or a slow dyno), the motor cold, at constant
-current, and log once per second:
+- **Setpoints per drive.** The setpoint subjects are shared (cypilot plan
+  section 13, point 4); a drive takes every setpoint subject it subscribes.
+  On the bench the DUT keeps `uavcan.sub.current_setpoint.id` and disables
+  `uavcan.sub.speed_setpoint.id` (65535), the load drive the other way
+  round, both stored (ports apply after a restart). The readiness is per
+  drive already.
+- **Speed of the checks.** Below `unimoc.motor.thermal.rs_speed_max`
+  (100 rad/s electrical, about 6.7 rad/s at the shaft with 15 pole pairs).
+  0.5 rad/s at the shaft (about one electrical revolution per second) lets
+  the rotor angle run through, which the R_s check needs (below).
+- **Holding torque.** The load drive's speed loop holds the DUT's torque
+  (at 15 A about 7.8 N m for the hoverboard motor, `unimoc.motor.pmsm.flux_pm`
+  23 mWb); its current limit must exceed the DUT's current.
+
+**Dead-time compensation first.** Run the identification M1 on the DUT and
+take its results: `unimoc.identify.result.R` into `unimoc.motor.stator.R`,
+`unimoc.identify.result.dead_time` into `unimoc.control.dtc.dead_time`, and
+`unimoc.control.dtc.f_pwm` equal to `unimoc.control.pwm_frequency` (the
+compensation uses its own frequency register). Set
+`unimoc.motor.stator.R_temperature` to the winding temperature of that run
+(a cold motor: the room). Then the **R_s check**:
+
+1. The motor cold, at the room temperature T_room; the load motor turns the
+   shaft at 0.5 rad/s.
+2. Hold about 30 % of the rated current (15 A on the hoverboard motor) for
+   2 s and average `unimoc.motor.temperature.rs` over the next 1 to 2 s
+   (T_rs).
+3. The residual inverter voltage is V = R_ref α (T_rs − T_room) |i|
+   (`|i|` from `unimoc.motor.temperature.current`, α = 3.93e-3 /K). |V|
+   below about 0.05 V (a few kelvin): the compensation is good.
+4. Otherwise correct the dead time by V / ((4/π) V_dc f_pwm), not below
+   zero, apply it (the drive restarts its controller while disengaged) and
+   go back to 2. V > 0 (T_rs above the room) is too little compensation,
+   V < 0 too much.
+
+Why so: per phase the missing dead time is a voltage of sign(i_x) V_dc Δt
+f_pwm. In the power balance of the estimator it adds V/|i| to the
+resistance, V = k V_dc Δt f_pwm with the angle factor k = (2/3) Σ|i_x|/|i|,
+between 2/√3 and 4/3 with the rotor angle, 4/π on average. On a still rotor
+the angle and with it k stay where the controller left them, and a
+difference of two currents (R_k = R + V/i_k) is far too sensitive to small
+changes of k: the simulation showed errors of 15 to 40 %. One current with
+the cold resistance known and the turning rotor give the direction always
+and the size within about 15 %; three rounds find the dead time of the
+simulated bridge within 2 ns, from 500 ns too little and from 300 ns too
+much (`tests/sim/motor_thermal`, the pytest
+`test_rs_check_finds_the_dead_time_of_the_simulated_bridge`). Without the
+compensation the estimate stays out of the model (`rs_rejected`), so the
+check comes before the R_s correction is trusted.
+
+**Heat run.** The motor cold, the load motor holding the shaft (still or at
+0.5 rad/s), and log once per second, one logger per drive:
 
 ```sh
 . unimoc/scripts/sim_yakut_env.sh               # or the UAVCAN__* variables of the bench bus
-unimoc/scripts/thermal_log.py 10 > run.csv       # drive node-ID 10
+unimoc/scripts/thermal_log.py 10 > dut.csv       # DUT, node-ID 10
+unimoc/scripts/thermal_log.py 11 > load.csv      # load motor, node-ID 11 (a second local node-ID: UAVCAN__NODE__ID)
 ```
 
 Heat at about the rated current until the winding is near its derate
@@ -221,7 +268,7 @@ long again: the cool-down separates the two masses. A thermocouple on the
 end winding or the housing can be added as a column. Then fit:
 
 ```sh
-unimoc/scripts/thermal_fit.py run.csv --current current --winding rs \
+unimoc/scripts/thermal_fit.py dut.csv --current current --winding rs \
     --resistance <R> --reference <R_temperature> --ambient <room>
 ```
 
@@ -229,14 +276,24 @@ It prints the four registers and the time constants
 (`thermal_fit.py --self-test` recovers a synthetic run within 1 %; with the
 winding temperature alone the capacities within about 10 %). Write them,
 and run the motor again at a different current to check the estimate
-against `unimoc.motor.temperature.rs`.
+against `unimoc.motor.temperature.rs`. The load motor carries about the
+same current: its log is a second heat run of the same motor type, a check
+of the fit. The coupling conducts heat between the motors; a coupling of
+low thermal conductance (a plastic jaw coupling) keeps it out of the fit.
+
+The simulation has the same bench in one drive: the imposed speed of the
+plant plays the load motor (`unimoc.sim.shaft_mode` 1, `imposed_speed`),
+`unimoc.sim.dead_time` the bridge, `unimoc.sim.motor_thermal.*` the motor
+(a winding of 1.5 J/K heats in seconds).
 
 **Open points**
 
 - α_Cu holds for copper windings; aluminium windings need 4.03e-3 /K
   (a register if such a motor appears).
-- The check of the R_s estimate and the heat run of the hub motor on the
-  bench (above); nothing is verified on hardware.
+- The R_s check and the heat run of the hub motor on the coupled bench
+  (above); nothing is verified on hardware. Whether the angle factor on the
+  real bridge (switching times, diode drops) keeps the iteration as short
+  as in the simulation.
 - The motor NTC of Jacobi is assumed to be a 10k, beta 3950 on the stator;
   other sensors (KTY, PT1000) need their own conversion.
 - The ambient temperature is a register; the power stage temperature may be

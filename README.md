@@ -648,7 +648,11 @@ and lets its stator resistance follow the winding temperature;
 `unimoc.sim.motor_temperature` [°C] reads the winding temperature of the
 plant and sets winding and stator (a motor still warm);
 `unimoc.sim.motor_sensor` (bit) fits a motor temperature sensor that reads
-the stator temperature of the plant.
+the stator temperature of the plant. `unimoc.sim.motor_thermal.C_winding`,
+`.C_stator` [J/K], `.R_winding`, `.R_stator` [K/W] set the network of the
+simulated motor (factory 150, 1500, 0.4, 0.8) and `unimoc.sim.dead_time` [s,
+up to 5 µs] the dead time of the simulated bridge; each restarts the plant
+and is refused while the outputs are released.
 
 Deterministic runs: `unimoc.sim.paused` (bit) stops the cycle timer, also
 across a settings restart of the controller; then a write of
@@ -708,7 +712,8 @@ The stator resistance estimate rests on the dead-time compensation
 a hot winding. An estimate outside [ambient − 40 K, `.limit` + 40 K] or more
 than 80 K from the model is not used. Read-only registers for the bench:
 `unimoc.motor.temperature.winding`, `.stator`, `.rs` (the temperature of the
-last resistance estimate; NaN: none) [°C] and `.current` [A RMS]; the cymon
+last resistance estimate; NaN: none) [°C], `.current` [A RMS] and
+`.rs_rejected` (the gates refused the last estimate); the cymon
 traces 12 to 15 carry the same. The factory thermal parameters are a guess
 for the hoverboard hub motor: `scripts/thermal_log.py` logs a heat run and
 `scripts/thermal_fit.py` fits the four parameters to it (procedure:

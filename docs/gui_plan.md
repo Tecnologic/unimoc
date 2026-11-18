@@ -189,14 +189,15 @@ Each its own PR with ztest and pytest coverage:
    `.current`, the traces 12 to 15, `unimoc.cart.DriveStatus.0.2` with
    `thermally_derated`, the simulated heating (`unimoc.sim.motor_heating`,
    `motor_temperature`, `motor_sensor`), `scripts/thermal_log.py` and
-   `scripts/thermal_fit.py` (the CSV and the model cypilot follows). Open,
-   for cypilot's tests and the card:
-   - `unimoc.sim.dead_time`: the dead time of the simulated bridge (restarts
-     the plant), so the R_s check can be tested under- and over-compensated;
-   - `unimoc.sim.motor_thermal.C_winding`, `.C_stator`, `.R_winding`,
-     `.R_stator`: the network of the simulated motor, so a heat run and its
-     fit fit into minutes of CI;
-   - `unimoc.motor.temperature.rs_rejected` (bit): the last R_s window lay
-     outside the plausibility gates and was not used
-     (`OuterStatus::rs_rejected`).
+   `scripts/thermal_fit.py` (the CSV and the model cypilot follows). F4,
+   done 2026-11-18: `unimoc.sim.dead_time`, `unimoc.sim.motor_thermal.C_winding`,
+   `.C_stator`, `.R_winding`, `.R_stator` (each restarts the plant),
+   `unimoc.motor.temperature.rs_rejected` (bit), a negative R_s estimate
+   reported (over-compensation). The R_s check that cypilot runs is fixed in
+   `docs/motor_thermal_plan.md` section 6: one current on the slowly turning
+   rotor (the coupled load motor of the bench, in the simulation the
+   imposed speed), V = R_ref α (T_rs − T_room) |i|, the dead time corrected by
+   V / ((4/π) V_dc f_pwm) and checked again, about three rounds; tested in
+   `tests/sim/motor_thermal` and the pytest
+   `test_rs_check_finds_the_dead_time_of_the_simulated_bridge`.
    cypilot moves `DEFAULT_UNIMOC_REF` to the release with `DriveStatus.0.2`.
