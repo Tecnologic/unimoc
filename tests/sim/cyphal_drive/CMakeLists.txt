@@ -17,6 +17,7 @@ target_sources(app PRIVATE
   ${UNIMOC_ROOT}/src/current_control/current_control_isr.cpp
   ${UNIMOC_ROOT}/src/current_control/slow_update.cpp
   ${UNIMOC_ROOT}/src/current_control/outer_loop.cpp
+  ${UNIMOC_ROOT}/src/drive/accelerator_control.cpp
   ${UNIMOC_ROOT}/src/drive/cart_control.cpp
   ${UNIMOC_ROOT}/src/drive/drive_node.cpp
   ${UNIMOC_ROOT}/src/ebike/ebike_control.cpp
@@ -24,9 +25,12 @@ target_sources(app PRIVATE
   ${UNIMOC_ROOT}/src/drive/commissioning.cpp
   ${UNIMOC_ROOT}/src/drive/timing_registers.cpp
   ${UNIMOC_ROOT}/src/startup/hw_startup.cpp
+  ${UNIMOC_ROOT}/src/identification/motor_identification.cpp
   ${UNIMOC_ROOT}/hardware/zephyr_common/system_interface.cpp
   ${UNIMOC_ROOT}/hardware/zephyr_common/zephyr_settings_storage.cpp
+  ${UNIMOC_ROOT}/hardware/zephyr_sim/board_inputs.cpp
   ${UNIMOC_ROOT}/hardware/zephyr_sim/ebike_io.cpp
+  ${UNIMOC_ROOT}/hardware/zephyr_sim/sim_excitation.cpp
   ${UNIMOC_ROOT}/hardware/zephyr_sim/hardware_interface.cpp
   ${UNIMOC_ROOT}/hardware/zephyr_sim/slcan_media.cpp)
 target_include_directories(app PRIVATE
@@ -35,6 +39,7 @@ target_include_directories(app PRIVATE
   ${UNIMOC_ROOT}/src/drive
   ${UNIMOC_ROOT}/src/ebike
   ${UNIMOC_ROOT}/src/startup
+  ${UNIMOC_ROOT}/src/identification
   ${UNIMOC_ROOT}/hardware/zephyr_sim
   ${UNIMOC_ROOT}/hardware/zephyr_common
   ${UNIMOC_ROOT}/tests/common)

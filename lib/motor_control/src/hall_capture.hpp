@@ -29,7 +29,7 @@ namespace unimoc::observer {
  * @brief One change of the Hall code with the time it was captured.
  *
  * The code has bit 0 = Hall A, bit 1 = Hall B, bit 2 = Hall C. The timestamp
- * counts ticks of the platform timestamp clock (BCC: the DWT cycle counter,
+ * counts ticks of the platform timestamp clock (STM32H7: the DWT cycle counter,
  * native_sim: nanoseconds of virtual time) and wraps; only differences of
  * timestamps are meaningful.
  */

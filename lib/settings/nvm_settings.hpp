@@ -117,6 +117,10 @@ struct NvmSettings {
   /// Register: `unimoc.motor.stator.R`
   unit::Resistance stator_r{kHoverboardR};
 
+  /// Winding temperature at which `stator_r` was measured [°C].
+  /// Register: `unimoc.motor.stator.R_temperature`
+  unit::Temperature stator_r_temperature{25.0_degC};
+
   /// Stator inductance [H] (L_q for IPMSM; average (L_d+L_q)/2 otherwise).
   /// Register: `unimoc.motor.stator.L`
   unit::Inductance stator_l{kHoverboardL};
@@ -166,6 +170,57 @@ struct NvmSettings {
   /// Hard upper bound: hardware profile's maximum DC-link voltage.
   /// Register: `unimoc.battery.limits.trip_voltage`
   unit::Voltage dc_link_trip{58.0_V};
+
+  // =========================================================================
+  // Thermal model of the motor (docs/motor_thermal_plan.md)
+  //
+  // The defaults are a guess for the hoverboard hub motor: copper about
+  // 0.4 kg, stator and rim about 3 kg, a steady rise of about 60 K at 15 A.
+  // =========================================================================
+
+  /// Ambient (coolant) temperature; the start value of the estimate [°C].
+  /// Register: `unimoc.motor.thermal.ambient`
+  unit::Temperature thermal_ambient{25.0_degC};
+
+  /// Heat capacity of the winding [J/K].
+  /// Register: `unimoc.motor.thermal.C_winding`
+  unit::HeatCapacity thermal_c_winding{150.0_J_per_K};
+
+  /// Heat capacity of the stator and the housing [J/K].
+  /// Register: `unimoc.motor.thermal.C_stator`
+  unit::HeatCapacity thermal_c_stator{1500.0_J_per_K};
+
+  /// Thermal resistance from the winding to the stator [K/W].
+  /// Register: `unimoc.motor.thermal.R_winding`
+  unit::ThermalResistance thermal_r_winding{0.4_K_per_W};
+
+  /// Thermal resistance from the stator to the ambient [K/W].
+  /// Register: `unimoc.motor.thermal.R_stator`
+  unit::ThermalResistance thermal_r_stator{0.8_K_per_W};
+
+  /// Winding temperature where the motor current derating starts [°C].
+  /// Register: `unimoc.motor.thermal.derate_start`
+  unit::Temperature thermal_derate_start{100.0_degC};
+
+  /// Winding temperature at which no motor current is allowed [°C].
+  /// Register: `unimoc.motor.thermal.limit`
+  unit::Temperature thermal_limit{130.0_degC};
+
+  /// Largest electrical speed of a stator resistance window [rad/s].
+  /// Register: `unimoc.motor.thermal.rs_speed_max`
+  unit::AngularVelocity thermal_rs_speed_max{100.0_rad_per_s};
+
+  /// Smallest current magnitude of a stator resistance window [A].
+  /// Register: `unimoc.motor.thermal.rs_current_min`
+  unit::Current thermal_rs_current_min{3.0_A};
+
+  /// Time constant of the correction from the stator resistance [s]; 0 off.
+  /// Register: `unimoc.motor.thermal.rs_correction_time`
+  unit::Time thermal_rs_correction_time{30.0_s};
+
+  /// Time constant of the correction from a motor temperature sensor [s]; 0: the sensor is only reported.
+  /// Register: `unimoc.motor.thermal.sensor_correction_time`
+  unit::Time thermal_sensor_correction_time{10.0_s};
 
   // =========================================================================
   // PMSM / EESM parameters
@@ -281,9 +336,10 @@ struct NvmSettings {
   /// Register: `unimoc.observer.asm_flux.g_i`
   unit::InverseTime asm_obs_g_i{500.0_per_s};
 
-  /// Rotor-flux correction gain g_flux [Wb/(A·s)].
+  /// Rotor-flux correction gain g_flux [Wb/(A·s)]. 0 (2026-11-08): with the speed adaptation of the drive
+  /// the correction pulled the rotor speed estimate off (sim: -6 to -20 rad/s at 50 rad/s); 5000 diverged.
   /// Register: `unimoc.observer.asm_flux.g_flux`
-  unit::MagneticFluxPerCurrentTime asm_obs_g_flux{5000.0_Wb_per_A_s};
+  unit::MagneticFluxPerCurrentTime asm_obs_g_flux{0.0_Wb_per_A_s};
 
   // =========================================================================
   // ASM flux controller
@@ -305,6 +361,10 @@ struct NvmSettings {
   /// Register: `unimoc.control.asm_flux.i_d_max`
   unit::Current asm_flux_i_d_max{10.0_A};
 
+  /// Rotor flux reference |psi_r*| of the flux controller [Wb]; with L_m 47 mH about 4.3 A of i_d.
+  /// Register: `unimoc.control.asm_flux.psi_r`
+  unit::MagneticFlux asm_flux_psi_r{0.2_Wb};
+
   // =========================================================================
   // Field weakening
   // =========================================================================
@@ -325,14 +385,22 @@ struct NvmSettings {
   // PWM frequency
   // =========================================================================
 
-  /// PWM switching frequency for the current-control timer.
+  /// PWM switching frequency for the current-control timer; 0 selects it from
+  /// the inductance (control_timing.hpp, SuggestedPwmFrequency()).
   ///
-  /// The ISR fires at 2× this frequency (once at peak, once at trough of the
-  /// centre-aligned timer) so the effective current-loop rate is 2 × f_pwm.
-  /// The slow-update task runs at (2 × f_pwm) / 4 = f_pwm / 2.
+  /// The current is sampled at every peak and valley; the control step runs
+  /// every control_divider half periods, the observer after a power of two of
+  /// control steps, at most 16 kHz (control_timing.hpp).
   ///
   /// Register: `unimoc.control.pwm_frequency`
   unit::Frequency pwm_frequency{20.0_kHz};
+
+  /// PWM half periods per control step: 1 (every peak and valley), 2 (every
+  /// valley), 4 or 8; 0 takes the smallest the board runs
+  /// (HardwareCapabilities::max_control_frequency).
+  ///
+  /// Register: `unimoc.control.divider`
+  uint8_t control_divider{0U};
 
   // =========================================================================
   // Current controller (d/q-axis PI with cross-coupling feedforward)
@@ -377,29 +445,16 @@ struct NvmSettings {
   // Dead-time compensation
   // =========================================================================
 
-  /// Gate-driver dead time [s].
+  /// Gate-driver dead time [s]; the compensation takes its share of the
+  /// period at the PWM frequency the timer runs (`pwm_frequency`, also the
+  /// automatic one). There is no frequency register of its own any more
+  /// (`unimoc.control.dtc.f_pwm`, removed 2026-11-18: a stored value is ignored).
   /// Register: `unimoc.control.dtc.dead_time`
   unit::Time dtc_dead_time{0.0_s};
-
-  /// PWM switching frequency [Hz].
-  /// Register: `unimoc.control.dtc.f_pwm`
-  unit::Frequency dtc_f_pwm{10.0_kHz};
 
   /// Phase-current zero-crossing threshold [A].
   /// Register: `unimoc.control.dtc.i_threshold`
   unit::Current dtc_i_threshold{0.1_A};
-
-  // =========================================================================
-  // HFI (high-frequency injection) observer
-  // =========================================================================
-
-  /// HFI injection voltage [V].
-  /// Register: `unimoc.observer.hfi.v_inject`
-  unit::Voltage hfi_v_inject{0.0_V};
-
-  /// Current error to PLL angle scaling gain [rad/A].
-  /// Register: `unimoc.observer.hfi.error_gain`
-  unit::AnglePerCurrent hfi_error_gain{1.0_rad_per_A};
 
   // =========================================================================
   // EESM excitation controller
@@ -629,7 +684,7 @@ struct NvmSettings {
   /// Register: `uavcan.sub.battery_status.id`
   uint16_t sub_battery_status_id{cyphal::kSubBatteryStatus};
 
-  /// Drive status publication (unimoc.cart.DriveStatus.0.1).
+  /// Drive status publication (unimoc.cart.DriveStatus.0.2).
   /// Register: `uavcan.pub.drive_status.id`
   uint16_t pub_drive_status_id{cyphal::kPubDriveStatus};
 
@@ -640,6 +695,18 @@ struct NvmSettings {
   /// Homing state publication (uavcan.primitive.scalar.Natural8.1.0).
   /// Register: `uavcan.pub.homing_state.id`
   uint16_t pub_homing_state_id{cyphal::kPubHomingState};
+
+  /// EESM: field current command to the excitation module (unimoc.excitation.Command.0.1).
+  /// Register: `uavcan.pub.excitation_command.id`
+  uint16_t pub_excitation_command_id{cyphal::kPubExcitationCommand};
+
+  /// EESM: status of the excitation module (unimoc.excitation.Status.0.1).
+  /// Register: `uavcan.sub.excitation_status.id`
+  uint16_t sub_excitation_status_id{cyphal::kSubExcitationStatus};
+
+  /// EESM: field current setpoint of the bus (uavcan.si.unit.electric_current.Scalar.1.0).
+  /// Register: `uavcan.sub.excitation_setpoint.id`
+  uint16_t sub_excitation_setpoint_id{cyphal::kSubExcitationSetpoint};
 
   /// Wheel of this drive (unimoc.cart.WheelCommand.WHEEL_*), 0 to 3.
   /// Register: `unimoc.cart.wheel`
@@ -762,6 +829,47 @@ struct NvmSettings {
   /// Without a display request for this long the display counts as lost: no assist.
   /// Register: `unimoc.ebike.display_timeout`
   unit::Time ebike_display_timeout{2.0_s};
+
+  /// Torque sensor reading at zero load, learned by the pedal observer while the crank stands still. The
+  /// drive stores the learned value by itself (EbikeControl::OffsetToStore()).
+  /// Register: `unimoc.ebike.torque_offset`
+  unit::Torque ebike_torque_offset;
+
+  // Accelerator and brake lever of the board (docs/drive4850_h7_plan.md, section 4.3): a local torque
+  // setpoint for drives without the e-bike.
+
+  /// 0 off, 1 accelerator (throttle), 2 accelerator and brake lever. Ignored in the e-bike build and on a
+  /// board without the inputs.
+  /// Register: `unimoc.accel.mode`
+  uint8_t accel_mode{0U};
+
+  /// Sensor voltage of the released accelerator (no torque) [V].
+  /// Register: `unimoc.accel.throttle_min`
+  unit::Voltage accel_throttle_min{0.8_V};
+
+  /// Sensor voltage of the fully pressed accelerator (accel_torque_max) [V].
+  /// Register: `unimoc.accel.throttle_max`
+  unit::Voltage accel_throttle_max{2.6_V};
+
+  /// Sensor voltage of the released brake lever [V].
+  /// Register: `unimoc.accel.brake_min`
+  unit::Voltage accel_brake_min{0.8_V};
+
+  /// Sensor voltage of the fully pulled brake lever (accel_brake_torque_max) [V].
+  /// Register: `unimoc.accel.brake_max`
+  unit::Voltage accel_brake_max{2.6_V};
+
+  /// Drive torque at the fully pressed accelerator.
+  /// Register: `unimoc.accel.torque_max`
+  unit::Torque accel_torque_max{10.0_Nm};
+
+  /// Regenerative braking torque at the fully pulled brake lever; it fades out towards standstill.
+  /// Register: `unimoc.accel.brake_torque_max`
+  unit::Torque accel_brake_torque_max{5.0_Nm};
+
+  /// The drive stays engaged this long after both inputs were released.
+  /// Register: `unimoc.accel.engage_hold`
+  unit::Time accel_engage_hold{2.0_s};
 
   /// Restore all fields to factory defaults.
   void ResetToDefaults() noexcept { *this = NvmSettings{}; }

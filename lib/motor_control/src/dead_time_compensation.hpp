@@ -49,7 +49,7 @@ struct DeadTimeCompensation {
   /// Dead time of the gate driver [s].
   unit::Time dead_time;
 
-  /// PWM switching frequency [Hz].
+  /// PWM switching frequency [Hz]: the one the timer runs (settings::ControlTiming).
   unit::Frequency f_pwm;
 
   /**
@@ -64,11 +64,16 @@ struct DeadTimeCompensation {
   /**
    * @brief Load dead-time compensation parameters from NVM settings.
    *
+   * The dead time is a time (the gate driver's, as M1 measures it); its
+   * share of the period follows the PWM frequency the timer runs, which the
+   * settings may leave to the motor (`unimoc.control.pwm_frequency` 0).
+   *
    * @param settings Validated NVM settings.
+   * @param pwm_frequency PWM frequency of the timer (settings::ResolveControlTiming()).
    */
-  constexpr void Init(const settings::NvmSettings& settings) noexcept {
+  constexpr void Init(const settings::NvmSettings& settings, const unit::Frequency pwm_frequency) noexcept {
     dead_time = settings.dtc_dead_time;
-    f_pwm = settings.dtc_f_pwm;
+    f_pwm = pwm_frequency;
     i_threshold = settings.dtc_i_threshold;
   }
 

@@ -15,11 +15,20 @@
  */
 #pragma once
 
+#include <cstdint>
 #include "nvm_settings.hpp"
 
 namespace unimoc::settings {
 
 using namespace unit;
+
+/// Where the phase currents are measured.
+enum class CurrentSense : uint8_t {
+  /// Inline phase shunts or sensors: the phase current in every switching state.
+  kInline = 0,
+  /// A shunt in the source of each low-side switch: the phase current only while its low side conducts.
+  kLowSide = 1,
+};
 
 /**
  * @brief Immutable electrical capabilities of a hardware target.
@@ -44,6 +53,22 @@ struct HardwareCapabilities {
   /// Highest DC-link trip voltage the power stage allows [V] (below the
   /// rating of the switches and the DC-link capacitors).
   unit::Voltage max_dc_link_voltage{60.0_V};
+
+  /// Highest PWM frequency of the power stage (switching losses, dead time).
+  unit::Frequency max_pwm_frequency{64.0_kHz};
+
+  /// Highest control-step rate the processor sustains; each step must finish
+  /// within half a PWM period (docs/hotpath_plan.md, section 4).
+  unit::Frequency max_control_frequency{64.0_kHz};
+
+  /// Current sensing of the power stage. Low-side shunts measure at the valley
+  /// only (no control step every half period) and need min_low_side_time.
+  CurrentSense current_sense{CurrentSense::kInline};
+
+  /// Low-side shunts: the shortest low-side on time per PWM period that still
+  /// gives a valid sample (dead time, settling and the conversion on both
+  /// sides of the valley). It caps the duty at 1 - f_pwm × min_low_side_time.
+  unit::Time min_low_side_time;
 };
 
 /**

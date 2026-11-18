@@ -8,7 +8,7 @@
  *    @file zephyr_can_media.hpp
  *    @brief Cyphal CAN interface on a Zephyr CAN controller.
  *
- *    Shared by the BCC (STM32G4 FDCAN) and native_sim (SocketCAN through
+ *    Shared by the STM32H7 (FDCAN) and native_sim (SocketCAN through
  *    the native Linux CAN driver).
  *
  *    SPDX-License-Identifier: GPL-3.0-or-later
@@ -61,15 +61,25 @@ class ZephyrCanMedia final : public cyphal::CanMedia {
   /// Frames dropped because the receive queue was full.
   [[nodiscard]] uint32_t RxOverruns() const noexcept { return rx_overruns_; }
 
+  /// Frames received and queued for sending so far (wraps); the traffic LED watches it for change.
+  [[nodiscard]] uint32_t TrafficCount() const noexcept { return traffic_.load(std::memory_order_relaxed); }
+
  private:
   static void OnFrame(const struct device* device, struct can_frame* frame, void* user_data);
   static void OnStateChange(const struct device* device,
+                            struct can_state_change_callback* callback,
                             enum can_state state,
-                            struct can_bus_err_cnt error_count,
-                            void* user_data);
+                            struct can_bus_err_cnt error_count);
+
+  /// The state-change callback of the driver with the media it belongs to (CONTAINER_OF).
+  struct StateCallback {
+    struct can_state_change_callback callback;
+    ZephyrCanMedia* self;
+  };
 
   const struct device* device_{nullptr};
   struct k_sem* wake_{nullptr};
+  StateCallback state_callback_{};
   struct k_msgq rx_queue_{};
   alignas(4) std::array<char, kRxQueueLength * sizeof(struct can_frame)> rx_buffer_{};
   std::size_t mtu_{cyphal::kCanClassicMtu};
@@ -77,6 +87,7 @@ class ZephyrCanMedia final : public cyphal::CanMedia {
   uint32_t rx_overruns_{0U};
   std::atomic<uint8_t> bus_state_{static_cast<uint8_t>(cyphal::CanBusState::kErrorActive)};
   std::atomic<uint32_t> bus_off_count_{0U};
+  std::atomic<uint32_t> traffic_{0U};
 };
 
 }  // namespace unimoc::hardware

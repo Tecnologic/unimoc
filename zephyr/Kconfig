@@ -16,27 +16,32 @@ if UNIMOC
 
 choice UNIMOC_PLATFORM
 	prompt "UNIMOC hardware platform"
-	default UNIMOC_PLATFORM_BCC if BOARD_BCC
 	default UNIMOC_PLATFORM_SIM if BOARD_NATIVE_SIM
+	default UNIMOC_PLATFORM_STM32H7 if SOC_SERIES_STM32H7X
 	help
 	  Selects which hardware layer (hardware/zephyr_*) the application
 	  compiles. The choice follows the board; it is never a preprocessor
 	  switch.
 
-config UNIMOC_PLATFORM_BCC
-	bool "Battery case controller (STM32G473)"
-	depends on BOARD_BCC
-
 config UNIMOC_PLATFORM_SIM
 	bool "Simulation on native_sim"
 	depends on BOARD_NATIVE_SIM
+
+config UNIMOC_PLATFORM_STM32H7
+	bool "STM32H7 (Jacobi, NUCLEO-H743ZI)"
+	depends on SOC_SERIES_STM32H7X
+	select NOCACHE_MEMORY
+	help
+	  hardware/zephyr_stm32h7: TIM1 or TIM8 with ADC1..3 from the foc0
+	  node (unimoc,foc-stm32h7). The duty DMA buffer lives in non-cached
+	  memory.
 
 endchoice
 
 config UNIMOC_SETTINGS_ZMS
 	bool "Persist settings with the Zephyr settings subsystem on ZMS"
 	default y
-	depends on UNIMOC_PLATFORM_BCC || UNIMOC_PLATFORM_SIM
+	depends on UNIMOC_PLATFORM_SIM || UNIMOC_PLATFORM_STM32H7
 	select FLASH
 	select FLASH_MAP
 	select ZMS
@@ -49,24 +54,36 @@ config UNIMOC_SETTINGS_ZMS
 
 config UNIMOC_EBIKE
 	bool "E-bike pedal assist and display (docs/ebike_plan.md)"
-	depends on UNIMOC_PLATFORM_BCC || UNIMOC_PLATFORM_SIM
+	depends on UNIMOC_PLATFORM_SIM
 	help
 	  Turns the drive into an e-bike: the crank torque and cadence sensor
 	  and the display (Kunteng protocol) feed the assist law, and the
 	  control engages the power stage on demand while the rider pedals
 	  (src/ebike). The readiness ENGAGED of the Cyphal bus then no longer
 	  engages the drive. The assist parameters are untuned defaults:
-	  enable it on the bench first. Off by default, also in native_sim:
+	  enable it on the bench first. Only the simulation has the e-bike
+	  inputs (simulated rider). Off by default, also in native_sim:
 	  the pytest integration tests engage the simulated drive over the
 	  bus.
 
+config UNIMOC_SIM_LOW_SIDE_CURRENT_SENSE
+	bool "Simulate low-side shunts"
+	depends on UNIMOC_PLATFORM_SIM
+	help
+	  The simulated drive measures the phase currents as low-side shunts
+	  do (settings::CurrentSense::kLowSide): at the valley only, and a
+	  phase only while its low side conducts long enough around the
+	  sample. The control then runs after the valleys only and caps the
+	  duty (min_low_side_time). Off by default: the simulated drive has
+	  inline sensors, as Jacobi.
+
 config UNIMOC_HOT_PATH_TIMING
 	bool "Measure the execution times of the interrupts (M0)"
-	depends on UNIMOC_PLATFORM_BCC || UNIMOC_PLATFORM_SIM
+	depends on UNIMOC_PLATFORM_SIM || UNIMOC_PLATFORM_STM32H7
 	help
 	  The platform measures the sample interrupt, the control cycle and
-	  the observer in cycles of its timestamp clock (BCC: DWT cycle
-	  counter, 170 MHz) and keeps min, mean and max
+	  the observer in cycles of its timestamp clock (STM32H7: DWT
+	  cycle counter, 400 MHz) and keeps min, mean and max
 	  (hardware/hot_path_timing.hpp). The drive reports them in the
 	  unimoc.timing.* registers. Adds a few loads and stores to every
 	  measured interrupt; off by default. native_sim counts the cycles,
@@ -112,17 +129,19 @@ config UNIMOC_CONTROL_THREAD_STACK_SIZE
 	default 2048
 
 config UNIMOC_CYPHAL
-	bool "Cyphal/CAN node of the drive"
-	depends on UNIMOC_PLATFORM_BCC || UNIMOC_PLATFORM_SIM
+	bool "Cyphal/CAN node of the application (drive or VDC)"
+	depends on UNIMOC_PLATFORM_SIM || UNIMOC_PLATFORM_STM32H7
 	select CAN
 	select HWINFO
 	select REBOOT
 	help
-	  Runs the Cyphal node of the drive in a Zephyr thread
-	  (hardware/zephyr_common/cyphal_runtime.cpp): heartbeat, GetInfo,
-	  registers on the settings store, ExecuteCommand, plug-and-play,
-	  readiness and setpoints, telemetry and the log as
-	  uavcan.diagnostic.Record. The CAN interface is the chosen
+	  Runs the Cyphal node of the application in a Zephyr thread. The
+	  drive (hardware/zephyr_common/cyphal_runtime.cpp): heartbeat,
+	  GetInfo, registers on the settings store, ExecuteCommand,
+	  plug-and-play, readiness and setpoints, telemetry and the log as
+	  uavcan.diagnostic.Record. The VDC (vdc_runtime.cpp): heartbeat,
+	  GetInfo, its registers, the readiness of the drives, the wheel
+	  command and the log. The CAN interface is the chosen
 	  zephyr,canbus; native_sim adds a serial-line CAN interface.
 
 if UNIMOC_CYPHAL
@@ -182,13 +201,38 @@ config UNIMOC_CYPHAL_SLCAN
 	select SERIAL
 	select UART_INTERRUPT_DRIVEN
 	help
-	  A second CAN interface of the simulated drive in the Lawicel
+	  A second CAN interface of the simulated drive or VDC in the Lawicel
 	  (slcan) ASCII protocol on the pseudo terminals listed in the
 	  slcan-uarts property of zephyr,user, with classic 8 byte frames.
 	  One tool process per terminal; the terminals form one bus. It lets
 	  pycyphal and yakut reach the simulation without SocketCAN (WSL2
 	  kernels without vcan): UAVCAN__CAN__IFACE="slcan:/dev/pts/<n>",
 	  UAVCAN__CAN__MTU=8, UAVCAN__CAN__BITRATE="1000000 1000000".
+
+config UNIMOC_FIRMWARE_UPDATE_FLASH
+	bool "Firmware update into flash slot 1 for MCUboot"
+	default y
+	depends on UNIMOC_PLATFORM_STM32H7 && BOOTLOADER_MCUBOOT
+	select FLASH
+	select FLASH_MAP
+	select STREAM_FLASH
+	select IMG_MANAGER
+	select IMG_ERASE_PROGRESSIVELY
+	help
+	  BEGIN_SOFTWARE_UPDATE downloads the image over uavcan.file.Read into
+	  slot 1 (flash bank 2), erasing the sectors as the download reaches
+	  them, and asks MCUboot to swap it in at the next start. The new
+	  image runs once and confirms itself after a few seconds on the bus,
+	  otherwise MCUboot swaps back (hardware/zephyr_stm32h7/firmware_bank.cpp).
+	  Without MCUboot in the build (no sysbuild) the board refuses updates.
+
+config UNIMOC_UPDATE_CONFIRM_DELAY_MS
+	int "Time a swapped-in image runs before it confirms itself [ms]"
+	default 10000
+	depends on UNIMOC_FIRMWARE_UPDATE_FLASH
+	help
+	  A reset before that swaps the previous image back. The hardware test of
+	  the swap back builds an image with a long delay (tests/integration/cyphal_hw).
 
 endif # UNIMOC_CYPHAL
 

@@ -54,8 +54,8 @@ struct PmsmParameters {
  *
  * An open stator (bridge off) forces the currents to zero. Freewheeling through
  * the body diodes when the back-EMF exceeds the DC-link voltage is not modelled.
- * Magnetic saturation, cross saturation, iron losses and temperature are not
- * modelled either.
+ * Magnetic saturation, cross saturation and iron losses are not modelled
+ * either; MotorSimulation sets the stator resistance of a warm winding.
  */
 class PmsmModel {
  public:
@@ -99,6 +99,16 @@ class PmsmModel {
    * @return The electrical parameters.
    */
   [[nodiscard]] constexpr const PmsmParameters& Parameters() const noexcept { return parameters_; }
+
+  /**
+   * @brief Sets the stator resistance, for a winding whose temperature changes.
+   * @param resistance Stator phase resistance; a value that is not positive is ignored.
+   */
+  constexpr void SetStatorResistance(const unit::Resistance resistance) noexcept {
+    if (resistance > unit::Resistance{}) {
+      parameters_.stator_resistance = resistance;
+    }
+  }
 
   /** @brief Sets the stator currents to zero. */
   constexpr void Reset() noexcept { current_ = {}; }

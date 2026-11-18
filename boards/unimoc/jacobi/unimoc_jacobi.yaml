@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+identifier: unimoc_jacobi
+name: UNIMOC Jacobi (36 V / 45 A drive)
+type: mcu
+arch: arm
+toolchain:
+  - zephyr
+  - gnuarmemb
+ram: 512
+flash: 2048
+supported:
+  - gpio
+  - can

@@ -1,0 +1,22 @@
+# State of an excitation module for its drive (docs/system_plan.md, section
+# 5.2.1), at the rate of the commands. The drive takes the measured field
+# current as the field flux of its observer and its torque constant.
+#
+# Payload 5 bytes, one CAN FD frame.
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+float16 field_current
+# Measured field current [A].
+
+float16 field_voltage
+# Mean voltage the module applies to the field winding [V].
+
+bool enabled
+# The field current loop runs (the last command enabled it).
+
+bool fault
+# The module switched its output off (overcurrent, overtemperature, lost
+# commands); latched until the drive sends enable = false.
+
+@extent 63 * 8

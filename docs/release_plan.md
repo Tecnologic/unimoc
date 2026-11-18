@@ -18,7 +18,8 @@ of work (version over Cyphal `GetInfo`) already existed
   `main` merge commits only (branch rules).
 - `develop` ruleset: squash only, linear history, bypass for the owner of
   `RELEASE_TOKEN` (the bump commit is pushed directly), required checks
-  `twister`, `firmware / firmware (bcc)`, `firmware / firmware (sim)` and
+  `twister`, `firmware / firmware (jacobi)`, `firmware / firmware (nucleo_h743zi)`,
+  `firmware / firmware (sim)` and
   `conventional-title`. The context is the check run name (job name; a job of
   a reusable workflow is `<caller job> / <job>`), without the workflow name.
 - `main` ruleset: merge commits only and **no** linear-history rule (it
@@ -33,13 +34,13 @@ without manual steps:
 
 - the version is derived automatically and stored in the Zephyr `VERSION` file;
 - the change log is generated from the merged changes;
-- every firmware build is attached (BCC, `native_sim`, and any board or
+- every firmware build is attached (Jacobi, `native_sim`, and any board or
   simulator added later);
 - the release itself is a full CI run, so the CI badge on `main` shows it.
 
 ## Today
 
-- `app/VERSION` is the Zephyr version file (`0.1.0`), but nothing writes it
+- `apps/drive/VERSION` is the Zephyr version file (`0.1.0`), but nothing writes it
   and the firmware file names use `git describe`. There is no tag yet, so
   `git describe` yields only a hash.
 - The release job runs on a pushed `v*` tag: someone tags by hand.
@@ -53,11 +54,17 @@ without manual steps:
 
 ## Decisions
 
-### 1. Single source of truth: `app/VERSION`
+### 1. Single source of truth: `apps/drive/VERSION`
 
 Zephyr derives `APP_VERSION_STRING`, `APP_VERSION_NUMBER` and
 `APP_VERSION_TWEAK_STRING` from it (`<app>/VERSION`, `app_version.h`), so the
 firmware can report what the release says.
+
+Since 2026-11-08 there are two applications (`apps/drive/`, `apps/vdc/`).
+Zephyr reads the version file of each application, so `apps/vdc/VERSION`
+is a copy: `release_version.py apply` writes every `apps/*/VERSION`, and
+every command of the script fails when the copies differ from
+`apps/drive/VERSION`.
 
 - `VERSION_MAJOR/MINOR/PATCHLEVEL` are set by the release tooling only.
 - `VERSION_TWEAK` stays 0. `EXTRAVERSION` carries a pre-release (`rc1`) when
@@ -78,12 +85,20 @@ firmware can report what the release says.
 - PRs into `develop` stay squash-merged; the PR **title** is the commit. A
   `pull_request` job (`amannn/action-semantic-pull-request`) enforces
   `type(scope): subject`. Scopes follow the layout: `motor_control`, `cyphal`,
-  `dsdl`, `drive`, `startup`, `bcc`, `sim`, `ci`, `docs`.
+  `dsdl`, `drive`, `vdc`, `vehicle`, `startup`, `jacobi`, `h7`, `sim`, `ci`, `docs`.
 - A DSDL or register/subject-ID change is always `feat!`/`fix!`, because it
   changes the bus protocol (`AGENTS.md`).
 - The `develop` to `main` PR is merged with a **merge commit** (not squash),
   so the individual changes stay in the history that git-cliff reads.
   Branch protection on `main` allows merge commits only.
+- Merge commits never enter the change log or the bump, whatever their
+  message: `scripts/release_version.py` skips them by their parents, and the
+  template drops the merge a tag points at (git-cliff keeps tagged commits).
+  The merge of #42 into `main` carried the title of #40 and listed it twice.
+- The change log is regenerated from the whole history on every release, so a
+  squash commit with a wrong title cannot be fixed by hand in `CHANGELOG.md`.
+  Its SHA goes into `MISTITLED_COMMITS` in `scripts/release_version.py`
+  (#51, a docs change with the title of #44).
 - No release is created if no releasable commit (`feat`, `fix`, `perf`,
   `refactor`, `!`) is in the range; `docs`, `ci`, `test`, `chore` alone do not
   bump.
@@ -97,7 +112,7 @@ PR instead:
 - Workflow `release-prepare.yml` runs on `pull_request` (base `main`, head
   `develop`) and on pushes to `develop` while such a PR is open. It runs
   `scripts/release_version.py`, which calls `git cliff --bumped-version`,
-  rewrites `app/VERSION` and `CHANGELOG.md`, and commits
+  rewrites `apps/*/VERSION` and `CHANGELOG.md`, and commits
   `chore(release): vX.Y.Z` to `develop`. It is idempotent: the version is
   always computed from the last tag, never from the previous bump.
 - It posts or updates one PR comment with the proposed version and the change
@@ -118,7 +133,7 @@ Workflow `ci-zephyr.yml` stays the one CI workflow. On `push` to `main`:
    - the pushed commit is the merge of a PR whose head is `develop`
      (`gh api repos/:owner/:repo/commits/$SHA/pulls`), and
    - `v$(VERSION)` does not exist yet (makes re-runs idempotent).
-3. `release` checks that `app/VERSION`, the newest `CHANGELOG.md` section and
+3. `release` checks that `apps/drive/VERSION`, the newest `CHANGELOG.md` section and
    the computed version agree, creates the tag on that exact SHA and the
    release in one call (`gh release create vX.Y.Z --target $SHA
    --notes-file ...`). Because the tag is created by the run itself, there is
@@ -134,7 +149,7 @@ on `main` are queued so a release run is never cancelled.
 
   | target | board | files |
   |---|---|---|
-  | `bcc` | `bcc` | `.elf`, `.hex`, `.bin`, `.map` |
+  | `jacobi`, `nucleo_h743zi` | `unimoc_jacobi`, `nucleo_h743zi` (sysbuild with MCUboot) | `.elf`, `.hex`, `.bin`, `.map` of the drive, `-bootloader.hex`, `-signed.hex`/`-signed.bin`, `-update.bin` (the file `BEGIN_SOFTWARE_UPDATE` downloads) |
   | `sim` | `native_sim/native/64` | `unimoc-native_sim-<ver>.tar.gz` |
 
   A new board or simulator is one more matrix row (name, board, file list).
@@ -166,7 +181,7 @@ on `main` are queued so a release run is never cancelled.
 |---|---|
 | `cliff.toml` | commit parsers, bump rules, release-note template |
 | `CHANGELOG.md` | generated, committed by `release-prepare` |
-| `scripts/release_version.py` | run git-cliff, write `app/VERSION` and the change log (testable without GitHub) |
+| `scripts/release_version.py` | run git-cliff, write `apps/*/VERSION` and the change log (testable without GitHub) |
 | `.github/workflows/release-prepare.yml` | bump commit and PR comment on the `develop` to `main` PR |
 | `.github/workflows/pr-title.yml` | Conventional Commit check of PR titles |
 | `.github/workflows/ci-zephyr.yml` | matrix, `APP_VERSION` file names, new `release` job, concurrency, no `v*` trigger |

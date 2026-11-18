@@ -1,9 +1,12 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 common:
-  tags: unimoc sim
+  tags: [unimoc, sim]
   platform_allow: native_sim/native/64
   integration_platforms:
     - native_sim/native/64
 tests:
   unimoc.sim.closed_loop: {}
+  unimoc.sim.closed_loop.low_side:
+    extra_configs:
+      - CONFIG_UNIMOC_SIM_LOW_SIDE_CURRENT_SENSE=y

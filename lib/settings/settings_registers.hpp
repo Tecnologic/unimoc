@@ -140,6 +140,18 @@ void ForEachRegister(const Visitor& visit, Settings&... settings) {
   visit(Setting(reg::kControlMode, "Control mode after boot: 0 torque, 1 speed, 2 position", Between(0.0F, 2.0F)), settings.control_mode...);
   visit(Setting(reg::kStatorR, "Stator phase resistance", AtLeast(0.0F)), settings.stator_r...);
   visit(Setting(reg::kStatorL, "Stator inductance (L_q of an IPMSM, else the mean of L_d and L_q)", AtLeast(0.0F)), settings.stator_l...);
+  visit(Setting(reg::kStatorRTemperature, "Winding temperature at which the stator resistance was measured", kAny, "degC"), settings.stator_r_temperature...);
+  visit(Setting(reg::kThermalAmbient, "Ambient temperature of the motor; start value of the temperature estimate", kAny, "degC"), settings.thermal_ambient...);
+  visit(Setting(reg::kThermalCWinding, "Heat capacity of the winding", AtLeast(0.0F)), settings.thermal_c_winding...);
+  visit(Setting(reg::kThermalCStator, "Heat capacity of the stator and the housing", AtLeast(0.0F)), settings.thermal_c_stator...);
+  visit(Setting(reg::kThermalRWinding, "Thermal resistance from the winding to the stator", AtLeast(0.0F)), settings.thermal_r_winding...);
+  visit(Setting(reg::kThermalRStator, "Thermal resistance from the stator to the ambient", AtLeast(0.0F)), settings.thermal_r_stator...);
+  visit(Setting(reg::kThermalDerateStart, "Winding temperature where the motor current derating starts; below the limit", kAny, "degC"), settings.thermal_derate_start...);
+  visit(Setting(reg::kThermalLimit, "Winding temperature at which no motor current is allowed; above the derate start", kAny, "degC"), settings.thermal_limit...);
+  visit(Setting(reg::kThermalRsSpeedMax, "Largest electrical speed at which the stator resistance corrects the temperature estimate", AtLeast(0.0F)), settings.thermal_rs_speed_max...);
+  visit(Setting(reg::kThermalRsCurrentMin, "Smallest current at which the stator resistance corrects the temperature estimate", AtLeast(0.0F)), settings.thermal_rs_current_min...);
+  visit(Setting(reg::kThermalRsCorrectionTime, "Time constant of the correction from the stator resistance; 0 off", AtLeast(0.0F)), settings.thermal_rs_correction_time...);
+  visit(Setting(reg::kThermalSensorCorrectionTime, "Time constant of the correction from a motor temperature sensor (stator mass); 0: the sensor is only reported", AtLeast(0.0F)), settings.thermal_sensor_correction_time...);
   visit(Setting(reg::kMotorIMax, "Largest motor current (stator vector), up to the hardware limit", AtLeast(0.0F)), settings.motor_i_max...);
   visit(Setting(reg::kMotorOmegaMax, "Largest electrical speed forward", AtLeast(0.0F)), settings.motor_omega_max...);
   visit(Setting(reg::kMotorOmegaMin, "Largest electrical speed in reverse, negative", AtMost(0.0F)), settings.motor_omega_min...);
@@ -171,10 +183,12 @@ void ForEachRegister(const Visitor& visit, Settings&... settings) {
   visit(Setting(reg::kAsmFluxKi, "Integral gain of the ASM flux controller", kAny, "A/(Wb s)"), settings.asm_flux_ki...);
   visit(Setting(reg::kAsmFluxIDMin, "Smallest d-axis current of the ASM flux controller", AtLeast(0.0F)), settings.asm_flux_i_d_min...);
   visit(Setting(reg::kAsmFluxIDMax, "Largest d-axis current of the ASM flux controller, at least i_d_min", AtLeast(0.0F)), settings.asm_flux_i_d_max...);
+  visit(Setting(reg::kAsmFluxPsiR, "Rotor flux reference of the ASM flux controller", AtLeast(0.0F)), settings.asm_flux_psi_r...);
   visit(Setting(reg::kFwVMax, "Voltage vector magnitude from which field weakening starts", AtLeast(0.0F)), settings.fw_v_max...);
   visit(Setting(reg::kFwKi, "Integral gain of the field weakening", kAny, "A/(V s)"), settings.fw_ki...);
   visit(Setting(reg::kFwIDMin, "Most negative d-axis current of the field weakening"), settings.fw_i_d_min...);
-  visit(Setting(reg::kPwmFrequency, "PWM frequency: 16, 20, 24, 28 or 32 kHz; the control cycle runs at half of it", Between(16000.0F, 32000.0F), "Hz"), settings.pwm_frequency...);
+  visit(Setting(reg::kPwmFrequency, "PWM frequency: 16, 20, 24, 28, 32, 40, 48 or 64 kHz; 0 from the inductance", Between(0.0F, 64000.0F), "Hz"), settings.pwm_frequency...);
+  visit(Setting(reg::kControlDivider, "PWM half periods per control step: 1, 2, 4 or 8; 0 the fastest the board runs", Between(0.0F, 8.0F)), settings.control_divider...);
   visit(Tunable(reg::kCurrentKpD, "Proportional gain of the d-axis current controller", kAny, "V/A"), settings.current_kp_d...);
   visit(Tunable(reg::kCurrentKiD, "Integral gain of the d-axis current controller", kAny, "V/(A s)"), settings.current_ki_d...);
   visit(Tunable(reg::kCurrentKpQ, "Proportional gain of the q-axis current controller", kAny, "V/A"), settings.current_kp_q...);
@@ -183,10 +197,7 @@ void ForEachRegister(const Visitor& visit, Settings&... settings) {
   visit(Setting(reg::kSvmDutyMin, "Smallest duty cycle, at most duty_max", Between(0.0F, 1.0F)), settings.svm_duty_min...);
   visit(Setting(reg::kSvmDutyMax, "Largest duty cycle", Between(0.0F, 1.0F)), settings.svm_duty_max...);
   visit(Setting(reg::kDtcDeadTime, "Gate driver dead time of the dead-time compensation", AtLeast(0.0F)), settings.dtc_dead_time...);
-  visit(Setting(reg::kDtcFPwm, "PWM frequency of the dead-time compensation", AtLeast(0.0F), "Hz"), settings.dtc_f_pwm...);
   visit(Setting(reg::kDtcIThreshold, "Phase current below which the dead-time compensation counts a zero crossing"), settings.dtc_i_threshold...);
-  visit(Setting(reg::kHfiVInject, "Injection voltage of the HFI observer"), settings.hfi_v_inject...);
-  visit(Setting(reg::kHfiErrorGain, "Current error to angle gain of the HFI observer", kAny, "rad/A"), settings.hfi_error_gain...);
   visit(Setting(reg::kExcitMode, "EESM excitation mode: 0 current, 1 flux", Between(0.0F, 1.0F)), settings.excitation_mode...);
   visit(Setting(reg::kExcitLM, "Mutual inductance L_m of the excitation controller"), settings.excitation_l_m...);
   visit(Setting(reg::kExcitKp, "Proportional gain of the excitation controller", kAny, "V/A"), settings.excitation_kp...);
@@ -236,6 +247,9 @@ void ForEachRegister(const Visitor& visit, Settings&... settings) {
   visit(AfterRestart(reg::kPubDriveStatusId, "Cart drive status subject; 65535: off", kPortId), settings.pub_drive_status_id...);
   visit(AfterRestart(reg::kPubCommissioningId, "Commissioning status subject (startup aid); 65535: off", kPortId), settings.pub_commissioning_id...);
   visit(AfterRestart(reg::kPubHomingStateId, "Homing state subject; 65535: off", kPortId), settings.pub_homing_state_id...);
+  visit(AfterRestart(reg::kPubExcitationCommandId, "EESM field current command subject to the excitation module; 65535: off", kPortId), settings.pub_excitation_command_id...);
+  visit(AfterRestart(reg::kSubExcitationStatusId, "EESM excitation module status subject; 65535: off", kPortId), settings.sub_excitation_status_id...);
+  visit(AfterRestart(reg::kSubExcitationSetpointId, "EESM field current setpoint subject (overrides the drive's field current); 65535: off", kPortId), settings.sub_excitation_setpoint_id...);
   visit(Setting(reg::kCartWheel, "Cart wheel of this drive (WheelCommand.WHEEL_*)", Between(0.0F, 3.0F)), settings.cart_wheel...);
   visit(Setting(reg::kCartReversed, "1: positive rotor torque drives the cart backward", Between(0.0F, 1.0F)), settings.cart_reversed...);
   visit(Setting(reg::kCartTimeout, "Timeout of wheel command, pedal state and battery status; at most the command timeout", AtLeast(0.0F)), settings.cart_timeout...);
@@ -265,6 +279,15 @@ void ForEachRegister(const Visitor& visit, Settings&... settings) {
   visit(Setting(reg::kEbikeEngageHold, "E-bike: the drive stays engaged this long after the assist ended", AtLeast(0.0F)), settings.ebike_engage_hold...);
   visit(Setting(reg::kEbikeRearmTime, "E-bike: after a fault the pedals stand still this long before the drive engages again", AtLeast(0.0F)), settings.ebike_rearm_time...);
   visit(Setting(reg::kEbikeDisplayTimeout, "E-bike: without a display request for this long the display counts as lost", AtLeast(0.0F)), settings.ebike_display_timeout...);
+  visit(Setting(reg::kEbikeTorqueOffset, "E-bike torque sensor reading at zero load; learned at standstill and stored by the drive", Between(-10.0F, 10.0F)), settings.ebike_torque_offset...);
+  visit(Setting(reg::kAccelMode, "Accelerator inputs: 0 off, 1 accelerator, 2 accelerator and brake lever (not in the e-bike build)", Between(0.0F, 2.0F)), settings.accel_mode...);
+  visit(Setting(reg::kAccelThrottleMin, "Accelerator sensor voltage when released", Between(0.0F, 3.3F)), settings.accel_throttle_min...);
+  visit(Setting(reg::kAccelThrottleMax, "Accelerator sensor voltage when fully pressed", Between(0.0F, 3.3F)), settings.accel_throttle_max...);
+  visit(Setting(reg::kAccelBrakeMin, "Brake lever sensor voltage when released", Between(0.0F, 3.3F)), settings.accel_brake_min...);
+  visit(Setting(reg::kAccelBrakeMax, "Brake lever sensor voltage when fully pulled", Between(0.0F, 3.3F)), settings.accel_brake_max...);
+  visit(Setting(reg::kAccelTorqueMax, "Drive torque at the fully pressed accelerator", AtLeast(0.0F)), settings.accel_torque_max...);
+  visit(Setting(reg::kAccelBrakeTorqueMax, "Regenerative braking torque at the fully pulled brake lever; fades out at standstill", AtLeast(0.0F)), settings.accel_brake_torque_max...);
+  visit(Setting(reg::kAccelEngageHold, "Accelerator: the drive stays engaged this long after both inputs were released", AtLeast(0.0F)), settings.accel_engage_hold...);
   // clang-format on
 }
 

@@ -74,7 +74,7 @@ using namespace unit;
  * independent measurements correct the state, each with its own noise:
  *
  *   UpdateAngle(ε, R):  ε = θ_measured − θ̂, wrapped to (−π, π]
- *                       (flux observer, Hall edge and sector, HFI)
+ *                       (flux observer, Hall edge and sector)
  *   UpdateSpeed(ε, R):  ε = ω_measured − ω̂  (Hall speed bound)
  *
  * Each update computes the Kalman gain k for its measurement and corrects
@@ -306,8 +306,8 @@ struct MechanicalObserver {
   /**
    * @brief Covariance prediction and angle update with the default noise R.
    *
-   * This is the entry point of the ASM flux observer and the HFI observer,
-   * which inject their angle information once per period.
+   * This is the entry point of the ASM flux observer,
+   * which injects its angle information once per period.
    *
    * @param angle_error  Innovation ε = θ_measured − θ̂.
    * @param dt           Control period.

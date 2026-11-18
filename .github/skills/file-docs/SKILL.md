@@ -14,7 +14,7 @@ This skill documents an existing C++ file with focused Doxygen comments. Analyze
 - Document private or local variables and functions only when their purpose or invariants are not clear from the code.
 - Preserve existing comments and improve them only when they are incomplete or inaccurate.
 - Do not document vendored or external code: `lib/cymon/` or Zephyr and west workspace sources.
-- Do not document Zephyr glue (`app/`, `hardware/zephyr_*`) as portable API. Describe only what the file does on its target.
+- Do not document Zephyr glue (`apps/`, `hardware/zephyr_*`) as portable API. Describe only what the file does on its target.
 
 ## File header
 

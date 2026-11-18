@@ -23,7 +23,7 @@ namespace unimoc::hardware {
  * @brief Key/value storage of the settings on the Zephyr settings subsystem.
  *
  * Every register is one settings entry `unimoc/<register name>` in the
- * `storage_partition` (ZMS on the BCC flash, on the flash simulator on
+ * `storage_partition` (ZMS on the STM32H7 flash, on the flash simulator on
  * native_sim). The settings subsystem is initialized on first use. Calls
  * block and must come from a thread, never from a zero-latency interrupt.
  */

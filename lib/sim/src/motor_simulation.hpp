@@ -16,11 +16,16 @@
 #pragma once
 
 #include <cstdint>
+#include <numbers>
 #include <variant>
+#include "asm_model.hpp"
+#include "dc_link_model.hpp"
+#include "eesm_model.hpp"
 #include "hall_sensor.hpp"
 #include "inverter_model.hpp"
 #include "mechanical_model.hpp"
 #include "motor_model.hpp"
+#include "motor_thermal_model.hpp"
 #include "motor_type.hpp"
 #include "nvm_settings.hpp"
 #include "pmsm_model.hpp"
@@ -28,6 +33,34 @@
 #include "units.hpp"
 
 namespace unimoc::sim {
+
+/**
+ * @brief Thermal network of the simulated motor (docs/motor_thermal_plan.md, section 4).
+ *
+ * The same two-mass network as control::MotorThermalModel, with its own
+ * parameters. While enabled, the stator resistance of a PMSM or EESM follows
+ * the winding temperature: the resistance of the motor parameters is the one
+ * at `network.reference_temperature`, `network.stator_resistance` is ignored.
+ * An induction motor keeps its resistances.
+ */
+struct MotorThermalParameters {
+  /// Heat the motor and let the stator resistance follow; off keeps a constant resistance.
+  bool enabled{false};
+  /// Capacities, thermal resistances and the temperature coefficient.
+  control::MotorThermalModel::Parameters network{
+      .stator_resistance = unit::Resistance{},
+      .reference_temperature = unit::operator""_degC(25.0L),
+      .temperature_coefficient = control::kCopperTemperatureCoefficient,
+      .winding_capacity = unit::operator""_J_per_K(150.0L),
+      .stator_capacity = unit::operator""_J_per_K(1500.0L),
+      .winding_to_stator = unit::operator""_K_per_W(0.4L),
+      .stator_to_ambient = unit::operator""_K_per_W(0.8L),
+  };
+  /// Ambient temperature.
+  unit::Temperature ambient{unit::operator""_degC(25.0L)};
+  /// Temperature of winding and stator after Configure() and Reset().
+  unit::Temperature start{unit::operator""_degC(25.0L)};
+};
 
 /**
  * @brief Complete parameter set of one simulated drive.
@@ -40,12 +73,22 @@ struct SimulationParameters {
   system::MotorType motor_type{system::MotorType::kPmsm};
   /// PMSM parameters, used for MotorType::kPmsm.
   PmsmParameters pmsm;
+  /// Induction motor parameters, used for MotorType::kAsm.
+  AsmParameters asm_motor;
+  /// EESM parameters, used for MotorType::kEesm.
+  EesmParameters eesm;
   /// Shaft and load parameters, used for every motor type.
   MechanicalParameters mechanics;
   /// Hall sensor parameters.
   HallParameters hall;
-  /// DC-link voltage of the ideal supply.
+  /// DC-link voltage of the ideal supply; the open-circuit battery voltage with a DC-link capacitor.
   unit::Voltage dc_link_voltage{unit::Voltage{48.0F}};
+  /// Dead time of the bridge.
+  InverterParameters inverter;
+  /// DC-link capacitor and battery resistance; the default (no capacitor) is the ideal source.
+  DcLinkParameters dc_link;
+  /// Heating of the winding; off by default.
+  MotorThermalParameters thermal;
 };
 
 /**
@@ -63,6 +106,27 @@ struct SimulationParameters {
   parameters.pmsm.l_d = settings.l_d;
   parameters.pmsm.l_q = settings.l_q;
   parameters.pmsm.flux_pm = settings.flux_pm;
+  parameters.asm_motor.pole_pairs = settings.pole_pairs;
+  parameters.asm_motor.stator_resistance = settings.asm_r_s;
+  parameters.asm_motor.rotor_resistance = settings.asm_r_r;
+  parameters.asm_motor.l_s = settings.asm_l_s;
+  parameters.asm_motor.l_r = settings.asm_l_r;
+  parameters.asm_motor.l_m = settings.asm_l_m;
+  // The EESM stator and L_m from the motor settings. The field winding is not referred to the stator, so
+  // its inductance follows from a coupling of 3/2 L_m^2 / (L_d L_f) = 0.8 and its resistance from a field
+  // time constant of 25 ms (the excitation module knows the real winding).
+  parameters.eesm.pole_pairs = settings.pole_pairs;
+  parameters.eesm.stator_resistance = settings.stator_r;
+  parameters.eesm.l_d = settings.l_d;
+  parameters.eesm.l_q = settings.l_q;
+  parameters.eesm.l_m = settings.excitation_l_m;
+  if (settings.l_d > unit::Inductance{}) {
+    constexpr float kFieldCoupling = 0.8F;
+    constexpr unit::Time kFieldTimeConstant = unit::operator""_ms(25.0L);
+    parameters.eesm.field_inductance =
+        (settings.excitation_l_m * (settings.excitation_l_m / settings.l_d)) * (1.5F / kFieldCoupling);
+    parameters.eesm.field_resistance = parameters.eesm.field_inductance / kFieldTimeConstant;
+  }
   parameters.mechanics.inertia = settings.motor_j;
   return parameters;
 }
@@ -85,14 +149,32 @@ struct SimulationOutput {
   system::ThreePhase<unit::Current> phase_currents;
   /// Phase-to-star-point voltages averaged over the last step.
   system::ThreePhase<unit::Voltage> phase_voltages;
+  /// Terminal voltages against the negative DC rail at the end of the step, as
+  /// the phase-voltage sense measures them: the averaged bridge or diode output
+  /// while the stator is connected; with the bridge open the back-EMF, its
+  /// lowest phase at the negative rail (the low-side body diode carries the
+  /// small current of the voltage dividers; its drop is not modelled).
+  system::ThreePhase<unit::Voltage> terminal_voltages;
   /// DC-link voltage.
   unit::Voltage dc_link_voltage;
+  /// Mean current the bridge took from the DC link over the last step; negative while it charges it.
+  unit::Current dc_link_current;
+  /// Battery current of the last step; negative while the battery is charged.
+  unit::Current battery_current;
+  /// True while the body diodes of the switched-off bridge rectify the back-EMF into the DC link.
+  bool diodes_conducting{false};
   /// Stator current in the d/q frame of the rotor (simulation truth).
   system::Rotor<unit::Current> rotor_current;
   /// Field winding current (EESM), zero otherwise.
   unit::Current field_current;
   /// Electromagnetic torque.
   unit::Torque electromagnetic_torque;
+  /// Winding temperature (simulation truth); the start temperature without heating.
+  unit::Temperature winding_temperature;
+  /// Stator and housing temperature (simulation truth).
+  unit::Temperature stator_temperature;
+  /// Stator phase resistance at the winding temperature (simulation truth).
+  unit::Resistance stator_resistance;
   /// Mechanical shaft angle.
   system::RotorAngle mechanical_angle;
   /// Mechanical shaft speed.
@@ -141,6 +223,14 @@ class MotorSimulation {
     if (parameters.dc_link_voltage <= unit::Voltage{}) {
       return Status::kInvalidDcLinkVoltage;
     }
+    if (parameters.inverter.dead_time < unit::Ratio{} || !(parameters.inverter.dead_time < kMaxDeadTime)) {
+      return Status::kInvalidDeadTime;
+    }
+    const DcLinkModel kDcLink(parameters.dc_link, parameters.dc_link_voltage);
+    const Status kDcLinkStatus = kDcLink.Validate();
+    if (kDcLinkStatus != Status::kOk) {
+      return kDcLinkStatus;
+    }
     const MechanicalModel kMechanics(parameters.mechanics);
     const Status kMechanicsStatus = kMechanics.Validate();
     if (kMechanicsStatus != Status::kOk) {
@@ -155,7 +245,13 @@ class MotorSimulation {
         pole_pairs = parameters.pmsm.pole_pairs;
         break;
       case system::MotorType::kAsm:
+        model = AsmModel(parameters.asm_motor);
+        pole_pairs = parameters.asm_motor.pole_pairs;
+        break;
       case system::MotorType::kEesm:
+        model = EesmModel(parameters.eesm);
+        pole_pairs = parameters.eesm.pole_pairs;
+        break;
       default:
         return Status::kUnsupportedMotorType;
     }
@@ -164,10 +260,20 @@ class MotorSimulation {
       return kModelStatus;
     }
 
+    if (parameters.thermal.enabled) {
+      control::MotorThermalModel::Parameters network = parameters.thermal.network;
+      network.stator_resistance = std::visit(ResistanceVisitor{}, model);
+      if (!network.Valid()) {
+        return Status::kInvalidThermalParameters;
+      }
+      thermal_ = control::MotorThermalModel(network, parameters.thermal.start);
+    }
+
     parameters_ = parameters;
     model_ = model;
     pole_pairs_ = pole_pairs;
     mechanics_ = kMechanics;
+    dc_link_ = kDcLink;
     hall_ = HallSensor(parameters.hall);
     Reset();
     return Status::kOk;
@@ -205,15 +311,34 @@ class MotorSimulation {
   /**
    * @brief Returns all states to standstill at zero angle, with zero current and the bridge off.
    *
-   * The configuration, the shaft mode and the load input are kept.
+   * The configuration, the shaft mode and the load input are kept; the
+   * DC-link capacitor is charged to the battery voltage, the contactor closed.
    */
   constexpr void Reset() noexcept {
     std::visit(ResetVisitor{}, model_);
+    SetMotorTemperature(parameters_.thermal.start);
     mechanics_.Reset();
     inverter_ = InverterModel{};
+    inverter_.SetDeadTime(parameters_.inverter.dead_time);
+    dc_link_.Reset();
     UpdateOutput();
     hall_.Reset(output_.electrical_angle);
     output_.hall = hall_.Signals();
+  }
+
+  /**
+   * @brief Sets the winding and the stator to one temperature, such as a motor still warm.
+   *
+   * Without heating (MotorThermalParameters::enabled) only the reported
+   * temperatures change.
+   *
+   * @param temperature Temperature of winding and stator.
+   */
+  constexpr void SetMotorTemperature(const unit::Temperature temperature) noexcept {
+    thermal_.Reset(temperature);
+    thermal_energy_ = ChargeSquared{};
+    thermal_time_ = unit::Time{};
+    ApplyWindingTemperature();
   }
 
   /**
@@ -239,21 +364,40 @@ class MotorSimulation {
   constexpr void SetBridgeEnabled(bool enabled) noexcept { inverter_.SetEnabled(enabled); }
 
   /**
-   * @brief Sets the DC-link voltage of the ideal supply.
-   * @param voltage DC-link voltage; non-positive values are ignored.
+   * @brief Sets the DC-link voltage of the ideal supply, or the battery voltage behind the capacitor.
+   * @param voltage Voltage; non-positive values are ignored.
    */
   constexpr void SetDcLinkVoltage(unit::Voltage voltage) noexcept {
     if (voltage > unit::Voltage{}) {
       parameters_.dc_link_voltage = voltage;
-      output_.dc_link_voltage = voltage;
+      dc_link_.SetBatteryVoltage(voltage);
+      output_.dc_link_voltage = dc_link_.Voltage();
     }
   }
+
+  /**
+   * @brief Opens or closes the contactor between the battery and the DC-link capacitor.
+   *
+   * No effect on the ideal source (no capacitor configured).
+   *
+   * @param closed `false` leaves the capacitor alone with the inverter.
+   */
+  constexpr void SetContactorClosed(bool closed) noexcept { dc_link_.SetContactorClosed(closed); }
+
+  /**
+   * @brief Returns whether the contactor is closed.
+   * @return `true` while the battery is connected.
+   */
+  [[nodiscard]] constexpr bool ContactorClosed() const noexcept { return dc_link_.ContactorClosed(); }
 
   /**
    * @brief Sets the external inputs.
    * @param input Load torque and field voltage, held until the next call.
    */
   constexpr void SetInput(const SimulationInput& input) noexcept { input_ = input; }
+
+  /// The external inputs of the last SetInput().
+  [[nodiscard]] constexpr const SimulationInput& Input() const noexcept { return input_; }
 
   /**
    * @brief Selects how the shaft speed is determined.
@@ -293,21 +437,62 @@ class MotorSimulation {
     }
 
     const unit::AngularVelocity kStartSpeed = ElectricalSpeed();
+    const unit::Voltage kDcLink = dc_link_.Voltage();
+    const system::ThreePhase<unit::Current> kStartCurrents = output_.phase_currents;
     // Hold the mechanical state over the step and sample the rotor angle at its middle.
+    const system::RotorAngle kAngle = output_.electrical_angle + (kStartSpeed * time_step * 0.5F);
+    // Duties that connect the phases to the DC link: the bridge's, the body
+    // diodes' of an open bridge, or none (the stator is open).
+    system::ThreePhase<unit::Ratio> conduction{};
+    bool connected = inverter_.Enabled();
+    system::Stator<unit::Voltage> stator_voltage = inverter_.StatorVoltage(kDcLink, kStartCurrents);
+    output_.diodes_conducting = false;
+    if (connected) {
+      conduction = inverter_.Duties();
+    } else if (BodyDiodesConduct(kDcLink, kStartSpeed)) {
+      conduction = DiodeDuties(kStartSpeed, kAngle);
+      InverterModel diodes;
+      diodes.SetEnabled(true);
+      diodes.SetDuties(conduction);
+      stator_voltage = diodes.StatorVoltage(kDcLink);
+      connected = true;
+      output_.diodes_conducting = true;
+    }
     const ElectricalInput kElectricalInput{
-        inverter_.StatorVoltage(parameters_.dc_link_voltage),
-        output_.electrical_angle + (kStartSpeed * time_step * 0.5F),
+        stator_voltage,
+        kAngle,
         kStartSpeed,
-        inverter_.Enabled(),
+        connected,
         input_.field_voltage,
     };
+    const Model kBefore = model_;
     std::visit([&kElectricalInput, time_step](auto& model) { StepModel(model, kElectricalInput, time_step); },
                model_);
+    if (output_.diodes_conducting && DcCurrent(conduction, kStartCurrents, kAngle) > unit::Current{}) {
+      // The diodes would feed the motor from the DC link: they block, the stator is open.
+      model_ = kBefore;
+      ElectricalInput open = kElectricalInput;
+      open.stator_connected = false;
+      std::visit([&open, time_step](auto& model) { StepModel(model, open, time_step); }, model_);
+      conduction = {};
+      output_.diodes_conducting = false;
+    }
 
     const ElectricalOutput kElectrical = std::visit(OutputVisitor{}, model_);
     mechanics_.Step(kElectrical.torque, input_.load_torque, time_step);
+    StepThermal(kElectrical.rotor_current, time_step);
 
     UpdateOutput();
+    output_.terminal_voltages = TerminalVoltages(conduction, connected, kDcLink);
+    // The DC link carries the mean of the phase currents through the conducting switches.
+    const auto kMean = [](unit::Current start, unit::Current end) { return (start + end) * 0.5F; };
+    const unit::Current kDcCurrent = (conduction.a * kMean(kStartCurrents.a, output_.phase_currents.a)) +
+                                     (conduction.b * kMean(kStartCurrents.b, output_.phase_currents.b)) +
+                                     (conduction.c * kMean(kStartCurrents.c, output_.phase_currents.c));
+    dc_link_.Step(kDcCurrent, time_step);
+    output_.dc_link_voltage = dc_link_.Voltage();
+    output_.dc_link_current = kDcCurrent;
+    output_.battery_current = dc_link_.BatteryCurrent();
     hall_.Update(output_.electrical_angle, (kStartSpeed + output_.electrical_speed) * 0.5F, time_step);
     output_.hall = hall_.Signals();
     return Status::kOk;
@@ -321,7 +506,7 @@ class MotorSimulation {
 
  private:
   /// Electrical models of all motor types; std::monostate while unconfigured.
-  using Model = std::variant<std::monostate, PmsmModel>;
+  using Model = std::variant<std::monostate, PmsmModel, AsmModel, EesmModel>;
 
   /// Validates the parameters of the held model.
   struct ValidateVisitor {
@@ -340,6 +525,26 @@ class MotorSimulation {
     template <MotorModel M>
     constexpr void operator()(M& model) const noexcept {
       model.Reset();
+    }
+  };
+
+  /// Returns the stator resistance of the held model at the reference temperature.
+  struct ResistanceVisitor {
+    constexpr unit::Resistance operator()(const std::monostate& /*unused*/) const noexcept { return {}; }
+    template <MotorModel M>
+    constexpr unit::Resistance operator()(const M& model) const noexcept {
+      return model.Parameters().stator_resistance;
+    }
+  };
+
+  /// Sets the stator resistance of a PMSM or EESM; an induction motor keeps its own.
+  struct SetResistanceVisitor {
+    unit::Resistance resistance;
+    constexpr void operator()(std::monostate& /*unused*/) const noexcept {}
+    constexpr void operator()(AsmModel& /*unused*/) const noexcept {}
+    template <MotorModel M>
+    constexpr void operator()(M& model) const noexcept {
+      model.SetStatorResistance(resistance);
     }
   };
 
@@ -373,6 +578,125 @@ class MotorSimulation {
     return mechanics_.Speed() * static_cast<float>(pole_pairs_);
   }
 
+  /// Largest dead time accepted: half a PWM period.
+  static constexpr unit::Ratio kMaxDeadTime = unit::operator""_ratio(0.5L);
+
+  /**
+   * @brief Whether the body diodes of the open bridge rectify the back-EMF.
+   *
+   * Only with a DC-link capacitor (the ideal source keeps the behavior of an
+   * open stator) and a permanent magnet: the line-to-line peak sqrt(3) |w psi|
+   * exceeds the DC link.
+   */
+  [[nodiscard]] constexpr bool BodyDiodesConduct(unit::Voltage dc_link,
+                                                 unit::AngularVelocity speed) const noexcept {
+    if (dc_link_.Ideal() || parameters_.motor_type != system::MotorType::kPmsm) {
+      return false;
+    }
+    return unit::Abs(speed * parameters_.pmsm.flux_pm) * std::numbers::sqrt3_v<float> > dc_link;
+  }
+
+  /**
+   * @brief Duties of the conducting diodes: each phase on the rail its back-EMF points to.
+   *
+   * An averaged six-step rectifier: a phase with positive back-EMF conducts
+   * through its high-side diode (duty 1), else through its low-side diode. A
+   * step in which this would take power from the DC link is repeated with the
+   * stator open, so the diodes only return energy; the DC link charges up to
+   * about pi/2 times the phase back-EMF peak (the line-to-line peak, sqrt(3)
+   * times it, in the hardware). Low fidelity: enough for the overvoltage trip.
+   */
+  [[nodiscard]] constexpr system::ThreePhase<unit::Ratio> DiodeDuties(
+      unit::AngularVelocity speed, const system::RotorAngle& angle) const noexcept {
+    const system::Rotor<unit::Voltage> kBackEmf{unit::Voltage{}, speed * parameters_.pmsm.flux_pm};
+    const system::ThreePhase<unit::Voltage> kPhases = kBackEmf.ToStator(angle).ToThreePhase();
+    const auto kRail = [](unit::Voltage emf) {
+      using unit::operator""_ratio;
+      return emf > unit::Voltage{} ? 1.0_ratio : 0.0_ratio;
+    };
+    return {kRail(kPhases.a), kRail(kPhases.b), kRail(kPhases.c)};
+  }
+
+  /**
+   * @brief Mean DC-link current of a step, from the model's present stator current.
+   * @param conduction Duties connecting the phases to the DC link.
+   * @param start Phase currents at the start of the step.
+   * @param angle Electrical angle of the step (its middle).
+   */
+  [[nodiscard]] constexpr unit::Current DcCurrent(const system::ThreePhase<unit::Ratio>& conduction,
+                                                  const system::ThreePhase<unit::Current>& start,
+                                                  const system::RotorAngle& angle) const noexcept {
+    const ElectricalOutput kElectrical = std::visit(OutputVisitor{}, model_);
+    const system::ThreePhase<unit::Current> kEnd = kElectrical.rotor_current.ToStator(angle).ToThreePhase();
+    return (conduction.a * (start.a + kEnd.a) * 0.5F) + (conduction.b * (start.b + kEnd.b) * 0.5F) +
+           (conduction.c * (start.c + kEnd.c) * 0.5F);
+  }
+
+  /**
+   * @brief Terminal voltages against the negative rail at the end of the step.
+   * @param conduction Duties of the conducting body diodes (used when the bridge is off).
+   * @param connected The bridge or the diodes connect the stator to the DC link.
+   * @param dc_link DC-link voltage of the step.
+   */
+  [[nodiscard]] constexpr system::ThreePhase<unit::Voltage> TerminalVoltages(
+      const system::ThreePhase<unit::Ratio>& conduction,
+      bool connected,
+      unit::Voltage dc_link) const noexcept {
+    if (inverter_.Enabled()) {
+      return inverter_.TerminalVoltages(dc_link, output_.phase_currents);
+    }
+    if (connected) {
+      return {dc_link * conduction.a, dc_link * conduction.b, dc_link * conduction.c};
+    }
+    if (parameters_.motor_type != system::MotorType::kPmsm) {
+      return {};
+    }
+    // Open stator, no current: the windings carry the back-EMF alone.
+    const system::Rotor<unit::Voltage> kBackEmf{unit::Voltage{},
+                                                output_.electrical_speed * parameters_.pmsm.flux_pm};
+    const system::ThreePhase<unit::Voltage> kPhases =
+        kBackEmf.ToStator(output_.electrical_angle).ToThreePhase();
+    const unit::Voltage kLowest = unit::Min(kPhases.a, unit::Min(kPhases.b, kPhases.c));
+    return {kPhases.a - kLowest, kPhases.b - kLowest, kPhases.c - kLowest};
+  }
+
+  /// Charge squared [A^2 s], the integral of |i_dq|^2 over the thermal step.
+  using ChargeSquared = decltype(unit::Current{} * unit::Current{} * unit::Time{});
+
+  /**
+   * @brief Integrates |i_dq|^2 and steps the thermal network at its own period.
+   *
+   * The network steps at control::MotorThermalModel::kStepPeriod with the mean
+   * |i_dq|^2, not at the electrical step: its temperatures are floats.
+   */
+  constexpr void StepThermal(const system::Rotor<unit::Current>& current,
+                             const unit::Time time_step) noexcept {
+    if (!parameters_.thermal.enabled) {
+      return;
+    }
+    thermal_energy_ += current.LengthSquared() * time_step;
+    thermal_time_ += time_step;
+    if (thermal_time_ < control::MotorThermalModel::kStepPeriod) {
+      return;
+    }
+    thermal_.Step(thermal_energy_ / thermal_time_, parameters_.thermal.ambient, thermal_time_);
+    thermal_energy_ = ChargeSquared{};
+    thermal_time_ = unit::Time{};
+    ApplyWindingTemperature();
+  }
+
+  /// Hands the resistance at the winding temperature to the motor model and the output.
+  constexpr void ApplyWindingTemperature() noexcept {
+    output_.winding_temperature = thermal_.Winding();
+    output_.stator_temperature = thermal_.Stator();
+    if (!parameters_.thermal.enabled) {
+      output_.stator_resistance = std::visit(ResistanceVisitor{}, model_);
+      return;
+    }
+    output_.stator_resistance = thermal_.StatorResistance();
+    std::visit(SetResistanceVisitor{output_.stator_resistance}, model_);
+  }
+
   /** @brief Recomputes the output sample from the states. */
   constexpr void UpdateOutput() noexcept {
     const ElectricalOutput kElectrical = std::visit(OutputVisitor{}, model_);
@@ -382,8 +706,8 @@ class MotorSimulation {
     output_.mechanical_speed = mechanics_.Speed();
     output_.rotor_current = kElectrical.rotor_current;
     output_.phase_currents = kElectrical.rotor_current.ToStator(output_.electrical_angle).ToThreePhase();
-    output_.phase_voltages = inverter_.PhaseVoltages(parameters_.dc_link_voltage);
-    output_.dc_link_voltage = parameters_.dc_link_voltage;
+    output_.phase_voltages = inverter_.PhaseVoltages(dc_link_.Voltage(), output_.phase_currents);
+    output_.dc_link_voltage = dc_link_.Voltage();
     output_.field_current = kElectrical.field_current;
     output_.electromagnetic_torque = kElectrical.torque;
   }
@@ -396,6 +720,8 @@ class MotorSimulation {
   std::uint8_t pole_pairs_{0U};
   /// Inverter bridge.
   InverterModel inverter_;
+  /// DC link: capacitor, battery and contactor.
+  DcLinkModel dc_link_;
   /// Shaft and load.
   MechanicalModel mechanics_;
   /// Hall sensors.
@@ -404,6 +730,12 @@ class MotorSimulation {
   SimulationInput input_;
   /// Output sample at the end of the last step.
   SimulationOutput output_;
+  /// Thermal network of the winding (MotorThermalParameters).
+  control::MotorThermalModel thermal_;
+  /// Integral of |i_dq|^2 since the last thermal step.
+  ChargeSquared thermal_energy_;
+  /// Time since the last thermal step.
+  unit::Time thermal_time_;
 };
 
 }  // namespace unimoc::sim

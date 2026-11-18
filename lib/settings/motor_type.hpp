@@ -24,11 +24,11 @@ namespace unimoc::system {
  * @brief Supported motor types.
  *
  * Used as a compile-time or run-time tag to select the appropriate control
- * path (observer, flux controller, MTPA, HFI, …).
+ * path (observer, flux controller, MTPA, …).
  */
 enum class MotorType : unsigned char {
   /// Permanent-Magnet Synchronous Motor (surface or interior magnets).
-  /// Requires: back-EMF observer (MechanicalObserver), MTPA, HFI (optional),
+  /// Requires: back-EMF observer (MechanicalObserver), Hall sensors at low speed, MTPA,
   ///           field-weakening, dead-time compensation, SVPWM.
   kPmsm,
 

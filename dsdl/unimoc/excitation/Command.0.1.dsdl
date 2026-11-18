@@ -1,0 +1,16 @@
+# Field current command of a drive with an EESM to its excitation module
+# (docs/system_plan.md, section 5.2.1), at 100 Hz while the motor type is
+# EESM. The module runs the field current loop; without a command for its
+# timeout it de-excites the field.
+#
+# Payload 3 bytes, one CAN FD frame.
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+float16 field_current
+# Field current reference [A], >= 0.
+
+bool enable
+# false: the module drives the field current to zero and keeps it there.
+
+@extent 63 * 8

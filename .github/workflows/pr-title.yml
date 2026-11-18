@@ -36,10 +36,13 @@ jobs:
             cyphal
             dsdl
             drive
+            vdc
+            vehicle
             startup
             trace
             current_control
-            bcc
+            jacobi
+            h7
             sim
             hardware
             ci

@@ -30,11 +30,10 @@ using namespace unimoc::unit;
 ZTEST(dead_time_compensation, test_reconstructs_and_transforms_phase_signs) {
   unimoc::settings::NvmSettings settings;
   settings.dtc_dead_time = 2.0_us;
-  settings.dtc_f_pwm = 10.0_kHz;
   settings.dtc_i_threshold = 1.0_A;
 
   unimoc::control::DeadTimeCompensation<float> compensation;
-  compensation.Init(settings);
+  compensation.Init(settings, 10.0_kHz);  // the PWM frequency of the timer
 
   const auto kResult = compensation.Calculate(CurrentStator{1.0F, 0.0F});
 

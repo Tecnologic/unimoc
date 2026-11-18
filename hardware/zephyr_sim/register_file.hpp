@@ -15,6 +15,7 @@
  */
 #pragma once
 
+#include <cstdio>
 #include "cyphal/node.hpp"
 
 namespace unimoc::hardware::sim {
@@ -34,5 +35,10 @@ namespace unimoc::hardware::sim {
 [[nodiscard]] bool WriteRegisterFile(const cyphal::CyphalNode& node,
                                      const cyphal::NodeInfo& info,
                                      const char* path) noexcept;
+
+/// Writes the same description into an open @p file (the node serves it, F3); false on a write error.
+[[nodiscard]] bool WriteRegisterJson(const cyphal::CyphalNode& node,
+                                     const cyphal::NodeInfo& info,
+                                     std::FILE* file) noexcept;
 
 }  // namespace unimoc::hardware::sim

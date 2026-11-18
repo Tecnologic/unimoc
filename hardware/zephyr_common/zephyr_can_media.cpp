@@ -49,7 +49,12 @@ int ZephyrCanMedia::Init(const struct device* const device,
   if (result < 0) {
     return result;
   }
-  can_set_state_change_callback(device, OnStateChange, this);
+  state_callback_.self = this;
+  can_init_state_change_callback(&state_callback_.callback, OnStateChange);
+  result = can_add_state_change_callback(device, &state_callback_.callback);
+  if (result != 0 && result != -EALREADY) {
+    return result;
+  }
   result = can_start(device);
   return (result == -EALREADY) ? 0 : result;
 }
@@ -63,6 +68,8 @@ void ZephyrCanMedia::OnFrame(const struct device* /*device*/,
   }
   if (k_msgq_put(&self->rx_queue_, frame, K_NO_WAIT) != 0) {
     ++self->rx_overruns_;
+  } else {
+    self->traffic_.fetch_add(1U, std::memory_order_relaxed);
   }
   if (self->wake_ != nullptr) {
     k_sem_give(self->wake_);
@@ -70,10 +77,10 @@ void ZephyrCanMedia::OnFrame(const struct device* /*device*/,
 }
 
 void ZephyrCanMedia::OnStateChange(const struct device* /*device*/,
+                                   struct can_state_change_callback* const callback,
                                    const enum can_state state,
-                                   struct can_bus_err_cnt /*error_count*/,
-                                   void* const user_data) {
-  auto* self = static_cast<ZephyrCanMedia*>(user_data);
+                                   struct can_bus_err_cnt /*error_count*/) {
+  ZephyrCanMedia* self = CONTAINER_OF(callback, StateCallback, callback)->self;
   cyphal::CanBusState bus_state = cyphal::CanBusState::kErrorActive;
   switch (state) {
     case CAN_STATE_ERROR_WARNING:
@@ -112,6 +119,9 @@ bool ZephyrCanMedia::Push(const cyphal::CanFrame& frame) noexcept {
   std::memcpy(std::begin(out.data), frame.data.data(), std::min<std::size_t>(frame.size, sizeof(out.data)));
   // With a callback, can_send() queues the frame and does not wait for the transmission.
   const int kResult = can_send(device_, &out, K_NO_WAIT, [](const struct device*, int, void*) {}, nullptr);
+  if (kResult == 0) {
+    traffic_.fetch_add(1U, std::memory_order_relaxed);
+  }
   return kResult == 0;
 }
 

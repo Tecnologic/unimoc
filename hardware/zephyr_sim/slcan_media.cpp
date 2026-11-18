@@ -16,6 +16,7 @@
 
 #include "slcan_media.hpp"
 #include <zephyr/drivers/uart.h>
+#include <algorithm>
 
 namespace unimoc::hardware::sim {
 
@@ -138,33 +139,47 @@ std::size_t SlcanMedia::FormatFrame(const cyphal::CanFrame& frame, const std::sp
 }
 
 bool SlcanMedia::Flush(Port& port) noexcept {
+  while (port.pending_length > 0U) {
+    // The contiguous part from the head; a wrapped rest follows in the next round.
+    const std::size_t kChunk = std::min(port.pending_length, port.pending.size() - port.pending_head);
+    const int kWritten = uart_fifo_fill(port.uart,
+                                        reinterpret_cast<const uint8_t*>(&port.pending[port.pending_head]),
+                                        static_cast<int>(kChunk));
+    const std::size_t kDone = (kWritten > 0) ? static_cast<std::size_t>(kWritten) : 0U;
+    port.pending_head = (port.pending_head + kDone) % port.pending.size();
+    port.pending_length -= kDone;
+    if (kDone < kChunk) {
+      break;  // the pseudo terminal is full
+    }
+  }
   if (port.pending_length == 0U) {
-    return true;
+    port.pending_head = 0U;
   }
-  const int kWritten = uart_fifo_fill(port.uart,
-                                      reinterpret_cast<const uint8_t*>(port.pending.data()),
-                                      static_cast<int>(port.pending_length));
-  const std::size_t kDone = (kWritten > 0) ? static_cast<std::size_t>(kWritten) : 0U;
-  for (std::size_t i = kDone; i < port.pending_length; ++i) {
-    port.pending[i - kDone] = port.pending[i];
-  }
-  port.pending_length -= kDone;
   return port.pending_length == 0U;
 }
 
+void SlcanMedia::Buffer(Port& port, const std::string_view text) noexcept {
+  for (const char kChar : text) {
+    port.pending[(port.pending_head + port.pending_length) % port.pending.size()] = kChar;
+    ++port.pending_length;
+  }
+}
+
 void SlcanMedia::Write(Port& port, const std::string_view text) noexcept {
-  if (text.empty() || !Flush(port)) {
-    return;  // the terminal is full: drop the line
+  if (text.empty()) {
+    return;
+  }
+  if (!Flush(port)) {
+    // Behind the lines that wait already, or dropped whole when the buffer is full.
+    if (port.pending.size() - port.pending_length >= text.size()) {
+      Buffer(port, text);
+    }
+    return;
   }
   const int kWritten =
       uart_fifo_fill(port.uart, reinterpret_cast<const uint8_t*>(text.data()), static_cast<int>(text.size()));
   const std::size_t kDone = (kWritten > 0) ? static_cast<std::size_t>(kWritten) : 0U;
-  if (kDone == 0U) {
-    return;  // nothing of the line went out: dropped whole
-  }
-  for (std::size_t i = kDone; i < text.size() && port.pending_length < port.pending.size(); ++i) {
-    port.pending[port.pending_length++] = text[i];
-  }
+  Buffer(port, text.substr(kDone));  // the buffer is empty: a line always fits
 }
 
 void SlcanMedia::Send(const std::size_t index, const cyphal::CanFrame& frame) noexcept {

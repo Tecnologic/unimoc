@@ -1,6 +1,9 @@
 # Settings Persistence: Per-Register Keys on Zephyr Settings
 
-> **Status (2026-10-20):** implemented on `native_sim` and built for the BCC. Not
+> The firmware targets the STM32H7 only (`hardware/zephyr_stm32h7`: Jacobi
+> and the NUCLEO-H743ZI) and `native_sim`.
+
+> **Status (2026-10-20):** implemented on `native_sim` and built for the STM32H7. Not
 > run on the board: see "Not verified on hardware".
 
 ## Goal
@@ -22,12 +25,12 @@ Cyphal register service / shell / startup FSM                 (threads)
    ZephyrSettingsStorage                                      hardware/zephyr_common
         |
    Zephyr settings subsystem -> ZMS -> flash
-   (BCC: 16 KB storage_partition, native_sim: flash simulator)
+   (STM32H7: 2 x 128 KB in flash bank 2, native_sim: flash simulator)
 ```
 
 - **One key per register.** The key is the Cyphal register name
   (`cyphal::reg`), the Zephyr entry is `unimoc/<register name>`. The table of
-  132 persistent registers is `ForEachRegister()` in
+  155 persistent registers is `ForEachRegister()` in
   `lib/settings/settings_registers.hpp`; adding a register is one line there
   (with its description, below) plus the field in `NvmSettings`. The same
   table drives the Cyphal register service and the register description
@@ -94,22 +97,14 @@ Cyphal register service / shell / startup FSM                 (threads)
 
 ## Not verified on hardware
 
-- ZMS on the STM32G4 flash: erase time, garbage collection and recovery after a
-  power loss during a write. The BCC partition is 16 KB (8 pages of 2 KB) so
-  that all registers plus a spare sector fit; this is an estimate to check on
-  the board.
-- **Flash writes stall instruction fetch** in the same bank. The BCC carries
-  an STM32G473CET6 (512 KB, dual bank with option bit DBANK = 1, the factory
-  default). The code partition (`0x00000`, 240 KB) and the `storage_partition`
-  (`0x3c000`, the end of bank 1) share bank 1, so a save stalls the
-  zero-latency control cycle. The gate holds the stage disabled for the whole
-  save (`Enable()` fails meanwhile, see "Concurrency"); the stall itself is
-  still to be measured on the board. Bank 2 (`0x40000`, 256 KB) is kept free
-  for the image of a firmware update over Cyphal, which can be written while
-  bank 1 runs.
-- Flash use (BCC app, Zephyr v4.4.0, size optimized): about 100 KB of the
-  240 KB code partition, of which the settings subsystem, ZMS and the flash
-  driver take about 6 KB.
+- ZMS on the STM32H743 flash: 128 KB sectors and 32 byte write blocks, erase
+  time, garbage collection and recovery after a power loss during a write. The
+  settings partition takes two sectors in bank 2, the image runs from bank 1
+  (`docs/drive4850_h7_plan.md`, section 6); check on the NUCLEO-H743ZI.
+- **Flash writes and instruction fetch:** with the settings in bank 2 a save
+  should not stall the control running from bank 1 and ITCM; to be measured.
+  The gate holds the stage disabled for the whole save all the same
+  (`Enable()` fails meanwhile, see "Concurrency"). The DFU slot shares bank 2.
 
 ## Cyphal register service
 
@@ -126,7 +121,7 @@ enabled ports on one subject-ID or two services on one service-ID
 (`HasPortIdCollision()`); the publication and subscription of the cymon
 trigger may share one subject. GetInfo takes the hardware and
 software versions from the firmware (`hardware_interface_config.hpp`,
-`app/VERSION`), not from the settings.
+`apps/drive/VERSION`), not from the settings.
 
 ## Register description file
 
@@ -168,7 +163,7 @@ Schema version 1:
 - `type`: the field of `uavcan.register.Value` (`string`, `unstructured`,
   `bit`, `natural8/16/32`, `real32`, `empty`); `size` its number of elements
   (bytes of a string); `default` the value of a fresh simulated node (a
-  string, an array of numbers or booleans). The BCC profile differs in the
+  string, an array of numbers or booleans). The STM32H7 profile differs in the
   board values (node-ID 0, the Hall sensors not fused, no speed weight of the flux
   observer; `hardware_interface.cpp` of each platform).
 - `unit`, `min`, `max`: absent when none. `applies`: only for mutable

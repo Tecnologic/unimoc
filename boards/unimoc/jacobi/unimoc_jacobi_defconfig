@@ -1,0 +1,24 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+CONFIG_GPIO=y
+CONFIG_ARM_MPU=y
+CONFIG_HW_STACK_PROTECTION=y
+
+# Console and log over SEGGER RTT on the SWD connector (no UART on the board).
+CONFIG_CONSOLE=y
+CONFIG_UART_CONSOLE=n
+CONFIG_USE_SEGGER_RTT=y
+CONFIG_RTT_CONSOLE=y
+CONFIG_FPU=y
+
+CONFIG_ZERO_LATENCY_IRQS=y
+CONFIG_CLOCK_CONTROL=y
+CONFIG_PINCTRL=y
+
+# give the debugger thread info
+CONFIG_DEBUG_THREAD_INFO=y
+CONFIG_THREAD_NAME=y
+
+# Link into the image partition of bank 1 only: an image that grows into
+# bank 2 fails to link instead of overwriting the settings.
+CONFIG_USE_DT_CODE_PARTITION=y

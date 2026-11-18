@@ -1,0 +1,16 @@
+/*
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ *
+ * The flash layout of the drive for the MCUboot image of the sysbuild (the
+ * overlay of the application is not applied to it). unimoc_jacobi has it in
+ * its devicetree already; this defines it again with the same nodes.
+ */
+
+#include <unimoc/stm32h743_flash_layout.dtsi>
+
+/* This overlay replaces boot/zephyr/app.overlay of MCUboot, which chooses the partition to link into. */
+/ {
+	chosen {
+		zephyr,code-partition = &boot_partition;
+	};
+};

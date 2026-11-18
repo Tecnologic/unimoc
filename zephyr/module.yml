@@ -5,6 +5,7 @@ build:
   # The portable libraries of lib/ (CONFIG_UNIMOC) and the platform choice.
   cmake: zephyr
   kconfig: zephyr/Kconfig
+  sysbuild-kconfig: zephyr/Kconfig.sysbuild
   settings:
     # Out-of-tree boards in boards/ and devicetree bindings in dts/bindings/.
     board_root: .

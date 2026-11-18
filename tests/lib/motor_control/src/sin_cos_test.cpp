@@ -92,5 +92,39 @@ ZTEST(sin_cos_provider, test_generate_sin_cos_uses_provider_contract) {
   UNIMOC_EXPECT_FLOAT_EQ(kResult.cos, 0.75_ratio);
 }
 
+ZTEST(sin_cos_rotation, test_rotated_adds_the_angles) {
+  const unimoc::system::SinCos<Ratio> kAngle{0.7_rad};
+  const unimoc::system::SinCos<Ratio> kStep{-1.9_rad};
+  const auto kSum = unimoc::system::Rotated(kAngle, kStep);
+
+  const unimoc::system::SinCos<Ratio> kDirect{0.7_rad - 1.9_rad};
+  UNIMOC_EXPECT_NEAR(kSum.sin, kDirect.sin, 1e-5_ratio);
+  UNIMOC_EXPECT_NEAR(kSum.cos, kDirect.cos, 1e-5_ratio);
+}
+
+ZTEST(sin_cos_rotation, test_repeated_steps_follow_the_angle) {
+  // 4096 steps of a half period at 1000 rad/s and 32 kHz PWM: the drift of
+  // the magnitude stays far below the table error once renormalized.
+  constexpr Angle kStepAngle{1000.0F / 64000.0F};
+  const unimoc::system::SinCos<Ratio> kStep{kStepAngle};
+  unimoc::system::SinCos<Ratio> angle{};
+  for (int k = 0; k < 4096; ++k) {
+    angle = unimoc::system::Renormalized(unimoc::system::Rotated(angle, kStep));
+  }
+  const unimoc::system::SinCos<Ratio> kDirect{kStepAngle * 4096.0F};
+  UNIMOC_EXPECT_NEAR(angle.sin, kDirect.sin, 1e-3_ratio);
+  UNIMOC_EXPECT_NEAR(angle.cos, kDirect.cos, 1e-3_ratio);
+  UNIMOC_EXPECT_NEAR((angle.sin * angle.sin) + (angle.cos * angle.cos), 1.0_ratio, 1e-5_ratio);
+}
+
+ZTEST(sin_cos_rotation, test_renormalized_pulls_onto_the_unit_circle) {
+  const unimoc::system::SinCos<Ratio> kOff{0.6_ratio * 1.01F, 0.8_ratio * 1.01F};
+  const auto kOn = unimoc::system::Renormalized(kOff);
+
+  UNIMOC_EXPECT_NEAR((kOn.sin * kOn.sin) + (kOn.cos * kOn.cos), 1.0_ratio, 5e-4_ratio);
+  UNIMOC_EXPECT_NEAR(kOn.sin / kOn.cos, 0.75_ratio, 1e-6_ratio);
+}
+
 ZTEST_SUITE(portable_sin_cos_provider, nullptr, nullptr, nullptr, nullptr, nullptr);
+ZTEST_SUITE(sin_cos_rotation, nullptr, nullptr, nullptr, nullptr, nullptr);
 ZTEST_SUITE(sin_cos_provider, nullptr, nullptr, nullptr, nullptr, nullptr);

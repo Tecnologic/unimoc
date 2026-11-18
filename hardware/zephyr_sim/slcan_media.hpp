@@ -40,8 +40,11 @@ namespace unimoc::hardware::sim {
  * (`D`/`B` CAN FD frames are accepted as well); other commands are
  * acknowledged with CR. Node to host while open: `Tiiiiiiiidhh..\r`.
  * Frames for a closed port are dropped, so an unconnected pseudo terminal
- * does not fill up; a reader that falls behind loses whole frames, as on an
- * overloaded bus, never a part of a line.
+ * does not fill up. What a full pseudo terminal does not take waits in the
+ * port's TX buffer (kTxBufferSize), so a reader that falls behind for a while
+ * (a test client on a loaded machine) gets every frame late instead of losing
+ * some; only a reader that falls behind by more than the buffer loses whole
+ * frames, as on an overloaded bus, never a part of a line.
  */
 class SlcanMedia final : public cyphal::CanMedia {
  public:
@@ -53,6 +56,8 @@ class SlcanMedia final : public cyphal::CanMedia {
   static constexpr std::size_t kMaxLine = 140U;
   /// Characters read per port and Pop() call at most.
   static constexpr std::size_t kMaxCharsPerPop = 1024U;
+  /// Characters per port waiting for a full pseudo terminal (about 1 s of the drive's frames).
+  static constexpr std::size_t kTxBufferSize = 16384U;
 
   /**
    * @brief Takes the UARTs of the ports; devices that are not ready are skipped.
@@ -84,8 +89,9 @@ class SlcanMedia final : public cyphal::CanMedia {
     std::array<char, kMaxLine> line{};
     std::size_t line_length{0U};
     bool line_overflow{false};
-    /// Rest of a line the pseudo terminal did not take; sent before anything else.
-    std::array<char, kMaxLine> pending{};
+    /// Lines (or the rest of one) the pseudo terminal did not take yet, a ring; sent before anything else.
+    std::array<char, kTxBufferSize> pending{};
+    std::size_t pending_head{0U};
     std::size_t pending_length{0U};
   };
 
@@ -93,10 +99,13 @@ class SlcanMedia final : public cyphal::CanMedia {
   /// Handles the complete line of a port: reply, open state, received frame.
   void Complete(std::size_t index) noexcept;
   void Send(std::size_t index, const cyphal::CanFrame& frame) noexcept;
-  /// Writes whole lines only: a full pseudo terminal drops the next lines, never a part of one.
+  /// Writes whole lines only: a line that fits neither the pseudo terminal nor the TX buffer is dropped
+  /// whole.
   static void Write(Port& port, std::string_view text) noexcept;
-  /// Sends the pending rest of a line; false while some of it is still pending.
+  /// Sends what is pending; false while some of it is still pending.
   static bool Flush(Port& port) noexcept;
+  /// Appends @p text to the TX buffer of @p port; the caller checked that it fits.
+  static void Buffer(Port& port, std::string_view text) noexcept;
 
   std::array<Port, kMaxPorts> ports_{};
   std::size_t port_count_{0U};

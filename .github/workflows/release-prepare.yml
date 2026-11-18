@@ -1,7 +1,7 @@
 name: Release prepare
 
 # While a pull request from develop to main is open, commit the next version
-# (app/VERSION, Zephyr's version file) and CHANGELOG.md to develop and show the
+# (apps/*/VERSION, the Zephyr version files) and CHANGELOG.md to develop and show the
 # release in a PR comment (docs/release_plan.md). The merge into main then
 # publishes exactly this version (job release of the Zephyr workflow).
 #
@@ -43,7 +43,7 @@ jobs:
           if [[ -n "$forced" ]]; then args=(--version "$forced"); fi
           echo "pending=$(python3 scripts/release_version.py "${args[@]}" pending)" >> "$GITHUB_OUTPUT"
           echo "args=${args[*]}" >> "$GITHUB_OUTPUT"
-      - name: Write app/VERSION and CHANGELOG.md
+      - name: Write apps/*/VERSION and CHANGELOG.md
         if: steps.next.outputs.pending == 'true'
         id: apply
         run: |
@@ -54,7 +54,7 @@ jobs:
         if: steps.next.outputs.pending == 'true'
         run: |
           # CHANGELOG.md is new on the first run: stage everything, then compare.
-          git add app/VERSION CHANGELOG.md
+          git add apps/*/VERSION CHANGELOG.md
           if git diff --cached --quiet; then exit 0; fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"

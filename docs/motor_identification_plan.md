@@ -1,5 +1,8 @@
 # Motor Identification Plan
 
+> The firmware targets the STM32H7 only (`hardware/zephyr_stm32h7`: Jacobi
+> and the NUCLEO-H743ZI) and `native_sim`.
+
 Status: plan (2026-10-29), nothing implemented. Decisions 1 to 5 of
 section 9 were taken on 2026-10-29; decision 6 (the startup aid on the same
 bus contract) is open.
@@ -30,7 +33,7 @@ cypilot.
 |---|---|---|---|
 | Stator resistance R_s | `unimoc.motor.stator.R` | current PI (ki), decoupling, flux observer | M1 |
 | Dead-time voltage | `unimoc.control.dtc.dead_time` (as a time) | dead-time compensation | M1 (intercept) |
-| L_d, L_q (and the mean `stator.L`) | `unimoc.motor.pmsm.L_d`, `L_q`, `unimoc.motor.stator.L` | current PI (kp), decoupling, MTPA, HFI, flux observer | M2 |
+| L_d, L_q (and the mean `stator.L`) | `unimoc.motor.pmsm.L_d`, `L_q`, `unimoc.motor.stator.L` | current PI (kp), decoupling, MTPA, flux observer | M2 |
 | Flux linkage psi_PM | `unimoc.motor.pmsm.flux_pm` | torque constant, flux observer, field weakening, mechanical observer | M3 |
 | Pole pairs p | `unimoc.motor.pole_pairs` | everything mechanical | entered, checked by M4 |
 | Hall offset, Hall order | `unimoc.observer.hall.offset` | Hall fusion | M5 |
@@ -121,11 +124,11 @@ forced angle (decision 4). M3 measures the back-EMF itself instead:
   i_q = 30 % of the limit) to the speed where the line-to-line back-EMF is
   about 25 % of the DC link, at most 50 % of the speed limit.
 - Coast: the outputs off (all switches open, `PowerStageInterface::Disable()`;
-  on the BCC MOE = 0 drives the idle levels OIS = 0 of active-high outputs, so
+  on the STM32H7 MOE = 0 drives the idle levels OIS = 0 of active-high outputs, so
   both gates of each leg are low: check the gate-driver polarity on the bench,
   a driven low side would short the motor instead of letting it coast).
   The motor terminals then carry the back-EMF alone; the phase-voltage sense
-  (`va`, `vb`, `vc` of the BCC, section 5.2) samples them at the PWM rate as
+  (`va`, `vb`, `vc` of the STM32H7 foc0 node) samples them at the PWM rate as
   before (the timer runs on, only the outputs are off).
 - Per electrical period: the frequency from the zero crossings of the line-to-
   line voltages (no pole pairs, no speed estimate needed) and the amplitude of
@@ -137,6 +140,50 @@ forced angle (decision 4). M3 measures the back-EMF itself instead:
 - Below the threshold speed the run waits for standstill (the outputs stay off).
 - Check: no current flows while coasting (the body diodes conduct only above
   the DC link: the spin-up speed keeps the back-EMF at 25 % of it).
+
+**As built (I3, 2026-11-08).** `MotorIdentification` step 6 (after DONE and
+FAULT, which stay 4 and 5 on the bus), only when "M3" is requested (an empty
+START_IDENTIFICATION parameter stays M1,M2):
+
+- The step first waits with the outputs on at zero current for CONTINUE
+  "shaft-free" (state WAITING, needs SHAFT_FREE). Then the q current aligns
+  the rotor at angle 0 for 0.5 s, and the forced angle ramps (a ramp of
+  `SlowUpdate`'s forced angle, `SetForcedAngle(angle, speed, acceleration)`)
+  at half the forward speed limit per 5 s. Every 32 ms the window of the
+  observer gives the back-EMF estimate |u - R i - j omega L i| (R and L from
+  M1/M2 when they ran, else the settings); at the target in three windows in
+  a row (a light rotor swings about the forced angle, I/f has no damping but
+  the friction: a single peak of the swing must not end the ramp), or at half
+  the speed limit, the speed holds for 0.2 s and the outputs open. The
+  current PI's decoupling takes the forced speed (docs/hotpath_plan.md,
+  "Handover from a forced angle").
+- `CoastDownMeter` (lib/motor_control) evaluates the Clarke vector of the
+  phase voltages instead of the line-to-line voltages: the common mode drops
+  out the same way. The period comes from the rising zero crossings of its
+  alpha component (30 % hysteresis, interpolated between the samples), the
+  amplitude is the mean magnitude of the vector over the period, so no
+  Goertzel is needed (the 5th and 7th harmonics ripple the magnitude at
+  6 omega and drop out of the mean: 5 % of 5th harmonic changes psi by less
+  than 0.1 % in the test).
+- The run ends when a period is slower than 10 % of the first one, when a
+  period turns the other way (a load drives the shaft: a free coast does not
+  reverse; such periods are not counted), at standstill (the back-EMF below
+  0.3 V for 1600 cycles) or after 60 s; it does not wait for standstill after
+  the 10 %. The outputs stay off. I/f does not catch a shaft that turns
+  already: the step expects it at rest (an I/f that loses the rotor ends in
+  an overcurrent fault or without periods, a failed M3). The result registers
+  are `unimoc.identify.result.flux_pm` and `.flux_pm_spread`.
+- During the coast the observer follows the motor from the same voltages
+  (docs/hotpath_plan.md, "Outputs open"), so a later engage starts from the
+  right angle.
+- Simulation: psi within 0.01 % of the plant (163 periods, spread 9 ppm);
+  over the bus (pycyphal, `test_identification_m3_measures_the_flux_by_a_coast_down`)
+  within 3 %, with the estimate on the plant's speed during the coast. The
+  plant gives the terminal voltages of the open bridge: the back-EMF with
+  its lowest phase at the negative rail (the low-side body diode carries the
+  divider current; its drop is not modelled). On the board the lowest
+  terminal may sit a diode drop below 0 V, where the ADC clips: a bench item,
+  with the gate-driver polarity above.
 
 ### 4.4 M4: pole pairs, measured or entered and checked (shaft free, operator assisted)
 
@@ -194,14 +241,14 @@ them (section 5.4).
 ### 4.8 Not measured
 
 Temperature dependence of R and psi, magnetic saturation beyond the M2
-option, cogging, the encoder (none on the BCC yet).
+option, cogging, the encoder (none on Jacobi yet; the SPI3 angle sensor pins are reserved).
 
 ### 4.9 ASM and EESM (later)
 
 ASM: R_s as M1, the leakage inductance from M2 (at standstill the rotor
 short-circuits it), R_r and L_m from a no-load run and a locked-rotor
-injection. EESM: the field winding (R_f, L_f from a step of the fourth half
-bridge), L_m from the back-EMF at a known field current. Both wait for the
+injection. EESM: the field winding (R_f, L_f from a step of the excitation
+module, a separate board), L_m from the back-EMF at a known field current. Both wait for the
 runtime paths.
 
 ## 5. Firmware
@@ -221,18 +268,19 @@ it, and its estimate can be compared with the forced angle).
 
 The estimators need per-cycle data (16 kHz): means of u and i (M1, M3), the
 Goertzel terms of u and i at f_inj (M2), w(t) (M6). A buffer of 2048 cycles
-of i_dq, u_dq, angle and DC link is 48 KB, too much next to the cymon buffer
-in the 128 KB of the STM32G473. So `SlowUpdate` accumulates them online (a few
+of i_dq, u_dq, angle and DC link is 48 KB, not worth it next to the cymon
+buffer even with the 1 MB of the STM32H743 (DTCM is for the hot path). So `SlowUpdate` accumulates them online (a few
 multiply-adds per cycle in the observer interrupt, not at zero latency) into a
 small result block the FSM reads in the Cyphal thread once the window is
 complete; M6 decimates w(t) to 1 kHz (2 s in 8 KB). cymon traces of the
 same signals show the run in cypilot's scope.
 
-**Phase voltages (M3).** The BCC samples `va`, `vb`, `vc` with every
-conversion (`foc_stm32g4::RawSamples`), but the platform interface does not
-pass them on. M3 adds them to `ControlCycleSamples` (scaled like the DC link,
-33k/1k) and `SlowUpdate` evaluates them during the coast (zero crossings,
-Goertzel per period). Their gain is calibrated by the startup aid: in
+**Phase voltages (M3).** The STM32H7 samples `va`, `vb`, `vc` with every
+conversion; since I3 the sample interrupt reads them with the currents
+(`foc_stm32h7::SampleRaw`) and the sample carries them
+(`CurrentSample::phase_voltages`, scaled like the DC link, 33k/1k, with its
+calibration gain); the control step puts their Clarke vector into the cycle
+record and `SlowUpdate` evaluates it during the coast (`CoastDownMeter`). Their gain is calibrated by the startup aid: in
 DUTY_FORCE_LOW/MID/HIGH the phase voltage must be the duty times the
 calibrated DC link, which also turns the manual scope check of those steps
 into a measured one (`unimoc.startup.gain_va/vb/vc`, new persistent
@@ -241,12 +289,12 @@ outputs (`lib/sim`: back-EMF plus the star point, the inverter without
 conduction while the back-EMF stays below the DC link). The 4850 board's
 voltage sense is open (TODO.md, cart system).
 
-M2's injection is the one change of the control cycle: the HFI injection
-already adds a voltage per duty entry (`hfi.GetInjectionVoltage()` in
-`OnControlCycle()`); M2 adds a sine of the FSM's amplitude, axis and
-frequency on the same path, from a table of `RotorAngle` (no libm), and stays
-within the zero-latency rules. With four duty entries per cycle a sine of up
-to f_pwm / 8 is possible; 500 Hz leaves 32 cycles per period for Goertzel.
+M2's injection is the one change of the control step: it adds a sine of
+the FSM's amplitude, axis and frequency to the voltage of every step
+(`OnSample()`), from a table of `RotorAngle` (no libm), and stays within the
+zero-latency rules. With new duties every half period a sine of up to
+f_pwm / 2 is possible; 500 Hz leaves 32 cycles per period for Goertzel.
+(HFI, which used the same path, was removed on 2026-11-03.)
 
 ### 5.3 The identification FSM
 
@@ -377,11 +425,55 @@ status|apply]` is the same at the terminal.
 | I0 | Forced angle in `SlowUpdate`, the online accumulation, the identification FSM skeleton on C0, the result registers, the cypilot card and `cypilot-ctl identify` | C0 |
 | I1 | M1 R_s and dead-time voltage; dead time in the sim inverter | I0 |
 | I2 | M2 L_d, L_q | I0 |
-| I3 | Phase voltages in `ControlCycleSamples` (BCC and sim plant with open outputs), their calibration in the startup aid's DUTY_FORCE steps; M3 psi by coast-down | I0 |
+| I3 | Phase voltages in the sample (`CurrentSample::phase_voltages`, STM32H7 and sim plant with open outputs) and M3 psi by coast-down: done in the firmware 2026-11-08; open: their calibration in the startup aid's DUTY_FORCE steps | I0 |
 | I4 | M4 pole pairs (measured, entered and checked); M5 Hall offset | I0 (the forced rotation) |
 | I5 | M6 J and friction (the coast of M3, the torque steps) | I3 |
 | I6 | M7 derived gains; review, approval and apply in cypilot; profile | I1 .. I5 |
 | I7 | Bench: the hoverboard motor (data sheet values) and the 4850 motor; compare with an LCR meter (L), a 4-wire measurement (R), a coast-down on the scope (psi) | board access |
+
+### 8.1 Status (2026-10-31)
+
+I0 to I2 are in the firmware, tested on `native_sim` (`tests/sim/identification`,
+the pycyphal test `test_identification_measures_the_simulated_motor`); not run
+on the board. As implemented:
+
+- **Forced angle:** `SlowUpdate::SetForcedAngle()` (fixed angle or a ramp),
+  `ReleaseForcedAngle()`; the mechanical observer runs on in the background.
+- **The control cycle under the identification:**
+  `CurrentControlIsr::SetIdentificationDrive()` (`src/current_control/identification_drive.hpp`):
+  its own current reference instead of the outer loop's, the current PI frozen
+  on request (its last output held), the dead-time compensation off, and the
+  sine of M2 on one axis, added per duty entry at the phase of the entry's
+  middle from the integer phase of the hot path's sine table (no libm). The
+  sine has a fixed period of 128 PWM half periods, f_pwm / 64 (500 Hz at
+  32 kHz) whatever the control divider, counted from the first control
+  cycle, so the
+  observer knows the phase of every current sample exactly; this replaces the Goertzel recursion
+  by its single-bin sum (`identification::PhasorAccumulator`).
+- **Online accumulation:** `SlowUpdate::RequestWindow()` / `TakeWindow()`
+  sum, over a number of control cycles, the mean d/q current, voltage demand
+  and DC link and the phasors of the injected voltage and the current of the
+  axis. Every wait of the FSM is such a window, so a run is counted in control
+  cycles (the same virtual time in a paused simulation).
+- **FSM:** `src/identification/motor_identification.*` in the Cyphal thread;
+  the estimators `resistance_regression.hpp` and `impedance_estimator.hpp` in
+  `lib/motor_control/src/` (flat, next to the other algorithms, not in a
+  subdirectory).
+- **Dead time:** with the current along one phase (the angles of M1) the
+  dead-time compensation's error is 4/3 t_dead f_pwm V_dc on the d axis, so
+  t_dead = 3/4 U_dt / (V_dc f_pwm) (`unimoc.identify.result.dead_time`, the
+  unit of `unimoc.control.dtc.dead_time`); the plan's `dt = 2 a / U_dc` of the
+  old script is not used. The sim inverter has the dead time
+  (`InverterParameters::dead_time`, d - sign(i) t_dead f_pwm per phase).
+- **Bus:** START_IDENTIFICATION with `M1`, `M2` or `M1,M2`; ABORT; the
+  status message with procedure IDENTIFICATION (steps 1 M1, 2 and 3 the axes
+  of M2, 4 DONE, 5 FAULT); `unimoc.identify.result.R`, `.dead_time`,
+  `.dead_time_voltage`, `.L_d`, `.L_q`, `.L`, `.R_ac` (NaN until measured).
+- **Open:** the cypilot card and `cypilot-ctl identify` (cypilot repository),
+  APPLY_IDENTIFICATION and the derived gains (I6), the saturation option of
+  M2, I3 to I5, and the board: the shaft moves when the rotor aligns at the
+  first level of each M1 angle (the sim test holds the shaft); the settle time
+  is five L/R of the present settings, at least 20 ms.
 
 ## 9. Decisions
 

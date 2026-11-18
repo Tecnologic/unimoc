@@ -1,0 +1,49 @@
+/*
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ *
+ * Flash layout of the STM32H743 (2 MB, two banks of eight 128 KB sectors) with
+ * MCUboot: the bootloader, the image slot 0 in bank 1 and the update slot 1
+ * in bank 2 next to the settings, so that a settings or slot erase does not
+ * stall the code in bank 1 (docs/settings_plan.md, docs/system_plan.md).
+ *
+ *   0x00000000  128 KB  boot_partition    MCUboot (bank 1, sector 0)
+ *   0x00020000  768 KB  slot0_partition   running image (bank 1, sectors 1 to 6)
+ *   0x000e0000  128 KB  (unused)          bank 1, sector 7
+ *   0x00100000  768 KB  slot1_partition   update image (bank 2, sectors 0 to 5)
+ *   0x001c0000  256 KB  storage_partition settings, ZMS on two sectors (bank 2, sectors 6 and 7)
+ *
+ * The slots have the same size, as the swap of MCUboot needs; with the swap
+ * using move the image is at most one sector smaller than a slot (640 KB).
+ * Included by the boards that run MCUboot (unimoc_jacobi, the overlay of the
+ * NUCLEO-H743ZI) and by the MCUboot image of the sysbuild (sysbuild/mcuboot.overlay).
+ */
+
+&flash0 {
+	/delete-node/ partitions;
+
+	partitions {
+		compatible = "fixed-partitions";
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		boot_partition: partition@0 {
+			label = "mcuboot";
+			reg = <0x00000000 DT_SIZE_K(128)>;
+		};
+
+		slot0_partition: partition@20000 {
+			label = "image-0";
+			reg = <0x00020000 DT_SIZE_K(768)>;
+		};
+
+		slot1_partition: partition@100000 {
+			label = "image-1";
+			reg = <0x00100000 DT_SIZE_K(768)>;
+		};
+
+		storage_partition: partition@1c0000 {
+			label = "storage";
+			reg = <0x001c0000 DT_SIZE_K(256)>;
+		};
+	};
+};

@@ -11,7 +11,7 @@
  *    The Cyphal thread, the CAN interface on the chosen `zephyr,canbus` and
  *    the diagnostic log backend are shared by all Zephyr platforms
  *    (hardware/zephyr_common). A platform adds only what is specific to it
- *    (hardware/zephyr_bcc, hardware/zephyr_sim): extra CAN interfaces,
+ *    (hardware/zephyr_stm32h7, hardware/zephyr_sim): extra CAN interfaces,
  *    registers and publications. Thread context only.
  *
  *    SPDX-License-Identifier: GPL-3.0-or-later
@@ -29,6 +29,10 @@
 #include "nvm_settings.hpp"
 #include "settings_store.hpp"
 
+namespace unimoc::drive {
+struct DriveHooks;
+}  // namespace unimoc::drive
+
 namespace unimoc::hardware {
 
 /**
@@ -37,6 +41,9 @@ namespace unimoc::hardware {
  */
 void StartCyphal(settings::SettingsStore& store) noexcept;
 
+/// Counter of the CAN frames received and sent so far (wraps); 0 until the CAN interface is up.
+[[nodiscard]] uint32_t CyphalTrafficCount() noexcept;
+
 /// @name Implemented by each platform
 /// @{
 
@@ -44,7 +51,7 @@ void StartCyphal(settings::SettingsStore& store) noexcept;
  * @brief Applies the settings given on the command line to the RAM settings at start.
  *
  * native_sim: `--node-id` and `--cart-wheel`, so several simulated drives
- * share one bus with one firmware image; the BCC has none. The result is
+ * share one bus with one firmware image; the STM32H7 has none. The result is
  * validated like a register write and not stored.
  *
  * @param settings The live settings to change.
@@ -67,9 +74,10 @@ void CyphalPlatformStart(cyphal::CyphalNode& node, const settings::NvmSettings& 
 /**
  * @brief Called once the node has all its registers and ports, before the first spin.
  * @param node The drive's Cyphal node.
- * @param info Its GetInfo values (sim: `--describe-registers` writes the description file and exits).
+ * @param info Its GetInfo values (sim: `--describe-registers` writes the description file and exits;
+ *             otherwise the node serves it as `registers.json` over uavcan.file.Read).
  */
-void CyphalPlatformReady(const cyphal::CyphalNode& node, const cyphal::NodeInfo& info) noexcept;
+void CyphalPlatformReady(cyphal::CyphalNode& node, const cyphal::NodeInfo& info) noexcept;
 
 /**
  * @brief Registers the trace variables of the platform after those of the control (sim: plant truth).
@@ -80,8 +88,27 @@ void CyphalPlatformTraceSignals(cymon::Device& device) noexcept;
 /// Runs the platform part of the node (publications) after each spin.
 void CyphalPlatformSpin(cyphal::CyphalNode& node, uint64_t now_us) noexcept;
 
+/**
+ * @brief The drive's time at @p now_us (DriveNode::Spin()): its timeouts and ramps run on it.
+ *
+ * The STM32H7 returns @p now_us. The simulation leaves out the real time spent
+ * paused and adds the virtual time a paused simulation advanced, so a
+ * readiness or setpoint timeout neither expires while paused nor survives an
+ * advance longer than it. Monotonic; called from the Cyphal thread only.
+ */
+[[nodiscard]] uint64_t CyphalPlatformDriveTimeUs(uint64_t now_us) noexcept;
+
 /// Called after the drive applied new settings to the controller.
 void CyphalPlatformSettingsApplied(const settings::NvmSettings& settings) noexcept;
+
+/**
+ * @brief Adds the platform's in-process parts to the drive's hooks.
+ *
+ * native_sim: the excitation module and a RAM bank for the firmware update.
+ * The boards leave them null: their excitation module is on the bus, and the
+ * second flash bank waits for the bootloader (updates are refused).
+ */
+void CyphalPlatformDriveHooks(drive::DriveHooks& hooks) noexcept;
 
 /// @}
 

@@ -3,7 +3,9 @@
 UNIMOC is a platform-independent C++ motor-control library and Zephyr firmware
 for field-oriented control (FOC) of multi-phase electric motors. One drive
 typically controls one motor; multiple drives can be networked through Cyphal
-(UAVCAN v1) over CAN-FD on the STM32G4 (`docs/system_plan.md`).
+(UAVCAN v1) over CAN-FD (`docs/system_plan.md`). Drive hardware is named
+after pioneers of electric drives; the first is Jacobi, a 36 V / 45 A drive
+(100 A peak phase current) on the STM32H743 (`docs/system_plan.md`, hardware names).
 
 Read `README.md` for the supported motor types and public features, and
 `CONTEXT.md` for the project's domain vocabulary. The port decisions are in
@@ -12,20 +14,24 @@ Read `README.md` for the supported motor types and public features, and
 
 ## Runtime Scope
 
-- **Zephyr is the primary OS.** Logging (RTT on the BCC), the Cyphal node,
+- **Zephyr is the primary OS.** Logging (RTT on Jacobi), the Cyphal node,
   settings storage, startup sequencing, and all other high-level code run in
   Zephyr threads. USB and the shell are not used (USB returns for DFU).
-  The same application runs on the battery case controller (BCC) and on
-  `native_sim` for host simulation.
+  The same drive application runs on the Jacobi drive, the NUCLEO-H743ZI and on
+  `native_sim` for host simulation; the VDC application (`apps/vdc/`) runs on
+  the NUCLEO-H743ZI and on `native_sim` and has no zero-latency context.
 - **Only the FOC hot path runs in zero-latency IRQs.** The hot path is the
-  sample ISR (ADC end of injected sequence, once per half PWM period: raw copy
-  and overcurrent check) and the control cycle it runs every fourth sample
-  (16 kHz at 32 kHz PWM: PI once, four duties for the next four half periods,
-  entry 0 into the CCR preload and entries 1 to 3 by DMA). The observer
-  (`SlowUpdate`) runs after each control cycle in a software-pended
-  normal-priority interrupt, not at zero latency (`docs/hotpath_plan.md`).
-  The trace sampling (`trace::OnControlCycle()`, cymon `Tick()`) runs right
-  after the control cycle (`docs/cymon_integration_plan.md`).
+  sample ISR (ADC end of injected sequence, once per half PWM period: raw
+  overcurrent and overvoltage check) and the control step it runs every
+  `control_divider` half periods (at the factory 32 kHz PWM after every
+  sample, 64 kHz; at 64 kHz PWM after every valley: Park, PI, inverse Park,
+  SVM, the duties into the CCR preload, taken over at the next boundary or
+  the next peak). A power of two of steps forms a
+  control cycle (at most 16 kHz); the observer (`SlowUpdate`) runs after each
+  control cycle in a software-pended normal-priority interrupt, not at zero
+  latency (`docs/hotpath_plan.md`, `lib/settings/control_timing.hpp`). The trace sampling (`trace::OnControlCycle()`,
+  cymon `Tick()`) runs right after the last step of each control cycle
+  (`docs/cymon_integration_plan.md`).
   Do not add other work to a zero-latency context.
 
 ## Project Layout
@@ -39,15 +45,22 @@ Read `README.md` for the supported motor types and public features, and
 - `lib/ebike/` is the portable e-bike logic (pedal observer, assist law, Kunteng display codec, software UART
   receiver; docs/ebike_plan.md); its tests are in `tests/lib/ebike/`. `src/ebike/` is the e-bike control that
   the drive attaches (`tests/ebike/`).
+- `lib/vehicle/` is the portable vehicle logic of the VDC (wheels, the drive
+  monitor, the torque split without a yaw moment); its tests are in
+  `tests/lib/vehicle/`.
 - `lib/settings/`, `lib/units/`, and `lib/cyphal/` are separate library
   dependencies. The Zephyr build links them through `unimoc_lib`
   (`cmake/UnimocZephyr.cmake`). `lib/cyphal/` is the portable Cyphal stack:
   libcanard and O1Heap (west projects, `modules/lib/`), the C serialization
   that Nunavut generates at configure time from the public regulated data
-  types and `dsdl/unimoc/`, the transport and the node services.
+  types and `dsdl/unimoc/`, the transport, the node services (servers and
+  clients) and the file service with the firmware update
+  (`file_service.*`, `firmware_update.hpp`, `firmware_image.hpp`).
 - `dsdl/unimoc/` is the UNIMOC DSDL namespace (every message fits in one CAN
   FD frame). Changing a type there changes the bus protocol.
-- `src/` contains the application core: `current_control/` (hot-path ISR and
+- `src/` contains the application cores: `vdc/` (the VDC: `vdc_node.*`, the
+  Cyphal application of the vehicle dynamics controller, and its `main.cpp`)
+  and, for the drive, `current_control/` (hot-path ISR and
   slow update), `startup/` (startup FSM), `drive/` (the Cyphal application:
   settings registers, arming, setpoints, telemetry, commands), `trace/` (the
   cymon traces: float mirror sampled in the control cycle, the `cymon.*`
@@ -58,36 +71,62 @@ Read `README.md` for the supported motor types and public features, and
   choice `CONFIG_UNIMOC_PLATFORM_*`, the log level) and `CMakeLists.txt`,
   which declares the library targets (`unimoc_lib`, `unimoc_sim`) through
   `cmake/UnimocZephyr.cmake` when `CONFIG_UNIMOC=y`.
-- `app/` is the Zephyr application: `CMakeLists.txt`, `prj.conf`, and the
-  `native_sim` configuration. Platform sources are selected from the board's
-  Kconfig symbol (`CONFIG_UNIMOC_PLATFORM_*`), not with `#ifdef`. `main()`
-  sets the drive up and returns; the control runs in interrupts.
-- `boards/unimoc/bcc/` is the BCC board definition. `bcc.dts` (node `foc0`)
+- `apps/` holds the Zephyr applications, one per bus node
+  (`docs/system_plan.md`, section 5.3): `apps/drive/` is the motor drive
+  (`CMakeLists.txt`, `prj.conf`, `VERSION`, the board configurations in
+  `boards/`), `apps/vdc/` the vehicle dynamics controller (on `native_sim`
+  and the NUCLEO-H743ZI; registers in RAM, no hot path). Platform sources are
+  selected from the board's Kconfig symbol (`CONFIG_UNIMOC_PLATFORM_*`), not
+  with `#ifdef`. `main()` sets the node up and returns; the drive's control
+  runs in interrupts, everything else in threads. One release version for
+  all: `scripts/release_version.py` writes every `apps/*/VERSION`.
+- `boards/unimoc/jacobi/` is the Jacobi board definition (board
+  `unimoc_jacobi`, STM32H743VIT6, the H7 redesign of the hardware_4850 logic
+  board, `docs/drive4850_h7_plan.md`). `unimoc_jacobi.dts` (node `foc0`)
   holds the pinout, timers, ADC trigger, dead time, and sample times.
-- `hardware/zephyr_bcc/` is the BCC platform (STM32G4 hot-path bindings).
+- `hardware/zephyr_stm32h7/` is the STM32H7 platform (node `foc0`, compatible
+  `unimoc,foc-stm32h7`) of Jacobi, brought up first on a NUCLEO-H743ZI
+  (`apps/drive/boards/nucleo_h743zi.overlay`). Its hot path runs from ITCM:
+  `hot_path_itcm.ld` names the functions by mangled name, so check it when
+  renaming or adding a hot-path function (call-graph check,
+  `docs/hotpath_plan.md` section 8).
   `hardware/zephyr_sim/` is the `native_sim` platform. `hardware/zephyr_common/`
   is the shared Zephyr glue (system interface, settings storage and lock, the
   Cyphal thread, the CAN interface on the chosen `zephyr,canbus`, the log
   backend to `uavcan.diagnostic.Record`). All Cyphal code is shared between
-  the platforms except `cyphal_platform.cpp` of each platform (BCC:
-  transceiver pin; sim: slcan pseudo terminals, `unimoc.sim.*` registers,
+  the platforms except `cyphal_platform.cpp` of each platform (STM32H7:
+  transceiver standby pin, `can_transceiver.cpp`; sim: slcan pseudo terminals, `slcan_ports.cpp`, `unimoc.sim.*` registers,
   plant trace, the register description file `register_file.cpp` written by
-  `--describe-registers`). `hardware/hardware_interface.hpp`,
-  `hardware/power_stage_interface.hpp` and `hardware/cyphal_platform.hpp`
-  are the platform-independent boundaries.
+  `--describe-registers` and served as `registers.json` over `uavcan.file.Read`;
+  the RAM bank of the firmware update). `hardware/hardware_interface.hpp`,
+  `hardware/power_stage_interface.hpp`, `hardware/board_inputs_interface.hpp`
+  (power board detect, gate supply, accelerator, brake lever) and
+  `hardware/cyphal_platform.hpp` are the platform-independent boundaries.
+  The VDC has its own Cyphal thread (`hardware/zephyr_common/vdc_runtime.cpp`)
+  and boundary (`hardware/vdc_platform.hpp`, `vdc_platform.cpp` of each
+  platform, sharing `slcan_ports.cpp` and `can_transceiver.cpp`).
 - `hardware/hot_path_interface.hpp` is the link-time bound hardware access of
   the zero-latency hot path.
 - `tests/` contains all tests, as ztest suites run by twister:
   `tests/lib/<library>/` covers `lib/<library>`, `tests/sim/<name>/` runs the
   application core against the `native_sim` platform and the motor plant
   (cycle cadence, overcurrent, closed loop, the Cyphal drive),
-  `tests/drive/<name>/` tests parts of `src/drive/` alone (the cart control).
+  `tests/drive/<name>/` tests parts of `src/drive/` alone (the cart control,
+  the accelerator control and the board input supervision),
+  `tests/vdc/<name>/` tests `src/vdc/` (the VDC node against a second node
+  on the in-memory CAN bus).
   `tests/common/`
   holds the shared float checks and the in-memory CAN bus of the Cyphal
   tests. `tests/integration/cyphal_sim/` are pytest integration tests: twister
   starts the real application on `native_sim` (scenario
-  `unimoc.app.cyphal_integration` in `app/testcase.yaml`, pytest harness) and
-  a pycyphal node drives it over an slcan pseudo terminal. They are skipped
+  `unimoc.app.drive.cyphal_integration` in `apps/drive/testcase.yaml`, pytest harness; the
+  e-bike build in `unimoc.app.drive.cyphal_integration.ebike`, marker `ebike`) and
+  a pycyphal node drives it over an slcan pseudo terminal;
+  `tests/integration/cyphal_hw/` is a manual pytest of a real board on a CAN FD adapter (not
+  twister, not CI; `--hardware`, README there); `tests/integration/vdc_sim/` does the same for the VDC (scenario
+  `unimoc.app.vdc.cyphal_integration` in `apps/vdc/testcase.yaml`, the client
+  plays the wheel drives; the DSDL compile is shared in
+  `tests/integration/unimoc_dsdl.py`). They are skipped
   without pycyphal (`scripts/requirements-cyphal-tools.txt`).
 - `scripts/` holds the validation scripts (`check_format.sh`,
   `twister_sca.sh`) that CI runs as well (`check_format.sh` also runs the
@@ -129,7 +168,7 @@ Run from the west workspace root, which contains `unimoc/` and `zephyr/`
 
 ```sh
 unimoc/scripts/check_format.sh     # clang-format check (--fix to apply) and the unit-escape ratchet
-unimoc/scripts/twister_sca.sh      # all scenarios, native_sim + bcc, with clang-tidy
+unimoc/scripts/twister_sca.sh      # all scenarios, native_sim + unimoc_jacobi + nucleo_h743zi, with clang-tidy
 ```
 
 These two are the standard validation and exactly what CI
@@ -137,8 +176,11 @@ These two are the standard validation and exactly what CI
 
 ```sh
 west twister -T unimoc/tests/lib/motor_control -p native_sim/native/64
-west build -b native_sim/native/64 unimoc/app -d unimoc/app/build/sim   # host simulation
-west build -b bcc unimoc/app -d unimoc/app/build/bcc                      # battery case controller
+west build -b native_sim/native/64 unimoc/apps/drive -d unimoc/apps/drive/build/sim   # host simulation
+west build -b unimoc_jacobi unimoc/apps/drive -d unimoc/apps/drive/build/jacobi         # Jacobi drive
+west build -b nucleo_h743zi unimoc/apps/drive -d unimoc/apps/drive/build/h743           # STM32H7 bring-up
+west build -b native_sim/native/64 unimoc/apps/vdc -d unimoc/apps/vdc/build/sim       # VDC simulation
+west build -b nucleo_h743zi unimoc/apps/vdc -d unimoc/apps/vdc/build/h743             # VDC on the NUCLEO-H743ZI
 ```
 
 ### Getting it right in a new session
@@ -250,14 +292,14 @@ link time per platform, no function pointers); the thread context uses the
 Before finishing a change:
 
 1. Run `unimoc/scripts/check_format.sh` and `unimoc/scripts/twister_sca.sh`
-	 from the west workspace root (twister on `native_sim` and `bcc`, clang-tidy
+	 from the west workspace root (twister on `native_sim`, `unimoc_jacobi` and `nucleo_h743zi`, clang-tidy
 	 as Zephyr SCA). Use a focused `west twister -T ...` run while iterating.
 	 If a step cannot run, report the blocker and the checks that did run.
 2. Fix clang-tidy findings in the change, or add a `NOLINT` with the check
 	 name and a justification.
 3. Check the diff for accidental changes to generated files, build output, or
 	 submodules. The west workspace (`zephyr/`, `modules/`) is not part of this
-	 repository; `build/`, `app/build/` and `twister-out/` are git-ignored.
+	 repository; `build/`, `apps/*/build/` and `twister-out/` are git-ignored.
 4. Update `README.md`, `CONTEXT.md`, and the affected `docs/` plan when
 	 user-visible behavior, configuration, build steps, hardware bring-up
 	 behavior, or a planned decision changes.

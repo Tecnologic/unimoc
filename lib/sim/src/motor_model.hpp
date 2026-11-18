@@ -56,8 +56,14 @@ enum class Status : std::uint8_t {
   kInvalidFriction,
   /// The DC-link voltage is not positive.
   kInvalidDcLinkVoltage,
+  /// The DC-link capacitance is negative.
+  kInvalidCapacitance,
+  /// The dead time is negative or not below half the PWM period.
+  kInvalidDeadTime,
   /// The integration step is not positive.
   kInvalidTimeStep,
+  /// A heat capacity or a thermal resistance of the motor is not positive.
+  kInvalidThermalParameters,
 };
 
 /**

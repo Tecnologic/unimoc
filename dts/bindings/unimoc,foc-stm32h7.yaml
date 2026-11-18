@@ -1,0 +1,180 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+description: |
+  UNIMOC three-phase FOC power stage on an STM32H7 (hardware/zephyr_stm32h7).
+
+  One advanced timer (TIM1 or TIM8) drives the half bridges. Its TRGO2
+  output starts the injected sequences of three ADCs at the same instant.
+  Each phase current is rank 0 of its own ADC, so the three currents are
+  sampled together. All pins are listed in pinctrl-0, all ADC channels in
+  io-channels.
+
+  Every entry of io-channels names its signal in io-channel-names: "ia",
+  "ib", "ic", "va", "vb", "vc", "vdc", "bridge-temperature" and
+  "motor-temperature", each exactly once, and the optional board inputs
+  "gate-supply" (gate driver supply sense), "accelerator" and "brake" (the
+  throttle and brake lever sensors, 0 V to the ADC reference), each at most
+  once. The drive reads the board inputs in thread context. The entries of one ADC form its
+  injected sequence in devicetree order, one to four conversions. Each phase
+  current is on its own ADC and comes first there; the other signals may be
+  on any of the three. The end of the sequence of the phase A ADC is the
+  sample interrupt, so that sequence must be the longest (checked at build
+  time from the sample times).
+
+  The analog front end (shunt, amplifier, dividers) and the limits of the
+  power stage are properties of the board.
+
+compatible: "unimoc,foc-stm32h7"
+
+include: [base.yaml, pinctrl-device.yaml]
+
+properties:
+  timer:
+    type: phandle
+    required: true
+    description: |
+      PWM timer (st,stm32-timers), timers1 or timers8. Its update interrupt
+      and compare registers are used directly by the hardware layer.
+
+  dead-time-ns:
+    type: int
+    required: true
+    description: |
+      Dead time between the high side and the low side gate signal of each
+      half bridge, in nanoseconds. The hardware layer rounds it up to the
+      next step the timer can generate (5 ns at 200 MHz up to 635 ns,
+      coarser above, at most 5 us).
+
+  current-sense:
+    type: string
+    default: "inline"
+    enum:
+      - "inline"
+      - "low-side"
+    description: |
+      Where the phase currents "ia", "ib", "ic" are measured. "inline": a
+      shunt or sensor in each phase, valid in every switching state.
+      "low-side": a shunt in the source of each low-side switch, valid only
+      while that low side conducts. The hardware layer then runs the phases
+      in PWM mode 2, so the low-side pulses are centered on the valley
+      sample; the control runs after the valleys only (no step every half
+      period) and the duty is capped so each low side stays on long enough
+      for a sample. The amplifier must give a positive count for a current
+      into the motor, as the inline amplifiers do.
+
+  shunt-nano-ohm:
+    type: int
+    required: true
+    description: Resistance of the current shunt of one phase (parallel shunts combined), in nOhm.
+
+  current-amplifier-gain:
+    type: int
+    required: true
+    description: |
+      Gain of the current amplifier (INA240A1: 20). Its output is biased to
+      half the ADC reference, so a positive count is a current into the motor.
+
+  voltage-divider-ohms:
+    type: array
+    required: true
+    description: |
+      Top and bottom resistor of the dividers of Vdc and the phase voltages,
+      in Ohm, e.g. <47000 2200>.
+
+  voltage-divider-filter-pf:
+    type: int
+    default: 0
+    description: |
+      Capacitor across the bottom resistor of the voltage dividers, in pF
+      (0: none). With phase-voltage-filter it sets the delay of the phase
+      voltages the observer compensates.
+
+  phase-voltage-filter:
+    type: array
+    description: |
+      RC low pass between the phase-voltage dividers and the ADC: series
+      resistor in Ohm and capacitor to ground in pF, e.g. <220 2200>. Absent:
+      none (no delay compensated).
+
+  current-filter:
+    type: array
+    description: |
+      RC low pass between the current amplifier and the ADC: series resistor
+      in Ohm and capacitor to ground in pF, e.g. <220 2200>. Absent: none.
+
+  current-amplifier-bandwidth-hz:
+    type: int
+    default: 0
+    description: |
+      Small-signal bandwidth of the current amplifier in Hz (INA240A1:
+      400000); its delay 1 / (2 pi f) adds to that of current-filter. 0:
+      not compensated.
+
+  gate-supply-divider-ohms:
+    type: array
+    description: |
+      Top and bottom resistor of the divider of the "gate-supply" channel, in
+      Ohm, e.g. <10000 2200>. Required with "gate-supply".
+
+  gate-supply-millivolts:
+    type: array
+    description: |
+      Limits of the gate driver supply in mV, <trip engage>: the drive does not
+      engage below the second value and switches an engaged power stage off
+      with a latched fault below the first. Required with "gate-supply".
+
+  max-phase-current-amps:
+    type: int
+    required: true
+    description: |
+      Hard trip limit of the phase current in A (per-sample check in the
+      sample interrupt). Must lie inside the range of the current sensing.
+
+  max-motor-current-amps:
+    type: int
+    required: true
+    description: Highest motor current the power stage allows as a setting, in A.
+
+  battery-current-amps:
+    type: array
+    required: true
+    description: |
+      Battery current the drive is rated for, in A: <drive charge>. The
+      factory limits and the highest settings of the battery current.
+
+  dc-link-millivolts:
+    type: array
+    required: true
+    description: |
+      DC-link limits in mV, <derate trip max>: regenerative braking derates
+      from the first value, the drive trips at the second (factory values),
+      and no setting may exceed the third (the power stage limit, well below
+      the FET rating).
+
+  io-channels:
+    type: phandle-array
+    required: true
+    description: Injected ADC channels; the entries of one ADC are its sequence.
+
+  io-channel-names:
+    type: string-array
+    required: true
+    description: Signal name of each entry in io-channels.
+
+  sample-times:
+    type: string-array
+    required: true
+    description: |
+      Sampling time in ADC clock cycles of each entry in io-channels, same
+      order (SMPx codes 0 to 7 of the STM32H7 ADC). Low-impedance sources
+      such as the INA240 current amplifiers can use short times, resistive
+      dividers and NTCs need longer ones.
+    enum:
+      - "1.5"
+      - "2.5"
+      - "8.5"
+      - "16.5"
+      - "32.5"
+      - "64.5"
+      - "387.5"
+      - "810.5"

@@ -125,8 +125,6 @@ struct SinCos {
  * | Linear interpolation | 1.88e-5 | 4 table loads and FPU arithmetic |
  * | Linear interpolation plus normalisation | 1.4e-7 | Linear work plus 7 FPU operations |
  * | Cubic Hermite interpolation | 1.5e-7 in float32 | 4 table loads and substantially more FPU arithmetic |
- * | STM32G4 CORDIC, 6-cycle Q1.31 | 2^-19 documented residual | Peripheral setup, transfers, and 6 CORDIC
- * iterations |
  *
  * The instruction and peripheral-work figures are implementation estimates;
  * flash wait states, memory placement, compiler scheduling, and transfer mode
@@ -214,6 +212,35 @@ template <SinCosProvider Provider>
 [[nodiscard]] constexpr SinCos<unit::Ratio> GenerateSinCos(const Provider& provider,
                                                            std::int32_t raw) noexcept {
   return provider.Calculate(raw);
+}
+
+/**
+ * @brief Sine and cosine of the sum of two angles (a rotation of @p angle by @p step).
+ *
+ * Four multiplications, no table: advances an angle by a fixed step in the
+ * hot path. A repeated rotation lets the magnitude drift by the rounding of
+ * each step; Renormalized() corrects it.
+ *
+ * @param angle Sine and cosine of the first angle.
+ * @param step Sine and cosine of the angle added.
+ * @return Sine and cosine of angle + step.
+ */
+[[nodiscard]] constexpr SinCos<unit::Ratio> Rotated(const SinCos<unit::Ratio>& angle,
+                                                    const SinCos<unit::Ratio>& step) noexcept {
+  return {(angle.sin * step.cos) + (angle.cos * step.sin), (angle.cos * step.cos) - (angle.sin * step.sin)};
+}
+
+/**
+ * @brief Pulls a pair close to the unit circle back onto it.
+ *
+ * One Newton step of 1 / sqrt(m) around m = 1, without a square root: the
+ * error of the magnitude goes from e to about 1.5 e^2.
+ */
+[[nodiscard]] constexpr SinCos<unit::Ratio> Renormalized(const SinCos<unit::Ratio>& angle) noexcept {
+  using unit::operator""_ratio;
+  const unit::Ratio kSquare = (angle.sin * angle.sin) + (angle.cos * angle.cos);
+  const unit::Ratio kScale = (3.0_ratio - kSquare) * 0.5F;
+  return {angle.sin * kScale, angle.cos * kScale};
 }
 
 template <typename Representation>

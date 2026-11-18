@@ -7,7 +7,7 @@
  *
  *    @file node.hpp
  *    @brief Transport-injected Cyphal node: heartbeat, GetInfo, registers,
- *           ExecuteCommand, plug-and-play, port list and diagnostics.
+ *           ExecuteCommand, plug-and-play, port list, diagnostics and service clients.
  *
  *    SPDX-License-Identifier: GPL-3.0-or-later
  *
@@ -168,6 +168,25 @@ class ServiceHandler {
                                                              std::span<std::byte> response) noexcept = 0;
 };
 
+/// Receives the responses of one service this node calls (AddClient()).
+class ResponseListener {
+ public:
+  ResponseListener() = default;
+  virtual ~ResponseListener() = default;
+  ResponseListener(const ResponseListener&) = delete;
+  ResponseListener& operator=(const ResponseListener&) = delete;
+  ResponseListener(ResponseListener&&) = delete;
+  ResponseListener& operator=(ResponseListener&&) = delete;
+
+  /**
+   * @brief Handles one response addressed to this node.
+   * @param response The response; its source is the server, its transfer-ID
+   *                 that of the request; the payload is valid during the call only.
+   * @param now_us Time of the CyphalNode::Spin() call that received it [us].
+   */
+  virtual void OnResponse(const Transfer& response, uint64_t now_us) noexcept = 0;
+};
+
 /// Port and transfer-ID counter of one published subject.
 struct Publisher {
   uint16_t port_id{kUnsetPortId};         ///< Subject-ID; kUnsetPortId disables the publisher.
@@ -195,15 +214,17 @@ struct Publisher {
 class CyphalNode {
  public:
   /// Largest number of register providers (drive: settings, info, startup,
-  /// timing; the platform: one more).
-  static constexpr std::size_t kMaxRegisterProviders = 6U;
+  /// timing, firmware update; the platform: two more).
+  static constexpr std::size_t kMaxRegisterProviders = 8U;
   /// Largest number of application subscriptions (drive: 6 setpoint and
-  /// readiness subjects, 3 cart subjects; traces: the trigger).
-  static constexpr std::size_t kMaxListeners = 12U;
+  /// readiness subjects, 3 cart subjects, 2 excitation subjects; traces: the trigger).
+  static constexpr std::size_t kMaxListeners = 16U;
   /// Largest number of application publishers reported in the port list.
   static constexpr std::size_t kMaxPublishers = 8U;
   /// Largest number of application services.
   static constexpr std::size_t kMaxServers = 8U;
+  /// Largest number of services this node calls (the firmware update: uavcan.file.Read).
+  static constexpr std::size_t kMaxClients = 4U;
   /// Heartbeat period [us].
   static constexpr uint64_t kHeartbeatPeriodUs = 1'000'000U;
   /// Port list period [us] (the standard allows up to 10 s).
@@ -270,6 +291,31 @@ class CyphalNode {
                                ServiceHandler& handler) noexcept;
 
   /**
+   * @brief Calls a service: subscribes its responses and lists it in the port list.
+   * @param service_id Service-ID 0..511.
+   * @param response_extent DSDL extent of the response type [bytes].
+   * @param listener Receives the responses; must outlive the node.
+   * @return False when the service-ID is invalid or taken, no slot is left or
+   *         the transport refused the subscription.
+   */
+  [[nodiscard]] bool AddClient(uint16_t service_id,
+                               std::size_t response_extent,
+                               ResponseListener& listener) noexcept;
+
+  /**
+   * @brief Sends one request of a service added with AddClient().
+   * @param service_id Service-ID.
+   * @param server Node-ID of the server.
+   * @param transfer_id Transfer-ID of the request; the response carries it back.
+   * @param payload Serialized request.
+   * @return False without a node-ID, for a service not added or when the transport refused it.
+   */
+  [[nodiscard]] bool Request(uint16_t service_id,
+                             uint8_t server,
+                             uint8_t transfer_id,
+                             std::span<const std::byte> payload) noexcept;
+
+  /**
    * @brief Registers a publisher for the port list. Publish() works without it.
    * @return False when all slots are used.
    */
@@ -312,6 +358,9 @@ class CyphalNode {
   /// Vendor-specific status code of the heartbeat.
   void SetVendorStatus(uint8_t status) noexcept { vendor_status_ = status; }
 
+  /// Node-ID that sent the ExecuteCommand request being handled (valid during CommandHandler::OnCommand()).
+  [[nodiscard]] uint8_t CommandSource() const noexcept { return command_source_; }
+
   /// Node-ID, or kNodeIdUnset while plug-and-play runs.
   [[nodiscard]] uint8_t NodeId() const noexcept { return transport_->LocalNodeId(); }
 
@@ -345,6 +394,11 @@ class CyphalNode {
     ServiceHandler* handler{nullptr};
   };
 
+  struct Client {
+    uint16_t service_id{kUnsetPortId};
+    ResponseListener* listener{nullptr};
+  };
+
   void Dispatch(const Transfer& transfer, uint64_t now_us) noexcept;
   void HandleGetInfo(const Transfer& request) noexcept;
   void HandleRegisterList(const Transfer& request) noexcept;
@@ -368,6 +422,9 @@ class CyphalNode {
   std::size_t listener_count_{0U};
   std::array<Server, kMaxServers> servers_{};
   std::size_t server_count_{0U};
+  std::array<Client, kMaxClients> clients_{};
+  std::size_t client_count_{0U};
+  uint8_t command_source_{kNodeIdUnset};
   std::array<uint16_t, kMaxPublishers> published_subjects_{};
   std::size_t published_count_{0U};
 

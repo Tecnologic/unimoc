@@ -1,0 +1,29 @@
+/*
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ *
+ * The VDC on a NUCLEO-H743ZI (first revision, STM32H743ZI silicon rev. Y),
+ * the evaluation board of the VDC until its own board exists
+ * (docs/system_plan.md, section 5.3). Only the CAN bus is used: FDCAN1 on
+ * PD0/PD1 (board default) to an external transceiver module, the log on the
+ * ST-LINK virtual COM port. Not run on the board yet.
+ */
+
+/*
+ * Silicon rev. Y: at most 400 MHz, as for the drive on this board
+ * (apps/drive/boards/nucleo_h743zi.overlay). PLL2 Q stays at 80 MHz for FDCAN1.
+ */
+&pll {
+	mul-n = <200>;
+};
+
+&rcc {
+	clock-frequency = <DT_FREQ_M(400)>;
+};
+
+/* 1 Mbit/s in both phases, like the other nodes of the bus. */
+&fdcan1 {
+	bitrate = <1000000>;
+	sample-point = <875>;
+	bitrate-data = <1000000>;
+	sample-point-data = <875>;
+};

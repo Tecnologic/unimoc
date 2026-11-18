@@ -19,6 +19,7 @@
 #include <cmath>
 #include <concepts>
 #include <numbers>
+#include "atan2.hpp"
 #include "mechanical_observer.hpp"
 #include "stator_system.hpp"
 #include "units.hpp"
@@ -107,7 +108,7 @@ struct AsmFluxObserver {
   ///
   /// Determines how fast the flux estimate responds to the current error.
   /// Set larger than g_i to prevent flux lag during transients.
-  unit::MagneticFluxPerCurrentTime g_flux{5000.0_Wb_per_A_s};
+  unit::MagneticFluxPerCurrentTime g_flux{0.0_Wb_per_A_s};
 
   // -------------------------------------------------------------------------
   // Observer state
@@ -139,19 +140,21 @@ struct AsmFluxObserver {
   unit::Ratio cos_flux{1.0_ratio};
 
   /**
-   * @brief Run one observer step and update the MechanicalObserver PLL.
+   * @brief Run one observer step at a given electrical rotor speed, without touching a MechanicalObserver.
    *
-   * Call this once per PWM/control interrupt.
+   * The drive's observer interrupt calls it once per control step of a cycle;
+   * the flux angle (Atan2, no libm) then is the angle measurement of the
+   * mechanical observer, which tracks the rotor flux frame.
    *
-   * @param v_ab     Applied stator voltage vector α/β [V].
-   * @param i_ab     Measured stator current vector α/β [A].
-   * @param dt       Control period [s].
-   * @param mech_obs MechanicalObserver whose PLL receives the flux-angle correction.
+   * @param v_ab    Applied stator voltage vector alpha/beta [V].
+   * @param i_ab    Measured stator current vector alpha/beta [A].
+   * @param omega_r Electrical rotor speed (the synchronous speed less the slip).
+   * @param dt      Step [s].
    */
-  constexpr void Update(const system::Stator<unit::Voltage>& v_ab,
-                        const system::Stator<unit::Current>& i_ab,
-                        const unit::Time dt,
-                        MechanicalObserver<T>& mech_obs) noexcept {
+  constexpr void Estimate(const system::Stator<unit::Voltage>& v_ab,
+                          const system::Stator<unit::Current>& i_ab,
+                          const unit::AngularVelocity omega_r,
+                          const unit::Time dt) noexcept {
     // --- Derived parameters (computed every cycle for generality; in
     //     practice the compiler will CSE these if parameters are const.) ---
     const unit::Ratio kSigma = CalcSigma();
@@ -164,8 +167,7 @@ struct AsmFluxObserver {
     // Flux-to-current coupling coefficient L_m/(σ·L_s·L_r) [1/H]
     const auto kFlux = L_m / (kSigma * L_s * L_r);
 
-    // Electrical rotor speed from MechanicalObserver PLL
-    const unit::AngularVelocity kOmegaR = mech_obs.omega;
+    const unit::AngularVelocity kOmegaR = omega_r;
 
     // --- Current prediction error ---
     const unit::Current kErrAlpha = i_ab.alpha - i_alpha_hat;
@@ -195,7 +197,7 @@ struct AsmFluxObserver {
 
     // --- Compute flux magnitude and angle ---
     flux_magnitude = unit::Hypot(psi_r_alpha, psi_r_beta);
-    flux_angle = unit::Angle{std::atan2(psi_r_beta.Value(), psi_r_alpha.Value())};
+    flux_angle = Atan2(psi_r_beta, psi_r_alpha);  // without libm: the observer interrupt may run it
     // sin and cos of the flux angle straight from the flux vector, no trigonometry.
     if (flux_magnitude > unit::MagneticFlux{}) {
       sin_flux = psi_r_beta / flux_magnitude;
@@ -204,17 +206,28 @@ struct AsmFluxObserver {
       sin_flux = 0.0_ratio;
       cos_flux = 1.0_ratio;
     }
+  }
 
+  /**
+   * @brief Run one observer step and update the MechanicalObserver PLL.
+   *
+   * Call this once per PWM/control interrupt.
+   *
+   * @param v_ab     Applied stator voltage vector α/β [V].
+   * @param i_ab     Measured stator current vector α/β [A].
+   * @param dt       Control period [s].
+   * @param mech_obs MechanicalObserver whose PLL receives the flux-angle correction.
+   */
+  constexpr void Update(const system::Stator<unit::Voltage>& v_ab,
+                        const system::Stator<unit::Current>& i_ab,
+                        const unit::Time dt,
+                        MechanicalObserver<T>& mech_obs) noexcept {
+    Estimate(v_ab, i_ab, mech_obs.omega, dt);
     // --- Feed flux angle into MechanicalObserver PLL ---
     //
-    // Compute the angle error between the flux angle and the PLL estimate.
-    // Using the cross-product sine approximation (no atan2 needed):
-    //   sin(θ_flux − θ̂) ≈ sin(θ_flux)·cos(θ̂) − cos(θ_flux)·sin(θ̂)
-    //
-    // This is the same technique used in the PMSM back-EMF PLL.
-    // The small-angle sine is the angle in radians.
+    // The angle error between the flux angle and the PLL estimate, from the
+    // cross product (the small-angle sine is the angle in radians).
     const unit::Ratio kAngleError = (sin_flux * mech_obs.cos_theta) - (cos_flux * mech_obs.sin_theta);
-
     mech_obs.InjectAngleError(kAngleError * 1.0_rad, dt);
   }
 

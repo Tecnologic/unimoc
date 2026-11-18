@@ -1,0 +1,179 @@
+/*
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ *
+ * UNIMOC on a NUCLEO-H743ZI (first revision, STM32H743ZI silicon rev. Y):
+ * bring-up of the STM32H7 platform (hardware/zephyr_stm32h7) before the
+ * Jacobi exists (docs/drive4850_h7_plan.md). The pins follow the Nucleo
+ * adapter for the legacy 4850 power board (Tecnologic/unimoc_jacobi, branch
+ * nucleo-adapter, nucleo_adapter/README.md): the enable is the break loop on
+ * PE15 (J401), the TCAN334 has STB and SHDN tied low. Run on the board with
+ * the outputs off (docs/hotpath_plan.md, section 4).
+ *
+ * Pins differ from the 4850 proposal where the Nucleo uses them: the
+ * Ethernet PHY (PA1, PA2, PA7, PB13, PC1, PC4, PC5), the LEDs (LD1 PB0, LD2 PE1,
+ * LD3 PB14) and the ST-LINK UART (PD8, PD9).
+ */
+
+/ {
+	chosen {
+		/* The hot path runs from ITCM (hardware/zephyr_stm32h7/hot_path_itcm.ld). */
+		zephyr,itcm = &itcm;
+	};
+
+	/*
+	 * Status LEDs of hardware/status_leds.hpp on LD1 (green), LD2 (yellow) and LD3 (red).
+	 * The CAN traffic shares LD1 with RUN: traffic makes it blink fast.
+	 */
+	aliases {
+		unimoc-led-run = &green_led;
+		unimoc-led-pwm = &yellow_led;
+		unimoc-led-error = &red_led;
+		unimoc-led-can = &green_led;
+	};
+
+	/* LD3 (PB14) is a plain GPIO output here; the board file wires it to TIM12 PWM. */
+	red_leds {
+		compatible = "gpio-leds";
+		red_led: led_red {
+			gpios = <&gpiob 14 GPIO_ACTIVE_HIGH>;
+			label = "User LD3";
+		};
+	};
+
+	pwmleds {
+		status = "disabled";
+	};
+
+	/*
+	 * Power stage: TIM1, centre-aligned PWM on CH1..CH3 + CH1N..CH3N
+	 * (PE8..PE13, all on port E as on the 4850 proposal). TRGO2 (rising
+	 * OC4REF / OC6REF) starts the injected sequences of ADC1..ADC3 at the
+	 * same instant. The end of the ADC1 sequence is the sample interrupt
+	 * (zero latency), the TIM1 update vector the observer interrupt.
+	 */
+	foc0: foc-power-stage {
+		compatible = "unimoc,foc-stm32h7";
+		status = "okay";
+
+		timer = <&timers1>;
+
+		/*
+		 * 4850 power board (LM5109B): 1 us as in the legacy
+		 * firmware. Both power stages are designed for 200 ns (Jacobi, and
+		 * the legacy board is capable of it); lower it after the scope check.
+		 */
+		dead-time-ns = <1000>;
+
+		/*
+		 * Legacy 4850 power board through the Nucleo adapter: three 2 mOhm
+		 * shunts in parallel with an INA240A1 per phase (gain 20, as on
+		 * Jacobi), 47k / 2k2 dividers on
+		 * the adapter. 60 A trip as before, 60 V FETs (NCEP6080AG in the BOM).
+		 */
+		shunt-nano-ohm = <666667>;
+		current-amplifier-gain = <20>;
+		voltage-divider-ohms = <47000 2200>;
+		max-phase-current-amps = <60>;
+		max-motor-current-amps = <50>;
+		battery-current-amps = <50 20>;
+		dc-link-millivolts = <45000 48000 50000>;
+
+		pinctrl-0 = <&tim1_ch1_pe9 &tim1_ch1n_pe8
+			     &tim1_ch2_pe11 &tim1_ch2n_pe10
+			     &tim1_ch3_pe13 &tim1_ch3n_pe12
+			     &tim1_bkin_pe15
+			     &analog_pa6 &analog_pf11 &analog_pf12
+			     &analog_pb1 &analog_pf13 &analog_pf14
+			     &analog_pc2_c &analog_pc3_c &analog_pf10>;
+		pinctrl-names = "default";
+
+		/* Three injected conversions per ADC, the phase current first. */
+		io-channels = <&adc1 3>, <&adc1 2>, <&adc1 6>,   /* PA6 ia, PF11 va, PF12 bridge temp */
+			      <&adc2 5>, <&adc2 2>, <&adc2 6>,   /* PB1 ib, PF13 vb, PF14 motor temp  */
+			      <&adc3 0>, <&adc3 1>, <&adc3 6>;   /* PC2_C ic, PC3_C vdc, PF10 vc      */
+		io-channel-names = "ia", "va", "bridge-temperature",
+				   "ib", "vb", "motor-temperature",
+				   "ic", "vdc", "vc";
+
+		/*
+		 * ADC clock cycles at 30 MHz (pll2_p 120 MHz / 4). Currents from
+		 * INA240 outputs (low impedance): short. Dividers and NTCs: longer.
+		 * Rank 1 is the same on all three ADCs, so vdc (rank 1 of ADC3) is
+		 * converted when the ADC1 sequence ends.
+		 */
+		sample-times = "2.5", "16.5", "32.5",
+			       "2.5", "16.5", "32.5",
+			       "2.5", "16.5", "32.5";
+	};
+
+	zephyr,user {
+		/* External enable on the net PWM_BREAK: PE15 is also TIM1_BKIN. Jumper to 3V3 to release. */
+		break-gpios = <&gpioe 15 GPIO_ACTIVE_HIGH>;
+		/* Hall sensors A, B, C (one port). */
+		hall-gpios = <&gpiod 12 GPIO_ACTIVE_HIGH>,
+			     <&gpiod 13 GPIO_ACTIVE_HIGH>,
+			     <&gpiod 14 GPIO_ACTIVE_HIGH>;
+	};
+};
+
+/* Open input: break. */
+&tim1_bkin_pe15 {
+	bias-pull-down;
+};
+
+/* Used by the foc0 driver: enables the timer and its IRQ vectors. */
+&timers1 {
+	status = "okay";
+};
+
+/*
+ * The foc0 driver programs ADC1..3 itself; the Zephyr ADC driver would claim
+ * them. The nodes stay in the tree for the registers, clocks and IRQs.
+ */
+&adc1 {
+	status = "disabled";
+};
+
+&adc2 {
+	status = "disabled";
+};
+
+&adc3 {
+	status = "disabled";
+};
+
+/* The Ethernet PHY sits on analog pins of the 4850 proposal; not used. */
+&mac {
+	status = "disabled";
+};
+
+/*
+ * Silicon rev. Y: at most 400 MHz. 8 MHz (ST-LINK MCO) / 2 * 200 / 2 =
+ * 400 MHz core, HCLK 200 MHz, APB 100 MHz, TIM1 200 MHz. PLL2 stays as on
+ * the board: P 120 MHz for the ADCs, Q 80 MHz for FDCAN1.
+ */
+&pll {
+	mul-n = <200>;
+};
+
+&rcc {
+	clock-frequency = <DT_FREQ_M(400)>;
+};
+
+/*
+ * CAN on PD0/PD1 (board default) to an external transceiver module. 1 Mbit/s
+ * in both phases: classic CAN transceivers do not switch the data phase.
+ */
+&fdcan1 {
+	bitrate = <1000000>;
+	sample-point = <875>;
+	bitrate-data = <1000000>;
+	sample-point-data = <875>;
+};
+
+/* Flash: MCUboot, the two image slots and the settings (dts/unimoc/stm32h743_flash_layout.dtsi). */
+#include <unimoc/stm32h743_flash_layout.dtsi>
+
+&timers12 {
+	status = "disabled";
+};

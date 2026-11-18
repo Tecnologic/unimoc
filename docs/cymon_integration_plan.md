@@ -1,5 +1,8 @@
 # cymon integration plan
 
+> The firmware targets the STM32H7 only (`hardware/zephyr_stm32h7`: Jacobi
+> and the NUCLEO-H743ZI) and `native_sim`.
+
 Status: **implemented** (steps 1 to 10 below), not yet run on the board
 (M0 cost of `Tick()`). `lib/cymon` points at cymon-lib 0.2 on `main`.
 That version is ready for this integration: C++20, interrupt-safe `Tick()`,
@@ -43,7 +46,7 @@ integration with ztest and pytest, as below.
    - Remove `-*/unimoc/lib/cymon/*` from `scripts/codechecker_skip.txt`, and
      add `lib/cymon/(include/cymon|src/cymon)` to `HeaderFilterRegex`.
 
-   Check with `twister_sca.sh` (native_sim and bcc).
+   Check with `twister_sca.sh` (native_sim, unimoc_jacobi and nucleo_h743zi).
 2. **DSDL** (`lib/cyphal/CMakeLists.txt`): add
    `${UNIMOC_ROOT}/lib/cymon/dsdl/cymon` to `unimoc_dsdl_roots` and to the
    configure dependencies. The headers `cymon/*_0_1.h` are generated next
@@ -79,8 +82,8 @@ integration with ztest and pytest, as below.
    field is registered once at start-up with its SI unit. On `native_sim`,
    also add the plant truth (`unimoc.sim.Plant` fields).
 7. **Sampling**: call `trace.Tick()` right after the mirror is filled, at
-   the end of the control cycle (zero-latency IRQ, 16 kHz,
-   `SetTickPeriod(62.5F)`). `Tick()` meets the zero-latency rules of
+   the end of the control cycle (zero-latency IRQ, at most 16 kHz, the tick
+   period from the running `dt_slow`). `Tick()` meets the zero-latency rules of
    `AGENTS.md`: no kernel calls, no locks, no function pointers, no libm.
    M0 has to confirm the cost (target < 1 µs at 170 MHz). The fallback is
    the observer's pended interrupt.
@@ -111,33 +114,34 @@ integration with ztest and pytest, as below.
   subscription may share one subject (decided 2026-10-22): every node of a
   bus then triggers the captures of the others; a node does not receive its
   own transfers. All other ports must have distinct IDs.
-- `Tick()` runs in `ControlCycleHandler()` (`src/main.cpp`) right after
-  `CurrentControlIsr::OnControlCycle()`, through `trace::OnControlCycle()`,
-  on every cycle (also while tripped or in force-duty mode). The mirror
+- `Tick()` runs in `SampleHandler()` (`src/main.cpp`) right after the
+  `CurrentControlIsr::OnSample()` that ends a control cycle (every fourth
+  sample), through `trace::OnControlCycle()`, on every cycle (also while
+  tripped or in force-duty mode). The mirror
   `trace::TraceSignals` is filled from the controller state;
   `CurrentControlState::i_dq_last` holds the measured d/q current for it.
 - The device is constructed in `.bss` (a `std::optional`) by the Cyphal
   thread before the services start: as a constant-initialized object its
   non-zero defaults would put about 8.9 KB into `.data` and flash. The
   control cycle samples it once it is published through an atomic pointer.
-  On the BCC it disassembles to the copy loop plus `memset`/`memmove`, no
-  other calls.
+  On the former G4 target it disassembled to the copy loop plus
+  `memset`/`memmove`, no other calls (to recheck on the STM32H7).
 - The tick period is `dt_slow` of the controller, set at start and again
   after the drive applied new settings (another PWM frequency).
 - Sim plant truth: `hardware/zephyr_sim` fills `sim::PlantTrace` at the end
   of every cycle; `CyphalPlatformTraceSignals()` registers it as `sim.*`
-  (IDs from 12). The BCC registers nothing extra.
+  (IDs from 12). The STM32H7 registers nothing extra.
 
 ## Tool side
 
 ```sh
 pip install -e <cymon>                       # once
 cymon serve -i socketcan:vcan0 --dsdl unimoc/dsdl/unimoc --open      # simulation
-cymon serve -i canable:/dev/ttyACM0 --dsdl unimoc/dsdl/unimoc --open # BCC, CANable 2.0
+cymon serve -i canable:/dev/ttyACM0 --dsdl unimoc/dsdl/unimoc --open # board, CAN FD adapter
 ```
 
-The BCC sends CAN FD frames at 1 Mbit/s without bit rate switch (SN65HVD230).
-The CANable defaults of cymon match that. A full 8-channel capture of 1024
+The STM32H7 boards send CAN FD frames at 1 Mbit/s without bit rate switch
+for now (`TODO.md`, CAN FD bit timing per board); set the adapter to match. A full 8-channel capture of 1024
 frames is 8192 floats, which is 128 `ReadSamples` responses of about 270
 bytes each. At 1 Mbit/s that takes roughly 0.4 s of bus time.
 

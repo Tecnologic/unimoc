@@ -31,22 +31,24 @@ inline constexpr uint8_t kMotorCount = 1;  ///< Number of motors supported by th
 
 // The public interface always exposes ia, ib, and ic. A two-sensor backend
 // reconstructs ic as -(ia + ib); a three-sensor backend reads all phases.
+// Inline or low-side sensing: settings::HardwareCapabilities::current_sense
+// of the settings profile.
 inline constexpr uint8_t kCurrentSensorCount = 3U;
-inline constexpr bool kCurrentSenseIsLowSide = false;
 inline constexpr bool kCurrentSenseHasPhaseMeasurements = true;
-inline constexpr bool kCurrentSamplesArePwmWindowed = false;
 
 // Optional temperature channels provided by this board.
 inline constexpr bool kCpuTemperatureAvailable = false;
 inline constexpr bool kBridgeTemperatureAvailable = false;
 inline constexpr bool kMotorTemperatureAvailable = false;
 
-// The simulation emulates the same cadence as the BCC: one current sample per
-// PWM half period, one control cycle (control and observer handler) every
-// kHalfPeriodsPerCycle samples.
+// The simulation emulates the same cadence as the STM32H7: a sample with the
+// trip checks every PWM half period, SampleHandler() after every valley or
+// every sample (ControlSampling). The cycle timer runs kHalfPeriodsPerCycle
+// of them per expiry (two PWM periods, one control cycle of the observer at
+// the factory 32 kHz).
 inline constexpr uint8_t kHalfPeriodsPerCycle = 4U;
 
-// Timestamps of the control boundary and the Hall edges: nanoseconds of
+// Timestamps of the samples and the Hall edges: nanoseconds of
 // virtual (simulated) time, wrapping every 4.3 s.
 inline constexpr uint32_t kTimestampFrequency = 1'000'000'000U;
 

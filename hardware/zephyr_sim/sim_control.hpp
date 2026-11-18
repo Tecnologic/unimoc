@@ -17,6 +17,7 @@
 
 #include <array>
 #include <cstdint>
+#include "hardware_interface.hpp"
 #include "motor_simulation.hpp"
 #include "three_phase_system.hpp"
 #include "units.hpp"
@@ -25,6 +26,12 @@ namespace unimoc::hardware::sim {
 
 /// External enable (jumper, e-stop). Dropping it while enabled breaks like the hardware does.
 void SetExternalEnable(bool present) noexcept;
+
+/// A motor temperature sensor on the stator of the plant (GetTemperatureMeasurements()); off by default.
+void SetMotorSensor(bool present) noexcept;
+
+/// @return Whether the simulated motor temperature sensor is fitted.
+[[nodiscard]] bool MotorSensor() noexcept;
 
 /**
  * @brief Replaces the measured phase currents [A] (sensor fault injection).
@@ -77,9 +84,10 @@ void SetPaused(bool paused) noexcept;
 /**
  * @brief Runs one control cycle synchronously.
  *
- * Same order as the timer: ControlCycleHandler() and ObserverHandler() on the
- * samples of the previous cycle, then the plant over the next
- * kHalfPeriodsPerCycle half periods. Use with SetFreeRunning(false).
+ * Same order as the timer: kHalfPeriodsPerCycle half periods of the plant,
+ * each followed by its sample and checks; after a valley (or every sample)
+ * SampleHandler() and, at the end of a control cycle, ObserverHandler(). Use
+ * with SetFreeRunning(false).
  */
 void StepCycle() noexcept;
 
@@ -95,18 +103,37 @@ struct Snapshot {
  * @brief Returns the platform to the state right after Initialize().
  *
  * The plant goes back to standstill (configuration, shaft mode and load are
- * kept), the cycle counter, the virtual time and the duty plan restart, the
+ * kept), the cycle counter, the virtual time and the duties restart, the
  * current override is cleared and the power stage is disabled. The controller
  * is not part of the platform: restart it with StartRuntime(). Use with
  * SetFreeRunning(false).
  */
 void Reset() noexcept;
 
+/**
+ * @brief First-order low passes on the measured phase currents and phase voltages.
+ *
+ * As the RC filters of a board: the samples lag the plant by these time
+ * constants, and GetSenseDelays() of the platform reports them. Zero (the
+ * default): no filter. Set before StartRuntime(), which reads the delays.
+ */
+void SetSenseFilters(const SenseDelays& filters) noexcept;
+
 /// Captures the platform state; consistent even while the cycle timer runs.
 [[nodiscard]] Snapshot TakeSnapshot() noexcept;
 
 /// Runs @p count control cycles synchronously (see StepCycle()).
 void AdvanceCycles(uint32_t count) noexcept;
+
+/**
+ * @brief Runs control cycles synchronously until CycleCount() reaches @p cycle.
+ *
+ * Stops early after the cycle in which the power stage left the enabled
+ * state (a trip, a lost enable), so a deterministic run ends at the fault.
+ *
+ * @return The control cycles run.
+ */
+uint32_t RunUntil(uint32_t cycle) noexcept;
 
 /// Virtual time since Initialize(): CycleCount() control periods, exact in nanoseconds.
 [[nodiscard]] uint64_t VirtualTimeNs() noexcept;
@@ -117,7 +144,7 @@ void AdvanceCycles(uint32_t count) noexcept;
 /// Control cycles run since Initialize().
 [[nodiscard]] uint32_t CycleCount() noexcept;
 
-/// Plant truth as plain floats for the traces (SI units); updated at the end of every cycle.
+/// Plant truth as plain floats for the traces (SI units); updated at the end of every half period.
 struct PlantTrace {
   float i_a{0.0F};               ///< Phase current a [A].
   float i_b{0.0F};               ///< Phase current b [A].
@@ -130,7 +157,7 @@ struct PlantTrace {
   float torque{0.0F};            ///< Electromagnetic torque [N m].
 };
 
-/// The plant truth the control cycle of the next cycle sees; read by the trace device only.
+/// The plant truth at the last sample; read by the trace device only.
 [[nodiscard]] const PlantTrace& PlantTraceSignals() noexcept;
 
 }  // namespace unimoc::hardware::sim

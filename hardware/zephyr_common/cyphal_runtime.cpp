@@ -26,6 +26,7 @@
 #include <zephyr/sys/reboot.h>
 #include <algorithm>
 #include <array>
+#include "board_inputs_interface.hpp"
 #include "current_control_isr.hpp"
 #include "cyphal/canard_transport.hpp"
 #include "cyphal/node.hpp"
@@ -37,6 +38,7 @@
 #include "ebike_interface.hpp"
 #include "hardware_interface.hpp"
 #include "hardware_interface_config.hpp"
+#include "outer_loop.hpp"
 #include "trace_node.hpp"
 #include "trace_signals.hpp"
 #include "zephyr_can_media.hpp"
@@ -157,11 +159,11 @@ void CyphalThread(void* /*unused*/, void* /*unused*/, void* /*unused*/) {
   info.unique_id = g_unique_id;
   node.SetInfo(info);
 
-  static drive::DriveNode drive{node,
-                                *g_store,
-                                kMotors[0],
-                                drive::DriveHooks{Restart, SettingsApplied},
-                                std::span<const uint8_t>{g_unique_id}};
+  StartBoardInputs();  // power board detect, gate supply, accelerator and brake (board_inputs_interface.hpp)
+  drive::DriveHooks hooks{Restart, SettingsApplied};
+  hooks.board = CONFIG_BOARD;  // the board name an update image must carry
+  CyphalPlatformDriveHooks(hooks);
+  static drive::DriveNode drive{node, *g_store, kMotors[0], hooks, std::span<const uint8_t>{g_unique_id}};
   // The e-bike control engages the drive and sets its torque (docs/ebike_plan.md).
   static ebike::EbikeControl ebike_control{GetEbikeIo()};
   if (IS_ENABLED(CONFIG_UNIMOC_EBIKE)) {
@@ -171,7 +173,7 @@ void CyphalThread(void* /*unused*/, void* /*unused*/, void* /*unused*/) {
   }
   CyphalPlatformStart(node, kSnapshot.Get());
 
-  // Traces: the control signals first (IDs 0..11), then the platform's.
+  // Traces: the control signals first (IDs 0..15), then the platform's.
   static trace::TraceNode trace_node{node, trace::TraceDevice()};
   if (!trace::RegisterControlSignals()) {
     LOG_WRN("trace registry full");
@@ -194,8 +196,9 @@ void CyphalThread(void* /*unused*/, void* /*unused*/, void* /*unused*/) {
   while (true) {
     (void)k_sem_take(&g_cyphal_wake, K_MSEC(1));
     const uint64_t kNow = NowUs();
-    drive.Spin(kNow);
+    drive.Spin(kNow, CyphalPlatformDriveTimeUs(kNow));
     trace_node.Spin();
+    trace::SetThermalSignals(current_control::OuterLoop::Instance().Status());
     CyphalPlatformSpin(node, kNow);
     uint8_t level = 0U;
     while (UnimocCyphalLogGet(&level, text.data(), text.size())) {
@@ -205,6 +208,8 @@ void CyphalThread(void* /*unused*/, void* /*unused*/, void* /*unused*/) {
 }
 
 }  // namespace
+
+uint32_t CyphalTrafficCount() noexcept { return g_can_media.TrafficCount(); }
 
 void StartCyphal(settings::SettingsStore& store) noexcept {
   g_store = &store;

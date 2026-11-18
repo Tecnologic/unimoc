@@ -40,9 +40,9 @@ enum class PowerStageState : uint8_t {
  * zero-latency ones. Enable() runs in thread context only.
  *
  * HoldOffEnable() keeps Enable() from releasing the outputs, for example
- * while flash is written: on the single-bank STM32G4 a flash write stalls the
- * zero-latency control cycle for milliseconds, which must not happen with the
- * outputs released. Enable() and the hold-off exclude each other, so a stage
+ * while flash is written: a flash write to the bank the code runs from stalls
+ * the zero-latency control cycle for milliseconds, which must not happen with
+ * the outputs released. Enable() and the hold-off exclude each other, so a stage
  * found disabled after HoldOffEnable() stays disabled until ReleaseEnable().
  */
 class PowerStageInterface {

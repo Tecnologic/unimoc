@@ -36,6 +36,7 @@ using startup::StartupNeeds;
 using startup::StartupStart;
 
 constexpr std::string_view kMotorConnected = "motor-connected";
+constexpr std::string_view kShaftFree = "shaft-free";
 
 /// Largest meter reading taken [V or A]: a plausibility bound, not a hardware limit.
 constexpr float kMaxReading = 1000.0F;
@@ -102,12 +103,114 @@ bool Same(const StatusMessage& a, const StatusMessage& b) noexcept {
          a.counter == b.counter;
 }
 
+constexpr float kInf = std::numeric_limits<float>::infinity();
+
 constexpr cyphal::RegisterDescription
     kResultsDescription{{},
-                        -std::numeric_limits<float>::infinity(),
-                        std::numeric_limits<float>::infinity(),
+                        -kInf,
+                        kInf,
                         cyphal::RegisterEffect::kImmediate,
                         "Startup aid result per step: 1 passed, 0 failed or not run"};
+
+/// The result registers of the identification, after unimoc.startup.results.
+struct IdentifyRegister {
+  const char* name{nullptr};
+  cyphal::RegisterDescription description;
+};
+constexpr std::array<IdentifyRegister, 9> kIdentifyRegisters{{
+    {cyphal::reg::kIdentifyResultR,
+     {"Ohm",
+      -kInf,
+      kInf,
+      cyphal::RegisterEffect::kImmediate,
+      "Measured stator resistance (M1); NaN: not measured"}},
+    {cyphal::reg::kIdentifyResultDeadTime,
+     {"s",
+      -kInf,
+      kInf,
+      cyphal::RegisterEffect::kImmediate,
+      "Measured dead time for unimoc.control.dtc.dead_time (M1); NaN: not measured"}},
+    {cyphal::reg::kIdentifyResultDeadTimeVoltage,
+     {"V", -kInf, kInf, cyphal::RegisterEffect::kImmediate, "Dead-time voltage of the M1 regression"}},
+    {cyphal::reg::kIdentifyResultLd,
+     {"H",
+      -kInf,
+      kInf,
+      cyphal::RegisterEffect::kImmediate,
+      "Measured d-axis inductance (M2); NaN: not measured"}},
+    {cyphal::reg::kIdentifyResultLq,
+     {"H",
+      -kInf,
+      kInf,
+      cyphal::RegisterEffect::kImmediate,
+      "Measured q-axis inductance (M2); NaN: not measured"}},
+    {cyphal::reg::kIdentifyResultL,
+     {"H",
+      -kInf,
+      kInf,
+      cyphal::RegisterEffect::kImmediate,
+      "Mean of L_d and L_q (M2), for unimoc.motor.stator.L"}},
+    {cyphal::reg::kIdentifyResultRAc,
+     {"Ohm",
+      -kInf,
+      kInf,
+      cyphal::RegisterEffect::kImmediate,
+      "Resistance from the M2 impedance, a check of R (within 20 %)"}},
+    {cyphal::reg::kIdentifyResultFluxPm,
+     {"Wb",
+      -kInf,
+      kInf,
+      cyphal::RegisterEffect::kImmediate,
+      "Measured PM flux linkage by coast-down (M3), for unimoc.motor.pmsm.flux_pm; NaN: not measured"}},
+    {cyphal::reg::kIdentifyResultFluxPmSpread,
+     {"",
+      -kInf,
+      kInf,
+      cyphal::RegisterEffect::kImmediate,
+      "Largest relative deviation of one M3 period from the mean (passes within 0.03)"}},
+}};
+
+uint8_t IdentificationStateOf(const identification::Status& status) noexcept {
+  if (status.active) {
+    return status.needs_shaft_free ? unimoc_drive_CommissioningStatus_0_1_STATE_WAITING
+                                   : unimoc_drive_CommissioningStatus_0_1_STATE_MEASURING;
+  }
+  switch (status.step) {
+    case identification::Step::kDone:
+      return unimoc_drive_CommissioningStatus_0_1_STATE_DONE;
+    case identification::Step::kFault:
+      return (status.fault == identification::Fault::kAborted ||
+              status.fault == identification::Fault::kEmergencyStop)
+                 ? unimoc_drive_CommissioningStatus_0_1_STATE_ABORTED
+                 : unimoc_drive_CommissioningStatus_0_1_STATE_FAILED;
+    default:
+      return unimoc_drive_CommissioningStatus_0_1_STATE_IDLE;
+  }
+}
+
+/// The measurements of a START_IDENTIFICATION parameter: "M1", "M2", "M3" or a list such as "M1,M2,M3";
+/// empty: the standstill measurements M1 and M2 (M3 spins the motor, so only on request).
+std::optional<uint8_t> Measurements(std::string_view text) noexcept {
+  if (text.empty()) {
+    return identification::kMeasureResistance | identification::kMeasureInductance;
+  }
+  uint8_t measurements = 0U;
+  while (!text.empty()) {
+    const std::size_t kComma = text.find(',');
+    const std::string_view kToken = text.substr(0U, kComma);
+    if (kToken == "M1") {
+      measurements |= identification::kMeasureResistance;
+    } else if (kToken == "M2") {
+      measurements |= identification::kMeasureInductance;
+    } else if (kToken == "M3") {
+      measurements |= identification::kMeasureFluxLinkage;
+    } else {
+      return std::nullopt;
+    }
+    text = (kComma == std::string_view::npos) ? std::string_view{} : text.substr(kComma + 1U);
+  }
+  return measurements;
+}
 
 }  // namespace
 
@@ -121,14 +224,20 @@ cyphal::CommandResult Commissioning::OnCommand(const uint16_t command,
   switch (command) {
     case unimoc_drive_CommissioningStatus_0_1_COMMAND_START_STARTUP_AID:
       return Start();
+    case unimoc_drive_CommissioningStatus_0_1_COMMAND_START_IDENTIFICATION:
+      return StartIdentification(Text(parameter));
     case unimoc_drive_CommissioningStatus_0_1_COMMAND_CONTINUE:
+      if (identification_->IsActive()) {
+        return ContinueIdentification(Text(parameter));
+      }
       return Continue(Text(parameter));
     case unimoc_drive_CommissioningStatus_0_1_COMMAND_SET_READING:
       return SetReading(Text(parameter));
     case unimoc_drive_CommissioningStatus_0_1_COMMAND_ABORT:
       fsm_->RequestAbort();  // no change outside a run
+      identification_->Abort();
       return {cyphal::cmd::kStatusSuccess, ""};
-    default:  // the motor identification is not there yet
+    default:  // APPLY_IDENTIFICATION: milestone I6
       return {cyphal::cmd::kStatusBadCommand, "not implemented"};
   }
 }
@@ -140,8 +249,12 @@ cyphal::CommandResult Commissioning::Start() noexcept {
   if (*emergency_stop_) {
     return {cyphal::cmd::kStatusBadState, "emergency stop latched: restart first"};
   }
+  if (identification_->IsActive()) {
+    return {cyphal::cmd::kStatusBadState, "the identification runs"};
+  }
   switch (fsm_->RequestRun()) {
     case StartupStart::kStarted:
+      identification_last_ = false;
       return {cyphal::cmd::kStatusSuccess, "started: phase 1 without the motor"};
     case StartupStart::kRunning:
       return {cyphal::cmd::kStatusBadState, "the startup aid runs already"};
@@ -149,6 +262,62 @@ cyphal::CommandResult Commissioning::Start() noexcept {
       return {cyphal::cmd::kStatusFailure, "outputs not released: external enable missing"};
   }
   return {cyphal::cmd::kStatusInternalError, ""};
+}
+
+cyphal::CommandResult Commissioning::StartIdentification(const std::string_view measurements) noexcept {
+  const std::optional<uint8_t> kMeasurements = Measurements(measurements);
+  if (!kMeasurements.has_value()) {
+    return {cyphal::cmd::kStatusBadParameter, "expected M1, M2, M3 or a list such as M1,M2,M3"};
+  }
+  if (*engaged_) {
+    return {cyphal::cmd::kStatusBadState, "engaged: disengage first"};
+  }
+  if (*emergency_stop_) {
+    return {cyphal::cmd::kStatusBadState, "emergency stop latched: restart first"};
+  }
+  if (fsm_->IsActive()) {
+    return {cyphal::cmd::kStatusBadState, "the startup aid runs"};
+  }
+  switch (identification_->Start(*kMeasurements)) {
+    case identification::StartResult::kStarted:
+      identification_last_ = true;
+      return {cyphal::cmd::kStatusSuccess, "started: the motor may jerk once while it aligns"};
+    case identification::StartResult::kRunning:
+      return {cyphal::cmd::kStatusBadState, "the identification runs already"};
+    case identification::StartResult::kNotReleased:
+      return {cyphal::cmd::kStatusFailure, "outputs not released: external enable missing"};
+    case identification::StartResult::kNoMeasurement:
+      return {cyphal::cmd::kStatusBadParameter, "expected M1, M2, M3 or a list such as M1,M2,M3"};
+  }
+  return {cyphal::cmd::kStatusInternalError, ""};
+}
+
+cyphal::CommandResult Commissioning::ContinueIdentification(const std::string_view confirmation) noexcept {
+  switch (identification_->Confirm(confirmation == kShaftFree)) {
+    case identification::ConfirmResult::kAccepted:
+      return {cyphal::cmd::kStatusSuccess, "the motor spins up"};
+    case identification::ConfirmResult::kNotWaiting:
+      return {cyphal::cmd::kStatusBadState, "the step is still measuring"};
+    case identification::ConfirmResult::kWrongConfirmation:
+      return {cyphal::cmd::kStatusBadParameter, "confirm shaft-free"};
+  }
+  return {cyphal::cmd::kStatusInternalError, ""};
+}
+
+StatusMessage Commissioning::IdentificationStatus() const noexcept {
+  const identification::Status kStatus = identification_->GetStatus();
+  StatusMessage status{};
+  status.procedure = unimoc_drive_CommissioningStatus_0_1_PROCEDURE_IDENTIFICATION;
+  status.step = static_cast<uint8_t>(kStatus.step);
+  status.state = IdentificationStateOf(kStatus);
+  status.needs = kStatus.needs_shaft_free ? unimoc_drive_CommissioningStatus_0_1_NEEDS_SHAFT_FREE
+                                          : unimoc_drive_CommissioningStatus_0_1_NEEDS_NONE;
+  status.progress = kStatus.progress;
+  status.passed = kStatus.passed;
+  status.failed = kStatus.failed;
+  status.fault = static_cast<uint8_t>(kStatus.fault);
+  status.counter = kStatus.counter;
+  return status;
 }
 
 cyphal::CommandResult Commissioning::Continue(const std::string_view confirmation) noexcept {
@@ -199,6 +368,9 @@ cyphal::CommandResult Commissioning::SetReading(const std::string_view reading) 
 }
 
 StatusMessage Commissioning::Status() const noexcept {
+  if (identification_last_) {
+    return IdentificationStatus();
+  }
   const startup::StartupStatus kStartup = fsm_->Status();
   StatusMessage status{};
   status.procedure = kStartup.started ? unimoc_drive_CommissioningStatus_0_1_PROCEDURE_STARTUP_AID
@@ -219,27 +391,56 @@ bool Commissioning::Due(const uint64_t now_us, StatusMessage& status) noexcept {
   if (!kChanged && now_us < next_us_) {
     return false;
   }
-  const bool kActive = fsm_->IsActive();
+  const bool kActive = Active();
   next_us_ = now_us + (kActive ? kActivePeriodUs : kIdlePeriodUs);
   last_ = status;
   published_ = true;
   return true;
 }
 
-std::size_t Commissioning::Count() const noexcept { return 1U; }
+std::size_t Commissioning::Count() const noexcept { return 1U + kIdentifyRegisters.size(); }
 
 std::string_view Commissioning::Name(const std::size_t index) const noexcept {
-  return index == 0U ? std::string_view{cyphal::reg::kStartupResults} : std::string_view{};
+  if (index == 0U) {
+    return cyphal::reg::kStartupResults;
+  }
+  return index <= kIdentifyRegisters.size() ? std::string_view{kIdentifyRegisters[index - 1U].name}
+                                            : std::string_view{};
 }
 
 cyphal::RegisterDescription Commissioning::Describe(const std::size_t index) const noexcept {
-  return index == 0U ? kResultsDescription : cyphal::RegisterDescription{};
+  if (index == 0U) {
+    return kResultsDescription;
+  }
+  return index <= kIdentifyRegisters.size() ? kIdentifyRegisters[index - 1U].description
+                                            : cyphal::RegisterDescription{};
 }
 
 cyphal::RegisterFlags Commissioning::Read(const std::size_t index,
                                           cyphal::RegisterValue& value) const noexcept {
-  if (index != 0U) {
+  if (index > kIdentifyRegisters.size()) {
     cyphal::SetEmpty(value);
+    return {false, false};
+  }
+  if (index > 0U) {
+    // The register boundary of the results: real32 in base units, NaN until measured.
+    const identification::Results& results = identification_->GetResults();
+    const float kNan = std::numeric_limits<float>::quiet_NaN();
+    const bool kResistance = results.resistance_valid;
+    const bool kInductance = results.inductance_valid;
+    const bool kFlux = results.flux_valid;
+    const std::array<float, kIdentifyRegisters.size()> kValues{
+        kResistance ? results.resistance.Value() : kNan,
+        kResistance ? results.dead_time.Value() : kNan,
+        kResistance ? results.dead_time_voltage.Value() : kNan,
+        kInductance ? results.l_d.Value() : kNan,
+        kInductance ? results.l_q.Value() : kNan,
+        kInductance ? results.l_mean.Value() : kNan,
+        kInductance ? results.resistance_ac.Value() : kNan,
+        kFlux ? results.flux_pm.Value() : kNan,
+        kFlux ? results.flux_spread.Value() : kNan,
+    };
+    cyphal::SetReal32(value, kValues[index - 1U]);
     return {false, false};
   }
   uavcan_register_Value_1_0_select_natural8_(&value);

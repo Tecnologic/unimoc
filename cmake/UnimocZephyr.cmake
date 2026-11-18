@@ -27,7 +27,7 @@ macro(unimoc_zephyr_libraries)
   add_library(unimoc_strict_warnings INTERFACE)
   set_project_warnings(unimoc_strict_warnings)
 
-  foreach(unimoc_lib_name units cyphal settings motor_control ebike)
+  foreach(unimoc_lib_name units cyphal settings motor_control ebike vehicle)
     add_subdirectory(${UNIMOC_ROOT}/lib/${unimoc_lib_name}
                      ${CMAKE_CURRENT_BINARY_DIR}/lib/${unimoc_lib_name})
   endforeach()
@@ -58,5 +58,6 @@ macro(unimoc_zephyr_libraries)
     unimoc_settings
     unimoc_motor_control
     unimoc_ebike
+    unimoc_vehicle
     cymon)
 endmacro()

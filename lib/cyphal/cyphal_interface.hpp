@@ -121,6 +121,48 @@ inline constexpr const char* kStatorR = "unimoc.motor.stator.R";
 /// Type: real32[1] (read/write, persistent)
 inline constexpr const char* kStatorL = "unimoc.motor.stator.L";
 
+/// Winding temperature at which unimoc.motor.stator.R was measured [°C].
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kStatorRTemperature = "unimoc.motor.stator.R_temperature";
+
+// --- Thermal model of the motor (docs/motor_thermal_plan.md) ---
+// Type of each: real32[1] (read/write, persistent)
+
+/// Ambient temperature, start value of the estimate [°C].
+inline constexpr const char* kThermalAmbient = "unimoc.motor.thermal.ambient";
+/// Heat capacity of the winding [J/K].
+inline constexpr const char* kThermalCWinding = "unimoc.motor.thermal.C_winding";
+/// Heat capacity of the stator and the housing [J/K].
+inline constexpr const char* kThermalCStator = "unimoc.motor.thermal.C_stator";
+/// Thermal resistance from the winding to the stator [K/W].
+inline constexpr const char* kThermalRWinding = "unimoc.motor.thermal.R_winding";
+/// Thermal resistance from the stator to the ambient [K/W].
+inline constexpr const char* kThermalRStator = "unimoc.motor.thermal.R_stator";
+/// Winding temperature where the current derating starts [°C].
+inline constexpr const char* kThermalDerateStart = "unimoc.motor.thermal.derate_start";
+/// Winding temperature at zero current [°C].
+inline constexpr const char* kThermalLimit = "unimoc.motor.thermal.limit";
+/// Largest electrical speed of a stator resistance window [rad/s].
+inline constexpr const char* kThermalRsSpeedMax = "unimoc.motor.thermal.rs_speed_max";
+/// Smallest current of a stator resistance window [A].
+inline constexpr const char* kThermalRsCurrentMin = "unimoc.motor.thermal.rs_current_min";
+/// Time constant of the correction from the stator resistance [s]; 0 off.
+inline constexpr const char* kThermalRsCorrectionTime = "unimoc.motor.thermal.rs_correction_time";
+/// Estimated winding temperature [degC]. Type: real32[1] (read-only, volatile)
+inline constexpr const char* kMotorTemperatureWinding = "unimoc.motor.temperature.winding";
+/// Estimated stator temperature [degC]. Type: real32[1] (read-only, volatile)
+inline constexpr const char* kMotorTemperatureStator = "unimoc.motor.temperature.stator";
+/// Winding temperature of the last stator resistance estimate [degC]; NaN: none.
+/// Type: real32[1] (read-only, volatile)
+inline constexpr const char* kMotorTemperatureRs = "unimoc.motor.temperature.rs";
+/// 1: the last stator resistance estimate lay outside the plausibility gates and was not used.
+/// Type: bit[1] (read-only, volatile)
+inline constexpr const char* kMotorTemperatureRsRejected = "unimoc.motor.temperature.rs_rejected";
+/// RMS of |i_dq| over the last window of the thermal model [A]. Type: real32[1] (read-only, volatile)
+inline constexpr const char* kMotorTemperatureCurrent = "unimoc.motor.temperature.current";
+/// Time constant of the correction from a motor temperature sensor [s]; 0: only reported.
+inline constexpr const char* kThermalSensorCorrectionTime = "unimoc.motor.thermal.sensor_correction_time";
+
 // --- PMSM / EESM parameters ---
 
 /// Permanent-magnet flux linkage ψ_PM [Wb].
@@ -230,6 +272,8 @@ inline constexpr const char* kAsmFluxIDMin = "unimoc.control.asm_flux.i_d_min";
 /// ASM flux controller maximum d-axis current [A].
 /// Type: real32[1] (read/write, persistent)
 inline constexpr const char* kAsmFluxIDMax = "unimoc.control.asm_flux.i_d_max";
+/// Rotor flux reference |psi_r*| of the ASM flux controller [Wb]. Type: real32[1] (read/write, persistent)
+inline constexpr const char* kAsmFluxPsiR = "unimoc.control.asm_flux.psi_r";
 
 // --- Field weakening ---
 
@@ -261,23 +305,9 @@ inline constexpr const char* kSvmDutyMax = "unimoc.control.svm.duty_max";
 /// Type: real32[1] (read/write, persistent)
 inline constexpr const char* kDtcDeadTime = "unimoc.control.dtc.dead_time";
 
-/// PWM switching frequency [Hz].
-/// Type: real32[1] (read/write, persistent)
-inline constexpr const char* kDtcFPwm = "unimoc.control.dtc.f_pwm";
-
 /// Phase-current zero-crossing threshold [A].
 /// Type: real32[1] (read/write, persistent)
 inline constexpr const char* kDtcIThreshold = "unimoc.control.dtc.i_threshold";
-
-// --- HFI observer ---
-
-/// HFI injection voltage [V].
-/// Type: real32[1] (read/write, persistent)
-inline constexpr const char* kHfiVInject = "unimoc.observer.hfi.v_inject";
-
-/// HFI current-error to angle scaling gain [rad/A].
-/// Type: real32[1] (read/write, persistent)
-inline constexpr const char* kHfiErrorGain = "unimoc.observer.hfi.error_gain";
 
 // --- EESM excitation controller ---
 
@@ -400,10 +430,13 @@ inline constexpr const char* kBatteryTripVoltage = "unimoc.battery.limits.trip_v
 
 // --- PWM frequency ---
 
-/// PWM switching frequency selection: 16/20/24/28/32 kHz.
-/// Stored as the frequency value in kHz (uint8).
-/// Type: natural8[1] (read/write, persistent)
+/// PWM switching frequency: 16/20/24/28/32/40/48/64 kHz, 0 selects it from the inductance [Hz].
+/// Type: real32[1] (read/write, persistent)
 inline constexpr const char* kPwmFrequency = "unimoc.control.pwm_frequency";
+
+/// PWM half periods per control step: 1, 2, 4 or 8, 0 the fastest the board runs.
+/// Type: natural8[1] (read/write, persistent)
+inline constexpr const char* kControlDivider = "unimoc.control.divider";
 
 // --- d/q-axis current controller ---
 
@@ -438,6 +471,16 @@ inline constexpr const char* kCurrentVMax = "unimoc.control.current.v_max";
 /// Read-back of pass/fail status flags, one byte per FSM step (1=pass, 0=fail/pending).
 /// Type: uint8[<=14] (read-only)
 inline constexpr const char* kStartupResults = "unimoc.startup.results";
+/// Results of the motor identification (real32, base units, read only; NaN: not measured).
+inline constexpr const char* kIdentifyResultR = "unimoc.identify.result.R";
+inline constexpr const char* kIdentifyResultDeadTime = "unimoc.identify.result.dead_time";
+inline constexpr const char* kIdentifyResultDeadTimeVoltage = "unimoc.identify.result.dead_time_voltage";
+inline constexpr const char* kIdentifyResultLd = "unimoc.identify.result.L_d";
+inline constexpr const char* kIdentifyResultLq = "unimoc.identify.result.L_q";
+inline constexpr const char* kIdentifyResultL = "unimoc.identify.result.L";
+inline constexpr const char* kIdentifyResultRAc = "unimoc.identify.result.R_ac";
+inline constexpr const char* kIdentifyResultFluxPm = "unimoc.identify.result.flux_pm";
+inline constexpr const char* kIdentifyResultFluxPmSpread = "unimoc.identify.result.flux_pm_spread";
 
 /// Computed phase-A current-sense gain correction factor [dimensionless].
 /// Type: real32[1] (read-only after CURRENT_SENSE_CALIBRATION step)
@@ -471,12 +514,13 @@ inline constexpr const char* kStartupAdcOffsetC = "unimoc.startup.adc_offset_c";
 // Execution times of the interrupts (M0, CONFIG_UNIMOC_HOT_PATH_TIMING)
 // =========================================================================
 
-/// Whole sample interrupt of a control boundary, including the control cycle:
+/// Whole sample interrupt (every sample), including its control step:
 /// min, mean, max [timestamp-clock cycles] and the number of records.
 /// Type: natural32[4] (read-only)
 inline constexpr const char* kTimingSampleIsr = "unimoc.timing.sample_isr";
 
-/// The control cycle alone: min, mean, max [cycles], records.
+/// The control step of one sample alone (the name predates the per-sample
+/// control): min, mean, max [cycles], records.
 /// Type: natural32[4] (read-only)
 inline constexpr const char* kTimingControlCycle = "unimoc.timing.control_cycle";
 
@@ -484,14 +528,26 @@ inline constexpr const char* kTimingControlCycle = "unimoc.timing.control_cycle"
 /// Type: natural32[4] (read-only)
 inline constexpr const char* kTimingObserver = "unimoc.timing.observer";
 
-/// Duty plans applied late and control cycles that started while the
-/// observer still ran, since start.
+/// Duties written after the peak they were meant for and control cycles that
+/// ended while the observer still ran, since start.
 /// Type: natural32[2] (read-only)
 inline constexpr const char* kTimingOverruns = "unimoc.timing.overruns";
 
 /// Frequency of the timestamp clock the times count in [Hz].
 /// Type: natural32[1] (read-only)
 inline constexpr const char* kTimingClockHz = "unimoc.timing.clock_hz";
+
+/// Timing the current control runs: PWM frequency, control-step rate,
+/// observer rate [Hz], the control divider in half periods and the highest duty the current sensing
+/// allows (settings::ResolveControlTiming()).
+/// Type: real32[5] (read-only)
+inline constexpr const char* kTimingPwm = "unimoc.timing.pwm";
+
+/// PWM frequency for the inductance of the running settings [Hz], the
+/// current ripple there and at the running PWM frequency [A peak to peak]
+/// (settings::SuggestedPwmFrequency()).
+/// Type: real32[3] (read-only)
+inline constexpr const char* kTimingPwmSuggestion = "unimoc.timing.pwm_suggestion";
 
 // New statistics: ExecuteCommand cmd::kCmdResetTiming (the overrun counters keep counting).
 
@@ -583,7 +639,7 @@ inline constexpr const char* kSubBatteryStatusId = "uavcan.sub.battery_status.id
 inline constexpr const char* kSubBatteryStatusType = "uavcan.sub.battery_status.type";
 
 /// State of the drive for the VDC.
-/// Data type: unimoc.cart.DriveStatus.0.1
+/// Data type: unimoc.cart.DriveStatus.0.2
 /// Type: natural16[1] (read/write, persistent)
 inline constexpr const char* kPubDriveStatusId = "uavcan.pub.drive_status.id";
 /// Type name of the drive status publication. Type: string (read-only)
@@ -595,6 +651,27 @@ inline constexpr const char* kPubDriveStatusType = "uavcan.pub.drive_status.type
 inline constexpr const char* kPubCommissioningId = "uavcan.pub.commissioning.id";
 /// Type name of the commissioning status publication. Type: string (read-only)
 inline constexpr const char* kPubCommissioningType = "uavcan.pub.commissioning.type";
+
+/// EESM: field current command of the drive to its excitation module.
+/// Data type: unimoc.excitation.Command.0.1
+/// Type: natural16[1] (read/write, persistent)
+inline constexpr const char* kPubExcitationCommandId = "uavcan.pub.excitation_command.id";
+/// Type name of the excitation command publication. Type: string (read-only)
+inline constexpr const char* kPubExcitationCommandType = "uavcan.pub.excitation_command.type";
+
+/// EESM: state of the excitation module (measured field current).
+/// Data type: unimoc.excitation.Status.0.1
+/// Type: natural16[1] (read/write, persistent)
+inline constexpr const char* kSubExcitationStatusId = "uavcan.sub.excitation_status.id";
+/// Type name of the excitation status subscription. Type: string (read-only)
+inline constexpr const char* kSubExcitationStatusType = "uavcan.sub.excitation_status.type";
+
+/// EESM: field current setpoint of the bus; overrides the drive's own field current while fresh.
+/// Data type: uavcan.si.unit.electric_current.Scalar.1.0
+/// Type: natural16[1] (read/write, persistent)
+inline constexpr const char* kSubExcitationSetpointId = "uavcan.sub.excitation_setpoint.id";
+/// Type name of the excitation setpoint subscription. Type: string (read-only)
+inline constexpr const char* kSubExcitationSetpointType = "uavcan.sub.excitation_setpoint.type";
 
 /// Homing state publication (0 IDLE, 1 SEARCHING, 2 ZEROING, 3 DONE, 4 FAULT).
 /// Data type: uavcan.primitive.scalar.Natural8.1.0
@@ -724,6 +801,48 @@ inline constexpr const char* kEbikeRearmTime = "unimoc.ebike.rearm_time";
 /// Type: real32[1] (read/write, persistent)
 inline constexpr const char* kEbikeDisplayTimeout = "unimoc.ebike.display_timeout";
 
+/// Torque sensor reading at zero load [N m]; the pedal observer learns it while the crank stands still
+/// and the drive stores the learned value (docs/ebike_plan.md, section 4).
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kEbikeTorqueOffset = "unimoc.ebike.torque_offset";
+
+// ---- Accelerator and brake lever (docs/drive4850_h7_plan.md, section 4.3) ----
+
+/// 0 off, 1 accelerator, 2 accelerator and brake lever: the local torque setpoint of a drive without the
+/// e-bike. Type: natural8[1] (read/write, persistent)
+inline constexpr const char* kAccelMode = "unimoc.accel.mode";
+/// Accelerator sensor voltage when released [V]. Type: real32[1] (read/write, persistent)
+inline constexpr const char* kAccelThrottleMin = "unimoc.accel.throttle_min";
+/// Accelerator sensor voltage when fully pressed [V]. Type: real32[1] (read/write, persistent)
+inline constexpr const char* kAccelThrottleMax = "unimoc.accel.throttle_max";
+/// Brake lever sensor voltage when released [V]. Type: real32[1] (read/write, persistent)
+inline constexpr const char* kAccelBrakeMin = "unimoc.accel.brake_min";
+/// Brake lever sensor voltage when fully pulled [V]. Type: real32[1] (read/write, persistent)
+inline constexpr const char* kAccelBrakeMax = "unimoc.accel.brake_max";
+/// Drive torque at the fully pressed accelerator [N m]. Type: real32[1] (read/write, persistent)
+inline constexpr const char* kAccelTorqueMax = "unimoc.accel.torque_max";
+/// Regenerative braking torque at the fully pulled brake lever [N m]. Type: real32[1] (read/write,
+/// persistent)
+inline constexpr const char* kAccelBrakeTorqueMax = "unimoc.accel.brake_torque_max";
+/// The drive stays engaged this long after both inputs were released [s]. Type: real32[1] (read/write,
+/// persistent)
+inline constexpr const char* kAccelEngageHold = "unimoc.accel.engage_hold";
+
+// ---- Board inputs (read-only, board_inputs_interface.hpp) ----
+
+/// The power board is plugged in (Jacobi: PWR_DET); without the detect input always 1.
+/// Type: bit[1] (read-only)
+inline constexpr const char* kBoardPowerBoard = "unimoc.board.power_board";
+/// Gate driver supply +12P [V]; NaN without the input. Type: real32[1] (read-only)
+inline constexpr const char* kBoardGateSupply = "unimoc.board.gate_supply";
+/// Accelerator sensor voltage [V]; NaN without the input. Type: real32[1] (read-only)
+inline constexpr const char* kBoardAccelerator = "unimoc.board.accelerator";
+/// Brake lever sensor voltage [V]; NaN without the input. Type: real32[1] (read-only)
+inline constexpr const char* kBoardBrake = "unimoc.board.brake";
+/// The board inputs allow the engage (power board present, gate supply above its engage limit).
+/// Type: bit[1] (read-only)
+inline constexpr const char* kBoardReady = "unimoc.board.ready";
+
 /// Bus-off events of the CAN interfaces since start.
 /// Type: natural32[1] (read-only)
 inline constexpr const char* kCanBusOffCount = "unimoc.can.bus_off_count";
@@ -783,6 +902,84 @@ inline constexpr const char* kNodeUniqueId = "uavcan.node.unique_id";
 /// need the drive disengaged; gains while engaged are applied at once).
 /// Type: bit[1] (read-only)
 inline constexpr const char* kSettingsPending = "unimoc.settings.pending";
+
+// ---- Vehicle dynamics controller (apps/vdc, docs/system_plan.md section 5.3) ----
+// The VDC keeps its registers in RAM: every start begins with the defaults
+// of src/vdc/vdc_node.hpp (no settings storage yet).
+
+/// Wheel command publication of the VDC (port-ID kSubWheelCommand of the drives).
+/// Data type: unimoc.cart.WheelCommand.0.1
+/// Type: natural16[1] (read-only)
+inline constexpr const char* kPubWheelCommandId = "uavcan.pub.wheel_command.id";
+/// Type name of the wheel command publication. Type: string (read-only)
+inline constexpr const char* kPubWheelCommandType = "uavcan.pub.wheel_command.type";
+
+/// Drive status subscription of the VDC (port-ID kPubDriveStatus of the drives).
+/// Data type: unimoc.cart.DriveStatus.0.2
+/// Type: natural16[1] (read-only)
+inline constexpr const char* kSubDriveStatusId = "uavcan.sub.drive_status.id";
+/// Type name of the drive status subscription. Type: string (read-only)
+inline constexpr const char* kSubDriveStatusType = "uavcan.sub.drive_status.type";
+
+/// Readiness publications of the VDC, one per wheel: kSubReadinessBase plus
+/// the node-ID of the wheel's drive (unimoc.vdc.drive_node_ids), kUnsetPortId
+/// without a drive.
+/// Data type: reg.udral.service.common.Readiness.0.1
+/// Type: natural16[1] (read-only)
+inline constexpr const char* kPubReadinessFrontLeftId = "uavcan.pub.readiness_front_left.id";
+inline constexpr const char* kPubReadinessFrontRightId = "uavcan.pub.readiness_front_right.id";
+inline constexpr const char* kPubReadinessRearLeftId = "uavcan.pub.readiness_rear_left.id";
+inline constexpr const char* kPubReadinessRearRightId = "uavcan.pub.readiness_rear_right.id";
+/// Type names of the readiness publications. Type: string (read-only)
+inline constexpr const char* kPubReadinessFrontLeftType = "uavcan.pub.readiness_front_left.type";
+inline constexpr const char* kPubReadinessFrontRightType = "uavcan.pub.readiness_front_right.type";
+inline constexpr const char* kPubReadinessRearLeftType = "uavcan.pub.readiness_rear_left.type";
+inline constexpr const char* kPubReadinessRearRightType = "uavcan.pub.readiness_rear_right.type";
+
+/// Node-ID of the drive of each wheel (front left, front right, rear left,
+/// rear right); 255: no drive on that wheel.
+/// Type: natural8[4] (read/write)
+inline constexpr const char* kVdcDriveNodeIds = "unimoc.vdc.drive_node_ids";
+
+/// 1: the VDC arms its drives (readiness ENGAGED); 0: STANDBY.
+/// Type: bit[1] (read/write)
+inline constexpr const char* kVdcEngage = "unimoc.vdc.engage";
+
+/// Total wheel torque the VDC distributes, positive forward [N m].
+/// Type: real32[1] (read/write)
+inline constexpr const char* kVdcTorqueRequest = "unimoc.vdc.torque_request";
+
+/// Share of the torque request on the front axle, 0 to 1.
+/// Type: real32[1] (read/write)
+inline constexpr const char* kVdcFrontShare = "unimoc.vdc.front_share";
+
+/// Rate of the wheel command [Hz].
+/// Type: real32[1] (read/write)
+inline constexpr const char* kVdcCycleRate = "unimoc.vdc.cycle_rate";
+
+/// Rate of the readiness of each drive [Hz].
+/// Type: real32[1] (read/write)
+inline constexpr const char* kVdcReadinessRate = "unimoc.vdc.readiness_rate";
+
+/// Age after which the drive status of a wheel counts as lost [s].
+/// Type: real32[1] (read/write)
+inline constexpr const char* kVdcStatusTimeout = "unimoc.vdc.status_timeout";
+
+/// 1 per wheel whose drive follows the VDC (fresh status, engaged, no trip, not in limp-home).
+/// Type: natural8[4] (read-only)
+inline constexpr const char* kVdcDriveAvailable = "unimoc.vdc.drive_available";
+
+/// Wheel speed of each drive status, cart frame [rad/s].
+/// Type: real32[4] (read-only)
+inline constexpr const char* kVdcWheelSpeed = "unimoc.vdc.wheel_speed";
+
+/// Torque estimate of each drive status, cart frame [N m].
+/// Type: real32[4] (read-only)
+inline constexpr const char* kVdcEstimatedTorque = "unimoc.vdc.estimated_torque";
+
+/// Torque of each wheel in the last wheel command [N m].
+/// Type: real32[4] (read-only)
+inline constexpr const char* kVdcWheelTorque = "unimoc.vdc.wheel_torque";
 
 }  // namespace reg
 
@@ -865,10 +1062,15 @@ inline constexpr uint16_t kSubPositionSetpoint = 102U;
 /// Register: `uavcan.sub.control_mode.id`
 inline constexpr uint16_t kSubControlMode = 103U;
 
-/// EESM rotor excitation setpoint (current [A] or flux [Wb] per mode).
-/// Data type: uavcan.primitive.scalar.Real32.1.0
-/// Register: `uavcan.sub.excitation_sp.id`
+/// EESM field current setpoint [A]; overrides the drive's field current while fresh.
+/// Data type: uavcan.si.unit.electric_current.Scalar.1.0
+/// Register: `uavcan.sub.excitation_setpoint.id`
 inline constexpr uint16_t kSubExcitationSetpoint = 104U;
+
+/// EESM: the state of the excitation module.
+/// Data type: unimoc.excitation.Status.0.1
+/// Register: `uavcan.sub.excitation_status.id`
+inline constexpr uint16_t kSubExcitationStatus = 113U;
 
 // Readiness (arming) of the drive, reg.udral.service.common.Readiness.0.1, register
 // `uavcan.sub.readiness.id`: no fixed default; it follows the node-ID
@@ -959,7 +1161,7 @@ inline constexpr uint16_t kPubTelemetry = 212U;
 inline constexpr uint16_t kPubSimPlant = 213U;
 
 /// State of the drive for the vehicle dynamics controller.
-/// Data type: unimoc.cart.DriveStatus.0.1
+/// Data type: unimoc.cart.DriveStatus.0.2
 /// Register: `uavcan.pub.drive_status.id`
 inline constexpr uint16_t kPubDriveStatus = 214U;
 
@@ -967,6 +1169,11 @@ inline constexpr uint16_t kPubDriveStatus = 214U;
 /// Data type: unimoc.drive.CommissioningStatus.0.1
 /// Register: `uavcan.pub.commissioning.id`
 inline constexpr uint16_t kPubCommissioning = 215U;
+
+/// EESM: field current command to the excitation module.
+/// Data type: unimoc.excitation.Command.0.1
+/// Register: `uavcan.pub.excitation_command.id`
+inline constexpr uint16_t kPubExcitationCommand = 216U;
 
 /// @}
 

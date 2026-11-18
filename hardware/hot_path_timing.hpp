@@ -9,7 +9,7 @@
  *    @brief Execution-time statistics of the interrupts (milestone M0).
  *
  *    The platform measures the sample interrupt, the control cycle and the
- *    observer in cycles of its timestamp clock (BCC: the DWT cycle counter)
+ *    observer in cycles of its timestamp clock (STM32H7: the DWT cycle counter)
  *    when CONFIG_UNIMOC_HOT_PATH_TIMING is enabled, and records them here.
  *    The Cyphal thread reads them (`unimoc.timing.*` registers).
  *
@@ -103,8 +103,8 @@ class Probe {
 
 /// Measured sections.
 enum class Section : uint8_t {
-  kSampleIsr,     ///< Whole sample interrupt of a control boundary (includes the control cycle).
-  kControlCycle,  ///< ControlCycleHandler() alone.
+  kSampleIsr,     ///< Whole sample interrupt, every sample (includes the control step).
+  kControlCycle,  ///< SampleHandler() alone: the control step of one sample.
   kObserver,      ///< ObserverHandler() alone.
 };
 
@@ -117,7 +117,7 @@ inline constexpr std::size_t kSectionCount = 3U;
   return probes[static_cast<std::size_t>(section)];
 }
 
-/// Duty plans the hardware did not apply in time since start (BCC: the DMA
+/// Duty plans the hardware did not apply in time since start (STM32H7: the DMA
 /// burst ran ahead); 0 on a platform without such a check.
 [[nodiscard]] uint32_t DutyOverruns() noexcept;
 

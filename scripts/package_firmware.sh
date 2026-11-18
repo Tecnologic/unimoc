@@ -3,7 +3,11 @@
 #
 # Collect the files of one firmware build for upload (CI and release).
 #   package_firmware.sh <target> <build-dir> <name-suffix> <out-dir>
-# <target> is bcc or sim; the files are named unimoc-<target>-<name-suffix>.*
+# <target> is jacobi, nucleo_h743zi or sim; the files are named unimoc-<target>-<name-suffix>.*
+# jacobi and nucleo_h743zi are sysbuild builds (MCUboot and the drive): .elf/.hex/.bin/.map of the drive,
+# -bootloader.hex of MCUboot and -signed.hex (the image MCUboot runs; both for a first flash),
+# -signed.bin (the same as binary) and -update.bin (the same with the UNIMOC header: the file that BEGIN_SOFTWARE_UPDATE
+# downloads, `docs/zephyr_workflow.md`, "Bootloader and firmware update").
 # The sim also writes the register description file unimoc-registers-<name-suffix>.json
 # (docs/gui_plan.md, section 4): every register with type, default, unit,
 # limits, effect and help, from the simulated drive on a fresh flash file.
@@ -18,11 +22,17 @@ out="$4"
 mkdir -p "$out"
 
 case "$target" in
-bcc)
-  for ext in elf hex bin; do
-    cp "$build/zephyr/zephyr.$ext" "$out/unimoc-bcc-$suffix.$ext"
+jacobi | nucleo_h743zi)
+  app="$build/drive/zephyr"
+  for ext in elf hex bin map; do
+    cp "$app/zephyr.$ext" "$out/unimoc-$target-$suffix.$ext"
   done
-  cp "$build/zephyr/zephyr.map" "$out/unimoc-bcc-$suffix.map"
+  cp "$app/zephyr.signed.bin" "$out/unimoc-$target-$suffix-signed.bin"
+  cp "$build/mcuboot/zephyr/zephyr.hex" "$out/unimoc-$target-$suffix-bootloader.hex"
+  cp "$app/zephyr.signed.hex" "$out/unimoc-$target-$suffix-signed.hex"
+  vcs="$(git -C "$(dirname "$0")/.." rev-parse --short=16 HEAD)"
+  python3 "$(dirname "$0")/make_firmware_image.py" --board "$(grep -m1 '^CONFIG_BOARD=' "$app/.config" | cut -d'"' -f2)" \
+    --vcs "$vcs" "$app/zephyr.signed.bin" "$out/unimoc-$target-$suffix-update.bin"
   ;;
 sim)
   # tar keeps the executable bit, which the artifact zip drops.
