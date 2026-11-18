@@ -305,10 +305,6 @@ inline constexpr const char* kSvmDutyMax = "unimoc.control.svm.duty_max";
 /// Type: real32[1] (read/write, persistent)
 inline constexpr const char* kDtcDeadTime = "unimoc.control.dtc.dead_time";
 
-/// PWM switching frequency [Hz].
-/// Type: real32[1] (read/write, persistent)
-inline constexpr const char* kDtcFPwm = "unimoc.control.dtc.f_pwm";
-
 /// Phase-current zero-crossing threshold [A].
 /// Type: real32[1] (read/write, persistent)
 inline constexpr const char* kDtcIThreshold = "unimoc.control.dtc.i_threshold";

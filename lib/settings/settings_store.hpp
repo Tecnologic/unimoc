@@ -132,26 +132,25 @@ template <unit::UnitLike U>
          unit::IsFinite(settings.current_kp_q) && unit::IsFinite(settings.current_ki_q) &&
          unit::IsFinite(settings.current_v_max) && unit::IsFinite(settings.svm_duty_min) &&
          unit::IsFinite(settings.svm_duty_max) && unit::IsFinite(settings.dtc_dead_time) &&
-         unit::IsFinite(settings.dtc_f_pwm) && unit::IsFinite(settings.dtc_i_threshold) &&
-         unit::IsFinite(settings.excitation_l_m) && unit::IsFinite(settings.excitation_kp) &&
-         unit::IsFinite(settings.excitation_ki) && unit::IsFinite(settings.excitation_i_f_min) &&
-         unit::IsFinite(settings.excitation_i_f_max) && unit::IsFinite(settings.excitation_obs_tau) &&
-         unit::IsFinite(settings.excitation_obs_l_m) && unit::IsFinite(settings.speed_kp) &&
-         unit::IsFinite(settings.speed_ki) && unit::IsFinite(settings.speed_accel_limit) &&
-         unit::IsFinite(settings.pos_kp_pos) && unit::IsFinite(settings.pos_kp_speed) &&
-         unit::IsFinite(settings.pos_ki_speed) && unit::IsFinite(settings.pos_speed_limit) &&
-         unit::IsFinite(settings.pos_accel_limit) && unit::IsFinite(settings.pos_position_tolerance) &&
-         unit::IsFinite(settings.pos_speed_tolerance) && unit::IsFinite(settings.pos_homing_speed) &&
-         unit::IsFinite(settings.pos_homing_current) && unit::IsFinite(settings.adc_offset_a) &&
-         unit::IsFinite(settings.adc_offset_b) && unit::IsFinite(settings.adc_offset_c) &&
-         unit::IsFinite(settings.adc_gain_c) && unit::IsFinite(settings.adc_gain_a) &&
-         unit::IsFinite(settings.adc_gain_b) && unit::IsFinite(settings.adc_gain_vdc) &&
-         unit::IsFinite(settings.telemetry_rate) && unit::IsFinite(settings.command_timeout) &&
-         unit::IsFinite(settings.dc_link_regen_derate_start) && unit::IsFinite(settings.dc_link_trip) &&
-         unit::IsFinite(settings.cart_timeout) && unit::IsFinite(settings.cart_status_rate) &&
-         unit::IsFinite(settings.cart_torque_ramp) && unit::IsFinite(settings.cart_limp_home_torque) &&
-         unit::IsFinite(settings.cart_standstill_speed) && unit::IsFinite(settings.cart_battery_share) &&
-         IsFiniteEbike(settings) && IsFiniteThermal(settings);
+         unit::IsFinite(settings.dtc_i_threshold) && unit::IsFinite(settings.excitation_l_m) &&
+         unit::IsFinite(settings.excitation_kp) && unit::IsFinite(settings.excitation_ki) &&
+         unit::IsFinite(settings.excitation_i_f_min) && unit::IsFinite(settings.excitation_i_f_max) &&
+         unit::IsFinite(settings.excitation_obs_tau) && unit::IsFinite(settings.excitation_obs_l_m) &&
+         unit::IsFinite(settings.speed_kp) && unit::IsFinite(settings.speed_ki) &&
+         unit::IsFinite(settings.speed_accel_limit) && unit::IsFinite(settings.pos_kp_pos) &&
+         unit::IsFinite(settings.pos_kp_speed) && unit::IsFinite(settings.pos_ki_speed) &&
+         unit::IsFinite(settings.pos_speed_limit) && unit::IsFinite(settings.pos_accel_limit) &&
+         unit::IsFinite(settings.pos_position_tolerance) && unit::IsFinite(settings.pos_speed_tolerance) &&
+         unit::IsFinite(settings.pos_homing_speed) && unit::IsFinite(settings.pos_homing_current) &&
+         unit::IsFinite(settings.adc_offset_a) && unit::IsFinite(settings.adc_offset_b) &&
+         unit::IsFinite(settings.adc_offset_c) && unit::IsFinite(settings.adc_gain_c) &&
+         unit::IsFinite(settings.adc_gain_a) && unit::IsFinite(settings.adc_gain_b) &&
+         unit::IsFinite(settings.adc_gain_vdc) && unit::IsFinite(settings.telemetry_rate) &&
+         unit::IsFinite(settings.command_timeout) && unit::IsFinite(settings.dc_link_regen_derate_start) &&
+         unit::IsFinite(settings.dc_link_trip) && unit::IsFinite(settings.cart_timeout) &&
+         unit::IsFinite(settings.cart_status_rate) && unit::IsFinite(settings.cart_torque_ramp) &&
+         unit::IsFinite(settings.cart_limp_home_torque) && unit::IsFinite(settings.cart_standstill_speed) &&
+         unit::IsFinite(settings.cart_battery_share) && IsFiniteEbike(settings) && IsFiniteThermal(settings);
 }
 
 [[nodiscard]] inline bool IsValidEnumValues(const NvmSettings& settings) noexcept {
@@ -348,7 +347,6 @@ template <std::size_t kCount>
       settings.excitation_i_f_min < ZeroOf(settings.excitation_i_f_min) ||
       settings.excitation_i_f_max < settings.excitation_i_f_min ||
       settings.dtc_dead_time < ZeroOf(settings.dtc_dead_time) ||
-      settings.dtc_f_pwm <= ZeroOf(settings.dtc_f_pwm) ||
       settings.excitation_obs_tau <= ZeroOf(settings.excitation_obs_tau) ||
       settings.pos_position_tolerance < ZeroOf(settings.pos_position_tolerance) ||
       settings.pos_speed_tolerance < ZeroOf(settings.pos_speed_tolerance) ||

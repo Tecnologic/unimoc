@@ -230,7 +230,7 @@ takes effect after a restart.
 ### Settings via registers
 
 Every persistent setting (`ForEachRegister()` in
-`lib/settings/settings_registers.hpp`, 156 registers) is a Cyphal register
+`lib/settings/settings_registers.hpp`, 155 registers) is a Cyphal register
 under the same name; `yakut rl <node>` lists them.  Units and floats are
 `real32[1]`, counts and enums `natural8[1]`, `uavcan.node.id` and the port-IDs
 `natural16[1]`, the name a string; writes accept any numeric type.  A write is
@@ -1227,7 +1227,10 @@ the free shaft.
   sign (10 % to 50 % of the current limit) at 0, 120 and 240 degrees
   electrical, without the dead-time compensation; the regression
   u = R i + U_dt sign(i) gives R from the slope and the dead time from the
-  step at zero. The three slopes must agree within 10 %.
+  step at zero. The three slopes must agree within 10 %. The dead time is a
+  time (`unimoc.control.dtc.dead_time`); the compensation takes its share of
+  the period at the PWM frequency the timer runs, also the automatic one
+  (`unimoc.control.pwm_frequency` 0, chosen from the inductance).
 - **M2, L_d and L_q:** a d bias of 20 % of the limit at angle 0, the current PI
   frozen, a sine at f_pwm / 64 (500 Hz at 32 kHz PWM) on the d axis, then on
   the q axis, its amplitude scaled until the current answers with 10 % of the

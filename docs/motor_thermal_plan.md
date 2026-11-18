@@ -218,9 +218,14 @@ drives estimate their temperatures, so one run heats and logs both motors.
 
 **Dead-time compensation first.** Run the identification M1 on the DUT and
 take its results: `unimoc.identify.result.R` into `unimoc.motor.stator.R`,
-`unimoc.identify.result.dead_time` into `unimoc.control.dtc.dead_time`, and
-`unimoc.control.dtc.f_pwm` equal to `unimoc.control.pwm_frequency` (the
-compensation uses its own frequency register). Set
+`unimoc.identify.result.dead_time` into `unimoc.control.dtc.dead_time`. The
+dead time is a time: the compensation takes its share of the period at the
+PWM frequency the timer runs, also the automatic one from the inductance
+(`unimoc.control.pwm_frequency` 0), so it stays right when M2 changes the
+inductance and with it the frequency. (Until 2026-11-18 the compensation
+had its own frequency register `unimoc.control.dtc.f_pwm`, 10 kHz by
+default: at 32 kHz it compensated a third of the dead time. Removed; a
+stored value is ignored.) Set
 `unimoc.motor.stator.R_temperature` to the winding temperature of that run
 (a cold motor: the room). Then the **R_s check**:
 

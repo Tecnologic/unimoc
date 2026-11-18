@@ -197,7 +197,6 @@ void ForEachRegister(const Visitor& visit, Settings&... settings) {
   visit(Setting(reg::kSvmDutyMin, "Smallest duty cycle, at most duty_max", Between(0.0F, 1.0F)), settings.svm_duty_min...);
   visit(Setting(reg::kSvmDutyMax, "Largest duty cycle", Between(0.0F, 1.0F)), settings.svm_duty_max...);
   visit(Setting(reg::kDtcDeadTime, "Gate driver dead time of the dead-time compensation", AtLeast(0.0F)), settings.dtc_dead_time...);
-  visit(Setting(reg::kDtcFPwm, "PWM frequency of the dead-time compensation", AtLeast(0.0F), "Hz"), settings.dtc_f_pwm...);
   visit(Setting(reg::kDtcIThreshold, "Phase current below which the dead-time compensation counts a zero crossing"), settings.dtc_i_threshold...);
   visit(Setting(reg::kExcitMode, "EESM excitation mode: 0 current, 1 flux", Between(0.0F, 1.0F)), settings.excitation_mode...);
   visit(Setting(reg::kExcitLM, "Mutual inductance L_m of the excitation controller"), settings.excitation_l_m...);

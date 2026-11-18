@@ -71,7 +71,7 @@ bool CurrentControlIsr::Init(const settings::NvmSettings& settings,
   hardware.SetOvervoltageLimit(state.calibration.gain_vdc > Ratio{}
                                    ? state.dc_link_trip / state.calibration.gain_vdc
                                    : state.dc_link_trip);
-  dtc.Init(settings);
+  dtc.Init(settings, kTiming.pwm_frequency);  // the frequency the timer runs, also the automatic one
   svm.Init(settings);
   // Low-side shunts: every phase keeps the low-side on time of a valid sample.
   svm.duty_max = Min(svm.duty_max, kTiming.duty_max);

@@ -15,6 +15,7 @@
  */
 
 #include <zephyr/ztest.h>
+#include <array>
 #include <numbers>
 #include "current_control_isr.hpp"
 #include "current_control_runtime.hpp"
@@ -256,7 +257,6 @@ ZTEST_F(sim_motor_thermal, test_dead_time_compensation_carries_the_resistance_es
   // A bridge with 500 ns dead time (1.6 % of the 32 kHz period, 0.77 V at
   // 48 V) and the matching compensation: the estimate sees the winding.
   unimoc::settings::NvmSettings settings = fixture->settings;
-  settings.dtc_f_pwm = 32.0_kHz;
   settings.dtc_dead_time = 500e-9_s;
   Start(settings, 25.0_degC, 0.016_ratio);
   OuterLoop::Instance().SetSetpoint(Hold(20.0_A));
@@ -373,7 +373,6 @@ Time DeadTimeOf(const Voltage residual, const Frequency pwm) {
 Time IterateDeadTime(unimoc::settings::NvmSettings settings,
                      const Ratio bridge_dead_time,
                      const unsigned rounds) {
-  settings.dtc_f_pwm = 32.0_kHz;
   for (unsigned round = 0U; round < rounds; ++round) {
     Start(settings, 25.0_degC, bridge_dead_time);
     const Voltage kResidual = ResidualVoltage(15.0_A, settings.stator_r);
@@ -396,7 +395,6 @@ unimoc::settings::NvmSettings SlowHeating(const unimoc::settings::NvmSettings& s
 
 ZTEST_F(sim_motor_thermal, test_the_residual_voltage_shows_the_direction_of_the_dead_time_error) {
   unimoc::settings::NvmSettings settings = SlowHeating(fixture->settings);
-  settings.dtc_f_pwm = 32.0_kHz;
   // 500 ns in the bridge (1.6 % of the 32 kHz period), no compensation: about +0.9 V.
   settings.dtc_dead_time = 0.0_s;
   Start(settings, 25.0_degC, 0.016_ratio);
@@ -414,6 +412,25 @@ ZTEST_F(sim_motor_thermal, test_the_residual_voltage_shows_the_direction_of_the_
   Start(settings, 25.0_degC, 0.016_ratio);
   UNIMOC_EXPECT_NEAR(ResidualVoltage(15.0_A, settings.stator_r), 0.0_V, 0.02_V);
   UNIMOC_EXPECT_NEAR(OuterLoop::Instance().Status().rs_temperature, PlantWinding(), 3.0_degC);
+}
+
+ZTEST_F(sim_motor_thermal, test_the_compensation_follows_the_pwm_frequency_the_timer_runs) {
+  // The dead time is a time; its share of the period follows the PWM
+  // frequency, also the automatic one chosen from the inductance.
+  const std::array<Frequency, 2> kSettingsToTry{20.0_kHz, Frequency{}};  // 0: automatic
+  for (const Frequency kSetting : kSettingsToTry) {
+    unimoc::settings::NvmSettings settings = SlowHeating(fixture->settings);
+    settings.pwm_frequency = kSetting;
+    settings.dtc_dead_time = 500e-9_s;
+    const Frequency kRunning =
+        unimoc::settings::ResolveControlTiming(settings,
+                                               unimoc::hardware::kSettings.GetSettingsProfile().capabilities)
+            .pwm_frequency;
+    Start(settings, 25.0_degC, 500e-9_s * kRunning);
+    zassert_equal(CurrentControlIsr::Instance().state.timing.pwm_frequency, kRunning);
+    UNIMOC_EXPECT_NEAR(CurrentControlIsr::Instance().dtc.f_pwm, kRunning, 1.0_Hz);
+    UNIMOC_EXPECT_NEAR(ResidualVoltage(15.0_A, settings.stator_r), 0.0_V, 0.03_V);
+  }
 }
 
 ZTEST_F(sim_motor_thermal, test_three_rounds_of_the_check_find_the_dead_time) {

@@ -107,7 +107,6 @@ ZTEST(control_observer_units, test_algorithms_load_initial_settings_from_nvm) {
   settings.mech_obs_q = 0.005F;
   settings.mech_obs_r = 0.006_rad2;
   settings.dtc_dead_time = 2_us;
-  settings.dtc_f_pwm = 25.0_kHz;
   settings.dtc_i_threshold = 0.7_A;
   settings.svm_duty_min = 0.1_ratio;
   settings.svm_duty_max = 0.9_ratio;
@@ -124,7 +123,7 @@ ZTEST(control_observer_units, test_algorithms_load_initial_settings_from_nvm) {
   UNIMOC_EXPECT_FLOAT_EQ(mechanical_observer.R, 0.006_rad2);
 
   control::DeadTimeCompensation<float> dead_time_compensation;
-  dead_time_compensation.Init(settings);
+  dead_time_compensation.Init(settings, 25.0_kHz);  // the PWM frequency of the timer
   UNIMOC_EXPECT_FLOAT_EQ(dead_time_compensation.dead_time, 0.000002_s);
   UNIMOC_EXPECT_FLOAT_EQ(dead_time_compensation.f_pwm, 25000.0_Hz);
   UNIMOC_EXPECT_FLOAT_EQ(dead_time_compensation.i_threshold, 0.7_A);

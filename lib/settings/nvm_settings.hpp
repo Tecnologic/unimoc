@@ -445,13 +445,12 @@ struct NvmSettings {
   // Dead-time compensation
   // =========================================================================
 
-  /// Gate-driver dead time [s].
+  /// Gate-driver dead time [s]; the compensation takes its share of the
+  /// period at the PWM frequency the timer runs (`pwm_frequency`, also the
+  /// automatic one). There is no frequency register of its own any more
+  /// (`unimoc.control.dtc.f_pwm`, removed 2026-11-18: a stored value is ignored).
   /// Register: `unimoc.control.dtc.dead_time`
   unit::Time dtc_dead_time{0.0_s};
-
-  /// PWM switching frequency [Hz].
-  /// Register: `unimoc.control.dtc.f_pwm`
-  unit::Frequency dtc_f_pwm{10.0_kHz};
 
   /// Phase-current zero-crossing threshold [A].
   /// Register: `unimoc.control.dtc.i_threshold`
