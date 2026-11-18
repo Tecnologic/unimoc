@@ -117,6 +117,10 @@ struct NvmSettings {
   /// Register: `unimoc.motor.stator.R`
   unit::Resistance stator_r{kHoverboardR};
 
+  /// Winding temperature at which `stator_r` was measured [°C].
+  /// Register: `unimoc.motor.stator.R_temperature`
+  unit::Temperature stator_r_temperature{25.0_degC};
+
   /// Stator inductance [H] (L_q for IPMSM; average (L_d+L_q)/2 otherwise).
   /// Register: `unimoc.motor.stator.L`
   unit::Inductance stator_l{kHoverboardL};
@@ -166,6 +170,57 @@ struct NvmSettings {
   /// Hard upper bound: hardware profile's maximum DC-link voltage.
   /// Register: `unimoc.battery.limits.trip_voltage`
   unit::Voltage dc_link_trip{58.0_V};
+
+  // =========================================================================
+  // Thermal model of the motor (docs/motor_thermal_plan.md)
+  //
+  // The defaults are a guess for the hoverboard hub motor: copper about
+  // 0.4 kg, stator and rim about 3 kg, a steady rise of about 60 K at 15 A.
+  // =========================================================================
+
+  /// Ambient (coolant) temperature; the start value of the estimate [°C].
+  /// Register: `unimoc.motor.thermal.ambient`
+  unit::Temperature thermal_ambient{25.0_degC};
+
+  /// Heat capacity of the winding [J/K].
+  /// Register: `unimoc.motor.thermal.C_winding`
+  unit::HeatCapacity thermal_c_winding{150.0_J_per_K};
+
+  /// Heat capacity of the stator and the housing [J/K].
+  /// Register: `unimoc.motor.thermal.C_stator`
+  unit::HeatCapacity thermal_c_stator{1500.0_J_per_K};
+
+  /// Thermal resistance from the winding to the stator [K/W].
+  /// Register: `unimoc.motor.thermal.R_winding`
+  unit::ThermalResistance thermal_r_winding{0.4_K_per_W};
+
+  /// Thermal resistance from the stator to the ambient [K/W].
+  /// Register: `unimoc.motor.thermal.R_stator`
+  unit::ThermalResistance thermal_r_stator{0.8_K_per_W};
+
+  /// Winding temperature where the motor current derating starts [°C].
+  /// Register: `unimoc.motor.thermal.derate_start`
+  unit::Temperature thermal_derate_start{100.0_degC};
+
+  /// Winding temperature at which no motor current is allowed [°C].
+  /// Register: `unimoc.motor.thermal.limit`
+  unit::Temperature thermal_limit{130.0_degC};
+
+  /// Largest electrical speed of a stator resistance window [rad/s].
+  /// Register: `unimoc.motor.thermal.rs_speed_max`
+  unit::AngularVelocity thermal_rs_speed_max{100.0_rad_per_s};
+
+  /// Smallest current magnitude of a stator resistance window [A].
+  /// Register: `unimoc.motor.thermal.rs_current_min`
+  unit::Current thermal_rs_current_min{3.0_A};
+
+  /// Time constant of the correction from the stator resistance [s]; 0 off.
+  /// Register: `unimoc.motor.thermal.rs_correction_time`
+  unit::Time thermal_rs_correction_time{30.0_s};
+
+  /// Time constant of the correction from a motor temperature sensor [s]; 0: the sensor is only reported.
+  /// Register: `unimoc.motor.thermal.sensor_correction_time`
+  unit::Time thermal_sensor_correction_time{10.0_s};
 
   // =========================================================================
   // PMSM / EESM parameters
@@ -390,13 +445,12 @@ struct NvmSettings {
   // Dead-time compensation
   // =========================================================================
 
-  /// Gate-driver dead time [s].
+  /// Gate-driver dead time [s]; the compensation takes its share of the
+  /// period at the PWM frequency the timer runs (`pwm_frequency`, also the
+  /// automatic one). There is no frequency register of its own any more
+  /// (`unimoc.control.dtc.f_pwm`, removed 2026-11-18: a stored value is ignored).
   /// Register: `unimoc.control.dtc.dead_time`
   unit::Time dtc_dead_time{0.0_s};
-
-  /// PWM switching frequency [Hz].
-  /// Register: `unimoc.control.dtc.f_pwm`
-  unit::Frequency dtc_f_pwm{10.0_kHz};
 
   /// Phase-current zero-crossing threshold [A].
   /// Register: `unimoc.control.dtc.i_threshold`
@@ -630,7 +684,7 @@ struct NvmSettings {
   /// Register: `uavcan.sub.battery_status.id`
   uint16_t sub_battery_status_id{cyphal::kSubBatteryStatus};
 
-  /// Drive status publication (unimoc.cart.DriveStatus.0.1).
+  /// Drive status publication (unimoc.cart.DriveStatus.0.2).
   /// Register: `uavcan.pub.drive_status.id`
   uint16_t pub_drive_status_id{cyphal::kPubDriveStatus};
 

@@ -121,6 +121,48 @@ inline constexpr const char* kStatorR = "unimoc.motor.stator.R";
 /// Type: real32[1] (read/write, persistent)
 inline constexpr const char* kStatorL = "unimoc.motor.stator.L";
 
+/// Winding temperature at which unimoc.motor.stator.R was measured [°C].
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kStatorRTemperature = "unimoc.motor.stator.R_temperature";
+
+// --- Thermal model of the motor (docs/motor_thermal_plan.md) ---
+// Type of each: real32[1] (read/write, persistent)
+
+/// Ambient temperature, start value of the estimate [°C].
+inline constexpr const char* kThermalAmbient = "unimoc.motor.thermal.ambient";
+/// Heat capacity of the winding [J/K].
+inline constexpr const char* kThermalCWinding = "unimoc.motor.thermal.C_winding";
+/// Heat capacity of the stator and the housing [J/K].
+inline constexpr const char* kThermalCStator = "unimoc.motor.thermal.C_stator";
+/// Thermal resistance from the winding to the stator [K/W].
+inline constexpr const char* kThermalRWinding = "unimoc.motor.thermal.R_winding";
+/// Thermal resistance from the stator to the ambient [K/W].
+inline constexpr const char* kThermalRStator = "unimoc.motor.thermal.R_stator";
+/// Winding temperature where the current derating starts [°C].
+inline constexpr const char* kThermalDerateStart = "unimoc.motor.thermal.derate_start";
+/// Winding temperature at zero current [°C].
+inline constexpr const char* kThermalLimit = "unimoc.motor.thermal.limit";
+/// Largest electrical speed of a stator resistance window [rad/s].
+inline constexpr const char* kThermalRsSpeedMax = "unimoc.motor.thermal.rs_speed_max";
+/// Smallest current of a stator resistance window [A].
+inline constexpr const char* kThermalRsCurrentMin = "unimoc.motor.thermal.rs_current_min";
+/// Time constant of the correction from the stator resistance [s]; 0 off.
+inline constexpr const char* kThermalRsCorrectionTime = "unimoc.motor.thermal.rs_correction_time";
+/// Estimated winding temperature [degC]. Type: real32[1] (read-only, volatile)
+inline constexpr const char* kMotorTemperatureWinding = "unimoc.motor.temperature.winding";
+/// Estimated stator temperature [degC]. Type: real32[1] (read-only, volatile)
+inline constexpr const char* kMotorTemperatureStator = "unimoc.motor.temperature.stator";
+/// Winding temperature of the last stator resistance estimate [degC]; NaN: none.
+/// Type: real32[1] (read-only, volatile)
+inline constexpr const char* kMotorTemperatureRs = "unimoc.motor.temperature.rs";
+/// 1: the last stator resistance estimate lay outside the plausibility gates and was not used.
+/// Type: bit[1] (read-only, volatile)
+inline constexpr const char* kMotorTemperatureRsRejected = "unimoc.motor.temperature.rs_rejected";
+/// RMS of |i_dq| over the last window of the thermal model [A]. Type: real32[1] (read-only, volatile)
+inline constexpr const char* kMotorTemperatureCurrent = "unimoc.motor.temperature.current";
+/// Time constant of the correction from a motor temperature sensor [s]; 0: only reported.
+inline constexpr const char* kThermalSensorCorrectionTime = "unimoc.motor.thermal.sensor_correction_time";
+
 // --- PMSM / EESM parameters ---
 
 /// Permanent-magnet flux linkage ψ_PM [Wb].
@@ -262,10 +304,6 @@ inline constexpr const char* kSvmDutyMax = "unimoc.control.svm.duty_max";
 /// Gate-driver dead time [s].
 /// Type: real32[1] (read/write, persistent)
 inline constexpr const char* kDtcDeadTime = "unimoc.control.dtc.dead_time";
-
-/// PWM switching frequency [Hz].
-/// Type: real32[1] (read/write, persistent)
-inline constexpr const char* kDtcFPwm = "unimoc.control.dtc.f_pwm";
 
 /// Phase-current zero-crossing threshold [A].
 /// Type: real32[1] (read/write, persistent)
@@ -601,7 +639,7 @@ inline constexpr const char* kSubBatteryStatusId = "uavcan.sub.battery_status.id
 inline constexpr const char* kSubBatteryStatusType = "uavcan.sub.battery_status.type";
 
 /// State of the drive for the VDC.
-/// Data type: unimoc.cart.DriveStatus.0.1
+/// Data type: unimoc.cart.DriveStatus.0.2
 /// Type: natural16[1] (read/write, persistent)
 inline constexpr const char* kPubDriveStatusId = "uavcan.pub.drive_status.id";
 /// Type name of the drive status publication. Type: string (read-only)
@@ -877,7 +915,7 @@ inline constexpr const char* kPubWheelCommandId = "uavcan.pub.wheel_command.id";
 inline constexpr const char* kPubWheelCommandType = "uavcan.pub.wheel_command.type";
 
 /// Drive status subscription of the VDC (port-ID kPubDriveStatus of the drives).
-/// Data type: unimoc.cart.DriveStatus.0.1
+/// Data type: unimoc.cart.DriveStatus.0.2
 /// Type: natural16[1] (read-only)
 inline constexpr const char* kSubDriveStatusId = "uavcan.sub.drive_status.id";
 /// Type name of the drive status subscription. Type: string (read-only)
@@ -1123,7 +1161,7 @@ inline constexpr uint16_t kPubTelemetry = 212U;
 inline constexpr uint16_t kPubSimPlant = 213U;
 
 /// State of the drive for the vehicle dynamics controller.
-/// Data type: unimoc.cart.DriveStatus.0.1
+/// Data type: unimoc.cart.DriveStatus.0.2
 /// Register: `uavcan.pub.drive_status.id`
 inline constexpr uint16_t kPubDriveStatus = 214U;
 

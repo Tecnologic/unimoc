@@ -24,7 +24,7 @@
 #include <uavcan/si/unit/electric_current/Scalar_1_0.h>
 #include <uavcan/si/unit/torque/Scalar_1_0.h>
 #include <unimoc/cart/BatteryStatus_0_1.h>
-#include <unimoc/cart/DriveStatus_0_1.h>
+#include <unimoc/cart/DriveStatus_0_2.h>
 #include <unimoc/cart/PedalState_0_1.h>
 #include <unimoc/cart/WheelCommand_0_1.h>
 #include <unimoc/drive/CommissioningStatus_0_1.h>
@@ -76,7 +76,7 @@ constexpr std::array<InfoRegister, 24> kInfoRegisters{{
     {cyphal::reg::kSubWheelCommandType, "unimoc.cart.WheelCommand.0.1"},
     {cyphal::reg::kSubPedalStateType, "unimoc.cart.PedalState.0.1"},
     {cyphal::reg::kSubBatteryStatusType, "unimoc.cart.BatteryStatus.0.1"},
-    {cyphal::reg::kPubDriveStatusType, "unimoc.cart.DriveStatus.0.1"},
+    {cyphal::reg::kPubDriveStatusType, "unimoc.cart.DriveStatus.0.2"},
     {cyphal::reg::kPubCommissioningType, "unimoc.drive.CommissioningStatus.0.1"},
     {cyphal::reg::kPubHomingStateType, "uavcan.primitive.scalar.Natural8.1.0"},
     {cyphal::reg::kPubExcitationCommandType, "unimoc.excitation.Command.0.1"},
@@ -179,10 +179,33 @@ template <std::size_t kSize>
                                  : std::numeric_limits<float>::quiet_NaN();
 }
 
+/// The motor temperature for the bus: the sensor where the platform has one, else the
+/// winding temperature of the thermal model (docs/motor_thermal_plan.md, decision 6).
+[[nodiscard]] unit::Temperature MotorTemperature(const hardware::TemperatureMeasurements& measured,
+                                                 const current_control::OuterStatus& outer) noexcept {
+  return measured.motor.value_or(outer.winding_temperature);
+}
+
 /// Measured current in the rotor frame of the observer angle (a snapshot without locking the control cycle).
 [[nodiscard]] system::Rotor<unit::Current> MeasuredCurrent(const CurrentControlIsr& isr) noexcept {
   const system::SinCos<unit::Ratio> kSinCos(isr.mech_obs.theta);
   return isr.state.phase_currents.ToStator().ToRotor(kSinCos);
+}
+
+/**
+ * @brief Battery current of the drive: the mechanical power and the copper losses at the
+ * estimated winding temperature over the DC-link voltage (the estimate of control::DcLinkLimit).
+ * @return Nothing without a DC-link reading.
+ */
+[[nodiscard]] std::optional<unit::Current> BatteryCurrent(const CurrentControlIsr& isr,
+                                                          const current_control::OuterStatus& outer,
+                                                          const unit::Torque torque) noexcept {
+  const unit::Voltage kDcLink = isr.state.dc_link;
+  if (!(kDcLink > unit::Voltage{})) {
+    return std::nullopt;
+  }
+  const unit::Power kCopper = (outer.stator_resistance * MeasuredCurrent(isr).LengthSquared()) * 1.5F;
+  return ((torque * outer.speed) + kCopper) / kDcLink;
 }
 
 }  // namespace
@@ -200,6 +223,11 @@ enum class StateRegister : uint8_t {
   kAccelerator,
   kBrake,
   kBoardReady,
+  kWindingTemperature,
+  kStatorTemperature,
+  kRsTemperature,
+  kThermalCurrent,
+  kRsRejected,
 };
 
 struct StateRegisterEntry {
@@ -208,7 +236,7 @@ struct StateRegisterEntry {
   const char* unit;
 };
 
-constexpr std::array<StateRegisterEntry, 7> kStateRegisters{{
+constexpr std::array<StateRegisterEntry, 12> kStateRegisters{{
     {cyphal::reg::kSettingsPending, "1 while written settings wait for the disengage", nullptr},
     {cyphal::reg::kCanBusOffCount, "CAN bus-off events since the start", nullptr},
     {cyphal::reg::kBoardPowerBoard,
@@ -219,6 +247,18 @@ constexpr std::array<StateRegisterEntry, 7> kStateRegisters{{
     {cyphal::reg::kBoardBrake, "Brake lever sensor voltage; NaN on a board without the input", "V"},
     {cyphal::reg::kBoardReady,
      "1 while the board inputs allow the engage (power board, gate supply)",
+     nullptr},
+    {cyphal::reg::kMotorTemperatureWinding, "Estimated winding temperature of the thermal model", "degC"},
+    {cyphal::reg::kMotorTemperatureStator, "Estimated stator temperature of the thermal model", "degC"},
+    {cyphal::reg::kMotorTemperatureRs,
+     "Winding temperature of the last stator resistance estimate (low speed, enough current); NaN: none",
+     "degC"},
+    {cyphal::reg::kMotorTemperatureCurrent,
+     "RMS motor current of the last 0.1 s window of the thermal model",
+     "A"},
+    {cyphal::reg::kMotorTemperatureRsRejected,
+     "1: the last stator resistance estimate lay outside the plausibility gates (a wrong dead-time "
+     "compensation) and was not used",
      nullptr},
 }};
 
@@ -266,6 +306,25 @@ cyphal::RegisterFlags DriveInfoRegisters::Read(const std::size_t index,
         break;
       case StateRegister::kBoardReady:
         cyphal::SetBit(value, board_->verdict.ready);
+        break;
+      case StateRegister::kWindingTemperature:
+        cyphal::SetReal32(value, OuterLoop::Instance().Status().winding_temperature.Value());
+        break;
+      case StateRegister::kStatorTemperature:
+        cyphal::SetReal32(value, OuterLoop::Instance().Status().stator_temperature.Value());
+        break;
+      case StateRegister::kRsTemperature: {
+        const current_control::OuterStatus kOuter = OuterLoop::Instance().Status();
+        cyphal::SetReal32(value,
+                          kOuter.rs_valid ? kOuter.rs_temperature.Value()
+                                          : std::numeric_limits<float>::quiet_NaN());
+        break;
+      }
+      case StateRegister::kThermalCurrent:
+        cyphal::SetReal32(value, OuterLoop::Instance().Status().thermal_current.Value());
+        break;
+      case StateRegister::kRsRejected:
+        cyphal::SetBit(value, OuterLoop::Instance().Status().rs_rejected);
         break;
       default:
         cyphal::SetEmpty(value);
@@ -560,10 +619,9 @@ void DriveNode::SpinLocalControl(const uint64_t now_us) noexcept {
   vehicle.torque_min = kOuter.torque_min;
   vehicle.torque_max = kOuter.torque_max;
   vehicle.dc_link = isr.state.dc_link;
-  // Battery current from the mechanical power, as in the drive status.
-  vehicle.battery_current =
-      (isr.state.dc_link > unit::Voltage{}) ? (kTorque * kOuter.speed) / isr.state.dc_link : unit::Current{};
-  vehicle.motor_temperature = motor_->GetTemperatureMeasurements().motor.value_or(unit::Temperature{});
+  // Battery current from the mechanical power and the copper losses, as in the drive status.
+  vehicle.battery_current = BatteryCurrent(isr, kOuter, kTorque).value_or(unit::Current{});
+  vehicle.motor_temperature = MotorTemperature(motor_->GetTemperatureMeasurements(), kOuter);
   vehicle.engaged = engaged_;
   vehicle.faulted = rearm_required_;
 
@@ -640,6 +698,7 @@ void DriveNode::SpinEngagement(const uint64_t now_us) noexcept {
     ClearSetpoint();
   }
   OuterLoop::Instance().SetBatteryLimits(cart_.Battery(now_us));
+  OuterLoop::Instance().SetMotorSensorTemperature(motor_->GetTemperatureMeasurements().motor);
 }
 
 void DriveNode::LoadParameters(const settings::NvmSettings& settings) noexcept {
@@ -1248,29 +1307,30 @@ void DriveNode::PublishDriveStatus() noexcept {
   const unit::Torque kBrakeLimit = unit::Max(kForward ? -kCartMin : kCartMax, unit::Torque{});
   const hardware::TemperatureMeasurements kTemperatures = motor_->GetTemperatureMeasurements();
 
-  unimoc_cart_DriveStatus_0_1 status{};
+  unimoc_cart_DriveStatus_0_2 status{};
   status.wheel_speed = kSpeed.Value();
   status.estimated_torque = cart_.ToCart(kTorque).Value();
   status.drive_torque_limit = kDriveLimit.Value();
   status.brake_torque_limit = kBrakeLimit.Value();
   status.dc_link_voltage = state.dc_link.Value();
-  // Battery current from the mechanical power (the estimate of control::DcLinkLimit).
-  status.dc_link_current = (state.dc_link > unit::Voltage{})
-                               ? ((kTorque * kOuter.speed) / state.dc_link).Value()
-                               : std::numeric_limits<float>::quiet_NaN();
+  // Battery current from the mechanical power and the copper losses (the estimate of control::DcLinkLimit).
+  const std::optional<unit::Current> kBatteryCurrent = BatteryCurrent(isr, kOuter, kTorque);
+  status.dc_link_current =
+      kBatteryCurrent.has_value() ? kBatteryCurrent->Value() : std::numeric_limits<float>::quiet_NaN();
   status.power_stage_temperature = Kelvin(kTemperatures.bridge);
-  status.motor_temperature = Kelvin(kTemperatures.motor);
+  status.motor_temperature = Kelvin(MotorTemperature(kTemperatures, kOuter));
   status.wheel = cart_wheel_;
   status.power_stage = static_cast<uint8_t>(ReportedPowerStage());
   status.engaged = engaged_;
   status.limp_home = cart_mode_ == CartMode::kLimpHome;
   status.regen_derated = kOuter.regen_derated;
+  status.thermally_derated = kOuter.thermally_derated;
   status.overcurrent_tripped = state.overcurrent_tripped;
   status.overvoltage_tripped = state.overvoltage_tripped;
 
-  std::array<std::byte, unimoc_cart_DriveStatus_0_1_SERIALIZATION_BUFFER_SIZE_BYTES_> buffer{};
+  std::array<std::byte, unimoc_cart_DriveStatus_0_2_SERIALIZATION_BUFFER_SIZE_BYTES_> buffer{};
   std::size_t size = buffer.size();
-  if (unimoc_cart_DriveStatus_0_1_serialize_(&status, reinterpret_cast<uint8_t*>(buffer.data()), &size) >=
+  if (unimoc_cart_DriveStatus_0_2_serialize_(&status, reinterpret_cast<uint8_t*>(buffer.data()), &size) >=
       0) {
     (void)node_->Publish(drive_status_, std::span<const std::byte>{buffer.data(), size});
   }

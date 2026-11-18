@@ -27,6 +27,12 @@ namespace unimoc::hardware::sim {
 /// External enable (jumper, e-stop). Dropping it while enabled breaks like the hardware does.
 void SetExternalEnable(bool present) noexcept;
 
+/// A motor temperature sensor on the stator of the plant (GetTemperatureMeasurements()); off by default.
+void SetMotorSensor(bool present) noexcept;
+
+/// @return Whether the simulated motor temperature sensor is fitted.
+[[nodiscard]] bool MotorSensor() noexcept;
+
 /**
  * @brief Replaces the measured phase currents [A] (sensor fault injection).
  *

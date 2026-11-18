@@ -21,6 +21,17 @@ namespace unimoc::current_control {
 
 using namespace unit;
 
+namespace {
+
+/// Band beyond the ambient and the thermal limit in which a temperature from the stator resistance is
+/// plausible.
+constexpr Temperature kRsPlausibleMargin = 40.0_degC;
+
+/// Largest difference between a temperature from the stator resistance and the model that is used.
+constexpr Temperature kRsMaxInnovation = 80.0_degC;
+
+}  // namespace
+
 // =============================================================================
 // init — thread context, while disengaged
 // =============================================================================
@@ -48,12 +59,30 @@ void OuterLoop::Init(const settings::NvmSettings& settings, CurrentControlIsr& i
   parameters.dc_link = control::DcLinkLimit{.drive_current_max = settings.battery_drive_current_max,
                                             .charge_current_max = settings.battery_charge_current_max,
                                             .regen_derate_start = settings.dc_link_regen_derate_start,
-                                            .trip = settings.dc_link_trip};
+                                            .trip = settings.dc_link_trip,
+                                            .stator_resistance = Resistance{}};  // set by each step
   parameters.speed_min = settings.motor_omega_min / kPolePairs;
   parameters.speed_max = settings.motor_omega_max / kPolePairs;
   parameters.homing_speed = settings.pos_homing_speed;
   parameters.homing_current = settings.pos_homing_current;
   parameters.gains = GainsFrom(settings);
+  parameters.thermal =
+      control::MotorThermalModel::Parameters{.stator_resistance =
+                                                 (settings.motor_type == system::MotorType::kAsm)
+                                                     ? settings.asm_r_s
+                                                     : settings.stator_r,
+                                             .reference_temperature = settings.stator_r_temperature,
+                                             .temperature_coefficient =
+                                                 control::kCopperTemperatureCoefficient,
+                                             .winding_capacity = settings.thermal_c_winding,
+                                             .stator_capacity = settings.thermal_c_stator,
+                                             .winding_to_stator = settings.thermal_r_winding,
+                                             .stator_to_ambient = settings.thermal_r_stator,
+                                             .derate_start = settings.thermal_derate_start,
+                                             .limit = settings.thermal_limit};
+  parameters.thermal_ambient = settings.thermal_ambient;
+  parameters.rs_correction_time = settings.thermal_rs_correction_time;
+  parameters.sensor_correction_time = settings.thermal_sensor_correction_time;
   parameters_.Write(parameters);
   SetGains(parameters.gains);  // live gains handed over before are older than these
 }
@@ -133,11 +162,14 @@ void OuterLoop::Step() noexcept {
     dc_link.charge_current_max = kBattery.charge_current;
   }
   const Voltage kDcLink = isr_->state.dc_link;
+  UpdateThermal();
+  // The copper losses of the battery estimate at the winding temperature.
+  dc_link.stator_resistance = thermal_.StatorResistance();
   if (active_.motor_type == system::MotorType::kEesm) {
     // The torque constant follows the field current the excitation module measures.
     active_.torque_constant = field_flux_.Read() * (1.5F * static_cast<float>(active_.pole_pairs));
-    speed_.torque_limit = active_.torque_constant * active_.current_limit;
   }
+  speed_.torque_limit = active_.torque_constant * current_limit_;
 
   // -------------------------------------------------------------------------
   // 1. Mechanical position and speed from the electrical estimate. The
@@ -166,11 +198,21 @@ void OuterLoop::Step() noexcept {
   status.speed = kSpeed;
   status.position = tracker_.PositionRad();
   // The battery power window as shaft torque, within the motor torque.
-  const control::DcLinkLimit::TorqueRange kTorqueRange = dc_link.AllowedTorque(kSpeed, kDcLink);
-  const Torque kMotorTorque = active_.torque_constant * active_.current_limit;
+  const control::DcLinkLimit::TorqueRange kTorqueRange =
+      dc_link.AllowedTorque(kSpeed, kDcLink, active_.torque_constant);
+  const Torque kMotorTorque = active_.torque_constant * current_limit_;
   status.torque_min = unit::Max(kTorqueRange.lower, -kMotorTorque);
   status.torque_max = unit::Min(kTorqueRange.upper, kMotorTorque);
   status.regen_derated = dc_link.AllowedChargeCurrent(kDcLink) < active_.dc_link.charge_current_max;
+  status.winding_temperature = thermal_.Winding();
+  status.stator_temperature = thermal_.Stator();
+  status.stator_resistance = thermal_.StatorResistance();
+  status.thermally_derated = current_limit_ < active_.current_limit;
+  status.thermal_current = thermal_current_;
+  status.rs_valid = rs_valid_;
+  status.rs_estimate = rs_estimate_;
+  status.rs_temperature = rs_temperature_;
+  status.rs_rejected = rs_rejected_;
 
   UpdateHoming(kSetpoint, kSpeed);
 
@@ -240,7 +282,17 @@ void OuterLoop::Step() noexcept {
 void OuterLoop::LoadParameters(const Parameters& parameters) noexcept {
   active_ = parameters;
   ApplyGains(parameters.gains);
-  speed_.torque_limit = parameters.torque_constant * parameters.current_limit;
+  // New settings of a warm motor: the temperatures stay, only the first start begins at the ambient.
+  thermal_.SetParameters(parameters.thermal);
+  if (thermal_restart_.exchange(false, std::memory_order_acq_rel) || !thermal_started_) {
+    thermal_.Reset(parameters.thermal_ambient);
+    rs_valid_ = false;
+    rs_rejected_ = false;
+    thermal_started_ = true;
+  }
+  current_limit_ = parameters.current_limit * thermal_.CurrentLimitScale();
+  speed_.torque_limit = parameters.torque_constant * current_limit_;
+  SlowUpdate::Instance().SetStatorResistance(thermal_.StatorResistance());  // a warm motor at once
   // The controller restarted with these settings: the observer angle starts
   // again at zero, so the position is counted anew from here.
   tracking_ = false;
@@ -343,12 +395,46 @@ system::Rotor<Current> OuterLoop::TorqueToCurrent(const Torque torque) const noe
   return {Current{}, torque / active_.torque_constant};
 }
 
+void OuterLoop::UpdateThermal() noexcept {
+  const ThermalWindow kWindow = SlowUpdate::Instance().Thermal();
+  if (kWindow.sequence != thermal_sequence_) {
+    thermal_sequence_ = kWindow.sequence;
+    thermal_.Step(kWindow.current_squared, active_.thermal_ambient, kWindow.duration);
+    thermal_current_ = unit::Sqrt(kWindow.current_squared);
+    // The winding temperature the measured resistance stands for corrects the
+    // model slowly: each estimate by its share of the correction time constant.
+    if (kWindow.resistance_estimates > 0U) {
+      rs_valid_ = true;
+      rs_estimate_ = kWindow.resistance;
+      rs_temperature_ = thermal_.TemperatureFromResistance(kWindow.resistance);
+      // A temperature far outside the motor's range is an inverter error, not
+      // the winding (no or a wrong dead-time compensation): it is not used.
+      // So is one far from the model: a warm start differs by tens of kelvin,
+      // an uncompensated dead time by a hundred and more.
+      rs_rejected_ = !(rs_temperature_ > active_.thermal_ambient - kRsPlausibleMargin) ||
+                     !(rs_temperature_ < active_.thermal.limit + kRsPlausibleMargin) ||
+                     !(unit::Abs(rs_temperature_ - thermal_.Winding()) < kRsMaxInnovation);
+      if (!rs_rejected_ && active_.rs_correction_time > Time{}) {
+        thermal_.Correct(rs_temperature_, kWindow.resistance_time / active_.rs_correction_time);
+      }
+    }
+    // A motor sensor sees the stator mass: it corrects with its own time constant.
+    const MotorSensor kSensor = motor_sensor_.Read();
+    if (kSensor.valid && active_.sensor_correction_time > Time{}) {
+      thermal_.CorrectStator(kSensor.temperature, kWindow.duration / active_.sensor_correction_time);
+    }
+    // The observers follow the warm winding.
+    SlowUpdate::Instance().SetStatorResistance(thermal_.StatorResistance());
+  }
+  current_limit_ = active_.current_limit * thermal_.CurrentLimitScale();
+}
+
 system::Rotor<Current> OuterLoop::LimitCurrent(const system::Rotor<Current> current) const noexcept {
   if (!unit::IsFinite(current.d) || !unit::IsFinite(current.q)) {
     return {Current{}, Current{}};
   }
   const Current kMagnitude = current.Length();
-  const Current kLimit = active_.current_limit;
+  const Current kLimit = current_limit_;
   if (kMagnitude <= kLimit || kMagnitude <= Current{}) {
     return current;
   }

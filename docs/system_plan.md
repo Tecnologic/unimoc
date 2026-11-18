@@ -357,7 +357,7 @@ ztest in `unimoc.lib.cyphal` checks it for every type of the namespace.
 | Message | Type | From → to | Rate | Payload | Content |
 |---|---|---|---|---|---|
 | Wheel command | `unimoc.cart.WheelCommand.0.1` | VDC → drives | 250 to 500 Hz | 8 bytes | Torque per wheel (front left, front right, rear left, rear right) in the forward direction of the cart, negative brakes; one message for all wheels, applied on reception |
-| Drive status | `unimoc.cart.DriveStatus.0.1` | each drive → VDC | same | 18 bytes | Wheel index, wheel speed, torque estimate, drive and brake torque limits, DC-link voltage and current, temperatures, power stage state, engaged, limp-home, regen derated, trips |
+| Drive status | `unimoc.cart.DriveStatus.0.2` | each drive → VDC | same | 18 bytes | Wheel index, wheel speed, torque estimate, drive and brake torque limits, DC-link voltage and current, temperatures, power stage state, engaged, limp-home, regen derated, trips, thermally derated (0.2) |
 | Pedal state | `unimoc.cart.PedalState.0.1` | pedal unit → VDC and drives | same | 9 bytes | Drive and brake pedal travel 0 to 1, both channels, plausibility flags |
 | Battery status | `unimoc.cart.BatteryStatus.0.1` | BMS → VDC and drives | 50 to 100 Hz | 15 bytes | Pack voltage and current, state of charge, charge and discharge current limits, cell temperature, contactor state (with the announced opening), chopper state and temperature |
 | Heartbeat | all | 1 Hz (standard) | Health, mode |

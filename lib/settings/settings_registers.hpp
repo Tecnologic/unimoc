@@ -140,6 +140,18 @@ void ForEachRegister(const Visitor& visit, Settings&... settings) {
   visit(Setting(reg::kControlMode, "Control mode after boot: 0 torque, 1 speed, 2 position", Between(0.0F, 2.0F)), settings.control_mode...);
   visit(Setting(reg::kStatorR, "Stator phase resistance", AtLeast(0.0F)), settings.stator_r...);
   visit(Setting(reg::kStatorL, "Stator inductance (L_q of an IPMSM, else the mean of L_d and L_q)", AtLeast(0.0F)), settings.stator_l...);
+  visit(Setting(reg::kStatorRTemperature, "Winding temperature at which the stator resistance was measured", kAny, "degC"), settings.stator_r_temperature...);
+  visit(Setting(reg::kThermalAmbient, "Ambient temperature of the motor; start value of the temperature estimate", kAny, "degC"), settings.thermal_ambient...);
+  visit(Setting(reg::kThermalCWinding, "Heat capacity of the winding", AtLeast(0.0F)), settings.thermal_c_winding...);
+  visit(Setting(reg::kThermalCStator, "Heat capacity of the stator and the housing", AtLeast(0.0F)), settings.thermal_c_stator...);
+  visit(Setting(reg::kThermalRWinding, "Thermal resistance from the winding to the stator", AtLeast(0.0F)), settings.thermal_r_winding...);
+  visit(Setting(reg::kThermalRStator, "Thermal resistance from the stator to the ambient", AtLeast(0.0F)), settings.thermal_r_stator...);
+  visit(Setting(reg::kThermalDerateStart, "Winding temperature where the motor current derating starts; below the limit", kAny, "degC"), settings.thermal_derate_start...);
+  visit(Setting(reg::kThermalLimit, "Winding temperature at which no motor current is allowed; above the derate start", kAny, "degC"), settings.thermal_limit...);
+  visit(Setting(reg::kThermalRsSpeedMax, "Largest electrical speed at which the stator resistance corrects the temperature estimate", AtLeast(0.0F)), settings.thermal_rs_speed_max...);
+  visit(Setting(reg::kThermalRsCurrentMin, "Smallest current at which the stator resistance corrects the temperature estimate", AtLeast(0.0F)), settings.thermal_rs_current_min...);
+  visit(Setting(reg::kThermalRsCorrectionTime, "Time constant of the correction from the stator resistance; 0 off", AtLeast(0.0F)), settings.thermal_rs_correction_time...);
+  visit(Setting(reg::kThermalSensorCorrectionTime, "Time constant of the correction from a motor temperature sensor (stator mass); 0: the sensor is only reported", AtLeast(0.0F)), settings.thermal_sensor_correction_time...);
   visit(Setting(reg::kMotorIMax, "Largest motor current (stator vector), up to the hardware limit", AtLeast(0.0F)), settings.motor_i_max...);
   visit(Setting(reg::kMotorOmegaMax, "Largest electrical speed forward", AtLeast(0.0F)), settings.motor_omega_max...);
   visit(Setting(reg::kMotorOmegaMin, "Largest electrical speed in reverse, negative", AtMost(0.0F)), settings.motor_omega_min...);
@@ -185,7 +197,6 @@ void ForEachRegister(const Visitor& visit, Settings&... settings) {
   visit(Setting(reg::kSvmDutyMin, "Smallest duty cycle, at most duty_max", Between(0.0F, 1.0F)), settings.svm_duty_min...);
   visit(Setting(reg::kSvmDutyMax, "Largest duty cycle", Between(0.0F, 1.0F)), settings.svm_duty_max...);
   visit(Setting(reg::kDtcDeadTime, "Gate driver dead time of the dead-time compensation", AtLeast(0.0F)), settings.dtc_dead_time...);
-  visit(Setting(reg::kDtcFPwm, "PWM frequency of the dead-time compensation", AtLeast(0.0F), "Hz"), settings.dtc_f_pwm...);
   visit(Setting(reg::kDtcIThreshold, "Phase current below which the dead-time compensation counts a zero crossing"), settings.dtc_i_threshold...);
   visit(Setting(reg::kExcitMode, "EESM excitation mode: 0 current, 1 flux", Between(0.0F, 1.0F)), settings.excitation_mode...);
   visit(Setting(reg::kExcitLM, "Mutual inductance L_m of the excitation controller"), settings.excitation_l_m...);

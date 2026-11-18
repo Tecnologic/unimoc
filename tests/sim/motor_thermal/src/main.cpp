@@ -1,0 +1,461 @@
+/*
+ *       __  ___   ________  _______  ______
+ *      / / / / | / /  _/  |/  / __ \/ ____/
+ *     / / / /  |/ // // /|_/ / / / / /
+ *    / /_/ / /|  // // /  / / / /___
+ *    \____/_/ |_/___/_/  /_/\____/\____/
+ *
+ *    @file main.cpp
+ *    @brief The winding temperature estimate of the outer loop against the heated plant.
+ *
+ *    SPDX-License-Identifier: GPL-3.0-or-later
+ *
+ *    This file is part of UNIMOC and is licensed under GPL-3.0-or-later.
+ *    See the repository LICENSE file for details.
+ */
+
+#include <zephyr/ztest.h>
+#include <array>
+#include <numbers>
+#include "current_control_isr.hpp"
+#include "current_control_runtime.hpp"
+#include "hardware_interface.hpp"
+#include "hot_path_interface.hpp"
+#include "motor_simulation.hpp"
+#include "outer_loop.hpp"
+#include "power_stage_interface.hpp"
+#include "settings_store.hpp"
+#include "sim_control.hpp"
+#include "slow_update.hpp"
+#include "unimoc_test.hpp"
+
+namespace {
+
+using unimoc::current_control::CurrentControlIsr;
+using unimoc::current_control::OuterLoop;
+using unimoc::current_control::OuterSetpoint;
+using unimoc::current_control::SlowUpdate;
+using unimoc::cyphal::ControlMode;
+using unimoc::hardware::kPowerStage;
+using namespace unimoc::unit;
+namespace sim = unimoc::hardware::sim;
+
+constexpr unsigned kCyclesPerMs = 16U;  // 32 kHz PWM, 16 kHz control cycle
+constexpr float kPi = std::numbers::pi_v<float>;
+
+/// A motor that heats a hundred times faster than the hub motor (tau_w about
+/// 0.6 s, tau_s about 12 s), so the scenarios run in seconds of virtual time.
+unimoc::settings::NvmSettings MotorSettings(const unimoc::settings::NvmSettings& factory) {
+  unimoc::settings::NvmSettings settings = factory;
+  constexpr float kWc = 2.0F * kPi * 500.0F;
+  settings.pole_pairs = 7U;
+  settings.stator_r = 0.05_Ohm;
+  settings.stator_r_temperature = 25.0_degC;
+  settings.l_d = 100e-6_H;
+  settings.l_q = 100e-6_H;
+  settings.flux_pm = 5e-3_Wb;
+  settings.motor_j = 1e-4_kg_m2;
+  settings.current_kp_d = VoltagePerCurrent{100e-6F * kWc};
+  settings.current_kp_q = VoltagePerCurrent{100e-6F * kWc};
+  settings.current_ki_d = VoltagePerCurrentTime{0.05F * kWc};
+  settings.current_ki_q = VoltagePerCurrentTime{0.05F * kWc};
+  settings.dtc_dead_time = 0.0_s;
+  settings.hall_enable = 1U;
+  settings.motor_i_max = 40.0_A;
+  settings.thermal_ambient = 25.0_degC;
+  settings.thermal_c_winding = 1.5_J_per_K;
+  settings.thermal_c_stator = 15.0_J_per_K;
+  settings.thermal_r_winding = 0.4_K_per_W;
+  settings.thermal_r_stator = 0.8_K_per_W;
+  settings.thermal_derate_start = 150.0_degC;
+  settings.thermal_limit = 180.0_degC;
+  settings.thermal_rs_speed_max = 100.0_rad_per_s;
+  settings.thermal_rs_current_min = 3.0_A;
+  settings.thermal_rs_correction_time = 0.0_s;
+  return settings;
+}
+
+/// The plant of the settings with the winding heating, its network that of the settings.
+unimoc::sim::SimulationParameters HeatedPlant(const unimoc::settings::NvmSettings& settings) {
+  unimoc::sim::SimulationParameters parameters = unimoc::sim::ParametersFromSettings(settings);
+  parameters.thermal.enabled = true;
+  parameters.thermal.network.reference_temperature = settings.stator_r_temperature;
+  parameters.thermal.network.winding_capacity = settings.thermal_c_winding;
+  parameters.thermal.network.stator_capacity = settings.thermal_c_stator;
+  parameters.thermal.network.winding_to_stator = settings.thermal_r_winding;
+  parameters.thermal.network.stator_to_ambient = settings.thermal_r_stator;
+  parameters.thermal.ambient = settings.thermal_ambient;
+  parameters.thermal.start = settings.thermal_ambient;
+  return parameters;
+}
+
+void RunMs(const unsigned milliseconds) { sim::AdvanceCycles(milliseconds * kCyclesPerMs); }
+
+/// Runs for a time in blocks of a second (one advance is limited in length by nothing but its count).
+void RunSeconds(const unsigned seconds) {
+  for (unsigned second = 0U; second < seconds; ++second) {
+    RunMs(1000U);
+  }
+}
+
+/// A constant q current on the locked rotor.
+OuterSetpoint Hold(const Current current) {
+  OuterSetpoint setpoint{};
+  setpoint.active = true;
+  setpoint.mode = ControlMode::kTorque;
+  setpoint.current = {Current{}, current};
+  return setpoint;
+}
+
+Temperature PlantWinding() { return sim::Plant().Output().winding_temperature; }
+Temperature EstimatedWinding() { return OuterLoop::Instance().Status().winding_temperature; }
+
+}  // namespace
+
+// The platform calls these directly (hot_path_interface.hpp). The control
+// thread runs synchronously here, every OuterLoop::kCyclesPerStep cycles.
+bool unimoc::hardware::SampleHandler() noexcept { return CurrentControlIsr::Instance().OnSample(); }
+void unimoc::hardware::ObserverHandler() noexcept {
+  SlowUpdate::Instance().RunOnce();
+  if (OuterLoop::Instance().OnObserverCycle()) {
+    OuterLoop::Instance().Step();
+  }
+}
+
+struct sim_motor_thermal_fixture {
+  unimoc::settings::SettingsStore store{unimoc::hardware::kSettings.GetSettingsProfile(),
+                                        unimoc::hardware::kSettings.GetSettingsStorage(),
+                                        unimoc::settings::SettingsSaveGate::Always()};
+  unimoc::settings::NvmSettings settings{};
+};
+
+namespace {
+
+void* Setup() {
+  static sim_motor_thermal_fixture fixture;
+  zassert_equal(fixture.store.Load(), unimoc::settings::SettingsStatus::kFactoryDefaults);
+  fixture.settings = MotorSettings(fixture.store.GetSnapshot().Get());
+  return &fixture;
+}
+
+/// Starts plant and controller; the estimate at the ambient, the plant at @p plant_temperature
+/// with a bridge of @p dead_time (t_dead f_pwm).
+void Start(const unimoc::settings::NvmSettings& settings,
+           const Temperature plant_temperature,
+           const Ratio dead_time = Ratio{},
+           const Capacitance dc_link_capacitance = Capacitance{}) {
+  OuterLoop::Instance().SetSetpoint(OuterSetpoint{});
+  kPowerStage.Disable();
+  zassert_equal(unimoc::settings::settings_store_internal::Validate(settings,
+                                                                    unimoc::hardware::kSettings
+                                                                        .GetSettingsProfile()
+                                                                        .capabilities),
+                unimoc::settings::SettingsStatus::kSuccess);
+  unimoc::sim::SimulationParameters plant = HeatedPlant(settings);
+  plant.inverter.dead_time = dead_time;
+  plant.dc_link.capacitance = dc_link_capacitance;
+  zassert_equal(sim::Plant().Configure(plant), unimoc::sim::Status::kOk);
+  sim::Plant().SetShaftMode(unimoc::sim::ShaftMode::kImposedSpeed, AngularVelocity{});
+  sim::Plant().SetInput(unimoc::sim::SimulationInput{});
+  sim::Reset();
+  sim::Plant().SetMotorTemperature(plant_temperature);
+  OuterLoop::Instance().RestartThermal();
+  zassert_true(unimoc::current_control::StartRuntime(settings, unimoc::hardware::kMotors[0], 80.0_A));
+  sim::SetFreeRunning(false);
+  kPowerStage.ClearFault();
+  zassert_true(kPowerStage.Enable());
+  RunMs(10U);
+}
+
+void Before(void* /*unused*/) {
+  sim::SetMotorSensor(false);
+  OuterLoop::Instance().SetMotorSensorTemperature(std::nullopt);
+  sim::ClearPhaseCurrentOverride();
+  sim::SetExternalEnable(true);
+}
+
+void After(void* /*unused*/) {
+  OuterLoop::Instance().SetSetpoint(OuterSetpoint{});
+  kPowerStage.Disable();
+}
+
+}  // namespace
+
+ZTEST_F(sim_motor_thermal, test_estimate_follows_the_heated_winding) {
+  Start(fixture->settings, 25.0_degC);
+  UNIMOC_EXPECT_NEAR(EstimatedWinding(), 25.0_degC, 0.5_degC);
+  // 30 A on the locked rotor: about 68 W cold, a steady rise of about 100 K.
+  OuterLoop::Instance().SetSetpoint(Hold(30.0_A));
+  RunSeconds(3U);
+  zexpect_true(PlantWinding() > 60.0_degC, "the winding heats");
+  UNIMOC_EXPECT_NEAR(EstimatedWinding(), PlantWinding(), 2.0_degC);
+  RunSeconds(10U);
+  UNIMOC_EXPECT_NEAR(EstimatedWinding(), PlantWinding(), 3.0_degC);
+  // The model's resistance is the plant's.
+  UNIMOC_EXPECT_NEAR(OuterLoop::Instance().Status().stator_resistance,
+                     sim::Plant().Output().stator_resistance,
+                     1.5e-3_Ohm);
+  // The flux observer works with the warm resistance, not with that of the settings.
+  UNIMOC_EXPECT_NEAR(SlowUpdate::Instance().flux_obs.rs,
+                     OuterLoop::Instance().Status().stator_resistance,
+                     1e-4_Ohm);
+  zexpect_true(SlowUpdate::Instance().flux_obs.rs > fixture->settings.stator_r * 1.1F, "the warm winding");
+  // And it cools down with the plant.
+  OuterLoop::Instance().SetSetpoint(OuterSetpoint{});
+  RunSeconds(5U);
+  UNIMOC_EXPECT_NEAR(EstimatedWinding(), PlantWinding(), 3.0_degC);
+  zexpect_false(CurrentControlIsr::Instance().state.overcurrent_tripped);
+}
+
+ZTEST_F(sim_motor_thermal, test_resistance_pulls_a_cold_estimate_to_a_warm_motor) {
+  // The motor is still warm from an earlier run; the drive starts at the ambient.
+  unimoc::settings::NvmSettings settings = fixture->settings;
+  settings.thermal_rs_correction_time = 1.0_s;
+  Start(settings, 90.0_degC);
+  UNIMOC_EXPECT_NEAR(EstimatedWinding(), 25.0_degC, 0.5_degC);
+  // 10 A at standstill: little heating, enough current for the resistance.
+  OuterLoop::Instance().SetSetpoint(Hold(10.0_A));
+  RunSeconds(6U);
+  UNIMOC_EXPECT_NEAR(EstimatedWinding(), PlantWinding(), 5.0_degC);
+}
+
+ZTEST_F(sim_motor_thermal, test_without_correction_a_cold_estimate_stays_cold) {
+  Start(fixture->settings, 90.0_degC);
+  OuterLoop::Instance().SetSetpoint(Hold(10.0_A));
+  RunSeconds(6U);
+  zexpect_true(PlantWinding() - EstimatedWinding() > 30.0_degC,
+               "the model alone does not see the warm start");
+}
+
+ZTEST_F(sim_motor_thermal, test_a_motor_sensor_pulls_the_estimate_to_a_warm_motor) {
+  // The motor is warm; the drive starts at the ambient, the stator resistance
+  // correction is off: only the sensor on the stator can find the temperature.
+  unimoc::settings::NvmSettings settings = fixture->settings;
+  settings.thermal_sensor_correction_time = 1.0_s;
+  Start(settings, 70.0_degC);
+  sim::SetMotorSensor(true);
+  UNIMOC_EXPECT_NEAR(EstimatedWinding(), 25.0_degC, 0.5_degC);
+  for (unsigned step = 0U; step < 50U; ++step) {
+    // As the drive does in its spin: the reading of the platform to the outer loop.
+    OuterLoop::Instance().SetMotorSensorTemperature(
+        unimoc::hardware::kMotors[0].GetTemperatureMeasurements().motor);
+    RunMs(100U);
+  }
+  UNIMOC_EXPECT_NEAR(EstimatedWinding(), PlantWinding(), 2.0_degC);
+  UNIMOC_EXPECT_NEAR(OuterLoop::Instance().Status().stator_temperature,
+                     sim::Plant().Output().stator_temperature,
+                     2.0_degC);
+  // Without a reading the model runs on alone.
+  sim::SetMotorSensor(false);
+  OuterLoop::Instance().SetMotorSensorTemperature(
+      unimoc::hardware::kMotors[0].GetTemperatureMeasurements().motor);
+  RunMs(500U);
+  UNIMOC_EXPECT_NEAR(EstimatedWinding(), PlantWinding(), 2.0_degC);
+}
+
+ZTEST_F(sim_motor_thermal, test_dead_time_compensation_carries_the_resistance_estimate) {
+  // A bridge with 500 ns dead time (1.6 % of the 32 kHz period, 0.77 V at
+  // 48 V) and the matching compensation: the estimate sees the winding.
+  unimoc::settings::NvmSettings settings = fixture->settings;
+  settings.dtc_dead_time = 500e-9_s;
+  Start(settings, 25.0_degC, 0.016_ratio);
+  OuterLoop::Instance().SetSetpoint(Hold(20.0_A));
+  RunMs(500U);
+  const auto kStatus = OuterLoop::Instance().Status();
+  UNIMOC_EXPECT_NEAR(kStatus.rs_estimate, sim::Plant().Output().stator_resistance, 5e-4_Ohm);
+  UNIMOC_EXPECT_NEAR(kStatus.rs_temperature, PlantWinding(), 3.0_degC);
+  zexpect_false(kStatus.rs_rejected);
+}
+
+ZTEST_F(sim_motor_thermal, test_without_dead_time_compensation_the_estimate_is_rejected) {
+  // The same bridge without the compensation: the dead time looks like twice
+  // the resistance, some 250 degC. The band rejects it; the model runs on.
+  unimoc::settings::NvmSettings settings = fixture->settings;
+  settings.dtc_dead_time = 0.0_s;
+  settings.thermal_rs_correction_time = 1.0_s;
+  Start(settings, 25.0_degC, 0.016_ratio);
+  OuterLoop::Instance().SetSetpoint(Hold(20.0_A));
+  RunSeconds(3U);
+  const auto kStatus = OuterLoop::Instance().Status();
+  zexpect_true(kStatus.rs_rejected);
+  zexpect_true(kStatus.rs_temperature > 200.0_degC, "the inverter error as a temperature");
+  UNIMOC_EXPECT_NEAR(EstimatedWinding(), PlantWinding(), 3.0_degC);
+}
+
+ZTEST_F(sim_motor_thermal, test_drive_limit_holds_the_battery_current_at_standstill) {
+  // A battery behind 50 mOhm and a 1 mF DC link, 1 A drive limit. 30 A on the
+  // locked rotor make no mechanical power, but 68 W of copper losses: 1.4 A
+  // from the battery. The limit with the losses takes the current back to
+  // about sqrt(48 W / 75 mOhm) = 25 A.
+  unimoc::settings::NvmSettings settings = fixture->settings;
+  settings.battery_drive_current_max = 1.0_A;
+  Start(settings, 25.0_degC, Ratio{}, 1e-3_F);
+  OuterLoop::Instance().SetSetpoint(Hold(30.0_A));
+  RunMs(300U);
+  // The mean battery current of the plant over 100 ms, against the drive's estimate.
+  Current plant_sum{};
+  Current estimate_sum{};
+  constexpr unsigned kSamples = 100U;
+  for (unsigned sample = 0U; sample < kSamples; ++sample) {
+    RunMs(1U);
+    const auto kStatus = OuterLoop::Instance().Status();
+    const unimoc::control::DcLinkLimit kEstimate{.drive_current_max = settings.battery_drive_current_max,
+                                                 .charge_current_max = settings.battery_charge_current_max,
+                                                 .regen_derate_start = settings.dc_link_regen_derate_start,
+                                                 .trip = settings.dc_link_trip,
+                                                 .stator_resistance = kStatus.stator_resistance};
+    plant_sum += sim::Plant().Output().battery_current;
+    estimate_sum += kEstimate.BatteryCurrent(sim::Plant().Output().rotor_current,
+                                             OuterLoop::MotorTorqueConstant(settings, MagneticFlux{}),
+                                             kStatus.speed,
+                                             CurrentControlIsr::Instance().state.dc_link);
+  }
+  const Current kPlantBattery = plant_sum / static_cast<float>(kSamples);
+  const Current kEstimatedBattery = estimate_sum / static_cast<float>(kSamples);
+  UNIMOC_EXPECT_NEAR(kPlantBattery, 1.0_A, 0.05_A);
+  UNIMOC_EXPECT_NEAR(kEstimatedBattery, kPlantBattery, 0.05_A);
+  const Current kLimited = OuterLoop::Instance().Status().current_reference.q;
+  zexpect_true(kLimited < 27.0_A && kLimited > 23.0_A, "the q current is limited at standstill");
+}
+
+namespace {
+
+/// Mechanical speed of the R_s check: the load motor of the bench turns the
+/// motor slowly (about 0.7 electrical revolutions per second at 7 pole pairs,
+/// below rs_speed_max), so the rotor angle runs through and the angle factor
+/// of the dead time averages out.
+constexpr AngularVelocity kCheckSpeed = 0.6_rad_per_s;
+
+/// The mean of the stator resistance estimates over 2 s at a current on the slowly turning rotor.
+Resistance ResistanceAt(const Current current) {
+  OuterLoop::Instance().SetSetpoint(Hold(current));
+  RunMs(300U);  // settle
+  Resistance sum{};
+  constexpr unsigned kReads = 40U;
+  for (unsigned read = 0U; read < kReads; ++read) {
+    RunMs(50U);
+    const auto kStatus = OuterLoop::Instance().Status();
+    zassert_true(kStatus.rs_valid);
+    sum += kStatus.rs_estimate;
+  }
+  return sum / static_cast<float>(kReads);
+}
+
+/**
+ * @brief The residual inverter voltage of the R_s check of the bench (cypilot plan section 7.9).
+ *
+ * The dead time missing from the compensation is a voltage of
+ * sign(i_x) V_dc dt f_pwm per phase; in the power balance of the estimator it
+ * adds V / |i| to the resistance, V = k V_dc dt f_pwm with the angle factor k
+ * of (2/3) sum |i_x| / |i| (2/sqrt(3) to 4/3, 4/pi on average over the rotor
+ * angle). With the resistance of the cold motor known (M1, at the room
+ * temperature) one current gives V = (R_apparent - R) |i|; a difference of
+ * two currents is far too sensitive to small changes of k.
+ */
+Voltage ResidualVoltage(const Current current, const Resistance cold_resistance) {
+  sim::Plant().SetShaftMode(unimoc::sim::ShaftMode::kImposedSpeed, kCheckSpeed);
+  return (ResistanceAt(current) - cold_resistance) * current;
+}
+
+/// The dead time that the residual voltage stands for, with the mean angle factor 4/pi.
+Time DeadTimeOf(const Voltage residual, const Frequency pwm) {
+  return residual / ((4.0F / kPi) * CurrentControlIsr::Instance().state.dc_link * pwm);
+}
+
+/**
+ * @brief The R_s check as cypilot runs it: correct the compensation by the residual, check again.
+ *
+ * The angle factor and the zero crossings make the step from V to dt
+ * uncertain by some 15 %; the direction is always right, so a few rounds
+ * converge.
+ * @return The compensated dead time after @p rounds.
+ */
+Time IterateDeadTime(unimoc::settings::NvmSettings settings,
+                     const Ratio bridge_dead_time,
+                     const unsigned rounds) {
+  for (unsigned round = 0U; round < rounds; ++round) {
+    Start(settings, 25.0_degC, bridge_dead_time);
+    const Voltage kResidual = ResidualVoltage(15.0_A, settings.stator_r);
+    // A compensation cannot be negative: the step stops at zero.
+    settings.dtc_dead_time =
+        unimoc::unit::Max(settings.dtc_dead_time + DeadTimeOf(kResidual, 32.0_kHz), Time{});
+  }
+  return settings.dtc_dead_time;
+}
+
+/// The motor of the scenario with the thermal mass of the hub motor: the check heats it little.
+unimoc::settings::NvmSettings SlowHeating(const unimoc::settings::NvmSettings& settings) {
+  unimoc::settings::NvmSettings slow = settings;
+  slow.thermal_c_winding = 150.0_J_per_K;
+  slow.thermal_c_stator = 1500.0_J_per_K;
+  return slow;
+}
+
+}  // namespace
+
+ZTEST_F(sim_motor_thermal, test_the_residual_voltage_shows_the_direction_of_the_dead_time_error) {
+  unimoc::settings::NvmSettings settings = SlowHeating(fixture->settings);
+  // 500 ns in the bridge (1.6 % of the 32 kHz period), no compensation: about +0.9 V.
+  settings.dtc_dead_time = 0.0_s;
+  Start(settings, 25.0_degC, 0.016_ratio);
+  const Voltage kUnder = ResidualVoltage(15.0_A, settings.stator_r);
+  zexpect_true(kUnder > 0.7_V && kUnder < 1.0_V, "under-compensated");
+  UNIMOC_EXPECT_NEAR(DeadTimeOf(kUnder, 32.0_kHz), 500e-9_s, 80e-9_s);
+  // An ideal bridge and 300 ns of compensation: negative, the estimate is not used.
+  settings.dtc_dead_time = 300e-9_s;
+  Start(settings, 25.0_degC);
+  const Voltage kOver = ResidualVoltage(15.0_A, settings.stator_r);
+  zexpect_true(kOver < -0.4_V && kOver > -0.6_V, "over-compensated");
+  zexpect_true(OuterLoop::Instance().Status().rs_rejected, "the model does not take it");
+  // The matching compensation: no residual, the estimate is the winding.
+  settings.dtc_dead_time = 500e-9_s;
+  Start(settings, 25.0_degC, 0.016_ratio);
+  UNIMOC_EXPECT_NEAR(ResidualVoltage(15.0_A, settings.stator_r), 0.0_V, 0.02_V);
+  UNIMOC_EXPECT_NEAR(OuterLoop::Instance().Status().rs_temperature, PlantWinding(), 3.0_degC);
+}
+
+ZTEST_F(sim_motor_thermal, test_the_compensation_follows_the_pwm_frequency_the_timer_runs) {
+  // The dead time is a time; its share of the period follows the PWM
+  // frequency, also the automatic one chosen from the inductance.
+  const std::array<Frequency, 2> kSettingsToTry{20.0_kHz, Frequency{}};  // 0: automatic
+  for (const Frequency kSetting : kSettingsToTry) {
+    unimoc::settings::NvmSettings settings = SlowHeating(fixture->settings);
+    settings.pwm_frequency = kSetting;
+    settings.dtc_dead_time = 500e-9_s;
+    const Frequency kRunning =
+        unimoc::settings::ResolveControlTiming(settings,
+                                               unimoc::hardware::kSettings.GetSettingsProfile().capabilities)
+            .pwm_frequency;
+    Start(settings, 25.0_degC, 500e-9_s * kRunning);
+    zassert_equal(CurrentControlIsr::Instance().state.timing.pwm_frequency, kRunning);
+    UNIMOC_EXPECT_NEAR(CurrentControlIsr::Instance().dtc.f_pwm, kRunning, 1.0_Hz);
+    UNIMOC_EXPECT_NEAR(ResidualVoltage(15.0_A, settings.stator_r), 0.0_V, 0.03_V);
+  }
+}
+
+ZTEST_F(sim_motor_thermal, test_three_rounds_of_the_check_find_the_dead_time) {
+  // From no compensation to the 500 ns of the bridge, and from 300 ns too many to none.
+  UNIMOC_EXPECT_NEAR(IterateDeadTime(SlowHeating(fixture->settings), 0.016_ratio, 3U), 500e-9_s, 10e-9_s);
+  unimoc::settings::NvmSettings over = SlowHeating(fixture->settings);
+  over.dtc_dead_time = 300e-9_s;
+  UNIMOC_EXPECT_NEAR(IterateDeadTime(over, Ratio{}, 3U), 0.0_s, 10e-9_s);
+}
+
+ZTEST_F(sim_motor_thermal, test_hot_winding_derates_the_current) {
+  unimoc::settings::NvmSettings settings = fixture->settings;
+  settings.thermal_derate_start = 50.0_degC;
+  settings.thermal_limit = 70.0_degC;
+  Start(settings, 25.0_degC);
+  OuterLoop::Instance().SetSetpoint(Hold(30.0_A));
+  RunSeconds(15U);
+  const auto kStatus = OuterLoop::Instance().Status();
+  zexpect_true(kStatus.thermally_derated);
+  zexpect_true(kStatus.current_reference.q < 25.0_A, "the reference is derated");
+  // The derating holds the winding in its band.
+  zexpect_true(PlantWinding() > 50.0_degC);
+  zexpect_true(PlantWinding() < 70.0_degC, "the winding stays below the limit");
+  // The torque limits of the drive follow the derated current.
+  zexpect_true(kStatus.torque_max < OuterLoop::MotorTorqueConstant(settings, MagneticFlux{}) * 25.0_A);
+}
+
+ZTEST_SUITE(sim_motor_thermal, nullptr, Setup, Before, After, nullptr);

@@ -178,7 +178,7 @@ def test_registers_json_describes_every_register_on_the_bus(dut, sim: SimClient,
 
     # The persistent settings, among them the e-bike registers past the 128th.
     settings = [entry for entry in entries if entry["persistent"] and entry["mutable"]]
-    assert len(settings) == 144
+    assert len(settings) == 155
     assert "unimoc.ebike.display_timeout" in by_name
 
 
@@ -246,7 +246,8 @@ def test_wheel_command_and_drive_status(sim: SimClient):
     assert not status.limp_home
     assert status.wheel == 0
     assert status.dc_link_voltage == pytest.approx(48.0, abs=0.5)
-    assert math.isnan(status.motor_temperature)
+    # No motor sensor in the simulation: the winding estimate, near the 25 °C ambient.
+    assert status.motor_temperature == pytest.approx(298.15, abs=2.0)
     sim.hold(0.2, SLEEP)
 
 
@@ -506,6 +507,7 @@ def test_trace_variables_ports_and_registers(sim: SimClient):
     assert names[:12] == ["i_d", "i_q", "i_d_ref", "i_q_ref", "u_d", "u_q", "electrical_angle",
                           "electrical_speed", "dc_link_voltage", "i_a", "i_b", "i_c"]
     assert variables[1] == ("i_q", "A")
+    assert names[12:16] == ["winding_temperature", "stator_temperature", "rs_estimate", "rs_temperature"]
     assert ("sim.electrical_speed", "rad/s") in variables  # plant truth of the simulation
 
     info = sim.trace_buffer_info()
@@ -660,6 +662,106 @@ def test_paused_drive_timeouts_follow_virtual_time(sim: SimClient):
         sim.expect_record("disengaged: readiness timeout", mark)
     finally:
         sim.write("unimoc.sim.paused", natural8(0))
+
+
+def test_thermal_state_registers_follow_the_heated_winding(sim: SimClient):
+    """The registers a heat run logs (scripts/thermal_log.py) against the plant truth."""
+    sim.hold(0.2, SLEEP)
+    sim.expect(sim.telemetry, lambda t: not t.engaged)
+    shaft_mode = sim.read("unimoc.sim.shaft_mode")
+    assert sim.write("unimoc.sim.motor_heating", natural8(1))  # restarts the plant at 25 degC
+    try:
+        assert sim.write("unimoc.sim.shaft_mode", natural8(1)) == 1  # locked rotor
+        assert sim.read("unimoc.motor.temperature.winding") == pytest.approx(25.0, abs=1.0)
+        sim.hold(3.0, ENGAGED, sim.current_setpoint(0.0, 15.0))
+        assert sim.read("unimoc.motor.temperature.current") == pytest.approx(15.0, abs=0.5)
+        winding = sim.read("unimoc.motor.temperature.winding")
+        truth = sim.read("unimoc.sim.motor_temperature")
+        assert winding > 25.5  # heated
+        assert winding == pytest.approx(truth, abs=1.0)
+        assert sim.read("unimoc.motor.temperature.stator") < winding
+        # Standstill, 15 A and the ideal bridge of the plant: the resistance gives the winding.
+        assert sim.read("unimoc.motor.temperature.rs") == pytest.approx(truth, abs=2.0)
+    finally:
+        sim.hold(0.2, SLEEP)
+        sim.expect(sim.telemetry, lambda t: not t.engaged)
+        assert not sim.write("unimoc.sim.motor_heating", natural8(0))
+        sim.write("unimoc.sim.shaft_mode", natural8(shaft_mode))
+
+
+def test_rs_check_finds_the_dead_time_of_the_simulated_bridge(sim: SimClient):
+    """The R_s check of cypilot (its plan section 7.9) over the bus.
+
+    The bench turns the motor slowly with the coupled load motor; here the
+    imposed speed of the plant does. The bridge has 500 ns dead time, the drive
+    no compensation: the winding temperature from R_s lies far above the
+    room, the drive does not use it, and the residual voltage gives the
+    dead time within the uncertainty of the angle factor.
+    """
+    sim.hold(0.2, SLEEP)
+    sim.expect(sim.telemetry, lambda t: not t.engaged)
+    shaft_mode = sim.read("unimoc.sim.shaft_mode")
+    assert sim.read("unimoc.sim.dead_time") == 0.0  # an ideal bridge by default
+    assert sim.write("unimoc.sim.dead_time", real(1e-3)) == 0.0  # beyond the limit: refused
+    assert sim.write("unimoc.sim.dead_time", real(500e-9)) == pytest.approx(500e-9)
+    try:
+        assert sim.read("unimoc.control.dtc.dead_time") == 0.0
+        assert sim.write("unimoc.sim.shaft_mode", natural8(1)) == 1
+        assert sim.write("unimoc.sim.imposed_speed", real(0.6)) == pytest.approx(0.6)
+        sim.hold(2.5, ENGAGED, sim.current_setpoint(0.0, 15.0))
+        # The dead time refuses to change while the outputs are released.
+        assert sim.write("unimoc.sim.dead_time", real(0.0)) == pytest.approx(500e-9)
+        readings = []
+        for _ in range(10):
+            sim.wait(0.1)
+            readings.append(sim.read("unimoc.motor.temperature.rs"))
+        rs_temperature = sum(readings) / len(readings)
+        assert sim.read("unimoc.motor.temperature.rs_rejected")  # far from the model
+        current = sim.read("unimoc.motor.temperature.current")
+        room = sim.read("unimoc.motor.temperature.winding")  # the cold motor
+        resistance = sim.read("unimoc.motor.stator.R")
+        reference = sim.read("unimoc.motor.stator.R_temperature")
+        assert room == pytest.approx(reference, abs=2.0)
+        # V = R_ref alpha (T_rs - T_room) |i|; dt = V / ((4/pi) V_dc f_pwm)
+        residual = resistance * 3.93e-3 * (rs_temperature - room) * current
+        dc_link = sim.next(sim.telemetry).dc_link_voltage
+        pwm = sim.read("unimoc.control.pwm_frequency")
+        dead_time = residual / ((4.0 / math.pi) * dc_link * pwm)
+        assert residual > 0.0  # under-compensated
+        assert dead_time == pytest.approx(500e-9, rel=0.2)
+    finally:
+        sim.hold(0.2, SLEEP)
+        sim.expect(sim.telemetry, lambda t: not t.engaged)
+        assert sim.write("unimoc.sim.dead_time", real(0.0)) == 0.0
+        sim.write("unimoc.sim.imposed_speed", real(0.0))
+        sim.write("unimoc.sim.shaft_mode", natural8(shaft_mode))
+
+
+def test_the_thermal_network_of_the_simulated_motor_is_set_by_registers(sim: SimClient):
+    sim.hold(0.2, SLEEP)
+    sim.expect(sim.telemetry, lambda t: not t.engaged)
+    shaft_mode = sim.read("unimoc.sim.shaft_mode")
+    assert sim.read("unimoc.sim.motor_thermal.C_winding") == pytest.approx(150.0)
+    assert sim.read("unimoc.sim.motor_thermal.C_stator") == pytest.approx(1500.0)
+    assert sim.read("unimoc.sim.motor_thermal.R_winding") == pytest.approx(0.4)
+    assert sim.read("unimoc.sim.motor_thermal.R_stator") == pytest.approx(0.8)
+    assert sim.write("unimoc.sim.motor_thermal.C_winding", real(0.0)) == pytest.approx(150.0)  # refused
+    # A winding a hundred times lighter: a heat run in seconds.
+    assert sim.write("unimoc.sim.motor_thermal.C_winding", real(1.5)) == pytest.approx(1.5)
+    assert sim.write("unimoc.sim.motor_heating", natural8(1))
+    try:
+        assert sim.write("unimoc.sim.shaft_mode", natural8(1)) == 1
+        sim.hold(3.0, ENGAGED, sim.current_setpoint(0.0, 15.0))
+        # 3/2 R 15^2 into 1.5 J/K: tens of kelvin in seconds (the drive's model, 150 J/K, lags).
+        truth = sim.read("unimoc.sim.motor_temperature")
+        assert truth > 35.0  # with the default 150 J/K about 27 degC
+        assert sim.read("unimoc.motor.temperature.winding") < truth
+    finally:
+        sim.hold(0.2, SLEEP)
+        sim.expect(sim.telemetry, lambda t: not t.engaged)
+        assert not sim.write("unimoc.sim.motor_heating", natural8(0))
+        assert sim.write("unimoc.sim.motor_thermal.C_winding", real(150.0)) == pytest.approx(150.0)
+        sim.write("unimoc.sim.shaft_mode", natural8(shaft_mode))
 
 
 def test_dc_link_capacitor_registers(sim: SimClient):

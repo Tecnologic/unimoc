@@ -74,6 +74,13 @@ struct PlantInputs {
   float dc_link_voltage{48.0F};
   float dc_link_capacitance{0.0F};  ///< [F]; 0: the ideal source.
   float battery_resistance{0.05F};  ///< [Ohm], with a DC-link capacitor.
+  bool motor_heating{false};        ///< The winding heats, R_s follows (sim::MotorThermalParameters).
+  float dead_time{0.0F};            ///< Dead time of the bridge [s]; 0: ideal.
+  /// Thermal network of the simulated motor: C_w, C_s [J/K], R_ws, R_sa [K/W].
+  float thermal_c_winding{150.0F};
+  float thermal_c_stator{1500.0F};
+  float thermal_r_winding{0.4F};
+  float thermal_r_stator{0.8F};
   bool contactor_closed{true};
   bool external_enable{true};
   bool follow_settings{true};
@@ -99,8 +106,15 @@ void ApplyInputs() noexcept {
   sim::SetExternalEnable(g_inputs.external_enable);
 }
 
-/// The DC link of the registers on top of the given plant parameters.
-::unimoc::sim::SimulationParameters WithDcLink(::unimoc::sim::SimulationParameters parameters) noexcept {
+/// The DC link, the dead time and the motor heating of the registers on top of the given plant parameters.
+::unimoc::sim::SimulationParameters WithPlantInputs(::unimoc::sim::SimulationParameters parameters) noexcept {
+  parameters.thermal.enabled = g_inputs.motor_heating;
+  parameters.thermal.network.winding_capacity = unit::HeatCapacity{g_inputs.thermal_c_winding};
+  parameters.thermal.network.stator_capacity = unit::HeatCapacity{g_inputs.thermal_c_stator};
+  parameters.thermal.network.winding_to_stator = unit::ThermalResistance{g_inputs.thermal_r_winding};
+  parameters.thermal.network.stator_to_ambient = unit::ThermalResistance{g_inputs.thermal_r_stator};
+  // The plant takes the dead time as a share of the PWM period the controller runs.
+  parameters.inverter.dead_time = unit::Ratio{g_inputs.dead_time * g_applied_settings.pwm_frequency.Value()};
   parameters.dc_link_voltage = unit::Voltage{g_inputs.dc_link_voltage};
   parameters.dc_link.capacitance = unit::Capacitance{g_inputs.dc_link_capacitance};
   parameters.dc_link.battery_resistance = unit::Resistance{g_inputs.battery_resistance};
@@ -137,12 +151,20 @@ enum class SimRegister : uint8_t {
   kGateSupply,
   kAccelerator,
   kBrake,
+  kMotorHeating,
+  kMotorTemperature,
+  kMotorSensor,
+  kDeadTime,
+  kThermalCWinding,
+  kThermalCStator,
+  kThermalRWinding,
+  kThermalRStator,
 };
 
 /// Most control cycles one write of `unimoc.sim.advance` runs (1 s of virtual time at 16 kHz).
 constexpr int64_t kMaxAdvanceCycles = 16000;
 
-constexpr std::array<std::string_view, 21> kNames{
+constexpr std::array<std::string_view, 29> kNames{
     "unimoc.sim.shaft_mode",
     "unimoc.sim.imposed_speed",
     "unimoc.sim.load_torque",
@@ -164,6 +186,14 @@ constexpr std::array<std::string_view, 21> kNames{
     "unimoc.sim.gate_supply",
     "unimoc.sim.accelerator",
     "unimoc.sim.brake",
+    "unimoc.sim.motor_heating",
+    "unimoc.sim.motor_temperature",
+    "unimoc.sim.motor_sensor",
+    "unimoc.sim.dead_time",
+    "unimoc.sim.motor_thermal.C_winding",
+    "unimoc.sim.motor_thermal.C_stator",
+    "unimoc.sim.motor_thermal.R_winding",
+    "unimoc.sim.motor_thermal.R_stator",
 };
 
 constexpr float kInf = std::numeric_limits<float>::infinity();
@@ -234,6 +264,46 @@ constexpr std::array<cyphal::RegisterDescription, kNames.size()> kDescriptions{{
     {"V", 0.0F, 30.0F, RegisterEffect::kImmediate, "Gate driver supply +12P"},
     {"V", 0.0F, 3.3F, RegisterEffect::kImmediate, "Output of the accelerator (throttle) sensor"},
     {"V", 0.0F, 3.3F, RegisterEffect::kImmediate, "Output of the brake lever sensor"},
+    {{},
+     -kInf,
+     kInf,
+     RegisterEffect::kImmediate,
+     "1: the simulated winding heats and its resistance follows (restarts the plant)"},
+    {"degC",
+     -50.0F,
+     200.0F,
+     RegisterEffect::kImmediate,
+     "Winding temperature of the simulated motor (truth); a write sets winding and stator"},
+    {{},
+     -kInf,
+     kInf,
+     RegisterEffect::kImmediate,
+     "1: a motor temperature sensor reads the stator temperature of the simulated motor"},
+    {"s",
+     0.0F,
+     5e-6F,
+     RegisterEffect::kImmediate,
+     "Dead time of the simulated bridge; 0: ideal (restarts the plant)"},
+    {"J/K",
+     0.01F,
+     kInf,
+     RegisterEffect::kImmediate,
+     "Heat capacity of the simulated winding (restarts the plant)"},
+    {"J/K",
+     0.01F,
+     kInf,
+     RegisterEffect::kImmediate,
+     "Heat capacity of the simulated stator and housing (restarts the plant)"},
+    {"K/W",
+     1e-3F,
+     kInf,
+     RegisterEffect::kImmediate,
+     "Thermal resistance from the simulated winding to the stator (restarts the plant)"},
+    {"K/W",
+     1e-3F,
+     kInf,
+     RegisterEffect::kImmediate,
+     "Thermal resistance from the simulated stator to the ambient (restarts the plant)"},
 }};
 
 /**
@@ -266,19 +336,83 @@ RegisterWriteResult WriteRunUntil(const RegisterValue& value) noexcept {
   return RegisterWriteResult::kAccepted;
 }
 
-/// Sets the DC-link capacitance or the battery resistance and restarts the plant; false: refused.
-bool WriteDcLink(const bool capacitance, const float value) noexcept {
-  if (value < 0.0F || (!capacitance && value == 0.0F) ||
-      kPowerStage.GetState() == PowerStageState::kEnabled) {
+/**
+ * @brief Changes an input of the plant configuration and restarts the plant; false: refused.
+ *
+ * Refused while the outputs are released, and when the plant rejects the
+ * new configuration (the input keeps its value then).
+ *
+ * @param change Writes the new value into the plant inputs.
+ */
+template <typename Change>
+bool WritePlantInput(const Change& change) noexcept {
+  if (kPowerStage.GetState() == PowerStageState::kEnabled) {
     return false;
   }
   const PlantInputs kPrevious = g_inputs;
-  (capacitance ? g_inputs.dc_link_capacitance : g_inputs.battery_resistance) = value;
-  if (ConfigurePlant(WithDcLink(sim::Plant().Parameters())) != ::unimoc::sim::Status::kOk) {
+  change(g_inputs);
+  if (ConfigurePlant(WithPlantInputs(sim::Plant().Parameters())) != ::unimoc::sim::Status::kOk) {
     g_inputs = kPrevious;
     return false;
   }
   return true;
+}
+
+/// Sets the DC-link capacitance or the battery resistance and restarts the plant; false: refused.
+bool WriteDcLink(const bool capacitance, const float value) noexcept {
+  if (value < 0.0F || (!capacitance && value == 0.0F)) {
+    return false;
+  }
+  return WritePlantInput([capacitance, value](PlantInputs& inputs) {
+    (capacitance ? inputs.dc_link_capacitance : inputs.battery_resistance) = value;
+  });
+}
+
+/// Switches the heating of the simulated winding and restarts the plant; false: refused.
+bool WriteMotorHeating(const bool heating) noexcept {
+  return WritePlantInput([heating](PlantInputs& inputs) { inputs.motor_heating = heating; });
+}
+
+/// The plant input of a register that sets a float of the plant configuration; nullptr for another register.
+float* PlantFloat(const SimRegister which, PlantInputs& inputs) noexcept {
+  switch (which) {
+    case SimRegister::kDeadTime:
+      return &inputs.dead_time;
+    case SimRegister::kThermalCWinding:
+      return &inputs.thermal_c_winding;
+    case SimRegister::kThermalCStator:
+      return &inputs.thermal_c_stator;
+    case SimRegister::kThermalRWinding:
+      return &inputs.thermal_r_winding;
+    case SimRegister::kThermalRStator:
+      return &inputs.thermal_r_stator;
+    default:
+      return nullptr;
+  }
+}
+
+/// Writes the dead time or a parameter of the thermal network within its limits; the plant restarts.
+RegisterWriteResult WritePlantFloat(const SimRegister which, const float value) noexcept {
+  const cyphal::RegisterDescription& limits = kDescriptions[static_cast<std::size_t>(which)];
+  if (value < limits.minimum || value > limits.maximum) {
+    return RegisterWriteResult::kOutOfRange;
+  }
+  const bool kAccepted =
+      WritePlantInput([which, value](PlantInputs& inputs) { *PlantFloat(which, inputs) = value; });
+  return kAccepted ? RegisterWriteResult::kAccepted : RegisterWriteResult::kOutOfRange;
+}
+
+/// Sets winding and stator of the simulated motor to one temperature [°C].
+RegisterWriteResult WriteMotorTemperature(const float value) noexcept {
+  const cyphal::RegisterDescription& limits =
+      kDescriptions[static_cast<std::size_t>(SimRegister::kMotorTemperature)];
+  if (value < limits.minimum || value > limits.maximum) {
+    return RegisterWriteResult::kOutOfRange;
+  }
+  const unsigned int kKey = irq_lock();
+  sim::Plant().SetMotorTemperature(unit::Temperature{value});
+  irq_unlock(kKey);
+  return RegisterWriteResult::kAccepted;
 }
 
 /// Sets one of the simulated board inputs; the voltages within the limits of their descriptions.
@@ -385,6 +519,22 @@ class SimRegisters final : public cyphal::RegisterProvider {
       case SimRegister::kBrake:
         cyphal::SetReal32(value, sim::SimBoardInputs().brake.value_or(Voltage{}).Value());
         break;
+      case SimRegister::kMotorHeating:
+        cyphal::SetBit(value, g_inputs.motor_heating);
+        break;
+      case SimRegister::kMotorTemperature:
+        cyphal::SetReal32(value, sim::Plant().Output().winding_temperature.Value());
+        break;
+      case SimRegister::kMotorSensor:
+        cyphal::SetBit(value, sim::MotorSensor());
+        break;
+      case SimRegister::kDeadTime:
+      case SimRegister::kThermalCWinding:
+      case SimRegister::kThermalCStator:
+      case SimRegister::kThermalRWinding:
+      case SimRegister::kThermalRStator:
+        cyphal::SetReal32(value, *PlantFloat(static_cast<SimRegister>(index), g_inputs));
+        break;
     }
     return {true, false};
   }
@@ -470,6 +620,20 @@ class SimRegisters final : public cyphal::RegisterProvider {
       case SimRegister::kAccelerator:
       case SimRegister::kBrake:
         return WriteBoardInput(static_cast<SimRegister>(index), kValue);
+      case SimRegister::kMotorHeating:
+        return WriteMotorHeating(kValue != 0.0F) ? RegisterWriteResult::kAccepted
+                                                 : RegisterWriteResult::kOutOfRange;
+      case SimRegister::kMotorTemperature:
+        return WriteMotorTemperature(kValue);
+      case SimRegister::kMotorSensor:
+        sim::SetMotorSensor(kValue != 0.0F);
+        return RegisterWriteResult::kAccepted;
+      case SimRegister::kDeadTime:
+      case SimRegister::kThermalCWinding:
+      case SimRegister::kThermalCStator:
+      case SimRegister::kThermalRWinding:
+      case SimRegister::kThermalRStator:
+        return WritePlantFloat(static_cast<SimRegister>(index), kValue);
     }
     ApplyInputs();
     return RegisterWriteResult::kAccepted;
@@ -851,11 +1015,10 @@ void CyphalPlatformSettingsApplied(const settings::NvmSettings& settings) noexce
     return;
   }
   // The simulated motor takes the motor parameters of the settings; the
-  // plant restarts at standstill with the inputs of the registers and keeps
-  // its inverter (dead time).
+  // plant restarts at standstill with the inputs of the registers (the dead
+  // time at the new PWM frequency).
   ::unimoc::sim::SimulationParameters parameters = ::unimoc::sim::ParametersFromSettings(settings);
-  parameters.inverter = sim::Plant().Parameters().inverter;
-  const auto kStatus = ConfigurePlant(WithDcLink(parameters));
+  const auto kStatus = ConfigurePlant(WithPlantInputs(parameters));
   if (kStatus != ::unimoc::sim::Status::kOk) {
     LOG_WRN("plant rejected the motor settings (%d)", static_cast<int>(kStatus));
   }

@@ -88,6 +88,29 @@ template <unit::UnitLike U>
          unit::IsFinite(settings.asm_flux_psi_r);
 }
 
+[[nodiscard]] inline bool IsFiniteThermal(const NvmSettings& settings) noexcept {
+  return unit::IsFinite(settings.stator_r_temperature) && unit::IsFinite(settings.thermal_ambient) &&
+         unit::IsFinite(settings.thermal_c_winding) && unit::IsFinite(settings.thermal_c_stator) &&
+         unit::IsFinite(settings.thermal_r_winding) && unit::IsFinite(settings.thermal_r_stator) &&
+         unit::IsFinite(settings.thermal_derate_start) && unit::IsFinite(settings.thermal_limit) &&
+         unit::IsFinite(settings.thermal_rs_speed_max) && unit::IsFinite(settings.thermal_rs_current_min) &&
+         unit::IsFinite(settings.thermal_rs_correction_time) &&
+         unit::IsFinite(settings.thermal_sensor_correction_time);
+}
+
+/// The thermal model: positive capacities and resistances, the derating band in order.
+[[nodiscard]] inline bool IsValidThermal(const NvmSettings& settings) noexcept {
+  return settings.thermal_c_winding > ZeroOf(settings.thermal_c_winding) &&
+         settings.thermal_c_stator > ZeroOf(settings.thermal_c_stator) &&
+         settings.thermal_r_winding > ZeroOf(settings.thermal_r_winding) &&
+         settings.thermal_r_stator > ZeroOf(settings.thermal_r_stator) &&
+         settings.thermal_derate_start < settings.thermal_limit &&
+         settings.thermal_rs_speed_max >= ZeroOf(settings.thermal_rs_speed_max) &&
+         settings.thermal_rs_current_min >= ZeroOf(settings.thermal_rs_current_min) &&
+         settings.thermal_rs_correction_time >= ZeroOf(settings.thermal_rs_correction_time) &&
+         settings.thermal_sensor_correction_time >= ZeroOf(settings.thermal_sensor_correction_time);
+}
+
 [[nodiscard]] inline bool IsFinite(const NvmSettings& settings) noexcept {
   return unit::IsFinite(settings.stator_r) && unit::IsFinite(settings.stator_l) &&
          unit::IsFinite(settings.motor_i_max) && unit::IsFinite(settings.motor_omega_max) &&
@@ -109,26 +132,25 @@ template <unit::UnitLike U>
          unit::IsFinite(settings.current_kp_q) && unit::IsFinite(settings.current_ki_q) &&
          unit::IsFinite(settings.current_v_max) && unit::IsFinite(settings.svm_duty_min) &&
          unit::IsFinite(settings.svm_duty_max) && unit::IsFinite(settings.dtc_dead_time) &&
-         unit::IsFinite(settings.dtc_f_pwm) && unit::IsFinite(settings.dtc_i_threshold) &&
-         unit::IsFinite(settings.excitation_l_m) && unit::IsFinite(settings.excitation_kp) &&
-         unit::IsFinite(settings.excitation_ki) && unit::IsFinite(settings.excitation_i_f_min) &&
-         unit::IsFinite(settings.excitation_i_f_max) && unit::IsFinite(settings.excitation_obs_tau) &&
-         unit::IsFinite(settings.excitation_obs_l_m) && unit::IsFinite(settings.speed_kp) &&
-         unit::IsFinite(settings.speed_ki) && unit::IsFinite(settings.speed_accel_limit) &&
-         unit::IsFinite(settings.pos_kp_pos) && unit::IsFinite(settings.pos_kp_speed) &&
-         unit::IsFinite(settings.pos_ki_speed) && unit::IsFinite(settings.pos_speed_limit) &&
-         unit::IsFinite(settings.pos_accel_limit) && unit::IsFinite(settings.pos_position_tolerance) &&
-         unit::IsFinite(settings.pos_speed_tolerance) && unit::IsFinite(settings.pos_homing_speed) &&
-         unit::IsFinite(settings.pos_homing_current) && unit::IsFinite(settings.adc_offset_a) &&
-         unit::IsFinite(settings.adc_offset_b) && unit::IsFinite(settings.adc_offset_c) &&
-         unit::IsFinite(settings.adc_gain_c) && unit::IsFinite(settings.adc_gain_a) &&
-         unit::IsFinite(settings.adc_gain_b) && unit::IsFinite(settings.adc_gain_vdc) &&
-         unit::IsFinite(settings.telemetry_rate) && unit::IsFinite(settings.command_timeout) &&
-         unit::IsFinite(settings.dc_link_regen_derate_start) && unit::IsFinite(settings.dc_link_trip) &&
-         unit::IsFinite(settings.cart_timeout) && unit::IsFinite(settings.cart_status_rate) &&
-         unit::IsFinite(settings.cart_torque_ramp) && unit::IsFinite(settings.cart_limp_home_torque) &&
-         unit::IsFinite(settings.cart_standstill_speed) && unit::IsFinite(settings.cart_battery_share) &&
-         IsFiniteEbike(settings);
+         unit::IsFinite(settings.dtc_i_threshold) && unit::IsFinite(settings.excitation_l_m) &&
+         unit::IsFinite(settings.excitation_kp) && unit::IsFinite(settings.excitation_ki) &&
+         unit::IsFinite(settings.excitation_i_f_min) && unit::IsFinite(settings.excitation_i_f_max) &&
+         unit::IsFinite(settings.excitation_obs_tau) && unit::IsFinite(settings.excitation_obs_l_m) &&
+         unit::IsFinite(settings.speed_kp) && unit::IsFinite(settings.speed_ki) &&
+         unit::IsFinite(settings.speed_accel_limit) && unit::IsFinite(settings.pos_kp_pos) &&
+         unit::IsFinite(settings.pos_kp_speed) && unit::IsFinite(settings.pos_ki_speed) &&
+         unit::IsFinite(settings.pos_speed_limit) && unit::IsFinite(settings.pos_accel_limit) &&
+         unit::IsFinite(settings.pos_position_tolerance) && unit::IsFinite(settings.pos_speed_tolerance) &&
+         unit::IsFinite(settings.pos_homing_speed) && unit::IsFinite(settings.pos_homing_current) &&
+         unit::IsFinite(settings.adc_offset_a) && unit::IsFinite(settings.adc_offset_b) &&
+         unit::IsFinite(settings.adc_offset_c) && unit::IsFinite(settings.adc_gain_c) &&
+         unit::IsFinite(settings.adc_gain_a) && unit::IsFinite(settings.adc_gain_b) &&
+         unit::IsFinite(settings.adc_gain_vdc) && unit::IsFinite(settings.telemetry_rate) &&
+         unit::IsFinite(settings.command_timeout) && unit::IsFinite(settings.dc_link_regen_derate_start) &&
+         unit::IsFinite(settings.dc_link_trip) && unit::IsFinite(settings.cart_timeout) &&
+         unit::IsFinite(settings.cart_status_rate) && unit::IsFinite(settings.cart_torque_ramp) &&
+         unit::IsFinite(settings.cart_limp_home_torque) && unit::IsFinite(settings.cart_standstill_speed) &&
+         unit::IsFinite(settings.cart_battery_share) && IsFiniteEbike(settings) && IsFiniteThermal(settings);
 }
 
 [[nodiscard]] inline bool IsValidEnumValues(const NvmSettings& settings) noexcept {
@@ -325,7 +347,6 @@ template <std::size_t kCount>
       settings.excitation_i_f_min < ZeroOf(settings.excitation_i_f_min) ||
       settings.excitation_i_f_max < settings.excitation_i_f_min ||
       settings.dtc_dead_time < ZeroOf(settings.dtc_dead_time) ||
-      settings.dtc_f_pwm <= ZeroOf(settings.dtc_f_pwm) ||
       settings.excitation_obs_tau <= ZeroOf(settings.excitation_obs_tau) ||
       settings.pos_position_tolerance < ZeroOf(settings.pos_position_tolerance) ||
       settings.pos_speed_tolerance < ZeroOf(settings.pos_speed_tolerance) ||
@@ -388,7 +409,7 @@ template <std::size_t kCount>
     return SettingsStatus::kOutOfRange;
   }
 
-  if (!IsValidEbike(settings)) {
+  if (!IsValidEbike(settings) || !IsValidThermal(settings)) {
     return SettingsStatus::kOutOfRange;
   }
 

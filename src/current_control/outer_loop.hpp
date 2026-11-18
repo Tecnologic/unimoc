@@ -17,12 +17,14 @@
 
 #include <atomic>
 #include <cstdint>
+#include <optional>
 #include "asm_flux_controller.hpp"
 #include "battery_limits.hpp"
 #include "current_control_isr.hpp"
 #include "cyphal/control_mode.hpp"
 #include "dc_link_limit.hpp"
 #include "mailbox.hpp"
+#include "motor_thermal_model.hpp"
 #include "motor_type.hpp"
 #include "nvm_settings.hpp"
 #include "position_controller.hpp"
@@ -87,6 +89,25 @@ struct OuterStatus {
   /// Homing run of the position mode (StartHoming()); kDone while the home
   /// of the last run holds, kIdle again after Init().
   control::HomingState homing{control::HomingState::kIdle};
+  /// Estimated winding temperature (docs/motor_thermal_plan.md).
+  unit::Temperature winding_temperature;
+  /// Estimated stator and housing temperature.
+  unit::Temperature stator_temperature;
+  /// Stator resistance at the estimated winding temperature.
+  unit::Resistance stator_resistance;
+  /// The motor current limit is reduced by the winding temperature.
+  bool thermally_derated{false};
+  /// RMS of the measured |i_dq| over the last window of the thermal model.
+  unit::Current thermal_current;
+  /// An estimate of the stator resistance arrived since the start.
+  bool rs_valid{false};
+  /// Last stator resistance estimate of the observer; may be negative (an over-compensated dead time).
+  unit::Resistance rs_estimate;
+  /// Winding temperature that rs_estimate stands for.
+  unit::Temperature rs_temperature;
+  /// The last estimate lay outside the plausible band and was not used
+  /// (docs/motor_thermal_plan.md, decision 3: a wrong dead-time compensation).
+  bool rs_rejected{false};
 };
 
 /**
@@ -101,7 +122,8 @@ struct OuterStatus {
  *  - The control thread calls Step(). It limits the setpoint, runs the speed
  *    controller (speed mode) or the position loop and the speed controller
  *    (position mode), turns the torque into a q current with the torque
- *    constant (PMSM, i_d = 0), limits it to the motor current and to the
+ *    constant (PMSM, i_d = 0), limits it to the motor current (derated by
+ *    the estimated winding temperature, control::MotorThermalModel) and to the
  *    battery current limits (control::DcLinkLimit: regenerative braking
  *    derated with the DC-link voltage; the limits of the settings or those
  *    of the BMS, SetBatteryLimits()) and hands the current reference to the
@@ -197,6 +219,26 @@ class OuterLoop {
   /// One step of the outer loop (control thread).
   void Step() noexcept;
 
+  /**
+   * @brief Starts the thermal model at the ambient temperature again at the next Init().
+   *
+   * Otherwise the model keeps its temperatures across Init() (new settings of
+   * a warm motor). For a motor change and the tests; call it while disengaged.
+   */
+  void RestartThermal() noexcept { thermal_restart_.store(true, std::memory_order_release); }
+
+  /**
+   * @brief Hands the reading of a motor temperature sensor to the thermal model.
+   *
+   * It corrects the stator mass with `unimoc.motor.thermal.sensor_correction_time`
+   * (docs/motor_thermal_plan.md, decision 6). Nothing: no sensor. One writer:
+   * the drive (Cyphal thread).
+   */
+  void SetMotorSensorTemperature(const std::optional<unit::Temperature> temperature) noexcept {
+    motor_sensor_.Write(MotorSensor{.valid = temperature.has_value(),
+                                    .temperature = temperature.value_or(unit::Temperature{})});
+  }
+
   /// State after the last step; any thread below the control thread.
   [[nodiscard]] OuterStatus Status() const noexcept { return status_.Read(); }
 
@@ -240,6 +282,10 @@ class OuterLoop {
     unit::AngularVelocity homing_speed;  ///< Mechanical speed of the homing run.
     unit::Current homing_current;        ///< Current bound of the homing run.
     Gains gains;
+    control::MotorThermalModel::Parameters thermal;  ///< Thermal model of the winding.
+    unit::Temperature thermal_ambient;               ///< Ambient and start temperature.
+    unit::Time rs_correction_time;                   ///< Correction from the stator resistance; 0 off.
+    unit::Time sensor_correction_time;               ///< Correction from a motor sensor; 0 off.
   };
 
   /// Angle and speed estimate handed from the observer.
@@ -265,10 +311,17 @@ class OuterLoop {
   [[nodiscard]] system::Rotor<unit::Current> TorqueToCurrent(unit::Torque torque) const noexcept;
   [[nodiscard]] system::Rotor<unit::Current> LimitCurrent(
       system::Rotor<unit::Current> current) const noexcept;
+  void UpdateThermal() noexcept;
 
   CurrentControlIsr* isr_{nullptr};
   Mailbox<OuterSetpoint> setpoint_{};
   Mailbox<BatteryLimits> battery_{};
+  /// Reading of a motor temperature sensor (SetMotorSensorTemperature()).
+  struct MotorSensor {
+    bool valid{false};
+    unit::Temperature temperature;
+  };
+  Mailbox<MotorSensor> motor_sensor_{};
   Mailbox<Parameters> parameters_{};
   Mailbox<Gains> gains_{};
   std::atomic<uint32_t> gains_generation_{0U};  ///< Counts SetGains(); the control thread compares.
@@ -297,6 +350,16 @@ class OuterLoop {
   cyphal::ControlMode mode_{cyphal::ControlMode::kTorque};
   bool was_active_{false};
   uint32_t steps_{0U};
+  control::MotorThermalModel thermal_;
+  bool thermal_started_{false};               ///< The model runs; it keeps its temperatures across Init().
+  std::atomic<bool> thermal_restart_{false};  ///< RestartThermal(): start at the ambient again.
+  uint32_t thermal_sequence_{0U};             ///< Last ThermalWindow taken.
+  unit::Current current_limit_;               ///< The motor current limit at the winding temperature.
+  unit::Resistance rs_estimate_;              ///< Last resistance estimate of the observer.
+  unit::Current thermal_current_;             ///< RMS current of the last thermal window.
+  unit::Temperature rs_temperature_;          ///< Its winding temperature.
+  bool rs_rejected_{false};                   ///< It lay outside the plausible band.
+  bool rs_valid_{false};                      ///< An estimate arrived.
 };
 
 }  // namespace unimoc::current_control

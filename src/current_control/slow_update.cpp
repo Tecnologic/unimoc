@@ -31,6 +31,13 @@
 
 namespace unimoc::current_control {
 
+namespace {
+
+/// Length of a stator resistance window of consecutive cycles.
+constexpr unit::Time kResistanceWindow = unit::operator""_s(0.064L);
+
+}  // namespace
+
 // =============================================================================
 // init
 // =============================================================================
@@ -62,6 +69,7 @@ void SlowUpdate::Init(const settings::NvmSettings& settings,
   slip_.Write(unit::AngularVelocity{});
   rotor_flux_.Write(unit::MagneticFlux{});
   asm_obs.R_s = settings.asm_r_s;
+  stator_resistance_.Write(motor_type_ == system::MotorType::kAsm ? settings.asm_r_s : settings.stator_r);
   asm_obs.R_r = settings.asm_r_r;
   asm_obs.L_s = settings.asm_l_s;
   asm_obs.L_r = settings.asm_l_r;
@@ -73,6 +81,26 @@ void SlowUpdate::Init(const settings::NvmSettings& settings,
   field_speed_ = unit::AngularVelocity{};
   last_flux_angle_ = unit::Angle{};
   rotor_speed_integral_ = unit::AngularVelocity{};
+  // Thermal model data: windows of MotorThermalModel::kStepPeriod, resistance
+  // windows of about 64 ms of consecutive cycles (docs/motor_thermal_plan.md).
+  const unit::Time kDtSlow = isr.state.dt_slow;
+  const auto kCycles = [kDtSlow](const unit::Time duration) {
+    const float kCount = (duration / kDtSlow).Value();  // a number of cycles
+    return (kCount > 1.0F) ? static_cast<uint32_t>(kCount + 0.5F) : 1U;
+  };
+  thermal_window_cycles_ = kCycles(control::MotorThermalModel::kStepPeriod);
+  resistance_estimator_ = control::StatorResistanceEstimator({.speed_max = settings.thermal_rs_speed_max,
+                                                              .current_min = settings.thermal_rs_current_min,
+                                                              .inductance_d = settings.l_d,
+                                                              .inductance_q = settings.l_q,
+                                                              .cycle = kDtSlow,
+                                                              .window_cycles = kCycles(kResistanceWindow)});
+  estimate_resistance_ = settings.motor_type != system::MotorType::kAsm;
+  const uint32_t kSequence = thermal_window_.sequence;
+  thermal_window_ = ThermalWindow{};
+  thermal_window_.sequence = kSequence;
+  thermal_cycles_ = 0U;
+
   if (motor_type_ == system::MotorType::kAsm) {
     // No torque model for the field frame (UpdateAsm()): no flux, no reluctance.
     isr.mech_obs.L_d = settings.asm_l_s;
@@ -110,6 +138,12 @@ bool SlowUpdate::RunOnce() noexcept {
   // -------------------------------------------------------------------------
   const CycleRecord& cycle = state.records[state.observer_buffer];
   const system::Rotor<unit::Current> kCurrentDqMean = cycle.i_dq_mean;
+  // The stator resistance at the estimated winding temperature (outer loop).
+  const unit::Resistance kStatorResistance = stator_resistance_.Read();
+  if (kStatorResistance > unit::Resistance{}) {
+    flux_obs.rs = kStatorResistance;
+    asm_obs.R_s = kStatorResistance;
+  }
   AccumulateWindow(cycle);
 
   // -------------------------------------------------------------------------
@@ -146,6 +180,12 @@ bool SlowUpdate::RunOnce() noexcept {
     }
   }
   MeasureCoast(cycle, kOutputsOpen);
+  // The estimate of the previous cycle (the speed the cycle ran with); the
+  // identification's forced angle runs without the dead-time compensation.
+  AccumulateThermal(cycle,
+                    kCurrentDqMean,
+                    mech_obs.omega,
+                    !kOutputsOpen && forced_state_.load(std::memory_order_relaxed) == kForcedOff);
   FuseHall(cycle);
 
   // -------------------------------------------------------------------------
@@ -367,6 +407,40 @@ void SlowUpdate::TrackBackEmf(const CycleRecord& cycle,
 // =============================================================================
 // measure_coast — the coast-down meter of M3
 // =============================================================================
+
+void SlowUpdate::AccumulateThermal(const CycleRecord& cycle,
+                                   const system::Rotor<unit::Current>& current_dq,
+                                   const unit::AngularVelocity omega,
+                                   const bool resistance_valid) noexcept {
+  thermal_window_.current_squared += current_dq.LengthSquared();
+  if (estimate_resistance_ && resistance_valid) {
+    const std::optional<unit::Resistance> kResistance = resistance_estimator_.Add(
+        {.voltage = cycle.u_dq, .current = current_dq, .speed = omega, .flux = flux_setpoint_.d});
+    if (kResistance.has_value()) {
+      ++thermal_window_.resistance_estimates;
+      thermal_window_.resistance += *kResistance;
+      thermal_window_.resistance_time +=
+          isr_->state.dt_slow * static_cast<float>(resistance_estimator_.GetParameters().window_cycles);
+    }
+  } else {
+    resistance_estimator_.Restart();
+  }
+  if (++thermal_cycles_ < thermal_window_cycles_) {
+    return;
+  }
+  ThermalWindow published = thermal_window_;
+  const auto kCycles = static_cast<float>(thermal_cycles_);
+  published.sequence = thermal_window_.sequence + 1U;
+  published.current_squared = thermal_window_.current_squared / kCycles;
+  published.duration = isr_->state.dt_slow * kCycles;
+  if (published.resistance_estimates > 0U) {
+    published.resistance = thermal_window_.resistance / static_cast<float>(published.resistance_estimates);
+  }
+  thermal_.Write(published);
+  thermal_window_ = ThermalWindow{};
+  thermal_window_.sequence = published.sequence;
+  thermal_cycles_ = 0U;
+}
 
 void SlowUpdate::MeasureCoast(const CycleRecord& cycle, const bool outputs_open) noexcept {
   const uint32_t kGeneration = coast_generation_.load(std::memory_order_acquire);

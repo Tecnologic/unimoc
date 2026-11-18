@@ -9,7 +9,8 @@ UNIMOC and the firmware work for it. A change here changes the bus contract;
 cypilot follows a UNIMOC release (`DEFAULT_UNIMOC_REF` in `cypilot.dsdl`).
 
 Section numbers of the cypilot plan: 2.1 license, 5.1 register description
-file, 6 status, 7.1 readiness per node, 9 firmware support.
+file, 6 status, 7.1 readiness per node, 7.9 motor temperature and heat run,
+9 firmware support.
 
 ## 1. What each repository owns
 
@@ -51,7 +52,7 @@ order of freshness:
 | Source | Rate | Content |
 |---|---|---|
 | Heartbeat | 1 Hz | Health, mode, uptime, vendor status (below) |
-| `unimoc.cart.DriveStatus` | 50 Hz | Engaged, power stage, limp-home, regen derated, overcurrent and overvoltage trips, temperatures, DC link |
+| `unimoc.cart.DriveStatus` | 50 Hz | Engaged, power stage, limp-home, regen derated, thermally derated (0.2), overcurrent and overvoltage trips, temperatures (the motor: sensor, else the estimate), DC link |
 | `unimoc.drive.Telemetry` | 20 Hz | Engaged, power stage, overcurrent trip, currents, voltages, speed, DC link |
 | Registers, polled at about 1 Hz while the node is selected | — | `unimoc.can.bus_off_count` |
 | `uavcan.diagnostic.Record` | event | Last warning or error in the row, full text in the log |
@@ -180,3 +181,23 @@ Each its own PR with ztest and pytest coverage:
    `TODO.md` ("Next") stay open. The GUI repository's tests use it with the
    released `native_sim`.
 7. **License of `dsdl/unimoc/`** (section 2), if accepted.
+8. **Motor temperature** (cypilot plan section 7.9: the temperature card, the
+   R_s check of the dead-time compensation and the heat run with its fit).
+   Done 2026-11-17 (`docs/motor_thermal_plan.md`): the settings
+   `unimoc.motor.thermal.*` and `unimoc.motor.stator.R_temperature`, the
+   read-only `unimoc.motor.temperature.winding`, `.stator`, `.rs` and
+   `.current`, the traces 12 to 15, `unimoc.cart.DriveStatus.0.2` with
+   `thermally_derated`, the simulated heating (`unimoc.sim.motor_heating`,
+   `motor_temperature`, `motor_sensor`), `scripts/thermal_log.py` and
+   `scripts/thermal_fit.py` (the CSV and the model cypilot follows). F4,
+   done 2026-11-18: `unimoc.sim.dead_time`, `unimoc.sim.motor_thermal.C_winding`,
+   `.C_stator`, `.R_winding`, `.R_stator` (each restarts the plant),
+   `unimoc.motor.temperature.rs_rejected` (bit), a negative R_s estimate
+   reported (over-compensation). The R_s check that cypilot runs is fixed in
+   `docs/motor_thermal_plan.md` section 6: one current on the slowly turning
+   rotor (the coupled load motor of the bench, in the simulation the
+   imposed speed), V = R_ref α (T_rs − T_room) |i|, the dead time corrected by
+   V / ((4/π) V_dc f_pwm) and checked again, about three rounds; tested in
+   `tests/sim/motor_thermal` and the pytest
+   `test_rs_check_finds_the_dead_time_of_the_simulated_bridge`.
+   cypilot moves `DEFAULT_UNIMOC_REF` to the release with `DriveStatus.0.2`.

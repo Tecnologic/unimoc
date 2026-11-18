@@ -38,6 +38,7 @@
 #include "ebike_interface.hpp"
 #include "hardware_interface.hpp"
 #include "hardware_interface_config.hpp"
+#include "outer_loop.hpp"
 #include "trace_node.hpp"
 #include "trace_signals.hpp"
 #include "zephyr_can_media.hpp"
@@ -172,7 +173,7 @@ void CyphalThread(void* /*unused*/, void* /*unused*/, void* /*unused*/) {
   }
   CyphalPlatformStart(node, kSnapshot.Get());
 
-  // Traces: the control signals first (IDs 0..11), then the platform's.
+  // Traces: the control signals first (IDs 0..15), then the platform's.
   static trace::TraceNode trace_node{node, trace::TraceDevice()};
   if (!trace::RegisterControlSignals()) {
     LOG_WRN("trace registry full");
@@ -197,6 +198,7 @@ void CyphalThread(void* /*unused*/, void* /*unused*/, void* /*unused*/) {
     const uint64_t kNow = NowUs();
     drive.Spin(kNow, CyphalPlatformDriveTimeUs(kNow));
     trace_node.Spin();
+    trace::SetThermalSignals(current_control::OuterLoop::Instance().Status());
     CyphalPlatformSpin(node, kNow);
     uint8_t level = 0U;
     while (UnimocCyphalLogGet(&level, text.data(), text.size())) {

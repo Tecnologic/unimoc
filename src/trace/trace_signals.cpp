@@ -20,6 +20,7 @@
 #include <optional>
 #include "angle_wrap.hpp"
 #include "current_control_isr.hpp"
+#include "outer_loop.hpp"
 
 namespace unimoc::trace {
 
@@ -66,9 +67,17 @@ cymon::Device& TraceDevice() noexcept {
 
 const TraceSignals& Signals() noexcept { return Storage().signals; }
 
+void SetThermalSignals(const current_control::OuterStatus& status) noexcept {
+  TraceSignals& signals = Storage().signals;
+  signals.winding_temperature = status.winding_temperature.Value();
+  signals.stator_temperature = status.stator_temperature.Value();
+  signals.rs_estimate = status.rs_estimate.Value();
+  signals.rs_temperature = status.rs_temperature.Value();
+}
+
 bool RegisterControlSignals() noexcept {
   TraceSignals& signals = Storage().signals;
-  const std::array<SignalInfo, 12> kSignals{{
+  const std::array<SignalInfo, 16> kSignals{{
       {"i_d", "A", &signals.i_d},
       {"i_q", "A", &signals.i_q},
       {"i_d_ref", "A", &signals.i_d_ref},
@@ -81,6 +90,10 @@ bool RegisterControlSignals() noexcept {
       {"i_a", "A", &signals.i_a},
       {"i_b", "A", &signals.i_b},
       {"i_c", "A", &signals.i_c},
+      {"winding_temperature", "degC", &signals.winding_temperature},
+      {"stator_temperature", "degC", &signals.stator_temperature},
+      {"rs_estimate", "Ohm", &signals.rs_estimate},
+      {"rs_temperature", "degC", &signals.rs_temperature},
   }};
   bool registered = true;
   for (const SignalInfo& signal : kSignals) {

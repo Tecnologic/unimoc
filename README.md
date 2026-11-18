@@ -31,15 +31,16 @@ simulation.
    - [Settings via Registers](#settings-via-registers)
    - [Setpoints via Subjects](#setpoints-via-subjects)
    - [Telemetry Subjects](#telemetry-subjects)
-5. [NVM-Backed Settings](#nvm-backed-settings)
-6. [Hardware Bring-Up Guide](#hardware-bring-up-guide)
+5. [Motor Temperature](#motor-temperature)
+6. [NVM-Backed Settings](#nvm-backed-settings)
+7. [Hardware Bring-Up Guide](#hardware-bring-up-guide)
    - [Equipment Required](#equipment-required)
    - [Phase 1 — No Motor Connected](#phase-1--no-motor-connected)
    - [Phase 2 — Motor Connected](#phase-2--motor-connected)
    - [Calibration Results and NVM Commit](#calibration-results-and-nvm-commit)
    - [Aborting or Recovering from FAULT](#aborting-or-recovering-from-fault)
-7. [Motor Identification](#motor-identification)
-8. [Getting Started](#getting-started)
+8. [Motor Identification](#motor-identification)
+9. [Getting Started](#getting-started)
    - [Running the Tests](#running-the-tests)
    - [Generating the API Documentation](#generating-the-api-documentation)
    - [Building Firmware (Zephyr)](#building-firmware-zephyr)
@@ -55,6 +56,7 @@ simulation.
 | **Motor types** | PMSM, ASM (induction), EESM (wound-rotor synchronous) |
 | **Observers** | Back-EMF / PLL (PMSM) fused with Hall sensors, ASM rotor-flux Luenberger, EESM excitation LPF; with the outputs open the PMSM observer follows the coasting motor from the measured phase voltages, so the drive engages on a spinning motor without Hall sensors |
 | **Control** | MTPA, field-weakening, ASM flux PI, EESM excitation PI (current or flux mode) |
+| **Protection** | Motor current limit, battery drive current limit with the copper losses (also at standstill), charge limit, regenerative derating with the DC-link voltage, winding temperature estimate (two thermal masses, stator resistance correction at low speed) with current derating |
 | **Position** | Absolute multi-turn tracker (±4096+ rev), cascaded P+PI position controller, homing state machine |
 | **Modulation** | Space Vector PWM (SVPWM), dead-time compensation; current PI every half PWM period, every period (valley sample, symmetric pulses) or every second or fourth period (control divider, the fastest the processor runs by default); PWM frequency selectable from the motor inductance; inline current sensors or low-side shunts (foc0 `current-sense`: valley sample in PWM mode 2, no step every half period, duty capped for the sample) |
 | **Network** | Cyphal (UAVCAN v1) over CAN FD — every setting a register, arming, setpoints, telemetry, traces (cymon) and the log on the bus, also for the simulation (see [Cyphal](#cyphal-uavcan-v1-interface)) |
@@ -228,7 +230,7 @@ takes effect after a restart.
 ### Settings via registers
 
 Every persistent setting (`ForEachRegister()` in
-`lib/settings/settings_registers.hpp`, 144 registers) is a Cyphal register
+`lib/settings/settings_registers.hpp`, 155 registers) is a Cyphal register
 under the same name; `yakut rl <node>` lists them.  Units and floats are
 `real32[1]`, counts and enums `natural8[1]`, `uavcan.node.id` and the port-IDs
 `natural16[1]`, the name a string; writes accept any numeric type.  A write is
@@ -283,7 +285,7 @@ validation decides, also on limits between registers or of the hardware
 | `uavcan.sub.wheel_command.id` | 110 | `unimoc.cart.WheelCommand.0.1` | Cart: torque per wheel from the VDC; the drive takes `unimoc.cart.wheel` |
 | `uavcan.sub.pedal_state.id` | 111 | `unimoc.cart.PedalState.0.1` | Cart: pedals for limp-home mode |
 | `uavcan.sub.battery_status.id` | 112 | `unimoc.cart.BatteryStatus.0.1` | Cart: current limits of the BMS, replace `unimoc.battery.limits.*` while fresh |
-| `uavcan.pub.drive_status.id` | 214 | `unimoc.cart.DriveStatus.0.1` | Cart: wheel speed, torque, drive and brake torque limits, DC link, flags at `unimoc.cart.status_rate` (50 Hz) |
+| `uavcan.pub.drive_status.id` | 214 | `unimoc.cart.DriveStatus.0.2` | Cart: wheel speed, torque, drive and brake torque limits, DC link, flags at `unimoc.cart.status_rate` (50 Hz) |
 | `uavcan.pub.commissioning.id` | 215 | `unimoc.drive.CommissioningStatus.0.1` | Commissioning (startup aid, motor identification): step, state, needs, progress, passed and failed steps; on every change, 2 Hz in a run, 0.5 Hz otherwise ([Commands and Status](#commands-and-status)) |
 | `uavcan.pub.homing_state.id` | 204 | `uavcan.primitive.scalar.Natural8.1.0` | Homing: 0 IDLE, 1 SEARCHING, 3 DONE, 4 FAULT; on every change, 2 Hz while searching, 0.5 Hz otherwise ([Homing](#homing)) |
 | `uavcan.pub.sim_plant.id` (sim only) | 213 | `unimoc.sim.Plant.0.1` | Plant truth: phase currents, shaft angle and speed, torque, Hall code |
@@ -304,10 +306,19 @@ refreshed within `unimoc.control.command_timeout` (0.5 s): a missing
 readiness disengages the drive, a missing setpoint falls back to zero
 current.  The current vector is limited to `unimoc.motor.limits.i_max`.
 
+The current limit falls with the estimated winding temperature (see
+[Motor temperature](#motor-temperature)) from `unimoc.motor.thermal.derate_start`
+to zero at `unimoc.motor.thermal.limit`.
+
 The battery current is limited as well, in every mode: the drive estimates
-it from the mechanical power of the q current (k_t i_q ω / V_dc, losses
-ignored) and scales i_q to `unimoc.battery.limits.drive_current` when
-motoring and to `unimoc.battery.limits.charge_current` when braking.  The
+it from the mechanical power of the q current and the copper losses at the
+estimated winding temperature ((k_t i_q ω + 3/2 R_s(T) |i|²) / V_dc,
+inverter losses ignored) and limits i_q, every step of the control thread
+at the present speed, to `unimoc.battery.limits.drive_current` when
+motoring and to `unimoc.battery.limits.charge_current` when braking. With
+the copper losses the drive limit also holds at standstill; the charge
+limit takes the mechanical power alone, so the losses only lower the real
+charge current.  The
 charge limit falls linearly from `unimoc.battery.limits.regen_derate_voltage`
 (factory values from the board: 45 V on Jacobi and the NUCLEO-H743ZI, 55 V in
 the simulation) to zero at `unimoc.battery.limits.trip_voltage` (48 V on the
@@ -347,8 +358,11 @@ The cart messages (`dsdl/unimoc/cart/`, section 6.2 of
 - **Drive status.** Wheel speed and torque estimate in the cart frame, the
   torque the drive can apply now with and against the motion (motor
   current limit and battery power window), DC-link voltage and estimated
-  battery current, temperatures in K (NaN when not measured), the power
-  stage, engaged, limp-home, regen derated and trip flags.
+  battery current (mechanical power and copper losses), temperatures in K
+  (the motor: the sensor, else the estimated winding temperature; NaN when
+  not measured), the power
+  stage, engaged, limp-home, regen derated, thermally derated (0.2) and
+  trip flags.
 - **Bus-off.** The CAN controller leaves bus-off on its own; the drive
   drops every cart input at once (the torque ramps to zero), counts it in
   `unimoc.can.bus_off_count` and logs the return to the bus.
@@ -524,7 +538,8 @@ function pointer); the services run in the Cyphal thread
 | IDs | Variables |
 |---|---|
 | 0..11 | `i_d`, `i_q`, `i_d_ref`, `i_q_ref` [A], `u_d`, `u_q` [V], `electrical_angle` [rad, 0 to 2 pi], `electrical_speed` [rad/s] (observer, one cycle late), `dc_link_voltage` [V], `i_a`, `i_b`, `i_c` [A] (newest sample) |
-| 12.. (sim only) | Plant truth: `sim.i_a`..`sim.i_c`, `sim.i_d`, `sim.i_q`, `sim.electrical_angle`, `sim.electrical_speed`, `sim.mechanical_speed`, `sim.torque` |
+| 12..15 | Thermal model: `winding_temperature`, `stator_temperature` [degC], `rs_estimate` [Ohm] (the last stator resistance window of the observer), `rs_temperature` [degC] (its winding temperature; for the bench check of the dead-time compensation) |
+| 16.. (sim only) | Plant truth: `sim.i_a`..`sim.i_c`, `sim.i_d`, `sim.i_q`, `sim.electrical_angle`, `sim.electrical_speed`, `sim.mechanical_speed`, `sim.torque` |
 
 The sample period is a whole multiple of the control cycle; a capture of
 8 channels by 256 frames takes about 0.4 s of bus time at 1 Mbit/s.
@@ -626,6 +641,19 @@ switched-off bridge once its line-to-line back-EMF exceeds the DC link (an
 averaged six-step rectifier), so the overvoltage trip and the regenerative
 derating can be exercised. The plant message reports the DC-link voltage.
 
+Motor heating: `unimoc.sim.motor_heating` (bit; refused while the outputs
+are released, the plant restarts) heats the simulated winding with the same
+two-mass network as the drive's estimate (the factory thermal parameters)
+and lets its stator resistance follow the winding temperature;
+`unimoc.sim.motor_temperature` [°C] reads the winding temperature of the
+plant and sets winding and stator (a motor still warm);
+`unimoc.sim.motor_sensor` (bit) fits a motor temperature sensor that reads
+the stator temperature of the plant. `unimoc.sim.motor_thermal.C_winding`,
+`.C_stator` [J/K], `.R_winding`, `.R_stator` [K/W] set the network of the
+simulated motor (factory 150, 1500, 0.4, 0.8) and `unimoc.sim.dead_time` [s,
+up to 5 µs] the dead time of the simulated bridge; each restarts the plant
+and is refused while the outputs are released.
+
 Deterministic runs: `unimoc.sim.paused` (bit) stops the cycle timer, also
 across a settings restart of the controller; then a write of
 `unimoc.sim.advance` (natural32, at most 16000 = 1 s) runs that many control
@@ -652,6 +680,44 @@ estimate drifts, so the current loop is meaningful in the controller frame
 (telemetry), not yet as a torque on the simulated shaft.
 
 ---
+
+## Motor Temperature
+
+The drive estimates the winding temperature without a sensor
+(`control::MotorThermalModel`, `docs/motor_thermal_plan.md`): two thermal
+masses, the winding (`unimoc.motor.thermal.C_winding` [J/K]) and the stator
+with the housing (`.C_stator`), coupled by `.R_winding` [K/W] and cooled to
+`.ambient` [°C] through `.R_stator`, heated by the copper losses
+3/2 R_s(T) |i|². The stator resistance follows the winding temperature
+(copper, 0.393 %/K) from `unimoc.motor.stator.R`, measured at
+`unimoc.motor.stator.R_temperature` (default 25 °C). The model steps every
+0.1 s in the control thread with the mean |i|² of the observer.
+
+At low speed (`.rs_speed_max`, electrical) and enough current
+(`.rs_current_min`) the observer estimates the stator resistance from the
+power balance of the rotor frame over windows of 64 ms; the temperature it
+stands for pulls the estimate in with the time constant
+`.rs_correction_time` (0 off). A drive started with a warm motor thus finds
+its temperature once it carries current at low speed. The current limit
+falls linearly from `.derate_start` to zero at `.limit`, and with it the
+torque limits of `unimoc.cart.DriveStatus` (flag `thermally_derated`,
+version 0.2). Where the platform measures the motor temperature (Jacobi: a
+10k NTC on PC5; an open or shorted input counts as none), the sensor
+corrects the stator mass with `.sensor_correction_time` (0: only reported)
+and the bus reports the sensor; otherwise the estimate. The resistance at
+the estimated temperature also goes to the flux observer.
+
+The stator resistance estimate rests on the dead-time compensation
+(`unimoc.control.dtc.*`, measured by M1): without it a dead time looks like
+a hot winding. An estimate outside [ambient − 40 K, `.limit` + 40 K] or more
+than 80 K from the model is not used. Read-only registers for the bench:
+`unimoc.motor.temperature.winding`, `.stator`, `.rs` (the temperature of the
+last resistance estimate; NaN: none) [°C], `.current` [A RMS] and
+`.rs_rejected` (the gates refused the last estimate); the cymon
+traces 12 to 15 carry the same. The factory thermal parameters are a guess
+for the hoverboard hub motor: `scripts/thermal_log.py` logs a heat run and
+`scripts/thermal_fit.py` fits the four parameters to it (procedure:
+`docs/motor_thermal_plan.md`, section 6).
 
 ## NVM-Backed Settings
 
@@ -1161,7 +1227,10 @@ the free shaft.
   sign (10 % to 50 % of the current limit) at 0, 120 and 240 degrees
   electrical, without the dead-time compensation; the regression
   u = R i + U_dt sign(i) gives R from the slope and the dead time from the
-  step at zero. The three slopes must agree within 10 %.
+  step at zero. The three slopes must agree within 10 %. The dead time is a
+  time (`unimoc.control.dtc.dead_time`); the compensation takes its share of
+  the period at the PWM frequency the timer runs, also the automatic one
+  (`unimoc.control.pwm_frequency` 0, chosen from the inductance).
 - **M2, L_d and L_q:** a d bias of 20 % of the limit at angle 0, the current PI
   frozen, a sine at f_pwm / 64 (500 Hz at 32 kHz PWM) on the d axis, then on
   the q axis, its amplitude scaled until the current answers with 10 % of the

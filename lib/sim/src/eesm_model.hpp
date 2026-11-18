@@ -98,6 +98,16 @@ class EesmModel {
 
   [[nodiscard]] constexpr const EesmParameters& Parameters() const noexcept { return parameters_; }
 
+  /**
+   * @brief Sets the stator resistance, for a winding whose temperature changes.
+   * @param resistance Stator phase resistance; a value that is not positive is ignored.
+   */
+  constexpr void SetStatorResistance(const unit::Resistance resistance) noexcept {
+    if (resistance > unit::Resistance{}) {
+      parameters_.stator_resistance = resistance;
+    }
+  }
+
   /// Sets all flux linkages (and so the currents) to zero.
   constexpr void Reset() noexcept {
     flux_ = {};

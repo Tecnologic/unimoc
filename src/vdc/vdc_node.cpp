@@ -15,7 +15,7 @@
  */
 #include "vdc_node.hpp"
 #include <reg/udral/service/common/Readiness_0_1.h>
-#include <unimoc/cart/DriveStatus_0_1.h>
+#include <unimoc/cart/DriveStatus_0_2.h>
 #include <unimoc/cart/WheelCommand_0_1.h>
 #include <algorithm>
 #include <cmath>
@@ -205,7 +205,7 @@ bool VdcNode::Start(const uint8_t node_id, const uint64_t now_us) noexcept {
   wheel_command_ = cyphal::Publisher{cyphal::kSubWheelCommand, cyphal::Priority::kImmediate, 0U};
   bool started = node_->AddRegisterProvider(*this);
   started =
-      node_->Subscribe(cyphal::kPubDriveStatus, unimoc_cart_DriveStatus_0_1_EXTENT_BYTES_, *this) && started;
+      node_->Subscribe(cyphal::kPubDriveStatus, unimoc_cart_DriveStatus_0_2_EXTENT_BYTES_, *this) && started;
   started = node_->AddPublisher(wheel_command_) && started;
   for (const Wheel kWheel : kWheels) {
     started =
@@ -245,9 +245,9 @@ void VdcNode::OnMessage(const cyphal::Transfer& transfer, const uint64_t now_us)
 }
 
 void VdcNode::OnDriveStatus(const cyphal::Transfer& transfer, const uint64_t now_us) noexcept {
-  unimoc_cart_DriveStatus_0_1 status{};
+  unimoc_cart_DriveStatus_0_2 status{};
   std::size_t size = transfer.payload.size();
-  if (unimoc_cart_DriveStatus_0_1_deserialize_(&status, InputBytes(transfer.payload), &size) < 0 ||
+  if (unimoc_cart_DriveStatus_0_2_deserialize_(&status, InputBytes(transfer.payload), &size) < 0 ||
       status.wheel >= kWheelCount) {
     return;
   }
@@ -262,7 +262,7 @@ void VdcNode::OnDriveStatus(const cyphal::Transfer& transfer, const uint64_t now
   report.drive_torque_limit = unit::Torque{status.drive_torque_limit};
   report.brake_torque_limit = unit::Torque{status.brake_torque_limit};
   report.engaged = status.engaged;
-  report.power_stage_enabled = status.power_stage == unimoc_cart_DriveStatus_0_1_POWER_STAGE_ENABLED;
+  report.power_stage_enabled = status.power_stage == unimoc_cart_DriveStatus_0_2_POWER_STAGE_ENABLED;
   report.limp_home = status.limp_home;
   report.tripped = status.overcurrent_tripped || status.overvoltage_tripped;
   drives_.OnReport(kWheel, report, now_us);
@@ -346,7 +346,7 @@ cyphal::RegisterFlags VdcNode::Read(const std::size_t index, cyphal::RegisterVal
       cyphal::SetNatural16(value, cyphal::kPubDriveStatus);
       return kReadOnly;
     case Register::kDriveStatusType:
-      cyphal::SetString(value, "unimoc.cart.DriveStatus.0.1");
+      cyphal::SetString(value, "unimoc.cart.DriveStatus.0.2");
       return kReadOnly;
     case Register::kReadinessFrontLeftId:
     case Register::kReadinessFrontRightId:

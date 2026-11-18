@@ -138,7 +138,7 @@ def test_bus_has_no_bus_off(drive: HwClient) -> None:
 def test_publish_rates(drive: HwClient) -> None:
     seconds = 4.0
     telemetry_rate = float(drive.read("unimoc.telemetry.rate"))
-    status = drive.count_messages(unimoc.cart.DriveStatus_0_1, PORT_DRIVE_STATUS, seconds) / seconds
+    status = drive.count_messages(unimoc.cart.DriveStatus_0_2, PORT_DRIVE_STATUS, seconds) / seconds
     telemetry = drive.count_messages(unimoc.drive.Telemetry_0_1, PORT_TELEMETRY, seconds) / seconds
     commissioning = drive.count_messages(unimoc.drive.CommissioningStatus_0_1, PORT_COMMISSIONING, seconds)
     assert status == pytest.approx(float(drive.read("unimoc.cart.status_rate")), rel=0.25)

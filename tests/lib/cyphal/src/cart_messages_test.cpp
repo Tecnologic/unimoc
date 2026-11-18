@@ -20,6 +20,7 @@
  */
 #include <unimoc/cart/BatteryStatus_0_1.h>
 #include <unimoc/cart/DriveStatus_0_1.h>
+#include <unimoc/cart/DriveStatus_0_2.h>
 #include <unimoc/cart/PedalState_0_1.h>
 #include <unimoc/cart/WheelCommand_0_1.h>
 #include <unimoc/drive/CommissioningStatus_0_1.h>
@@ -41,7 +42,7 @@ constexpr size_t kCanFdSingleFramePayload = 63U;
 
 // Every message of the UNIMOC namespace fits in one CAN FD frame (docs/system_plan.md, section 4).
 static_assert(unimoc_cart_WheelCommand_0_1_SERIALIZATION_BUFFER_SIZE_BYTES_ <= kCanFdSingleFramePayload);
-static_assert(unimoc_cart_DriveStatus_0_1_SERIALIZATION_BUFFER_SIZE_BYTES_ <= kCanFdSingleFramePayload);
+static_assert(unimoc_cart_DriveStatus_0_2_SERIALIZATION_BUFFER_SIZE_BYTES_ <= kCanFdSingleFramePayload);
 static_assert(unimoc_cart_PedalState_0_1_SERIALIZATION_BUFFER_SIZE_BYTES_ <= kCanFdSingleFramePayload);
 static_assert(unimoc_cart_BatteryStatus_0_1_SERIALIZATION_BUFFER_SIZE_BYTES_ <= kCanFdSingleFramePayload);
 static_assert(unimoc_drive_CurrentSetpoint_0_1_SERIALIZATION_BUFFER_SIZE_BYTES_ <= kCanFdSingleFramePayload);
@@ -53,7 +54,7 @@ static_assert(unimoc_drive_CommissioningStatus_0_1_EXTENT_BYTES_ == kCanFdSingle
 
 // The cart messages leave room to grow within the frame (@extent): a receiver accepts a longer minor version.
 static_assert(unimoc_cart_WheelCommand_0_1_EXTENT_BYTES_ == kCanFdSingleFramePayload);
-static_assert(unimoc_cart_DriveStatus_0_1_EXTENT_BYTES_ == kCanFdSingleFramePayload);
+static_assert(unimoc_cart_DriveStatus_0_2_EXTENT_BYTES_ == kCanFdSingleFramePayload);
 static_assert(unimoc_cart_PedalState_0_1_EXTENT_BYTES_ == kCanFdSingleFramePayload);
 static_assert(unimoc_cart_BatteryStatus_0_1_EXTENT_BYTES_ == kCanFdSingleFramePayload);
 
@@ -82,7 +83,7 @@ ZTEST(cart_messages, test_wheel_command_round_trip) {
 }
 
 ZTEST(cart_messages, test_drive_status_round_trip) {
-  unimoc_cart_DriveStatus_0_1 sent{};
+  unimoc_cart_DriveStatus_0_2 sent{};
   sent.wheel_speed = 52.0F;
   sent.estimated_torque = -18.5F;
   sent.drive_torque_limit = 40.0F;
@@ -92,18 +93,19 @@ ZTEST(cart_messages, test_drive_status_round_trip) {
   sent.power_stage_temperature = 318.15F;
   sent.motor_temperature = NAN;
   sent.wheel = unimoc_cart_WheelCommand_0_1_WHEEL_REAR_RIGHT;
-  sent.power_stage = unimoc_cart_DriveStatus_0_1_POWER_STAGE_ENABLED;
+  sent.power_stage = unimoc_cart_DriveStatus_0_2_POWER_STAGE_ENABLED;
   sent.engaged = true;
   sent.regen_derated = true;
   sent.overvoltage_tripped = true;
+  sent.thermally_derated = true;
 
-  std::array<uint8_t, unimoc_cart_DriveStatus_0_1_SERIALIZATION_BUFFER_SIZE_BYTES_> buffer{};
+  std::array<uint8_t, unimoc_cart_DriveStatus_0_2_SERIALIZATION_BUFFER_SIZE_BYTES_> buffer{};
   size_t size = buffer.size();
-  zassert_true(unimoc_cart_DriveStatus_0_1_serialize_(&sent, buffer.data(), &size) >= 0);
+  zassert_true(unimoc_cart_DriveStatus_0_2_serialize_(&sent, buffer.data(), &size) >= 0);
   zexpect_equal(size, 18U);
 
-  unimoc_cart_DriveStatus_0_1 received{};
-  zassert_true(unimoc_cart_DriveStatus_0_1_deserialize_(&received, buffer.data(), &size) >= 0);
+  unimoc_cart_DriveStatus_0_2 received{};
+  zassert_true(unimoc_cart_DriveStatus_0_2_deserialize_(&received, buffer.data(), &size) >= 0);
   UNIMOC_EXPECT_NEAR(received.wheel_speed, sent.wheel_speed, 52.0F * kFloat16Resolution);
   UNIMOC_EXPECT_NEAR(received.estimated_torque, sent.estimated_torque, 18.5F * kFloat16Resolution);
   UNIMOC_EXPECT_NEAR(received.drive_torque_limit, sent.drive_torque_limit, 40.0F * kFloat16Resolution);
@@ -115,12 +117,34 @@ ZTEST(cart_messages, test_drive_status_round_trip) {
                      318.15F * kFloat16Resolution);
   zexpect_true(std::isnan(received.motor_temperature), "an unmeasured value stays NaN");
   zexpect_equal(received.wheel, unimoc_cart_WheelCommand_0_1_WHEEL_REAR_RIGHT);
-  zexpect_equal(received.power_stage, unimoc_cart_DriveStatus_0_1_POWER_STAGE_ENABLED);
+  zexpect_equal(received.power_stage, unimoc_cart_DriveStatus_0_2_POWER_STAGE_ENABLED);
   zexpect_true(received.engaged);
   zexpect_false(received.limp_home);
   zexpect_true(received.regen_derated);
   zexpect_false(received.overcurrent_tripped);
   zexpect_true(received.overvoltage_tripped);
+  zexpect_true(received.thermally_derated);
+}
+
+ZTEST(cart_messages, test_drive_status_0_1_decodes_as_0_2_without_the_thermal_flag) {
+  // A drive with the firmware before 0.2 on the same subject: the VDC reads it.
+  unimoc_cart_DriveStatus_0_1 sent{};
+  sent.wheel_speed = 12.0F;
+  sent.engaged = true;
+  sent.overvoltage_tripped = true;
+  std::array<uint8_t, unimoc_cart_DriveStatus_0_1_SERIALIZATION_BUFFER_SIZE_BYTES_> buffer{};
+  size_t size = buffer.size();
+  zassert_true(unimoc_cart_DriveStatus_0_1_serialize_(&sent, buffer.data(), &size) >= 0);
+  zexpect_equal(size, 18U);
+  zexpect_equal(unimoc_cart_DriveStatus_0_1_EXTENT_BYTES_, unimoc_cart_DriveStatus_0_2_EXTENT_BYTES_);
+
+  unimoc_cart_DriveStatus_0_2 received{};
+  received.thermally_derated = true;  // the decoder must clear it
+  zassert_true(unimoc_cart_DriveStatus_0_2_deserialize_(&received, buffer.data(), &size) >= 0);
+  UNIMOC_EXPECT_NEAR(received.wheel_speed, 12.0F, 12.0F * kFloat16Resolution);
+  zexpect_true(received.engaged);
+  zexpect_true(received.overvoltage_tripped);
+  zexpect_false(received.thermally_derated);
 }
 
 ZTEST(cart_messages, test_pedal_state_round_trip) {

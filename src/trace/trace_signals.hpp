@@ -19,6 +19,7 @@
 
 namespace unimoc::current_control {
 class CurrentControlIsr;
+struct OuterStatus;
 }  // namespace unimoc::current_control
 
 /**
@@ -48,6 +49,12 @@ struct TraceSignals {
   float i_a{0.0F};               ///< Phase current a, newest sample of the cycle [A].
   float i_b{0.0F};               ///< Phase current b, newest sample of the cycle [A].
   float i_c{0.0F};               ///< Phase current c, newest sample of the cycle [A].
+  // The thermal model (docs/motor_thermal_plan.md), written by the Cyphal
+  // thread (SetThermalSignals()), single aligned words.
+  float winding_temperature{0.0F};  ///< Estimated winding temperature [degC].
+  float stator_temperature{0.0F};   ///< Estimated stator temperature [degC].
+  float rs_estimate{0.0F};          ///< Last stator resistance estimate of the observer [Ohm].
+  float rs_temperature{0.0F};       ///< Winding temperature of that estimate [degC].
 };
 
 /**
@@ -62,7 +69,17 @@ struct TraceSignals {
 [[nodiscard]] const TraceSignals& Signals() noexcept;
 
 /**
- * @brief Registers the TraceSignals fields as the first trace variables (IDs 0..11).
+ * @brief Copies the state of the thermal model into the mirror (Cyphal thread).
+ *
+ * The values change every 0.1 s; the thread writes them, the control cycle
+ * samples them with the rest.
+ *
+ * @param status State of the outer loop.
+ */
+void SetThermalSignals(const current_control::OuterStatus& status) noexcept;
+
+/**
+ * @brief Registers the TraceSignals fields as the first trace variables (IDs 0..15).
  *
  * Thread context, once, before the trace services start. Platforms register
  * their own variables after these.
@@ -76,8 +93,8 @@ struct TraceSignals {
  *
  * Zero-latency context, right after the CurrentControlIsr::OnSample() that
  * ended a control cycle (once per timing.steps_per_cycle control steps):
- * copies twelve floats and runs cymon::Device::Tick(), which takes no lock,
- * calls no kernel or libm function and no function pointer.
+ * copies twelve floats (the thermal four come from the Cyphal thread) and runs cymon::Device::Tick(), which
+ * takes no lock, calls no kernel or libm function and no function pointer.
  */
 void OnControlCycle(const current_control::CurrentControlIsr& isr) noexcept;
 
