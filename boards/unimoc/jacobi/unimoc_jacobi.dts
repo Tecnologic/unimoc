@@ -2,10 +2,9 @@
  * UNIMOC Jacobi: 36 V / 45 A drive, STM32H743VIT6 (LQFP100, 2 MB flash).
  *
  * The H7 redesign of the hardware_4850 logic board with its own power board
- * (docs/drive4850_h7_plan.md, schematic in Tecnologic/unimoc_jacobi), without
- * the fourth half bridge. Only the clock (20 MHz HSE) follows the drawn
- * schematic yet; the other pins follow the older pin proposal of the plan and
- * differ from the schematic (TODO.md, "Jacobi devicetree to the schematic").
+ * (docs/drive4850_h7_plan.md, schematic and layout in Tecnologic/unimoc_jacobi),
+ * without the fourth half bridge. The pins follow the released schematic and
+ * the PCB layout rev 0.3 (docs/h743_logic_board.md there, section 5).
  * Not run on hardware.
  *
  * Pin and peripheral assignment of the power stage lives in the foc0 node
@@ -163,8 +162,11 @@
 		hall-gpios = <&gpiod 12 GPIO_ACTIVE_HIGH>,
 			     <&gpiod 13 GPIO_ACTIVE_HIGH>,
 			     <&gpiod 14 GPIO_ACTIVE_HIGH>;
-		/* TCAN334 STB on PD2: high = standby. Driven low by the Cyphal platform. */
-		can-standby-gpios = <&gpiod 2 GPIO_ACTIVE_HIGH>;
+		/*
+		 * No can-standby-gpios: STB and SHDN of the TCAN334 are not connected on
+		 * the rev 0.3 board (internal pull-downs: normal mode); PD2 stays
+		 * reserved for STB and is not driven.
+		 */
 		/*
 		 * PWR_DET on PE4 (10k pull-up R612, GND on the power board): low while
 		 * the power board is plugged in. Without it the drive does not engage.

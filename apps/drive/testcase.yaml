@@ -36,6 +36,15 @@ tests:
     extra_dtc_overlay_files:
       - boards/variants/low_side_current_sense.overlay
     tags: [unimoc, app]
+  # The bench profile of the first power-on on the Nucleo adapter (12 V DC link, 20 A trip): the variant overlay is
+  # added to the board overlay of apps/drive/boards.
+  unimoc.app.drive.build.nucleo_bench:
+    build_only: true
+    platform_allow:
+      - nucleo_h743zi
+    extra_args:
+      - EXTRA_DTC_OVERLAY_FILE=boards/variants/nucleo_bench_12v.overlay
+    tags: [unimoc, app]
   # The simulation as a Cyphal node, tested from pycyphal over its slcan
   # pseudo terminal (tests/integration/cyphal_sim). Needs pycyphal, python-can
   # and pyserial (scripts/requirements-cyphal-tools.txt); skipped without them.

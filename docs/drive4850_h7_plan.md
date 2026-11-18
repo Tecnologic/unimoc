@@ -76,7 +76,7 @@ and the sheet labels of `logic/` and `power/` in hardware_4850:
 > PC3_C; Vdc PC1 (INP11, also COMP1 on PB2); both temperatures on ADC1 (PA0
 > motor, PA1 bridge); +12P on PC5; `PWM_EN` is the optocoupler on PE15
 > (TIM1_BKIN), there is no PE7 enable; LEDs PE0 RUN, PE1 ERROR, PE2 MODE, PE3
-> PWM; PWR_DET PE4; CAN STB PD2; HSE a 20 MHz oscillator in bypass. Jacobi
+> PWM; PWR_DET PE4; CAN STB not connected (PD2 reserved); HSE a 20 MHz oscillator in bypass. Jacobi
 > also has its own power board (NCEP6080AG 60 V FETs, two per switch, 0.5 mΩ
 > shunts with INA240A1, ±160 A), rated 36 V / 45 A and 100 A peak. The table
 > below is the earlier proposal. The devicetree follows the schematic since
@@ -126,7 +126,7 @@ trigger used by ADC1/2; the GS8632 output range against the ADC range.
 | Break (E-stop, `PWM_BREAK`) | PE15 (TIM1_BKIN) | Stops the phases |
 | Gate driver enable `PWM_EN` | PE7 | GPIO output; in the devicetree, not driven by the platform yet |
 | CAN | PB8 (FDCAN1_RX), PB9 (FDCAN1_TX) | As on the F730 board; TCAN334 |
-| CAN transceiver standby | PD2 | TCAN334 STB, driven low by the Cyphal platform |
+| CAN transceiver standby | PD2 (reserved) | TCAN334 STB is not connected on the Jacobi rev 0.3 PCB (internal pull-down, normal mode); the devicetree has no `can-standby-gpios` |
 | USB DFU | PA11, PA12 (OTG_FS DM/DP), PA9 (OTG_FS_VBUS) | |
 | SWD | PA13, PA14, SWO on PB3 | |
 | Hall A/B/C | PD12, PD13, PD14 (TIM4_CH1..CH3) | GPIO today; TIM4 allows capture later |

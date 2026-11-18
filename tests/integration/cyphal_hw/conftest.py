@@ -49,6 +49,13 @@ def pytest_addoption(parser) -> None:
                          "so long that it does not confirm itself: checks the swap back (after --update-image)")
     group.addoption("--current-image", type=Path, default=None,
                     help="UNIMOC update image of the running firmware (same version): checks that it is refused as not newer")
+    group.addoption("--adapter-stage", choices=("logic", "power"), default=None,
+                    help="Nucleo adapter bring-up (test_bench_inputs.py): logic = no power board, power = power board on "
+                         "a bench supply; without it those tests are skipped")
+    group.addoption("--dc-link-volts", type=float, default=None,
+                    help="meter reading of the DC link for --adapter-stage power")
+    group.addoption("--halls", action="store_true",
+                    help="Hall sensors are connected (J503): expect a valid code instead of 7")
 
 
 def pytest_configure(config) -> None:
@@ -57,6 +64,7 @@ def pytest_configure(config) -> None:
     config.addinivalue_line("markers", "no_bootloader: for a build without MCUboot (needs --no-bootloader)")
     config.addinivalue_line("markers", "swap_back: swaps an image in that never confirms (needs --unconfirmed-image)")
     config.addinivalue_line("markers", "update: swaps a new image in (needs --update-image, runs last, changes the firmware)")
+    config.addinivalue_line("markers", "bench: Nucleo adapter bring-up, read only (needs --adapter-stage)")
 
 
 def pytest_collection_modifyitems(config, items) -> None:

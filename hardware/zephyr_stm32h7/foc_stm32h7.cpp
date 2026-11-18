@@ -392,8 +392,6 @@ void InitDutyState() noexcept {
   g_pending_overvoltage = false;
 }
 
-bool ExternalEnablePresent() noexcept { return gpio_pin_get_raw(kEnableInput.port, kEnableInput.pin) > 0; }
-
 bool InitTimer(const uint32_t pwm_hz, const uint32_t trigger_offset) noexcept {
   struct stm32_pclken pclken = UNIMOC_CLOCK_INFO(0, UNIMOC_FOC_TIMER);
   if (clock_control_on(kRcc, reinterpret_cast<clock_control_subsys_t>(&pclken)) != 0) {
@@ -463,6 +461,9 @@ void StartCycleCounter() noexcept {
 }
 
 }  // namespace
+
+// The raw level of the break input: high releases the outputs.
+bool ExternalEnablePresent() noexcept { return gpio_pin_get_raw(kEnableInput.port, kEnableInput.pin) > 0; }
 
 bool Initialize(const unit::Frequency pwm_frequency,
                 const bool every_half_period,

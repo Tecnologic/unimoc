@@ -86,6 +86,27 @@ A drive without a node-ID gets one from the centralized allocator of the test cl
 The tests restore the registers they change (`kp_d`, `pole_pairs`). The factory reset
 test leaves the board at factory settings with a freshly allocated node-ID.
 
+## Nucleo adapter
+
+`test_bench_inputs.py` checks the Nucleo adapter of the legacy 4850 power board
+(`docs/zephyr_workflow.md`, "Nucleo adapter bring-up"). It only reads: the raw ADC
+counts, the external enable and the Hall code (`unimoc.h7.*` registers). It runs only
+with `--adapter-stage`. `-s` prints a table of the readings. Run it alone, because
+the other tests expect the bare-Nucleo bench:
+
+```sh
+python -m pytest unimoc/tests/integration/cyphal_hw/test_bench_inputs.py --hardware --adapter-stage logic -v -s
+python -m pytest unimoc/tests/integration/cyphal_hw/test_bench_inputs.py --hardware --adapter-stage power \
+  --dc-link-volts 12.05 -v -s
+```
+
+| Option | Effect |
+|---|---|
+| `--adapter-stage logic` | the Nucleo on the adapter, no power board: Vdc zero, NTC inputs open, Hall code 7 |
+| `--adapter-stage power` | power board on a bench supply: INA240 offsets and noise, Vdc, bridge NTC, no trip, the limits of the bench build |
+| `--dc-link-volts V` | the meter reading of the DC link (stage `power`) |
+| `--halls` | Hall sensors on J503: expect a code from 1 to 6 |
+
 ## Not covered
 
 The control loop on a motor (no motor, no power stage on the bench; `estimated_torque`
