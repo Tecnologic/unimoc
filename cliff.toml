@@ -17,7 +17,9 @@ body = """
 {% else %}\
 ## Unreleased
 {% endif %}\
-{% for group, commits in commits | group_by(attribute="group") %}
+{#- scripts/release_version.py skips merge commits, but git-cliff keeps the
+    commit a tag points at, and v0.4.0 tags the merge #42 into main. -#}
+{% for group, commits in commits | filter(attribute="merge_commit", value=false) | group_by(attribute="group") %}
 ### {{ group | striptags | trim | upper_first }}
 {% for commit in commits %}
 - {% if commit.scope %}**{{ commit.scope }}:** {% endif %}\
@@ -40,7 +42,8 @@ tag_pattern = "v[0-9]*"
 sort_commits = "oldest"
 
 # Release bumps and merge commits never appear in the change log and never
-# count for the next version.
+# count for the next version. scripts/release_version.py also skips every
+# merge commit by its parents and the mistitled squash commits.
 commit_parsers = [
   { message = "^chore\\(release\\)", skip = true },
   { message = "^Merge ", skip = true },
