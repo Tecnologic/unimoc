@@ -337,6 +337,55 @@ setup, the wiring and the commands. What the bench showed:
 - **Seen once:** `can_mcan: Message lost on FIFO0` in the log on the classic-frame
   build right after boot; not seen with CAN FD.
 
+## Nucleo adapter bring-up (legacy 4850 power board)
+
+The Nucleo adapter (Tecnologic/unimoc_jacobi, branch `nucleo-adapter`,
+`nucleo_adapter/README.md`) puts the NUCLEO-H743ZI in place of the old
+STM32F730 logic board of the legacy 4850 power board. The pin map is the
+board overlay; the power board has three 2 mOhm shunts per phase (checked on
+the board 2026-11-10; the adapter README says two). Bring it up in stages and
+stop at the first one that fails:
+
+1. **Adapter without the power board.** +3.3VA behind FB601 with a meter. CAN
+   over the TCAN334 of the adapter (JST GH, 120 ohm on JP501) instead of the
+   TJA1051 module: the hardware suite of `tests/integration/cyphal_hw` again,
+   then `test_bench_inputs.py --adapter-stage logic` (Vdc zero, NTC inputs open,
+   Hall code 7, J401 against the power stage state). The current inputs float
+   and latch a trip, as on the bare Nucleo.
+2. **PWM on the scope, still without the power board.** J401 closed, engage
+   with torque 0 (`--allow-engage`): the six outputs on J101, the 1 us dead
+   time, the centre alignment, the ADC trigger against the PWM centre; open
+   J401 while engaged: all outputs off at once. LM5109B VIH against the 3.3 V
+   levels (adapter README, point 1).
+3. **Power board on a bench supply, no motor.** Flash the bench build (below).
+   Gate drivers from 12 V on J601, the DC link from a current-limited 12 V /
+   0.5 A supply. `test_bench_inputs.py --adapter-stage power --dc-link-volts
+   <meter>`: INA240 zero offsets within 25 counts of 2048, noise, Vdc against
+   the meter, the bridge NTC, no latched trip, the bench limits. Then the dead
+   time at the phase outputs.
+4. **Motor at 12 V.** The startup aid and the identification (M1, M2) with
+   the bench limits, then the closed loop. Raise the limits (normal build)
+   only after that.
+
+The bench build adds `apps/drive/boards/variants/nucleo_bench_12v.overlay` to
+the board overlay (twister scenario `unimoc.app.drive.build.nucleo_bench`):
+20 A hard trip (the startup aid runs at 10 % of it), at most 10 A motor
+current, 3 A / 1 A battery current, the DC link derating from 14 V and
+tripping at 16 V, maximum 20 V. Stored settings of the normal build (trip
+48 V) fail the validation against the 20 V maximum, so the bench build starts
+from the factory values without erasing them; the normal build loads them
+again.
+
+```sh
+west build --sysbuild -b nucleo_h743zi unimoc/apps/drive -d unimoc/apps/drive/build/h743_bench -- \
+  -Ddrive_EXTRA_DTC_OVERLAY_FILE=boards/variants/nucleo_bench_12v.overlay
+```
+
+The read-only bench registers of the STM32H7 platform show what the pins see:
+`unimoc.h7.adc.<signal>` (the raw 12-bit count of each foc0 channel, the last
+injected conversion), `unimoc.h7.external_enable` and `unimoc.h7.hall_code`
+(`hardware/zephyr_stm32h7/bench_registers.cpp`). Jacobi has them too.
+
 ## Known issues
 
 - Cyphal on Jacobi is built only: FDCAN1 with PLL2 Q (80 MHz) as kernel

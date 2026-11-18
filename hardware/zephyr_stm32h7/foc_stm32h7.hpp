@@ -112,6 +112,8 @@ void PowerStageDisable() noexcept;
 void PowerStageTrip() noexcept;
 void PowerStageClearFault() noexcept;
 [[nodiscard]] PowerStageState GetPowerStageState() noexcept;
+/// Level of the external enable (TIMx_BKIN pin): true releases the outputs. Thread context.
+[[nodiscard]] bool ExternalEnablePresent() noexcept;
 /** @} */
 
 [[nodiscard]] uint32_t TimerClockFrequency() noexcept;
