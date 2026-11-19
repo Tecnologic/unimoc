@@ -62,13 +62,9 @@ jobs:
         if: inputs.release && matrix.build_args == '--sysbuild'
         env:
           KEY: ${{ secrets.MCUBOOT_SIGNING_KEY }}
+        # The script restores PEM framing lost when the secret was pasted and checks for a P-256 private key.
         run: |
-          if [[ -z "$KEY" ]]; then
-            echo "::error::MCUBOOT_SIGNING_KEY is not available: a release must not be signed with the debug key"
-            exit 1
-          fi
-          umask 077
-          printf '%s\n' "$KEY" > "$RUNNER_TEMP/signing.pem"
+          python3 unimoc/scripts/write_signing_key.py "$RUNNER_TEMP/signing.pem"
           echo "SIGN_ARGS=-DSB_CONFIG_BOOT_SIGNATURE_KEY_FILE=\"$RUNNER_TEMP/signing.pem\"" >> "$GITHUB_ENV"
 
       - name: Build
