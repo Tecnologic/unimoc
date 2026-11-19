@@ -242,11 +242,11 @@ ZTEST_F(sim_speed_control, test_current_limit_takes_effect) {
 
 ZTEST_F(sim_speed_control, test_position_step_settles_in_position) {
   const Angle kStart = MechanicalAngle();
-  // The planned move arrives within about 0.1 s. The hold is checked before
-  // the Hall observer reports a standstill and the hold starts to drift
-  // (TODO.md, position hold at standstill).
+  // The planned move arrives within about 0.1 s. The hold is checked long
+  // after the Hall observer has taken the standstill (0.5 s without an edge):
+  // the held shaft must not start to drift or oscillate then.
   OuterLoop::Instance().SetSetpoint(Position(2.0_rad));
-  RunMs(400U);
+  RunMs(1000U);
   const Angle kHome = TrueHome();
   zexpect_within(kHome,
                  kStart,
@@ -264,7 +264,7 @@ ZTEST_F(sim_speed_control, test_position_step_settles_in_position) {
   zexpect_true(kStatus.in_position);
 
   OuterLoop::Instance().SetSetpoint(Position(-1.0_rad));
-  RunMs(400U);
+  RunMs(1000U);
   zexpect_within(MechanicalAngle() - kHome,
                  -1.0_rad,
                  0.03_rad,
