@@ -129,6 +129,39 @@ ZTEST(speed_controller, test_additional_bounds_limit_the_output_and_stop_the_int
   zexpect_true(kOutput >= -0.2_Nm, "output %f", static_cast<double>(kOutput.Value()));
 }
 
+ZTEST(speed_controller, test_feedforward_adds_to_the_output) {
+  SpeedController controller = MakeController();
+  // No speed error: the output is the feedforward alone, the integral stays empty.
+  const Torque kOutput = controller.Track(10.0_rad_per_s, 10.0_rad_per_s, kDt, 0.4_Nm);
+  UNIMOC_EXPECT_FLOAT_EQ(kOutput, 0.4_Nm);
+  UNIMOC_EXPECT_FLOAT_EQ(controller.integral, 0.0_Nm);
+  // The sum is limited, and the integral does not wind up against the limit.
+  for (int i = 0; i < 100; ++i) {
+    (void)controller.Track(20.0_rad_per_s, 10.0_rad_per_s, kDt, 0.9_Nm);
+  }
+  UNIMOC_EXPECT_FLOAT_EQ(controller.output, 1.0_Nm);
+  UNIMOC_EXPECT_FLOAT_EQ(controller.integral, 0.0_Nm);
+  // A non-finite feedforward counts as none.
+  const Torque kNoFeedforward =
+      controller.Track(10.0_rad_per_s, 10.0_rad_per_s, kDt, Torque{std::numeric_limits<float>::quiet_NaN()});
+  UNIMOC_EXPECT_FLOAT_EQ(kNoFeedforward, 0.0_Nm);
+}
+
+ZTEST(speed_controller, test_feedforward_takes_the_acceleration_torque) {
+  // Plant: J dw/dt = T. A ramp with the feedforward J a follows without a lag.
+  SpeedController controller = MakeController();
+  constexpr Inertia kInertia = 1e-3_kg_m2;
+  constexpr AngularAcceleration kAccel = 200.0_rad_per_s2;
+  AngularVelocity speed;
+  AngularVelocity reference;
+  for (int i = 0; i < 200; ++i) {  // 0.1 s
+    reference += kAccel * kDt;
+    const Torque kTorque = controller.Track(reference, speed, kDt, kInertia * kAccel);
+    speed += kTorque / kInertia * kDt;
+  }
+  UNIMOC_EXPECT_NEAR(speed, reference, 0.15_rad_per_s);
+}
+
 }  // namespace unimoc::control::test
 
 ZTEST_SUITE(speed_controller, nullptr, nullptr, nullptr, nullptr, nullptr);

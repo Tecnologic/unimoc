@@ -381,6 +381,11 @@ inline constexpr const char* kPosSpeedLimit = "unimoc.control.pos.speed_limit";
 /// Type: real32[1] (read/write, persistent)
 inline constexpr const char* kPosAccelLimit = "unimoc.control.pos.accel_limit";
 
+/// Torque bound of a move the drive plans itself (a position setpoint
+/// without a trajectory) [N m]; 0: only the motor and battery limits.
+/// Type: real32[1] (read/write, persistent)
+inline constexpr const char* kPosTorqueLimit = "unimoc.control.pos.torque_limit";
+
 /// In-position position tolerance [rad].
 /// Type: real32[1] (read/write, persistent)
 inline constexpr const char* kPosPosTol = "unimoc.control.pos.position_tolerance";

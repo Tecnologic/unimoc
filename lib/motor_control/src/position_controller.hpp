@@ -312,6 +312,38 @@ struct PositionController {
   }
 
   /**
+   * @brief Position loop on a trajectory: the speed feedforward plus the P correction.
+   *
+   *   omega_demand = speed_feedforward + kp_pos · (reference − pos_meas)
+   *
+   * For a reference that is already planned: the trapezoidal profile of the
+   * drive (TrapezoidProfile) or the trajectory of an external master. No rate
+   * limit, no acceleration limit, no speed limit: the caller limits the
+   * demand. `in_position` compares the shaft with the final @p target, not
+   * with the moving reference. No homing handling.
+   *
+   * @param target       Final position of the move [rad].
+   * @param reference    Position reference of this step [rad].
+   * @param speed_feedforward Speed of the reference [rad/s].
+   * @param pos_meas_rad Measured home-relative mechanical position [rad].
+   * @param omega_meas   Measured mechanical angular velocity [rad/s].
+   * @return             Mechanical speed demand [rad/s].
+   */
+  constexpr unit::AngularVelocity TrajectoryDemand(unit::Angle target,
+                                                   unit::Angle reference,
+                                                   unit::AngularVelocity speed_feedforward,
+                                                   unit::Angle pos_meas_rad,
+                                                   unit::AngularVelocity omega_meas) noexcept {
+    pos_ref_rad = target;
+    pos_ref_limited = reference;
+    const unit::AngularVelocity kDemand = speed_feedforward + (kp_pos * (reference - pos_meas_rad));
+    omega_demand_prev = kDemand;
+    in_position = (unit::Abs(target - pos_meas_rad) <= position_tolerance) &&
+                  (unit::Abs(omega_meas) <= speed_tolerance);
+    return kDemand;
+  }
+
+  /**
    * @brief Begin the homing sequence.
    *
    * Transitions the homing state machine to SEARCHING and commands a slow

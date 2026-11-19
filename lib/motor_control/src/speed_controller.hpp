@@ -119,14 +119,20 @@ struct SpeedController {
    * For a reference that is already limited, such as the speed demand of a
    * position loop.
    *
+   * A torque feedforward (the torque of a planned acceleration, or one a
+   * trajectory master sends) is added to the PI output before the limits;
+   * the integral then only covers what the feedforward misses.
+   *
    * @param speed_reference Speed reference [rad/s].
    * @param measured Measured or estimated speed [rad/s].
    * @param dt Time since the last step.
+   * @param feedforward Torque added to the PI output [N m]; a non-finite value counts as 0.
    * @return The torque reference, limited to ±torque_limit.
    */
   constexpr unit::Torque Track(const unit::AngularVelocity speed_reference,
                                const unit::AngularVelocity measured,
-                               const unit::Time dt) noexcept {
+                               const unit::Time dt,
+                               const unit::Torque feedforward = unit::Torque{}) noexcept {
     if (!unit::IsFinite(speed_reference) || !unit::IsFinite(measured)) {
       Reset(reference);  // keep the last finite reference, drop the output
       return output;
@@ -140,13 +146,14 @@ struct SpeedController {
     const unit::AngularVelocity kError = reference - measured;
     const unit::Torque kProportional = kp * kError;
     const unit::Torque kIntegral = integral + (kProportional * (ki * dt));
-    const unit::Torque kUnlimited = kProportional + kIntegral;
+    const unit::Torque kFeedforward = unit::IsFinite(feedforward) ? feedforward : unit::Torque{};
+    const unit::Torque kUnlimited = kProportional + kIntegral + kFeedforward;
     const bool kWindsUp = (kUnlimited > kUpper && kError > unit::AngularVelocity{}) ||
                           (kUnlimited < kLower && kError < unit::AngularVelocity{});
     if (!kWindsUp) {
       integral = kIntegral.Clamp(kLower, kUpper);
     }
-    output = (kProportional + integral).Clamp(kLower, kUpper);
+    output = (kProportional + integral + kFeedforward).Clamp(kLower, kUpper);
     return output;
   }
 };

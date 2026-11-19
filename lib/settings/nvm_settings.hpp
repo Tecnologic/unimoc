@@ -537,6 +537,12 @@ struct NvmSettings {
   /// Register: `unimoc.control.pos.accel_limit`
   unit::AngularAcceleration pos_accel_limit{500.0_rad_per_s2};
 
+  /// Torque bound of a move the drive plans itself (a position setpoint
+  /// without a trajectory) [N m]; its acceleration is at most this torque over
+  /// `motor_j`. 0: only the motor and battery limits (README.md, Positioning).
+  /// Register: `unimoc.control.pos.torque_limit`
+  unit::Torque pos_torque_limit;
+
   /// In-position position tolerance [rad].
   /// Register: `unimoc.control.pos.position_tolerance`
   unit::Angle pos_position_tolerance{0.01_rad};

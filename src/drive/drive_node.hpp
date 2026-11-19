@@ -290,7 +290,10 @@ class DriveNode final : public cyphal::MessageListener,
   void WatchBus() noexcept;
   void SetCurrentSetpoint(unit::Current i_d, unit::Current i_q, uint64_t now_us) noexcept;
   void SetSpeedSetpoint(float speed, uint64_t now_us) noexcept;
+  /// Position setpoint without a trajectory: the outer loop plans a trapezoidal move.
   void SetPositionSetpoint(float position, uint64_t now_us) noexcept;
+  /// Position, speed and torque of an external trajectory (UDRAL servo): followed with feedforward.
+  void SetTrajectorySetpoint(float position, float speed, float torque, uint64_t now_us) noexcept;
   /// Back to zero current in torque mode (no setpoint).
   void ClearSetpoint() noexcept;
   /// Runs the startup FSM and restarts the controller after it ends.

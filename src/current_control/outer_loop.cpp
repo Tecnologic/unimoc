@@ -63,6 +63,7 @@ void OuterLoop::Init(const settings::NvmSettings& settings, CurrentControlIsr& i
                                             .stator_resistance = Resistance{}};  // set by each step
   parameters.speed_min = settings.motor_omega_min / kPolePairs;
   parameters.speed_max = settings.motor_omega_max / kPolePairs;
+  parameters.inertia = settings.motor_j;
   parameters.homing_speed = settings.pos_homing_speed;
   parameters.homing_current = settings.pos_homing_current;
   parameters.gains = GainsFrom(settings);
@@ -110,6 +111,7 @@ OuterLoop::Gains OuterLoop::GainsFrom(const settings::NvmSettings& settings) noe
                .position_kp = settings.pos_kp_pos,
                .position_speed_limit = settings.pos_speed_limit,
                .position_accel_limit = settings.pos_accel_limit,
+               .position_torque_limit = settings.pos_torque_limit,
                .position_tolerance = settings.pos_position_tolerance,
                .position_speed_tolerance = settings.pos_speed_tolerance};
 }
@@ -247,8 +249,10 @@ void OuterLoop::Step() noexcept {
         break;
       }
       case cyphal::ControlMode::kPosition:
-        current = TorqueToCurrent(PositionTorque(kSetpoint.position, kSpeed, kTorqueRange));
+        current = TorqueToCurrent(PositionTorque(kSetpoint, kSpeed, kTorqueRange));
         status.in_position = position_.in_position;
+        status.trajectory =
+            kSetpoint.trajectory && !hold_home_ && homing_ != control::HomingState::kSearching;
         break;
     }
   }
@@ -317,21 +321,60 @@ void OuterLoop::Restart(const AngularVelocity speed) noexcept {
   speed_.Reset(speed);
   position_.pos_ref_rad = tracker_.PositionRad();
   position_.Reset();
+  profile_.Reset(tracker_.PositionRad(), speed);  // a planned move starts from the shaft
 }
 
-Torque OuterLoop::PositionTorque(const Angle setpoint,
+Torque OuterLoop::PositionTorque(const OuterSetpoint& setpoint,
                                  const AngularVelocity measured,
                                  const control::DcLinkLimit::TorqueRange& range) noexcept {
   if (homing_ == control::HomingState::kSearching) {
-    return SearchHome(measured, range, setpoint);
+    return SearchHome(measured, range, setpoint.position);
   }
-  if (hold_home_ && setpoint != held_setpoint_) {
+  if (hold_home_ && setpoint.position != held_setpoint_) {
     hold_home_ = false;  // a new target in the frame of the new home
   }
-  position_.pos_ref_rad = hold_home_ ? Angle{} : setpoint;
-  const AngularVelocity kDemand = position_.SpeedDemand(tracker_.PositionRad(), measured, active_.dt)
-                                      .Clamp(active_.speed_min, active_.speed_max);
-  return speed_.Track(kDemand, measured, active_.dt);
+  if (hold_home_ || !setpoint.trajectory) {
+    return PlannedMove(hold_home_ ? Angle{} : setpoint.position, measured, range);
+  }
+  // The master plans: its position, speed and torque are the reference of
+  // this instant. A planned move that follows starts from this reference.
+  const Angle kReference = setpoint.position;
+  const AngularVelocity kFeedforward = IsFinite(setpoint.speed) ? setpoint.speed : AngularVelocity{};
+  profile_.Reset(kReference, kFeedforward);
+  const AngularVelocity kDemand =
+      position_.TrajectoryDemand(kReference, kReference, kFeedforward, tracker_.PositionRad(), measured)
+          .Clamp(active_.speed_min, active_.speed_max);
+  return speed_.Track(kDemand, measured, active_.dt, setpoint.torque);
+}
+
+Torque OuterLoop::PlannedMove(const Angle target,
+                              const AngularVelocity measured,
+                              const control::DcLinkLimit::TorqueRange& range) noexcept {
+  const Gains& gains = active_.gains;
+  // The torque bound of the move: the positioning limit within the motor and
+  // battery limits. Its acceleration leaves the torque to the inertia.
+  const Torque kMotorTorque = speed_.torque_limit;
+  const Torque kBound = (gains.position_torque_limit > Torque{})
+                            ? unit::Min(gains.position_torque_limit, kMotorTorque)
+                            : kMotorTorque;
+  speed_.torque_min = unit::Max(range.lower, -kBound);
+  speed_.torque_max = unit::Min(range.upper, kBound);
+  AngularAcceleration accel = gains.position_accel_limit;
+  if (active_.inertia > Inertia{} && kBound > Torque{}) {
+    const AngularAcceleration kTorqueAccel = kBound / active_.inertia;
+    accel = (accel > AngularAcceleration{}) ? unit::Min(accel, kTorqueAccel) : kTorqueAccel;
+  }
+  // The speed limit of the move within the speed range of the motor.
+  const AngularVelocity kSpeedLimit =
+      unit::Min(gains.position_speed_limit, unit::Min(active_.speed_max, -active_.speed_min));
+  profile_.speed_limit = kSpeedLimit;
+  profile_.accel_limit = accel;
+  profile_.Step(target, active_.dt);
+
+  const AngularVelocity kDemand =
+      position_.TrajectoryDemand(target, profile_.position, profile_.speed, tracker_.PositionRad(), measured)
+          .Clamp(-kSpeedLimit, kSpeedLimit);
+  return speed_.Track(kDemand, measured, active_.dt, active_.inertia * profile_.acceleration);
 }
 
 void OuterLoop::UpdateHoming(const OuterSetpoint& setpoint, const AngularVelocity speed) noexcept {

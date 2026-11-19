@@ -24,7 +24,7 @@
 1 src/current_control/current_control_isr.cpp
 2 src/current_control/slow_update.cpp
 11 src/drive/commissioning.cpp
-38 src/drive/drive_node.cpp
+41 src/drive/drive_node.cpp
 1 src/drive/settings_register_provider.cpp
 7 src/drive/timing_registers.cpp
 8 src/ebike/ebike_control.cpp
@@ -45,7 +45,7 @@
 6 tests/lib/motor_control/src/position_tracker_test.cpp
 9 tests/lib/motor_control/src/rotor_angle_test.cpp
 1 tests/lib/motor_control/src/sin_cos_test.cpp
-4 tests/lib/motor_control/src/speed_controller_test.cpp
+5 tests/lib/motor_control/src/speed_controller_test.cpp
 3 tests/lib/motor_control/src/three_phase_system_test.cpp
 1 tests/lib/settings/src/settings_registers_test.cpp
 4 tests/lib/units/src/units_test.cpp
@@ -57,5 +57,5 @@
 4 tests/sim/irq_cadence/src/main.cpp
 4 tests/sim/motor_thermal/src/main.cpp
 1 tests/sim/overcurrent/src/main.cpp
-16 tests/sim/speed_control/src/main.cpp
+19 tests/sim/speed_control/src/main.cpp
 1 tests/vdc/vdc_node/src/main.cpp
