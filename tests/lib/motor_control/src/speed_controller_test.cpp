@@ -152,14 +152,14 @@ ZTEST(speed_controller, test_feedforward_takes_the_acceleration_torque) {
   SpeedController controller = MakeController();
   constexpr Inertia kInertia = 1e-3_kg_m2;
   constexpr AngularAcceleration kAccel = 200.0_rad_per_s2;
-  AngularVelocity speed;
-  AngularVelocity reference;
+  AngularVelocity shaft;
+  AngularVelocity ramp;
   for (int i = 0; i < 200; ++i) {  // 0.1 s
-    reference += kAccel * kDt;
-    const Torque kTorque = controller.Track(reference, speed, kDt, kInertia * kAccel);
-    speed += kTorque / kInertia * kDt;
+    ramp += kAccel * kDt;
+    const Torque kTorque = controller.Track(ramp, shaft, kDt, kInertia * kAccel);
+    shaft += kTorque / kInertia * kDt;
   }
-  UNIMOC_EXPECT_NEAR(speed, reference, 0.15_rad_per_s);
+  UNIMOC_EXPECT_NEAR(shaft, ramp, 0.15_rad_per_s);
 }
 
 }  // namespace unimoc::control::test
