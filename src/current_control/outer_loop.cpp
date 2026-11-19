@@ -366,7 +366,8 @@ Torque OuterLoop::PlannedMove(const Angle target,
   }
   // The speed limit of the move within the speed range of the motor.
   const AngularVelocity kSpeedLimit =
-      unit::Min(gains.position_speed_limit, unit::Min(active_.speed_max, -active_.speed_min));
+      unit::Max(AngularVelocity{},
+                unit::Min(gains.position_speed_limit, unit::Min(active_.speed_max, -active_.speed_min)));
   profile_.speed_limit = kSpeedLimit;
   profile_.accel_limit = accel;
   profile_.Step(target, active_.dt);
