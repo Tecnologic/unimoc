@@ -178,7 +178,7 @@ def test_registers_json_describes_every_register_on_the_bus(dut, sim: SimClient,
 
     # The persistent settings, among them the e-bike registers past the 128th.
     settings = [entry for entry in entries if entry["persistent"] and entry["mutable"]]
-    assert len(settings) == 155
+    assert len(settings) == 156
     assert "unimoc.ebike.display_timeout" in by_name
 
 

@@ -32,6 +32,7 @@
 #include "rotor_angle.hpp"
 #include "rotor_system.hpp"
 #include "speed_controller.hpp"
+#include "trapezoid_profile.hpp"
 #include "units.hpp"
 
 /**
@@ -52,10 +53,17 @@ struct OuterSetpoint {
   cyphal::ControlMode mode{cyphal::ControlMode::kTorque};
   /// kTorque: d/q current reference [A].
   system::Rotor<unit::Current> current{unit::Current{}, unit::Current{}};
-  /// kSpeed: mechanical speed setpoint [rad/s].
+  /// kSpeed: mechanical speed setpoint [rad/s]. kPosition with `trajectory`:
+  /// the speed of the trajectory, the speed feedforward [rad/s].
   unit::AngularVelocity speed;
   /// kPosition: mechanical position setpoint [rad].
   unit::Angle position;
+  /// kPosition: an external master plans the trajectory; `position`, `speed`
+  /// and `torque` are its reference of this instant. Otherwise the drive plans
+  /// a trapezoidal move to `position` within the positioning limits.
+  bool trajectory{false};
+  /// kPosition with `trajectory`: the torque feedforward [N m].
+  unit::Torque torque;
 };
 
 /// State of the outer loop after its last step, for telemetry and tests.
@@ -78,6 +86,9 @@ struct OuterStatus {
   system::Rotor<unit::Current> current_reference{unit::Current{}, unit::Current{}};
   /// Position mode: the shaft is within the position and speed tolerance.
   bool in_position{false};
+  /// Position mode: the loop follows an external trajectory (position, speed
+  /// and torque of the master); otherwise it runs a move it planned itself.
+  bool trajectory{false};
   /// Most negative shaft torque the drive can apply now: the motor current
   /// limit and the battery power window at the present speed [N m].
   unit::Torque torque_min;
@@ -121,7 +132,10 @@ struct OuterStatus {
  *    wakes the control thread (2 kHz at a 16 kHz control cycle).
  *  - The control thread calls Step(). It limits the setpoint, runs the speed
  *    controller (speed mode) or the position loop and the speed controller
- *    (position mode), turns the torque into a q current with the torque
+ *    (position mode: on the trajectory of the master with its speed and
+ *    torque feedforward, or on a trapezoidal move the loop plans itself
+ *    within `unimoc.control.pos.speed_limit`, `accel_limit` and
+ *    `torque_limit`, control::TrapezoidProfile), turns the torque into a q current with the torque
  *    constant (PMSM, i_d = 0), limits it to the motor current (derated by
  *    the estimated winding temperature, control::MotorThermalModel) and to the
  *    battery current limits (control::DcLinkLimit: regenerative braking
@@ -250,6 +264,7 @@ class OuterLoop {
     unit::AngularVelocityPerAngle position_kp;
     unit::AngularVelocity position_speed_limit;
     unit::AngularAcceleration position_accel_limit;
+    unit::Torque position_torque_limit;  ///< Of a planned move; 0: only the drive limits.
     unit::Angle position_tolerance;
     unit::AngularVelocity position_speed_tolerance;
   };
@@ -279,6 +294,7 @@ class OuterLoop {
     control::DcLinkLimit dc_link;           ///< Battery current limits, regenerative derating.
     unit::AngularVelocity speed_min;        ///< Mechanical, from the electrical limits.
     unit::AngularVelocity speed_max;
+    unit::Inertia inertia;               ///< Rotor and load: the torque of a planned acceleration.
     unit::AngularVelocity homing_speed;  ///< Mechanical speed of the homing run.
     unit::Current homing_current;        ///< Current bound of the homing run.
     Gains gains;
@@ -300,9 +316,12 @@ class OuterLoop {
   void LoadParameters(const Parameters& parameters) noexcept;
   void ApplyGains(const Gains& gains) noexcept;
   void Restart(unit::AngularVelocity speed) noexcept;
-  [[nodiscard]] unit::Torque PositionTorque(unit::Angle setpoint,
+  [[nodiscard]] unit::Torque PositionTorque(const OuterSetpoint& setpoint,
                                             unit::AngularVelocity measured,
                                             const control::DcLinkLimit::TorqueRange& range) noexcept;
+  [[nodiscard]] unit::Torque PlannedMove(unit::Angle target,
+                                         unit::AngularVelocity measured,
+                                         const control::DcLinkLimit::TorqueRange& range) noexcept;
   void UpdateHoming(const OuterSetpoint& setpoint, unit::AngularVelocity speed) noexcept;
   void TakeHomingRequest(const OuterSetpoint& setpoint, unit::AngularVelocity speed) noexcept;
   [[nodiscard]] unit::Torque SearchHome(unit::AngularVelocity speed,
@@ -343,6 +362,7 @@ class OuterLoop {
   unit::Angle held_setpoint_;   ///< The position setpoint when the run ended.
   control::SpeedController speed_{};
   control::PositionController<float> position_{};
+  control::TrapezoidProfile profile_{};  ///< Planned move of a position setpoint without a trajectory.
   observer::PositionTracker tracker_{};
   system::RotorAngle electrical_position_;
   unit::Angle last_angle_;

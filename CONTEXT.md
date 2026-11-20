@@ -83,6 +83,8 @@ external API requires different wording.
 | **torque mode** | Direct torque or `q`-axis current command without a speed or position outer loop. |
 | **speed mode** | A speed PI loop that generates the torque/current demand. |
 | **position mode** | A cascaded position and speed loop. It requires a homed position tracker. |
+| **external trajectory** | Position mode with position, velocity (and torque) from a master that plans the motion; the drive follows with speed and torque feedforward. |
+| **planned move** | Position mode with a position alone: the drive plans a trapezoidal speed profile within the positioning speed, acceleration and torque limits (`control::TrapezoidProfile`). |
 | **drive time** | The clock of the drive's timeouts and ramps (`DriveNode::Spin(now_us, drive_us)`, `CyphalPlatformDriveTimeUs()`). On the board it is the uptime; in the simulation it leaves out the real time of a pause and adds the virtual time advanced while paused. The heartbeat and the publication periods stay in real time. |
 | **forced angle** | An electrical angle (fixed or a ramp) that `SlowUpdate` writes into the angle buffers instead of the observer's estimate, for the motor identification. |
 | **measurement window** | A number of control cycles over which `SlowUpdate` sums the means and the injection phasors for the motor identification (`RequestWindow()`, `TakeWindow()`). |

@@ -214,6 +214,7 @@ void ForEachRegister(const Visitor& visit, Settings&... settings) {
   visit(Setting(reg::kPosKiSpeed, "Integral gain of the speed loop of the position controller"), settings.pos_ki_speed...);
   visit(Tunable(reg::kPosSpeedLimit, "Largest mechanical speed of the position controller"), settings.pos_speed_limit...);
   visit(Tunable(reg::kPosAccelLimit, "Largest rate of change of the speed demand of the position controller"), settings.pos_accel_limit...);
+  visit(Tunable(reg::kPosTorqueLimit, "Torque bound of a move the drive plans itself (position without a trajectory); 0: only the motor and battery limits", AtLeast(0.0F)), settings.pos_torque_limit...);
   visit(Tunable(reg::kPosPosTol, "Position tolerance of in-position", AtLeast(0.0F)), settings.pos_position_tolerance...);
   visit(Tunable(reg::kPosSpeedTol, "Speed tolerance of in-position", AtLeast(0.0F)), settings.pos_speed_tolerance...);
   visit(Setting(reg::kPosHomingSpeed, "Speed of the homing run"), settings.pos_homing_speed...);

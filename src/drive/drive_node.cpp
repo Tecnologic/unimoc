@@ -924,7 +924,13 @@ void DriveNode::OnServoSetpoint(const cyphal::Transfer& transfer, const uint64_t
   }
   switch (*kMode) {
     case cyphal::ControlMode::kPosition:
-      SetPositionSetpoint(kPosition, now_us);
+      // With a speed the master plans the trajectory (the torque, if given, is
+      // its feedforward); a position alone is a move the drive plans itself.
+      if (std::isfinite(kSpeed)) {
+        SetTrajectorySetpoint(kPosition, kSpeed, kTorque, now_us);
+      } else {
+        SetPositionSetpoint(kPosition, now_us);
+      }
       break;
     case cyphal::ControlMode::kSpeed:
       SetSpeedSetpoint(kSpeed, now_us);
@@ -1110,6 +1116,23 @@ void DriveNode::SetPositionSetpoint(const float position, const uint64_t now_us)
   setpoint_ = OuterSetpoint{};
   setpoint_.mode = cyphal::ControlMode::kPosition;
   setpoint_.position = unit::Angle{position};
+  last_setpoint_us_ = now_us;
+  setpoint_active_ = true;
+}
+
+void DriveNode::SetTrajectorySetpoint(const float position,
+                                      const float speed,
+                                      const float torque,
+                                      const uint64_t now_us) noexcept {
+  if (!std::isfinite(position) || !std::isfinite(speed)) {
+    return;
+  }
+  setpoint_ = OuterSetpoint{};
+  setpoint_.mode = cyphal::ControlMode::kPosition;
+  setpoint_.trajectory = true;
+  setpoint_.position = unit::Angle{position};
+  setpoint_.speed = unit::AngularVelocity{speed};  // limited by the outer loop
+  setpoint_.torque = std::isfinite(torque) ? unit::Torque{torque} : unit::Torque{};
   last_setpoint_us_ = now_us;
   setpoint_active_ = true;
 }

@@ -325,6 +325,9 @@ no motor-type selection and runs the PMSM path only, and `lib/sim` has only
  - [x] Factory `dtc_dead_time` of the STM32H7 profile from the devicetree `dead-time-ns` (2026-11-08); M1 measures the effective value.
  - [x] Simulation-control commands over Cyphal for deterministic runs (SIL P2): pause, fixed-cycle advance, reset (`unimoc.sim.paused`, `.advance`, `.reset`, `.cycle_count`, `.cycle_period_ns`), run-until (`unimoc.sim.run_until`, stops at a trip) and the drive's timeouts in virtual time while paused (2026-10-31, `CyphalPlatformDriveTimeUs()`, pycyphal test).
 
+ - [ ] Position hold at standstill with Hall sensors only (seen in `sim_speed_control`, 2026-11-19, also before the planned moves): once the observer reports exactly zero speed, the held shaft starts a slowly growing oscillation (about 0.5 s after the arrival); the speed loop gets no damping from the estimate below the Hall resolution. Fix in the observer (standstill speed) or hold with a position-only loop; then lengthen the hold in `test_position_step_settles_in_position` again.
+ - [ ] Positioning: the Hall observer lags the shaft by up to 10 rad/s at 1000 rad/s^2 (`test_position_speed_stays_below_the_limit`), so the shaft overshoots the speed limit of a planned move by about a third; recheck with the observer gains and on the board.
+
 ### Blocked on hardware access
 
  - [x] M0 on the board (2026-11-03, NUCLEO-H743ZI, outputs off): per-sample control step 1537 cycles mean, sample interrupt 2276 worst of 6250, no overrun (`docs/hotpath_plan.md`, section 4).

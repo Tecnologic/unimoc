@@ -279,8 +279,8 @@ validation decides, also on limits between registers or of the hardware
 | `uavcan.sub.current_setpoint.id` | 107 | `unimoc.drive.CurrentSetpoint.0.1` | d/q current setpoint [A] |
 | `uavcan.sub.torque_setpoint.id` | 100 | `uavcan.si.unit.torque.Scalar.1.0` | Torque [N m], converted to i_q with 3/2 p ψ_PM |
 | `uavcan.sub.speed_setpoint.id` | 101 | `uavcan.si.unit.angular_velocity.Scalar.1.0` | Mechanical speed [rad/s], speed loop of the control thread, limited to the motor speed range |
-| `uavcan.sub.position_setpoint.id` | 102 | `uavcan.si.unit.angle.Scalar.1.0` | Mechanical position [rad] from home (the estimate at start, or the stop of the last homing run) |
-| `uavcan.sub.servo_setpoint.id` | 108 | `reg.udral.physics.dynamics.rotation.Planar.0.1` | UDRAL servo: the commanded (non-NaN) field selects position, speed or torque |
+| `uavcan.sub.position_setpoint.id` | 102 | `uavcan.si.unit.angle.Scalar.1.0` | Mechanical position [rad] from home (the estimate at start, or the stop of the last homing run); the drive plans the move ([Positioning](#positioning)) |
+| `uavcan.sub.servo_setpoint.id` | 108 | `reg.udral.physics.dynamics.rotation.Planar.0.1` | UDRAL servo: the commanded (non-NaN) field selects position, speed or torque; position with velocity (and torque) is an external trajectory ([Positioning](#positioning)) |
 | `uavcan.pub.telemetry.id` | 212 | `unimoc.drive.Telemetry.0.1` | Current controller trace at `unimoc.telemetry.rate` (20 Hz) |
 | `uavcan.sub.wheel_command.id` | 110 | `unimoc.cart.WheelCommand.0.1` | Cart: torque per wheel from the VDC; the drive takes `unimoc.cart.wheel` |
 | `uavcan.sub.pedal_state.id` | 111 | `unimoc.cart.PedalState.0.1` | Cart: pedals for limp-home mode |
@@ -508,6 +508,34 @@ Codes below `0x8000` are UNIMOC's own: `0x0200`..`0x02FF` commissioning,
 register write; enabling stays on the readiness subject, which the drive
 needs refreshed (a lost master disengages it), and stopping is
 EMERGENCY_STOP or readiness SLEEP.
+
+### Positioning
+
+A position setpoint runs in one of two ways, chosen by each setpoint:
+
+- **External trajectory.** A UDRAL servo setpoint with a finite
+  `angular_position` and `angular_velocity` (and optionally `torque`) is the
+  reference of a master that plans the motion itself.  The drive follows it:
+  speed demand = velocity + `unimoc.control.pos.kp` · (position − measured),
+  and the torque is added to the speed controller's output as feedforward
+  (a NaN torque counts as 0).  The drive plans nothing; only the motor speed
+  range and the motor and battery torque limits apply.
+- **Planned move.** A position alone (`uavcan.sub.position_setpoint`, or a
+  servo setpoint with only `angular_position`) makes the drive plan a
+  trapezoidal speed profile to the target: it accelerates and decelerates
+  with `unimoc.control.pos.accel_limit` and cruises at
+  `unimoc.control.pos.speed_limit` (a short move stays a triangle).  The
+  torque of the move is bounded by `unimoc.control.pos.torque_limit` (0: only
+  the motor and battery limits), and so is the acceleration: at most that
+  torque over `unimoc.motor.mechanics.J`.  The profile's acceleration torque J · a is fed
+  forward; the speed demand stays within the speed limit.  The profile is
+  planned anew from its own state every step, so a new target during a move,
+  a reversal or a start from a turning shaft continue without a jump in speed.
+
+Switching from a trajectory to a planned move continues from the last
+trajectory reference.  `in_position` compares the shaft with the final
+target (`unimoc.control.pos.position_tolerance` and `.speed_tolerance`).  All
+positioning limits are live-tunable.
 
 ### Homing
 

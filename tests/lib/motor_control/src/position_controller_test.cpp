@@ -201,6 +201,23 @@ ZTEST(position_controller, test_speed_demand_is_the_limited_position_loop) {
   zexpect_true(c.in_position);
 }
 
+// --- Trajectory: speed feedforward plus the P correction, in_position at the target
+ZTEST(position_controller, test_trajectory_demand_adds_the_feedforward) {
+  auto c = MakeDefault();
+  // On the reference: the demand is the feedforward.
+  const AngularVelocity kOnTrack =
+      c.TrajectoryDemand(5.0_rad, 1.0_rad, 20.0_rad_per_s, 1.0_rad, 20.0_rad_per_s);
+  UNIMOC_EXPECT_FLOAT_EQ(kOnTrack, 20.0_rad_per_s);
+  zexpect_false(c.in_position);
+  // 0.1 rad behind the reference: kp 10 adds 1 rad/s; no speed limit applies.
+  const AngularVelocity kBehind =
+      c.TrajectoryDemand(5.0_rad, 1.0_rad, 60.0_rad_per_s, 0.9_rad, 20.0_rad_per_s);
+  UNIMOC_EXPECT_NEAR(kBehind, 61.0_rad_per_s, 1e-4_rad_per_s);
+  // At rest on the target.
+  (void)c.TrajectoryDemand(5.0_rad, 5.0_rad, AngularVelocity{}, 5.005_rad, AngularVelocity{});
+  zexpect_true(c.in_position);
+}
+
 }  // namespace unimoc::control::test
 
 ZTEST_SUITE(position_controller, nullptr, nullptr, nullptr, nullptr, nullptr);

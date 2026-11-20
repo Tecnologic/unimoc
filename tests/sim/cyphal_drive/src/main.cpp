@@ -779,9 +779,18 @@ ZTEST(sim_cyphal_drive, test_servo_setpoint_selects_the_mode) {
                  "speed %f",
                  static_cast<double>(PlantSpeed().Value()));
 
-  // Position wins over velocity.
+  // Position wins over velocity: with a velocity the master plans the
+  // trajectory, the drive follows it with the speed (and torque) feedforward.
   rig.HoldWith([&] { rig.Servo(0.0F, 5.0F, kNan); }, 100U);
   zexpect_equal(OuterLoop::Instance().Status().mode, unimoc::cyphal::ControlMode::kPosition);
+  zexpect_true(OuterLoop::Instance().Status().trajectory);
+  rig.HoldWith([&] { rig.Servo(0.0F, 0.0F, 0.01F); }, 100U);
+  zexpect_true(OuterLoop::Instance().Status().trajectory);
+
+  // A position alone: the drive plans the move itself.
+  rig.HoldWith([&] { rig.Servo(0.5F, kNan, kNan); }, 100U);
+  zexpect_equal(OuterLoop::Instance().Status().mode, unimoc::cyphal::ControlMode::kPosition);
+  zexpect_false(OuterLoop::Instance().Status().trajectory);
 
   // Torque only: torque mode through the torque constant (3/2 * 7 * 5 mWb).
   rig.HoldWith([&] { rig.Servo(kNan, kNan, 0.0525F); }, 50U);

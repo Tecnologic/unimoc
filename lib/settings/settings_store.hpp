@@ -140,17 +140,18 @@ template <unit::UnitLike U>
          unit::IsFinite(settings.speed_accel_limit) && unit::IsFinite(settings.pos_kp_pos) &&
          unit::IsFinite(settings.pos_kp_speed) && unit::IsFinite(settings.pos_ki_speed) &&
          unit::IsFinite(settings.pos_speed_limit) && unit::IsFinite(settings.pos_accel_limit) &&
-         unit::IsFinite(settings.pos_position_tolerance) && unit::IsFinite(settings.pos_speed_tolerance) &&
-         unit::IsFinite(settings.pos_homing_speed) && unit::IsFinite(settings.pos_homing_current) &&
-         unit::IsFinite(settings.adc_offset_a) && unit::IsFinite(settings.adc_offset_b) &&
-         unit::IsFinite(settings.adc_offset_c) && unit::IsFinite(settings.adc_gain_c) &&
-         unit::IsFinite(settings.adc_gain_a) && unit::IsFinite(settings.adc_gain_b) &&
-         unit::IsFinite(settings.adc_gain_vdc) && unit::IsFinite(settings.telemetry_rate) &&
-         unit::IsFinite(settings.command_timeout) && unit::IsFinite(settings.dc_link_regen_derate_start) &&
-         unit::IsFinite(settings.dc_link_trip) && unit::IsFinite(settings.cart_timeout) &&
-         unit::IsFinite(settings.cart_status_rate) && unit::IsFinite(settings.cart_torque_ramp) &&
-         unit::IsFinite(settings.cart_limp_home_torque) && unit::IsFinite(settings.cart_standstill_speed) &&
-         unit::IsFinite(settings.cart_battery_share) && IsFiniteEbike(settings) && IsFiniteThermal(settings);
+         unit::IsFinite(settings.pos_torque_limit) && unit::IsFinite(settings.pos_position_tolerance) &&
+         unit::IsFinite(settings.pos_speed_tolerance) && unit::IsFinite(settings.pos_homing_speed) &&
+         unit::IsFinite(settings.pos_homing_current) && unit::IsFinite(settings.adc_offset_a) &&
+         unit::IsFinite(settings.adc_offset_b) && unit::IsFinite(settings.adc_offset_c) &&
+         unit::IsFinite(settings.adc_gain_c) && unit::IsFinite(settings.adc_gain_a) &&
+         unit::IsFinite(settings.adc_gain_b) && unit::IsFinite(settings.adc_gain_vdc) &&
+         unit::IsFinite(settings.telemetry_rate) && unit::IsFinite(settings.command_timeout) &&
+         unit::IsFinite(settings.dc_link_regen_derate_start) && unit::IsFinite(settings.dc_link_trip) &&
+         unit::IsFinite(settings.cart_timeout) && unit::IsFinite(settings.cart_status_rate) &&
+         unit::IsFinite(settings.cart_torque_ramp) && unit::IsFinite(settings.cart_limp_home_torque) &&
+         unit::IsFinite(settings.cart_standstill_speed) && unit::IsFinite(settings.cart_battery_share) &&
+         IsFiniteEbike(settings) && IsFiniteThermal(settings);
 }
 
 [[nodiscard]] inline bool IsValidEnumValues(const NvmSettings& settings) noexcept {
@@ -350,6 +351,7 @@ template <std::size_t kCount>
       settings.excitation_obs_tau <= ZeroOf(settings.excitation_obs_tau) ||
       settings.pos_position_tolerance < ZeroOf(settings.pos_position_tolerance) ||
       settings.pos_speed_tolerance < ZeroOf(settings.pos_speed_tolerance) ||
+      settings.pos_torque_limit < ZeroOf(settings.pos_torque_limit) ||
       settings.pos_homing_current < ZeroOf(settings.pos_homing_current)) {
     return SettingsStatus::kOutOfRange;
   }
