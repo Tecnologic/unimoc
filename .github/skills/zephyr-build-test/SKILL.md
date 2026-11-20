@@ -33,11 +33,15 @@ unimoc/scripts/twister_sca.sh       # all twister scenarios on native_sim, unimo
 `twister_sca.sh` builds every scenario under `unimoc/` (the application and
 all `tests/`), runs the ztest suites on `native_sim`, builds the `unimoc_jacobi` and
 `nucleo_h743zi` ones,
-and analyses each build with clang-tidy using the repository `.clang-tidy`.
-A clang-tidy finding in UNIMOC code fails that scenario's build; the report
-is in the console (`--inline-logs`) and in
-`twister-out/<platform>/.../sca/codechecker/`. Extra arguments go to twister,
-for example `-p native_sim/native/64` or `-T unimoc/tests/lib/units`.
+and then runs clang-tidy (through CodeChecker) with the repository
+`.clang-tidy` on the repository sources of these builds: once per source
+file and platform, from the merged compile databases
+(`scripts/sca_compile_db.py`), in parallel. Analysing every build, as
+Zephyr's SCA does, checked the shared sources up to 37 times. A twister
+failure or a clang-tidy finding in UNIMOC code fails the run; the findings
+are in the console and in `twister-out/sca/codechecker/`. Extra arguments
+go to twister, for example `-p native_sim/native/64` or
+`-T unimoc/tests/lib/units`.
 
 ## Focused loops
 
