@@ -113,7 +113,7 @@ jobs:
           path: |
             twister-out/twister.json
             twister-out/twister_report.xml
-            twister-out/**/sca/codechecker/
+            twister-out/sca/codechecker/
             twister-out/**/twister_harness.log
             twister-out/**/handler.log
 

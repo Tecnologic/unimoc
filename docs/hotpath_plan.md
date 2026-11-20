@@ -446,6 +446,11 @@ control cycle would be too coarse: at 333 Hz electrical, 62.5 µs is about 7.5°
   30° off); after a Hall failure the estimate is kept while it lies in the returning sector. The
   position home is the estimate at the start, so with Hall only it lies within half a sector of the
   shaft.
+- *Standstill:* after 0.5 s without an edge the rotor stands; the estimate is held still once
+  (ω̂ = 0, load torque = applied torque) and the torque model runs on from there. Holding it in every
+  cycle would freeze the estimate inside the sector: a position controller holding the shaft would
+  see none of the motion its torque causes, and the held shaft would drift and oscillate from edge
+  to edge (`sim_speed_control`, `test_position_step_settles_in_position`).
 
 **Fusion with the flux observer.** The flux observer always runs. At low speed it provides no signal
 (back-EMF about 0), so its R is scaled with speed (R_flux = R0 + k/ω²); it is not switched off. Hall

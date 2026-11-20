@@ -149,10 +149,15 @@ A merged `develop` to `main` pull request attaches them to a GitHub release (see
 
 All tests are ztest suites: `tests/lib/<library>/` (one scenario per library
 of `lib/`), `tests/sim/<name>/` (cycle cadence, overcurrent, closed loop on the
-simulated drive). `twister_sca.sh` builds every scenario with
-`ZEPHYR_SCA_VARIANT=codechecker` and clang-tidy as the analyzer, using the
-repository `.clang-tidy` and `scripts/codechecker_skip.txt`; a finding in
-UNIMOC code fails the build of that scenario.
+simulated drive). `twister_sca.sh` runs every scenario with twister and then
+clang-tidy through CodeChecker, using the repository `.clang-tidy` and
+`scripts/codechecker_skip.txt`: once per source file and platform, from the
+compile databases of the twister builds merged by `scripts/sca_compile_db.py`
+(the shared sources are compiled by up to 37 builds; analysing every copy, as
+`ZEPHYR_SCA_VARIANT=codechecker` does, took about three quarters of the run).
+Kconfig variants select with `IS_ENABLED()`, which compiles both branches, so
+one analysis per platform covers them. A twister failure or a finding in
+UNIMOC code fails the run; the report is in `twister-out/sca/codechecker/`.
 
 ## Interrupt architecture
 

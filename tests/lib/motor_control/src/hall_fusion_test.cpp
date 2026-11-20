@@ -63,10 +63,10 @@ struct Rig {
   }
 
   /// One observer cycle: the events since the last cycle, reference time `now`.
-  void Cycle(const std::vector<HallEvent>& events) {
+  void Cycle(const std::vector<HallEvent>& events, const system::Rotor<Current>& current = kNoCurrent) {
     observer.PredictCovariance(kDt);
     fusion.Update(events, now, kTickPeriod, observer);
-    observer.Predict(kNoCurrent, kDt);
+    observer.Predict(current, kDt);
     now += kCycleTicks;
   }
 
@@ -118,6 +118,29 @@ ZTEST(hall_fusion, test_standstill_estimate_moves_into_the_sector_and_stays) {
                  static_cast<double>((kSettled / kDegree).Value()),
                  static_cast<double>(rig.observer.omega.Value()));
   UNIMOC_EXPECT_NEAR(rig.observer.omega, 0.0_rad_per_s, 1.0_rad_per_s);
+  zexpect_equal(rig.fusion.Edges(), 0U);
+}
+
+ZTEST(hall_fusion, test_standstill_lets_the_model_move_the_estimate) {
+  // A position controller holds the shaft inside a sector: the standstill is
+  // taken once, then the torque it applies moves the estimate as the shaft.
+  Rig rig;
+  rig.observer.psi = 0.01_Wb;  // 0.015 N m per ampere
+  rig.observer.pole_pairs = 1U;
+  const Angle kTrue = 90.0F * kDegree;
+  rig.Cycle({HallEvent{CodeOf(kTrue), 0U}});
+  for (int i = 0; i < 12000; ++i) {  // 0.75 s: past the standstill time
+    rig.Cycle({});
+  }
+  const Angle kStill = rig.observer.theta;
+  UNIMOC_EXPECT_NEAR(rig.observer.omega, 0.0_rad_per_s, 1e-6_rad_per_s);
+  const system::Rotor<Current> kTorqueCurrent{Current{}, 1.0_A};
+  for (int i = 0; i < 1600; ++i) {  // 0.1 s at 15 rad/s^2 on 1e-3 kg m^2
+    rig.Cycle({}, kTorqueCurrent);
+  }
+  // 1.5 rad/s and 0.075 rad (4.3 degrees) on the model; still inside the sector.
+  UNIMOC_EXPECT_NEAR(rig.observer.omega, 1.5_rad_per_s, 0.05_rad_per_s);
+  UNIMOC_EXPECT_NEAR(rig.observer.theta - kStill, 0.075_rad, 0.005_rad);
   zexpect_equal(rig.fusion.Edges(), 0U);
 }
 

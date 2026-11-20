@@ -61,6 +61,13 @@ namespace unimoc::observer {
  *    the sector. A repeated zero-speed measurement would make the filter
  *    overconfident and slow to follow the next start.
  *
+ * The standstill is taken once, when it is detected, not in every cycle
+ * after: from the torque balance the model integrates the torque of the
+ * controller again, so a position controller that holds the shaft still sees
+ * the small motion it causes inside the sector and damps it. A hold in every
+ * cycle would freeze the estimate and blame every torque on the load: the
+ * held shaft drifts unseen and oscillates from edge to edge.
+ *
  * The first valid code after Reset() moves the estimate to the sector
  * center: the best start for an unknown angle (±30°), from where the sector
  * bound and the edges take over. An estimate at a sector boundary would
@@ -99,6 +106,7 @@ class HallFusion {
   constexpr void Reset() noexcept {
     valid_ = false;
     started_ = false;
+    standing_ = false;
     code_ = 0U;
     last_change_ = 0U;
     edges_ = 0U;
@@ -140,6 +148,7 @@ class HallFusion {
       }
       code_ = event.code;
       last_change_ = event.timestamp;
+      standing_ = false;
       if (kTicksAfterEvent >= 0) {
         code_at_reference = code_;
       }
@@ -176,8 +185,9 @@ class HallFusion {
       const unit::AngularVelocity kTarget = kSpeed > unit::AngularVelocity{} ? kLimit : -kLimit;
       mech_obs.UpdateSpeed(kTarget - kSpeed, r_sector_ / (kSinceChange * kSinceChange));
     }
-    if (kSinceChange > kStandstillTime) {
+    if (kSinceChange > kStandstillTime && !standing_) {
       mech_obs.HoldStill();
+      standing_ = true;  // until the next change of the code
     }
   }
 
@@ -205,8 +215,9 @@ class HallFusion {
   unit::AngleVariance r_edge_{3e-3_rad2};
   unit::AngleVariance r_sector_{3e-2_rad2};
   bool enabled_{false};
-  bool valid_{false};    ///< The last cycle had a valid code.
-  bool started_{false};  ///< A valid code was fused since Reset().
+  bool valid_{false};     ///< The last cycle had a valid code.
+  bool started_{false};   ///< A valid code was fused since Reset().
+  bool standing_{false};  ///< The standstill since the last change of the code was taken.
   uint8_t code_{0U};
   uint32_t last_change_{0U};
   uint32_t edges_{0U};
