@@ -207,6 +207,14 @@ ZTEST(settings_registers, test_node_name_needs_its_terminator_and_fits_the_limit
   zexpect_equal(EncodeRegisterValue(identity.name, bytes), 2U);
 }
 
+ZTEST(settings_registers, test_unit_symbols_of_length_velocity_and_acceleration) {
+  zexpect_true(UnitSymbol<Length>() == "m");
+  zexpect_true(UnitSymbol<Velocity>() == "m/s");
+  zexpect_true(UnitSymbol<Acceleration>() == "m/s^2");
+  zexpect_true(UnitSymbol<LengthPerAngle>() == "m/rad");
+  zexpect_true(UnitSymbol<AngularVelocity>() == "rad/s");
+}
+
 }  // namespace unimoc::settings::test
 
 ZTEST_SUITE(settings_registers, nullptr, nullptr, nullptr, nullptr, nullptr);

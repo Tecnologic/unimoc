@@ -156,6 +156,10 @@ using MagneticFlux = DimensionProduct<Voltage, Time>;
 using Inductance = DimensionQuotient<MagneticFlux, Current>;
 /// Capacitance [F = A s/V].
 using Capacitance = DimensionQuotient<DimensionProduct<Current, Time>, Voltage>;
+/// Velocity [m/s].
+using Velocity = DimensionQuotient<Length, Time>;
+/// Acceleration [m/s^2].
+using Acceleration = DimensionQuotient<Velocity, Time>;
 }  // namespace dim
 
 /**
@@ -427,6 +431,12 @@ using Inductance = Unit<float, std::ratio<1>, dim::Inductance>;
 using Inertia = Unit<float, std::ratio<1>, dim::Inertia>;
 /// Capacitance in farads (F).
 using Capacitance = Unit<float, std::ratio<1>, dim::Capacitance>;
+/// Length in metres (m).
+using Length = Unit<float, std::ratio<1>, dim::Length>;
+/// Velocity in metres per second (m/s).
+using Velocity = Unit<float, std::ratio<1>, dim::Velocity>;
+/// Acceleration in metres per second squared (m/s^2).
+using Acceleration = Unit<float, std::ratio<1>, dim::Acceleration>;
 
 // Helper units. Aliases of the same dimension are the same type: Frequency,
 // InverseTime and AngularVelocityPerAngle are 1/s; Resistance,
@@ -476,6 +486,9 @@ using AngleVariance = Unit<float, std::ratio<1>, DimensionProduct<dim::Angle, di
 /// Variance of a speed measurement [(rad/s)^2], the noise of a Kalman speed update.
 using AngularVelocityVariance =
     Unit<float, std::ratio<1>, DimensionProduct<dim::AngularVelocity, dim::AngularVelocity>>;
+/// Length per angle [m/rad], such as the rolling radius of a wheel: ground travel per wheel radian.
+/// Wheel speed times it is the ground speed, ground speed over it the wheel speed.
+using LengthPerAngle = Unit<float, std::ratio<1>, DimensionQuotient<dim::Length, dim::Angle>>;
 /// Speed weight k of an angle variance R + k / omega^2 [rad^2 (rad/s)^2 = rad^4/s^2].
 using AngleVarianceSpeedWeight =
     Unit<float,
@@ -1245,6 +1258,71 @@ constexpr TorquePerAngularVelocity operator""_Nm_s_per_rad(long double val) {
 }
 constexpr TorquePerAngularVelocity operator""_Nm_s_per_rad(unsigned long long val) {
   return TorquePerAngularVelocity(static_cast<float>(val));
+}
+
+/**
+ * @brief Creates a length from a metre literal.
+ * @param val Literal value in metres.
+ * @return Length in metres.
+ */
+constexpr Length operator""_m(long double val) { return Length(static_cast<float>(val)); }
+constexpr Length operator""_m(unsigned long long val) { return Length(static_cast<float>(val)); }
+
+/**
+ * @brief Creates a length from a millimetre literal.
+ * @param val Literal value in millimetres.
+ * @return Length with a millimetre period.
+ */
+constexpr Unit<float, std::milli, dim::Length> operator""_mm(long double val) {
+  return Unit<float, std::milli, dim::Length>(static_cast<float>(val));
+}
+constexpr Unit<float, std::milli, dim::Length> operator""_mm(unsigned long long val) {
+  return Unit<float, std::milli, dim::Length>(static_cast<float>(val));
+}
+
+/**
+ * @brief Creates a velocity from a metres-per-second literal.
+ * @param val Literal value in metres per second.
+ * @return Velocity in metres per second.
+ */
+constexpr Velocity operator""_m_per_s(long double val) { return Velocity(static_cast<float>(val)); }
+constexpr Velocity operator""_m_per_s(unsigned long long val) { return Velocity(static_cast<float>(val)); }
+
+/// Period of a kilometre per hour in metres per second (1000/3600).
+using KilometrePerHour = std::ratio<5, 18>;
+
+/**
+ * @brief Creates a velocity from a kilometres-per-hour literal.
+ * @param val Literal value in kilometres per hour.
+ * @return Velocity with a kilometre-per-hour period.
+ */
+constexpr Unit<float, KilometrePerHour, dim::Velocity> operator""_km_per_h(long double val) {
+  return Unit<float, KilometrePerHour, dim::Velocity>(static_cast<float>(val));
+}
+constexpr Unit<float, KilometrePerHour, dim::Velocity> operator""_km_per_h(unsigned long long val) {
+  return Unit<float, KilometrePerHour, dim::Velocity>(static_cast<float>(val));
+}
+
+/**
+ * @brief Creates an acceleration from a metres-per-second-squared literal.
+ * @param val Literal value in metres per second squared.
+ * @return Acceleration in metres per second squared.
+ */
+constexpr Acceleration operator""_m_per_s2(long double val) { return Acceleration(static_cast<float>(val)); }
+constexpr Acceleration operator""_m_per_s2(unsigned long long val) {
+  return Acceleration(static_cast<float>(val));
+}
+
+/**
+ * @brief Creates a length per angle (a rolling radius) from a metres-per-radian literal.
+ * @param val Literal value in metres per radian.
+ * @return Length per angle in metres per radian.
+ */
+constexpr LengthPerAngle operator""_m_per_rad(long double val) {
+  return LengthPerAngle(static_cast<float>(val));
+}
+constexpr LengthPerAngle operator""_m_per_rad(unsigned long long val) {
+  return LengthPerAngle(static_cast<float>(val));
 }
 
 /**
