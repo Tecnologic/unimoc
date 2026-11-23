@@ -34,6 +34,10 @@ wheel drives (and later the steering servo); a central vehicle dynamics
 controller (VDC) coordinates them. Standard modules are reused where they
 connect to the VDC directly (IMU, GNSS, steering angle sensor, display).
 
+The mechanics of the first cart (a 1.2 m × 1.0 m kart on a 24 V LiFePO4
+pack: frame, suspension, steering, mechanical brake, the drive thresholds
+for 24 V and where the nodes sit) are in `docs/cart_mechanics_plan.md`.
+
 ## 2. Repositories
 
 | Repository | Role in this plan |
