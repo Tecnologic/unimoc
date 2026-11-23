@@ -7,7 +7,12 @@
  * - uart1 to uart4: pseudo terminals with the slcan protocol (classic CAN)
  *   for hosts without vcan, one per tool process; they form one bus. The
  *   boot output names them ("uart_1 connected to pseudotty: /dev/pts/N").
+ * - Gear buttons R, N, 1, 2, 3 on gpio_emul pins 16 to 20 (pressed = high, so
+ *   the emulated inputs, low after start, read released),
+ *   their lamps on pins 24 to 28 (docs/vdc_hardware_plan.md).
  */
+
+#include <zephyr/dt-bindings/gpio/gpio.h>
 
 / {
 	chosen {
@@ -16,6 +21,12 @@
 
 	zephyr,user {
 		slcan-uarts = <&uart1 &uart2 &uart3 &uart4>;
+		gear-button-gpios = <&gpio0 16 GPIO_ACTIVE_HIGH>, <&gpio0 17 GPIO_ACTIVE_HIGH>,
+				    <&gpio0 18 GPIO_ACTIVE_HIGH>, <&gpio0 19 GPIO_ACTIVE_HIGH>,
+				    <&gpio0 20 GPIO_ACTIVE_HIGH>;
+		gear-lamp-gpios = <&gpio0 24 GPIO_ACTIVE_HIGH>, <&gpio0 25 GPIO_ACTIVE_HIGH>,
+				  <&gpio0 26 GPIO_ACTIVE_HIGH>, <&gpio0 27 GPIO_ACTIVE_HIGH>,
+				  <&gpio0 28 GPIO_ACTIVE_HIGH>;
 	};
 
 	uart2: uart_2 {

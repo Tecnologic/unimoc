@@ -6,7 +6,27 @@
  * (docs/system_plan.md, section 5.3). Only the CAN bus is used: FDCAN1 on
  * PD0/PD1 (board default) to an external transceiver module, the log on the
  * ST-LINK virtual COM port. Not run on the board yet.
+ *
+ * Gear buttons R, N, 1, 2, 3 on the Zio connectors (to ground, internal
+ * pull-ups): PE9, PE11, PE13, PF14, PF15. Their lamps (through a low-side
+ * driver, docs/vdc_hardware_plan.md): PE14, PE12, PE10, PF12, PF13.
+ * Tentative, chosen clear of the board's own functions.
  */
+
+#include <zephyr/dt-bindings/gpio/gpio.h>
+
+/ {
+	zephyr,user {
+		gear-button-gpios = <&gpioe 9 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>,
+				    <&gpioe 11 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>,
+				    <&gpioe 13 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>,
+				    <&gpiof 14 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>,
+				    <&gpiof 15 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
+		gear-lamp-gpios = <&gpioe 14 GPIO_ACTIVE_HIGH>, <&gpioe 12 GPIO_ACTIVE_HIGH>,
+				  <&gpioe 10 GPIO_ACTIVE_HIGH>, <&gpiof 12 GPIO_ACTIVE_HIGH>,
+				  <&gpiof 13 GPIO_ACTIVE_HIGH>;
+	};
+};
 
 /*
  * Silicon rev. Y: at most 400 MHz, as for the drive on this board

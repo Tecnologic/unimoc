@@ -426,6 +426,32 @@ void VdcNode::PublishReadiness() noexcept {
   }
 }
 
+void VdcNode::OnGearButtons(const vehicle::GearButtonStates& raw, const uint64_t now_us) noexcept {
+  constexpr uint64_t kRefusedShowUs = 1000000U;
+  const std::optional<vehicle::Gear> kPress = gear_buttons_.Update(raw, now_us);
+  if (!kPress.has_value()) {
+    return;
+  }
+  if (*kPress > pedal_map_.Release()) {
+    refused_gear_ = *kPress;
+    refused_until_us_ = now_us + kRefusedShowUs;
+    return;
+  }
+  refused_gear_ = vehicle::kNoGear;
+  pedal_map_.RequestGear(*kPress);
+}
+
+vehicle::PerGearButton<bool> VdcNode::GearLamps(const uint64_t now_us) const noexcept {
+  const vehicle::Gear kRefused = (now_us < refused_until_us_) ? refused_gear_ : vehicle::kNoGear;
+  const vehicle::PerGearButton<vehicle::LampState> kStates =
+      vehicle::GearLampStates(pedal_map_.RequestedGear(), pedal_map_.ActiveGear(), kRefused);
+  vehicle::PerGearButton<bool> lamps{};
+  for (std::size_t i = 0U; i < lamps.size(); ++i) {
+    lamps[i] = vehicle::LampLit(kStates[i], now_us);
+  }
+  return lamps;
+}
+
 void VdcNode::UpdateHealth(const uint64_t now_us) noexcept {
   bool nominal = true;
   for (const Wheel kWheel : kWheels) {
@@ -435,7 +461,7 @@ void VdcNode::UpdateHealth(const uint64_t now_us) noexcept {
     nominal =
         nominal && (parameters_.engage ? drives_.Available(kWheel, now_us) : drives_.Fresh(kWheel, now_us));
   }
-  if (parameters_.engage && parameters_.pedal_control && !PedalsFresh(now_us)) {
+  if ((parameters_.engage && parameters_.pedal_control && !PedalsFresh(now_us)) || gear_buttons_.Stuck()) {
     nominal = false;
   }
   node_->SetHealth(nominal ? cyphal::Health::kNominal : cyphal::Health::kAdvisory);

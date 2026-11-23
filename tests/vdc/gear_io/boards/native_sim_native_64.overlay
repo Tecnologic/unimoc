@@ -1,0 +1,18 @@
+/*
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ *
+ * The gear pins of the simulated VDC (apps/vdc/boards/native_sim_native_64.overlay).
+ */
+
+#include <zephyr/dt-bindings/gpio/gpio.h>
+
+/ {
+	zephyr,user {
+		gear-button-gpios = <&gpio0 16 GPIO_ACTIVE_HIGH>, <&gpio0 17 GPIO_ACTIVE_HIGH>,
+				    <&gpio0 18 GPIO_ACTIVE_HIGH>, <&gpio0 19 GPIO_ACTIVE_HIGH>,
+				    <&gpio0 20 GPIO_ACTIVE_HIGH>;
+		gear-lamp-gpios = <&gpio0 24 GPIO_ACTIVE_HIGH>, <&gpio0 25 GPIO_ACTIVE_HIGH>,
+				  <&gpio0 26 GPIO_ACTIVE_HIGH>, <&gpio0 27 GPIO_ACTIVE_HIGH>,
+				  <&gpio0 28 GPIO_ACTIVE_HIGH>;
+	};
+};

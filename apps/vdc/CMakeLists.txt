@@ -36,6 +36,7 @@ target_link_libraries(unimoc_vdc_core PRIVATE
 target_sources(app PRIVATE
   ${UNIMOC_ROOT}/src/vdc/main.cpp
   ${UNIMOC_ROOT}/hardware/zephyr_common/vdc_runtime.cpp
+  ${UNIMOC_ROOT}/hardware/zephyr_common/vdc_gear_io.cpp
   ${UNIMOC_ROOT}/hardware/zephyr_common/zephyr_can_media.cpp
   ${UNIMOC_PLATFORM_DIR}/vdc_platform.cpp)
 if(CONFIG_UNIMOC_CYPHAL_LOG_BACKEND)

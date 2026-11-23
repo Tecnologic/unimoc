@@ -25,6 +25,7 @@
 #include "cyphal/sw_version.hpp"
 #include "cyphal_log_backend.h"
 #include "hardware_interface_config.hpp"
+#include "vdc_gear_io.hpp"
 #include "vdc_node.hpp"
 #include "vdc_platform.hpp"
 #include "zephyr_can_media.hpp"
@@ -121,6 +122,9 @@ void CyphalThread(void* /*unused*/, void* /*unused*/, void* /*unused*/) {
   if (!vdc.Start(VdcPlatformNodeId(CONFIG_UNIMOC_VDC_NODE_ID), NowUs())) {
     LOG_WRN("not all Cyphal ports could be added");
   }
+  if (!InitGearIo()) {
+    LOG_WRN("gear buttons or lamps not usable");
+  }
   LOG_INF("VDC node %u on %u interface(s)",
           static_cast<unsigned>(node.NodeId()),
           static_cast<unsigned>(kCount));
@@ -129,7 +133,10 @@ void CyphalThread(void* /*unused*/, void* /*unused*/, void* /*unused*/) {
   while (true) {
     // Woken by every received frame; the timeout bounds the jitter of the wheel command.
     (void)k_sem_take(&g_cyphal_wake, K_MSEC(1));
-    vdc.Spin(NowUs());
+    const uint64_t kNow = NowUs();
+    vdc.OnGearButtons(ReadGearButtons(), kNow);
+    vdc.Spin(kNow);
+    WriteGearLamps(vdc.GearLamps(kNow));
     uint8_t level = 0U;
     while (UnimocCyphalLogGet(&level, text.data(), text.size())) {
       (void)node.Log(ToSeverity(level), std::string_view{text.data()});
