@@ -174,19 +174,24 @@ Side note: system plan section 7.2.3 gives "about 36 V line-to-line peak at
 | Drives (Jacobi, RND 455-00370 enclosure) | on the frame next to each wheel | short phase and Hall cables; phase 1: the two rear wheels, `unimoc.vdc.drive_node_ids` without front drives, `unimoc.vdc.front_share` 0 |
 | VDC (Zuse) | behind the steering column | steering angle sensor and display close by |
 | Pedal unit (Drais) | on the pedal module | **own node**, not a role of the VDC: the limp-home path (system plan section 7) needs the pedals without the VDC |
-| Display | on the steering column | speed, state of charge, drive mode, faults |
+| Display | on the steering column | speed, state of charge, gear, faults |
 | Battery and BMS | under the seat | main fuse and key switch next to it |
 | E-stop | pull cord and mushroom button | hard-wired loop to the enable input of every power stage |
 
 The CAN FD harness runs along one rail; the pedal module needs a cable loop
 for its travel.
 
-## 10. Drive modes
+## 10. Gears
 
-The VDC limits speed and torque per driver (planned, `apps/vdc/`): a child
-mode with a low speed limit and soft torque ramps, an adult mode with the
-full range. The mode is set by a key switch or a PIN on the display, not by
-the driver alone.
+The VDC (`apps/vdc/`, `vehicle::PedalMap`) drives in gears: reverse,
+neutral and three forward gears. Every gear has the full drive torque, so a
+child gets up a slope in the first gear; the gears differ in the speed
+limit and a speed ramp (factory: reverse 4 km/h, first 6 km/h, second
+12 km/h, third 20 km/h without a ramp). The first gear is always free; the
+higher ones need a volatile release (back to the first gear at every start),
+set from the display or a phone, not by the driver alone. A gear switch on
+the cart (reverse, neutral, forward) is still open; the gear is a register
+for now.
 
 ## 11. Cost estimate (without motors and drives)
 
@@ -207,7 +212,7 @@ the driver alone.
 2. Frame with the rear trailing arms, two rear drives (2WD), front wheels
    unpowered on fixed pins.
 3. Sliding pillar front suspension and steering with the angle sensor.
-4. VDC, pedal unit, display, drive modes; the fault cases of system plan
+4. VDC, pedal unit, display, gears and release; the fault cases of system plan
    section 7 on a closed area.
 5. Four-wheel drive, then torque vectoring.
 
