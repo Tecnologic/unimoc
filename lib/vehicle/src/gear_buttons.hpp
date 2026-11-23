@@ -16,6 +16,7 @@
  */
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -108,12 +109,7 @@ class GearButtons {
 
   /// A button is held longer than the stuck time.
   [[nodiscard]] bool Stuck() const noexcept {
-    for (const Button& button : buttons_) {
-      if (button.stuck) {
-        return true;
-      }
-    }
-    return false;
+    return std::ranges::any_of(buttons_, [](const Button& button) { return button.stuck; });
   }
 
  private:

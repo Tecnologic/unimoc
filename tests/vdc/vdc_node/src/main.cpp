@@ -135,8 +135,8 @@ struct Rig {
   [[nodiscard]] bool LampBlinks(const vehicle::Gear gear) const {
     bool lit = false;
     bool dark = false;
-    for (uint64_t t = now; t < now + 1000000U; t += 50000U) {
-      const bool kLit = vdc.GearLamps(t)[vehicle::GearButton(gear)];
+    for (uint64_t time_us = now; time_us < now + 1000000U; time_us += 50000U) {
+      const bool kLit = vdc.GearLamps(time_us)[vehicle::GearButton(gear)];
       lit = lit || kLit;
       dark = dark || !kLit;
     }

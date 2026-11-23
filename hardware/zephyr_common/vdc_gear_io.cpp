@@ -25,23 +25,21 @@ namespace {
 
 // NOLINTBEGIN(cppcoreguidelines-pro-type-cstyle-cast,performance-no-int-to-ptr): the devicetree macros of
 // GPIO_DT_SPEC_GET_BY_IDX_OR take the device address with a C-style cast.
-#define UNIMOC_GEAR_USER_NODE DT_PATH(zephyr_user)
-#define UNIMOC_GEAR_PIN(prop, idx) GPIO_DT_SPEC_GET_BY_IDX_OR(UNIMOC_GEAR_USER_NODE, prop, idx, {})
 
 const std::array<gpio_dt_spec, vehicle::kGearButtonCount> kButtons{{
-    UNIMOC_GEAR_PIN(gear_button_gpios, 0),
-    UNIMOC_GEAR_PIN(gear_button_gpios, 1),
-    UNIMOC_GEAR_PIN(gear_button_gpios, 2),
-    UNIMOC_GEAR_PIN(gear_button_gpios, 3),
-    UNIMOC_GEAR_PIN(gear_button_gpios, 4),
+    GPIO_DT_SPEC_GET_BY_IDX_OR(DT_PATH(zephyr_user), gear_button_gpios, 0, {}),
+    GPIO_DT_SPEC_GET_BY_IDX_OR(DT_PATH(zephyr_user), gear_button_gpios, 1, {}),
+    GPIO_DT_SPEC_GET_BY_IDX_OR(DT_PATH(zephyr_user), gear_button_gpios, 2, {}),
+    GPIO_DT_SPEC_GET_BY_IDX_OR(DT_PATH(zephyr_user), gear_button_gpios, 3, {}),
+    GPIO_DT_SPEC_GET_BY_IDX_OR(DT_PATH(zephyr_user), gear_button_gpios, 4, {}),
 }};
 
 const std::array<gpio_dt_spec, vehicle::kGearButtonCount> kLamps{{
-    UNIMOC_GEAR_PIN(gear_lamp_gpios, 0),
-    UNIMOC_GEAR_PIN(gear_lamp_gpios, 1),
-    UNIMOC_GEAR_PIN(gear_lamp_gpios, 2),
-    UNIMOC_GEAR_PIN(gear_lamp_gpios, 3),
-    UNIMOC_GEAR_PIN(gear_lamp_gpios, 4),
+    GPIO_DT_SPEC_GET_BY_IDX_OR(DT_PATH(zephyr_user), gear_lamp_gpios, 0, {}),
+    GPIO_DT_SPEC_GET_BY_IDX_OR(DT_PATH(zephyr_user), gear_lamp_gpios, 1, {}),
+    GPIO_DT_SPEC_GET_BY_IDX_OR(DT_PATH(zephyr_user), gear_lamp_gpios, 2, {}),
+    GPIO_DT_SPEC_GET_BY_IDX_OR(DT_PATH(zephyr_user), gear_lamp_gpios, 3, {}),
+    GPIO_DT_SPEC_GET_BY_IDX_OR(DT_PATH(zephyr_user), gear_lamp_gpios, 4, {}),
 }};
 // NOLINTEND(cppcoreguidelines-pro-type-cstyle-cast,performance-no-int-to-ptr)
 
@@ -51,19 +49,19 @@ std::array<bool, vehicle::kGearButtonCount> g_lamp_ok{};
 }  // namespace
 
 bool InitGearIo() noexcept {
-  bool ok = true;
+  bool all_ok = true;
   for (std::size_t i = 0U; i < vehicle::kGearButtonCount; ++i) {
     if (kButtons[i].port != nullptr) {
       g_button_ok[i] = gpio_is_ready_dt(&kButtons[i]) && gpio_pin_configure_dt(&kButtons[i], GPIO_INPUT) == 0;
-      ok = ok && g_button_ok[i];
+      all_ok = all_ok && g_button_ok[i];
     }
     if (kLamps[i].port != nullptr) {
       g_lamp_ok[i] =
           gpio_is_ready_dt(&kLamps[i]) && gpio_pin_configure_dt(&kLamps[i], GPIO_OUTPUT_INACTIVE) == 0;
-      ok = ok && g_lamp_ok[i];
+      all_ok = all_ok && g_lamp_ok[i];
     }
   }
-  return ok;
+  return all_ok;
 }
 
 vehicle::GearButtonStates ReadGearButtons() noexcept {

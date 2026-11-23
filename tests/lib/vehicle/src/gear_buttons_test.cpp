@@ -35,8 +35,8 @@ std::optional<Gear> Hold(GearButtons& buttons,
                          const uint64_t from_us,
                          const uint64_t duration_us) {
   std::optional<Gear> press;
-  for (uint64_t t = from_us; t <= from_us + duration_us; t += 1000U) {
-    const std::optional<Gear> kPress = buttons.Update(states, t);
+  for (uint64_t time_us = from_us; time_us <= from_us + duration_us; time_us += 1000U) {
+    const std::optional<Gear> kPress = buttons.Update(states, time_us);
     if (kPress.has_value()) {
       press = kPress;
     }
