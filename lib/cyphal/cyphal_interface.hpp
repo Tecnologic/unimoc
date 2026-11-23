@@ -986,6 +986,61 @@ inline constexpr const char* kVdcEstimatedTorque = "unimoc.vdc.estimated_torque"
 /// Type: real32[4] (read-only)
 inline constexpr const char* kVdcWheelTorque = "unimoc.vdc.wheel_torque";
 
+// The pedal map of the VDC (lib/vehicle/src/pedal_map.hpp). The VDC
+// subscribes the pedal state on kSubPedalState (registers kSubPedalStateId
+// and kSubPedalStateType, read-only on the VDC). Speeds are wheel speeds in
+// the cart frame, as in unimoc.cart.DriveStatus: speed = v / r_wheel
+// (6 km/h on a 0.165 m tyre is about 10 rad/s).
+
+/// 1: the torque request comes from the pedal state (pedal map, drive mode,
+/// speed limit); 0: from unimoc.vdc.torque_request.
+/// Type: bit[1] (read/write)
+inline constexpr const char* kVdcPedalControl = "unimoc.vdc.pedal_control";
+
+/// Age after which the pedal state counts as lost; the VDC then brakes gently [s].
+/// Type: real32[1] (read/write)
+inline constexpr const char* kVdcPedalTimeout = "unimoc.vdc.pedal_timeout";
+
+/// Requested drive mode, 0: child, 1: adult. It applies at the next standstill.
+/// Type: natural8[1] (read/write)
+inline constexpr const char* kVdcDriveMode = "unimoc.vdc.drive_mode";
+
+/// Drive mode in effect, 0: child, 1: adult.
+/// Type: natural8[1] (read-only)
+inline constexpr const char* kVdcActiveDriveMode = "unimoc.vdc.active_drive_mode";
+
+/// Total wheel torque at the fully pressed brake pedal, every mode [N m].
+/// Type: real32[1] (read/write)
+inline constexpr const char* kVdcBrakeTorque = "unimoc.vdc.brake_torque";
+
+/// Speed limit of the child mode, wheel speed [rad/s].
+/// Type: real32[1] (read/write)
+inline constexpr const char* kVdcChildSpeedLimit = "unimoc.vdc.child.speed_limit";
+
+/// Total wheel torque at the fully pressed drive pedal in the child mode [N m].
+/// Type: real32[1] (read/write)
+inline constexpr const char* kVdcChildDriveTorque = "unimoc.vdc.child.drive_torque";
+
+/// Rise of the drive torque in the child mode [N m/s].
+/// Type: real32[1] (read/write)
+inline constexpr const char* kVdcChildDriveRamp = "unimoc.vdc.child.drive_ramp";
+
+/// Speed limit of the adult mode, wheel speed [rad/s].
+/// Type: real32[1] (read/write)
+inline constexpr const char* kVdcAdultSpeedLimit = "unimoc.vdc.adult.speed_limit";
+
+/// Total wheel torque at the fully pressed drive pedal in the adult mode [N m].
+/// Type: real32[1] (read/write)
+inline constexpr const char* kVdcAdultDriveTorque = "unimoc.vdc.adult.drive_torque";
+
+/// Rise of the drive torque in the adult mode [N m/s].
+/// Type: real32[1] (read/write)
+inline constexpr const char* kVdcAdultDriveRamp = "unimoc.vdc.adult.drive_ramp";
+
+/// Wheel speed of the cart: the mean of the fresh drive reports, cart frame [rad/s].
+/// Type: real32[1] (read-only)
+inline constexpr const char* kVdcCartSpeed = "unimoc.vdc.cart_speed";
+
 }  // namespace reg
 
 // ============================================================================

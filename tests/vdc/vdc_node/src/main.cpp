@@ -15,6 +15,7 @@
  */
 #include <reg/udral/service/common/Readiness_0_1.h>
 #include <unimoc/cart/DriveStatus_0_2.h>
+#include <unimoc/cart/PedalState_0_1.h>
 #include <unimoc/cart/WheelCommand_0_1.h>
 #include <zephyr/ztest.h>
 #include <array>
@@ -113,10 +114,13 @@ struct Rig {
   }
 
   /// Publishes a drive status of @p wheel from the test node.
-  void PublishStatus(const Wheel wheel, const bool engaged = true, const float drive_limit = 50.0F) {
+  void PublishStatus(const Wheel wheel,
+                     const bool engaged = true,
+                     const float drive_limit = 50.0F,
+                     const float wheel_speed = 2.0F) {
     unimoc_cart_DriveStatus_0_2 status{};
     status.wheel = static_cast<uint8_t>(Index(wheel));
-    status.wheel_speed = 2.0F;
+    status.wheel_speed = wheel_speed;
     status.estimated_torque = 3.0F;
     status.drive_torque_limit = drive_limit;
     status.brake_torque_limit = 50.0F;
@@ -129,6 +133,36 @@ struct Rig {
                                                         reinterpret_cast<uint8_t*>(buffer.data()),
                                                         &size) >= 0);
     zassert_true(drives.Publish(status_publisher, std::span<const std::byte>{buffer.data(), size}));
+  }
+
+  /// Publishes a pedal state from the test node, both channels of a pedal alike.
+  void PublishPedals(const float drive, const float brake) {
+    unimoc_cart_PedalState_0_1 state{};
+    state.drive_pedal[0] = drive;
+    state.drive_pedal[1] = drive;
+    state.brake_pedal[0] = brake;
+    state.brake_pedal[1] = brake;
+    state.drive_pedal_plausible = true;
+    state.brake_pedal_plausible = true;
+    std::array<std::byte, unimoc_cart_PedalState_0_1_SERIALIZATION_BUFFER_SIZE_BYTES_> buffer{};
+    std::size_t size = buffer.size();
+    zassert_true(
+        unimoc_cart_PedalState_0_1_serialize_(&state, reinterpret_cast<uint8_t*>(buffer.data()), &size) >= 0);
+    zassert_true(drives.Publish(pedal_publisher, std::span<const std::byte>{buffer.data(), size}));
+  }
+
+  /// For @p cycles of 10 ms: all drives report at @p wheel_speed, the pedals are pressed as given.
+  void DriveWithPedals(const float drive,
+                       const float brake,
+                       const unsigned cycles,
+                       const float wheel_speed = 2.0F) {
+    for (unsigned i = 0U; i < cycles; ++i) {
+      for (const Wheel kWheel : kWheels) {
+        PublishStatus(kWheel, true, 50.0F, wheel_speed);
+      }
+      PublishPedals(drive, brake);
+      Run(10U);
+    }
   }
 
   /// All four drives report, then both nodes run for @p steps.
@@ -190,6 +224,7 @@ struct Rig {
   VdcNode vdc;
   DriveSide side;
   cyphal::Publisher status_publisher{cyphal::kPubDriveStatus, cyphal::Priority::kFast, 0U};
+  cyphal::Publisher pedal_publisher{cyphal::kSubPedalState, cyphal::Priority::kFast, 0U};
   uint64_t now{1'000'000U};
 };
 
@@ -331,6 +366,82 @@ ZTEST(vdc_node, test_register_writes_are_checked) {
   zexpect_equal(rig.WriteNodeIds({200U, 11U, 12U, 13U}), cyphal::RegisterWriteResult::kOutOfRange);
   zexpect_equal(rig.WriteReal(cyphal::reg::kVdcWheelTorque, 1.0F), cyphal::RegisterWriteResult::kReadOnly);
   zexpect_equal(rig.WriteReal(cyphal::reg::kPubWheelCommandId, 300.0F),
+                cyphal::RegisterWriteResult::kReadOnly);
+}
+
+ZTEST(vdc_node, test_pedal_control_drives_brakes_and_brakes_gently_without_pedals) {
+  Rig& rig = MakeRig();
+  rig.Start();
+  zexpect_equal(cyphal::GetInteger(rig.Read(cyphal::reg::kSubPedalStateId)).value_or(-1), 111);
+  zexpect_equal(rig.WriteBit(cyphal::reg::kVdcEngage, true), cyphal::RegisterWriteResult::kAccepted);
+  zexpect_equal(rig.WriteBit(cyphal::reg::kVdcPedalControl, true), cyphal::RegisterWriteResult::kAccepted);
+  // The torque request register no longer counts.
+  zexpect_equal(rig.WriteReal(cyphal::reg::kVdcTorqueRequest, 40.0F), cyphal::RegisterWriteResult::kAccepted);
+
+  // Child mode (factory): 8 N m at full drive pedal, reached after the 10 N m/s soft start.
+  rig.DriveWithPedals(1.0F, 0.0F, 30U);
+  UNIMOC_EXPECT_NEAR(rig.vdc.PedalControl().Request(), 3.0_Nm, 0.1_Nm);
+  rig.DriveWithPedals(1.0F, 0.0F, 70U);
+  UNIMOC_EXPECT_NEAR(rig.vdc.PedalControl().Request(), 8.0_Nm, kTolerance);
+  for (const Torque kTorque : rig.side.torques) {
+    UNIMOC_EXPECT_NEAR(kTorque, 2.0_Nm, kTolerance);
+  }
+  UNIMOC_EXPECT_NEAR(cyphal::GetNumber(rig.Read(cyphal::reg::kVdcCartSpeed)).value_or(0.0F), 2.0F, 1e-3F);
+
+  // Brake first: 30 N m against the motion, whatever the drive pedal says.
+  rig.DriveWithPedals(1.0F, 1.0F, 2U);
+  for (const Torque kTorque : rig.side.torques) {
+    UNIMOC_EXPECT_NEAR(kTorque, -7.5_Nm, kTolerance);
+  }
+
+  // Pedal state lost: brake gently (0.2 of the brake torque).
+  rig.ReportAll(10U);
+  rig.ReportAll(10U);
+  rig.ReportAll(150U);
+  rig.ReportAll(10U);
+  for (const Torque kTorque : rig.side.torques) {
+    UNIMOC_EXPECT_NEAR(kTorque, -1.5_Nm, kTolerance);
+  }
+}
+
+ZTEST(vdc_node, test_drive_mode_changes_at_standstill_only) {
+  Rig& rig = MakeRig();
+  rig.Start();
+  (void)rig.WriteBit(cyphal::reg::kVdcEngage, true);
+  (void)rig.WriteBit(cyphal::reg::kVdcPedalControl, true);
+  zexpect_equal(rig.WriteReal(cyphal::reg::kVdcDriveMode, 2.0F), cyphal::RegisterWriteResult::kOutOfRange);
+  rig.DriveWithPedals(0.0F, 0.0F, 5U);
+  zexpect_equal(rig.WriteReal(cyphal::reg::kVdcDriveMode, 1.0F), cyphal::RegisterWriteResult::kAccepted);
+  zexpect_equal(cyphal::GetInteger(rig.Read(cyphal::reg::kVdcDriveMode)).value_or(-1), 1);
+
+  // Moving: the child mode stays.
+  rig.DriveWithPedals(1.0F, 0.0F, 5U);
+  zexpect_equal(cyphal::GetInteger(rig.Read(cyphal::reg::kVdcActiveDriveMode)).value_or(-1), 0);
+  // Standstill: the adult mode applies, with its 30 N m.
+  rig.DriveWithPedals(0.0F, 0.0F, 5U, 0.0F);
+  zexpect_equal(cyphal::GetInteger(rig.Read(cyphal::reg::kVdcActiveDriveMode)).value_or(-1), 1);
+  rig.DriveWithPedals(1.0F, 0.0F, 100U);
+  UNIMOC_EXPECT_NEAR(rig.vdc.PedalControl().Request(), 30.0_Nm, kTolerance);
+}
+
+ZTEST(vdc_node, test_pedal_map_registers) {
+  Rig& rig = MakeRig();
+  rig.Start();
+  zexpect_equal(rig.WriteReal(cyphal::reg::kVdcAdultSpeedLimit, 20.0F),
+                cyphal::RegisterWriteResult::kAccepted);
+  zexpect_equal(rig.WriteReal(cyphal::reg::kVdcChildDriveRamp, 4.0F), cyphal::RegisterWriteResult::kAccepted);
+  zexpect_equal(rig.WriteReal(cyphal::reg::kVdcBrakeTorque, -1.0F), cyphal::RegisterWriteResult::kOutOfRange);
+  const vehicle::PedalMapParameters& kMap = rig.vdc.PedalControl().Parameters();
+  UNIMOC_EXPECT_NEAR(kMap.modes[vehicle::ModeIndex(vehicle::DriveMode::kAdult)].speed_limit,
+                     20.0_rad_per_s,
+                     1e-6_rad_per_s);
+  UNIMOC_EXPECT_NEAR(cyphal::GetNumber(rig.Read(cyphal::reg::kVdcChildDriveRamp)).value_or(0.0F),
+                     4.0F,
+                     1e-6F);
+  UNIMOC_EXPECT_NEAR(cyphal::GetNumber(rig.Read(cyphal::reg::kVdcChildSpeedLimit)).value_or(0.0F),
+                     10.0F,
+                     1e-6F);
+  zexpect_equal(rig.WriteReal(cyphal::reg::kVdcActiveDriveMode, 1.0F),
                 cyphal::RegisterWriteResult::kReadOnly);
 }
 

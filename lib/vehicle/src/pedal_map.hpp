@@ -113,7 +113,8 @@ struct PedalMapParameters {
 }
 
 /// @p travel past the dead band, rescaled to 0 to 1.
-[[nodiscard]] constexpr unit::Ratio PastDeadBand(const unit::Ratio travel, const unit::Ratio dead_band) noexcept {
+[[nodiscard]] constexpr unit::Ratio PastDeadBand(const unit::Ratio travel,
+                                                 const unit::Ratio dead_band) noexcept {
   if (travel <= dead_band || dead_band >= 1.0_ratio) {
     return unit::Ratio{};
   }

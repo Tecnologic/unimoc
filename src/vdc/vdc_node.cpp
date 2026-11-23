@@ -16,6 +16,7 @@
 #include "vdc_node.hpp"
 #include <reg/udral/service/common/Readiness_0_1.h>
 #include <unimoc/cart/DriveStatus_0_2.h>
+#include <unimoc/cart/PedalState_0_1.h>
 #include <unimoc/cart/WheelCommand_0_1.h>
 #include <algorithm>
 #include <cmath>
@@ -59,6 +60,20 @@ enum class Register : uint8_t {
   kWheelSpeed,
   kEstimatedTorque,
   kWheelTorque,
+  kPedalStateId,
+  kPedalStateType,
+  kPedalControl,
+  kPedalTimeout,
+  kDriveMode,
+  kActiveDriveMode,
+  kBrakeTorque,
+  kChildSpeedLimit,
+  kChildDriveTorque,
+  kChildDriveRamp,
+  kAdultSpeedLimit,
+  kAdultDriveTorque,
+  kAdultDriveRamp,
+  kCartSpeed,
   kCount,
 };
 
@@ -87,6 +102,20 @@ constexpr std::array<std::string_view, static_cast<std::size_t>(Register::kCount
     cyphal::reg::kVdcWheelSpeed,
     cyphal::reg::kVdcEstimatedTorque,
     cyphal::reg::kVdcWheelTorque,
+    cyphal::reg::kSubPedalStateId,
+    cyphal::reg::kSubPedalStateType,
+    cyphal::reg::kVdcPedalControl,
+    cyphal::reg::kVdcPedalTimeout,
+    cyphal::reg::kVdcDriveMode,
+    cyphal::reg::kVdcActiveDriveMode,
+    cyphal::reg::kVdcBrakeTorque,
+    cyphal::reg::kVdcChildSpeedLimit,
+    cyphal::reg::kVdcChildDriveTorque,
+    cyphal::reg::kVdcChildDriveRamp,
+    cyphal::reg::kVdcAdultSpeedLimit,
+    cyphal::reg::kVdcAdultDriveTorque,
+    cyphal::reg::kVdcAdultDriveRamp,
+    cyphal::reg::kVdcCartSpeed,
 };
 
 using cyphal::RegisterEffect;
@@ -116,9 +145,33 @@ constexpr std::array<cyphal::RegisterDescription, kNames.size()> kDescriptions{{
     {"rad/s", -kInf, kInf, RegisterEffect::kImmediate, "Wheel speed of each drive status"},
     {"N m", -kInf, kInf, RegisterEffect::kImmediate, "Torque estimate of each drive status"},
     {"N m", -kInf, kInf, RegisterEffect::kImmediate, "Torque of each wheel in the last wheel command"},
+    {{}, 0.0F, 8191.0F, RegisterEffect::kRestart, "Pedal state subject"},
+    {{}, -kInf, kInf, RegisterEffect::kImmediate, "Type of the pedal state"},
+    {{}, 0.0F, 1.0F, RegisterEffect::kImmediate, "1: torque from the pedals, 0: from the torque request"},
+    {"s", 0.001F, 10.0F, RegisterEffect::kImmediate, "Age after which the pedal state counts as lost"},
+    {{}, 0.0F, 1.0F, RegisterEffect::kImmediate, "Requested drive mode, 0 child, 1 adult; at standstill"},
+    {{}, 0.0F, 1.0F, RegisterEffect::kImmediate, "Drive mode in effect, 0 child, 1 adult"},
+    {"N m", 0.0F, kInf, RegisterEffect::kImmediate, "Total wheel torque of the fully pressed brake pedal"},
+    {"rad/s", 0.0F, kInf, RegisterEffect::kImmediate, "Speed limit of the child mode, wheel speed"},
+    {"N m", 0.0F, kInf, RegisterEffect::kImmediate, "Total wheel torque of the full drive pedal, child"},
+    {"N m/s", 0.0F, kInf, RegisterEffect::kImmediate, "Rise of the drive torque, child"},
+    {"rad/s", 0.0F, kInf, RegisterEffect::kImmediate, "Speed limit of the adult mode, wheel speed"},
+    {"N m", 0.0F, kInf, RegisterEffect::kImmediate, "Total wheel torque of the full drive pedal, adult"},
+    {"N m/s", 0.0F, kInf, RegisterEffect::kImmediate, "Rise of the drive torque, adult"},
+    {"rad/s", -kInf, kInf, RegisterEffect::kImmediate, "Wheel speed of the cart, mean of the fresh drives"},
 }};
 
 constexpr std::string_view kReadinessType = "reg.udral.service.common.Readiness.0.1";
+
+/// A duration in microseconds as a time.
+[[nodiscard]] unit::Time Microseconds(const uint64_t duration_us) noexcept {
+  return 1.0e-6_s * static_cast<float>(duration_us);
+}
+
+/// A pedal of unimoc.cart.PedalState.
+[[nodiscard]] vehicle::PedalChannels PedalOf(const float (&channels)[2], const bool plausible) noexcept {
+  return vehicle::PedalChannels{{unit::Ratio{channels[0]}, unit::Ratio{channels[1]}}, plausible};
+}
 
 [[nodiscard]] const uint8_t* InputBytes(const std::span<const std::byte> payload) noexcept {
   return reinterpret_cast<const uint8_t*>(payload.data());
@@ -206,6 +259,9 @@ bool VdcNode::Start(const uint8_t node_id, const uint64_t now_us) noexcept {
   bool started = node_->AddRegisterProvider(*this);
   started =
       node_->Subscribe(cyphal::kPubDriveStatus, unimoc_cart_DriveStatus_0_2_EXTENT_BYTES_, *this) && started;
+  started =
+      node_->Subscribe(cyphal::kSubPedalState, unimoc_cart_PedalState_0_1_EXTENT_BYTES_, *this) && started;
+  pedal_map_.Configure(parameters_.pedal_map);
   started = node_->AddPublisher(wheel_command_) && started;
   for (const Wheel kWheel : kWheels) {
     started =
@@ -241,6 +297,8 @@ void VdcNode::ApplyTiming() noexcept {
 void VdcNode::OnMessage(const cyphal::Transfer& transfer, const uint64_t now_us) noexcept {
   if (transfer.port_id == cyphal::kPubDriveStatus) {
     OnDriveStatus(transfer, now_us);
+  } else if (transfer.port_id == cyphal::kSubPedalState) {
+    OnPedalState(transfer, now_us);
   }
 }
 
@@ -268,9 +326,41 @@ void VdcNode::OnDriveStatus(const cyphal::Transfer& transfer, const uint64_t now
   drives_.OnReport(kWheel, report, now_us);
 }
 
-void VdcNode::PublishWheelCommand(const uint64_t now_us) noexcept {
+void VdcNode::OnPedalState(const cyphal::Transfer& transfer, const uint64_t now_us) noexcept {
+  unimoc_cart_PedalState_0_1 state{};
+  std::size_t size = transfer.payload.size();
+  if (unimoc_cart_PedalState_0_1_deserialize_(&state, InputBytes(transfer.payload), &size) < 0) {
+    return;
+  }
+  pedals_.drive = PedalOf(state.drive_pedal, state.drive_pedal_plausible);
+  pedals_.brake = PedalOf(state.brake_pedal, state.brake_pedal_plausible);
+  has_pedals_ = true;
+  pedals_us_ = now_us;
+}
+
+bool VdcNode::PedalsFresh(const uint64_t now_us) const noexcept {
+  return has_pedals_ && now_us >= pedals_us_ &&
+         Microseconds(now_us - pedals_us_) <= parameters_.pedal_timeout;
+}
+
+unit::Torque VdcNode::TorqueRequest(const uint64_t now_us) noexcept {
+  const unit::Time kDt = has_request_cycle_ ? Microseconds(now_us - request_cycle_us_) : unit::Time{};
+  has_request_cycle_ = true;
+  request_cycle_us_ = now_us;
   // Torque only to drives the VDC engages; a drive engaged by someone else gets zero.
-  const unit::Torque kRequest = parameters_.engage ? parameters_.torque_request : unit::Torque{};
+  if (!parameters_.engage) {
+    pedal_map_.Reset();
+    return unit::Torque{};
+  }
+  if (!parameters_.pedal_control) {
+    return parameters_.torque_request;
+  }
+  const unit::AngularVelocity kSpeed = drives_.CartSpeed(now_us);
+  return PedalsFresh(now_us) ? pedal_map_.Update(pedals_, kSpeed, kDt) : pedal_map_.UpdateLost(kSpeed, kDt);
+}
+
+void VdcNode::PublishWheelCommand(const uint64_t now_us) noexcept {
+  const unit::Torque kRequest = TorqueRequest(now_us);
   wheel_torques_ = vehicle::SplitTorque(kRequest, parameters_.front_share, drives_.Windows(now_us));
   unimoc_cart_WheelCommand_0_1 command{};
   for (const Wheel kWheel : kWheels) {
@@ -316,7 +406,55 @@ void VdcNode::UpdateHealth(const uint64_t now_us) noexcept {
     nominal =
         nominal && (parameters_.engage ? drives_.Available(kWheel, now_us) : drives_.Fresh(kWheel, now_us));
   }
+  if (parameters_.engage && parameters_.pedal_control && !PedalsFresh(now_us)) {
+    nominal = false;
+  }
   node_->SetHealth(nominal ? cyphal::Health::kNominal : cyphal::Health::kAdvisory);
+}
+
+namespace {
+
+/// The drive mode of a child.* or adult.* register.
+[[nodiscard]] vehicle::DriveMode ModeOf(const Register reg) noexcept {
+  switch (reg) {
+    case Register::kAdultSpeedLimit:
+    case Register::kAdultDriveTorque:
+    case Register::kAdultDriveRamp:
+      return vehicle::DriveMode::kAdult;
+    default:
+      return vehicle::DriveMode::kChild;
+  }
+}
+
+}  // namespace
+
+const vehicle::DriveModeLimits& VdcNode::ModeLimits(const std::size_t index) const noexcept {
+  return parameters_.pedal_map.modes[vehicle::ModeIndex(ModeOf(static_cast<Register>(index)))];
+}
+
+void VdcNode::WritePedalMap(const std::size_t index, const float number) noexcept {
+  vehicle::PedalMapParameters& map = parameters_.pedal_map;
+  vehicle::DriveModeLimits& limits = map.modes[vehicle::ModeIndex(ModeOf(static_cast<Register>(index)))];
+  switch (static_cast<Register>(index)) {
+    case Register::kBrakeTorque:
+      map.brake_torque = unit::Torque{number};
+      break;
+    case Register::kChildSpeedLimit:
+    case Register::kAdultSpeedLimit:
+      limits.speed_limit = unit::AngularVelocity{number};
+      break;
+    case Register::kChildDriveTorque:
+    case Register::kAdultDriveTorque:
+      limits.drive_torque = unit::Torque{number};
+      break;
+    case Register::kChildDriveRamp:
+    case Register::kAdultDriveRamp:
+      limits.drive_ramp = unit::Torque{number} / 1.0_s;
+      break;
+    default:
+      return;
+  }
+  pedal_map_.Configure(map);
 }
 
 std::size_t VdcNode::Count() const noexcept { return kNames.size(); }
@@ -406,6 +544,42 @@ cyphal::RegisterFlags VdcNode::Read(const std::size_t index, cyphal::RegisterVal
                        return wheel_torques_[Index(wheel)].Value();
                      }));
       return kReadOnly;
+    case Register::kPedalStateId:
+      cyphal::SetNatural16(value, cyphal::kSubPedalState);
+      return kReadOnly;
+    case Register::kPedalStateType:
+      cyphal::SetString(value, "unimoc.cart.PedalState.0.1");
+      return kReadOnly;
+    case Register::kPedalControl:
+      cyphal::SetBit(value, parameters_.pedal_control);
+      return kWritable;
+    case Register::kPedalTimeout:
+      cyphal::SetReal32(value, parameters_.pedal_timeout.Value());
+      return kWritable;
+    case Register::kDriveMode:
+      cyphal::SetNatural8(value, static_cast<uint8_t>(vehicle::ModeIndex(pedal_map_.RequestedMode())));
+      return kWritable;
+    case Register::kActiveDriveMode:
+      cyphal::SetNatural8(value, static_cast<uint8_t>(vehicle::ModeIndex(pedal_map_.ActiveMode())));
+      return kReadOnly;
+    case Register::kBrakeTorque:
+      cyphal::SetReal32(value, parameters_.pedal_map.brake_torque.Value());
+      return kWritable;
+    case Register::kChildSpeedLimit:
+    case Register::kAdultSpeedLimit:
+      cyphal::SetReal32(value, ModeLimits(index).speed_limit.Value());
+      return kWritable;
+    case Register::kChildDriveTorque:
+    case Register::kAdultDriveTorque:
+      cyphal::SetReal32(value, ModeLimits(index).drive_torque.Value());
+      return kWritable;
+    case Register::kChildDriveRamp:
+    case Register::kAdultDriveRamp:
+      cyphal::SetReal32(value, (ModeLimits(index).drive_ramp * 1.0_s).Value());
+      return kWritable;
+    case Register::kCartSpeed:
+      cyphal::SetReal32(value, drives_.CartSpeed(now_us_).Value());
+      return kReadOnly;
     case Register::kCount:
       break;
   }
@@ -460,6 +634,37 @@ cyphal::RegisterWriteResult VdcNode::Write(const std::size_t index,
         parameters_.status_timeout = unit::Time{*kNumber};
       }
       ApplyTiming();
+      return cyphal::RegisterWriteResult::kAccepted;
+    case Register::kPedalControl:
+      if (!kNumber.has_value()) {
+        return cyphal::RegisterWriteResult::kOutOfRange;
+      }
+      parameters_.pedal_control = *kNumber != 0.0F;
+      pedal_map_.Reset();  // a change of the source starts the ramp from zero
+      return cyphal::RegisterWriteResult::kAccepted;
+    case Register::kPedalTimeout:
+      if (!kNumber.has_value()) {
+        return cyphal::RegisterWriteResult::kOutOfRange;
+      }
+      parameters_.pedal_timeout = unit::Time{*kNumber};
+      return cyphal::RegisterWriteResult::kAccepted;
+    case Register::kDriveMode:
+      if (!kNumber.has_value() || (*kNumber != 0.0F && *kNumber != 1.0F)) {
+        return cyphal::RegisterWriteResult::kOutOfRange;
+      }
+      pedal_map_.RequestMode(vehicle::ModeAt(static_cast<std::size_t>(*kNumber)));
+      return cyphal::RegisterWriteResult::kAccepted;
+    case Register::kBrakeTorque:
+    case Register::kChildSpeedLimit:
+    case Register::kChildDriveTorque:
+    case Register::kChildDriveRamp:
+    case Register::kAdultSpeedLimit:
+    case Register::kAdultDriveTorque:
+    case Register::kAdultDriveRamp:
+      if (!kNumber.has_value()) {
+        return cyphal::RegisterWriteResult::kOutOfRange;
+      }
+      WritePedalMap(index, *kNumber);
       return cyphal::RegisterWriteResult::kAccepted;
     default:
       return cyphal::RegisterWriteResult::kReadOnly;

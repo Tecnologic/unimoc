@@ -6,7 +6,8 @@
  *    \____/_/ |_/___/_/  /_/\____/\____/
  *
  *    @file pedal_map_test.cpp
- *    @brief ztest coverage of the pedal map: pedal channels, brake first, speed limit, soft start, drive modes.
+ *    @brief ztest coverage of the pedal map: pedal channels, brake first, speed limit, soft start, drive
+ * modes.
  *
  *    SPDX-License-Identifier: GPL-3.0-or-later
  *

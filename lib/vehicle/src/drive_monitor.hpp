@@ -103,6 +103,25 @@ class DriveMonitor {
   }
 
   /**
+   * @brief Wheel speed of the cart: the mean of the fresh, finite wheel speeds (cart frame).
+   *
+   * Zero without a fresh report: the cart counts as standing, so a brake
+   * fades out and no drive torque is commanded anyway (no window).
+   */
+  [[nodiscard]] unit::AngularVelocity CartSpeed(const uint64_t now_us) const noexcept {
+    unit::AngularVelocity sum{};
+    float count = 0.0F;
+    for (const Wheel kWheel : kWheels) {
+      const unit::AngularVelocity kSpeed = entries_[Index(kWheel)].report.wheel_speed;
+      if (Fresh(kWheel, now_us) && unit::IsFinite(kSpeed)) {
+        sum = sum + kSpeed;
+        count += 1.0F;
+      }
+    }
+    return (count > 0.0F) ? sum / count : unit::AngularVelocity{};
+  }
+
+  /**
    * @brief The torque window of @p wheel in the cart frame; zero unless Available().
    *
    * The drive reports its limits relative to its direction of motion; a

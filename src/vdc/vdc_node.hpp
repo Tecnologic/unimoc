@@ -23,6 +23,7 @@
 #include "cyphal/node.hpp"
 #include "cyphal/register_value.hpp"
 #include "drive_monitor.hpp"
+#include "pedal_map.hpp"
 #include "units.hpp"
 #include "wheel.hpp"
 
@@ -32,11 +33,31 @@
 namespace unimoc::vdc {
 
 using unit::operator""_Hz;
+using unit::operator""_Nm;
+using unit::operator""_rad_per_s;
 using unit::operator""_ratio;
 using unit::operator""_s;
 
 /// Value of a drive node-ID meaning "no drive on this wheel".
 inline constexpr uint8_t kNoDrive = 0xFFU;
+
+/**
+ * @brief Factory parameters of the pedal map (docs/cart_mechanics_plan.md).
+ *
+ * Wheel speeds for the 4.00-6 tyre (about 0.165 m): the child mode stops at
+ * about 6 km/h (10 rad/s), the adult mode at about 20 km/h (34 rad/s).
+ */
+[[nodiscard]] constexpr vehicle::PedalMapParameters FactoryPedalMap() noexcept {
+  vehicle::PedalMapParameters parameters;
+  parameters.modes[vehicle::ModeIndex(vehicle::DriveMode::kChild)] = {10.0_rad_per_s,
+                                                                      8.0_Nm,
+                                                                      10.0_Nm / 1.0_s};
+  parameters.modes[vehicle::ModeIndex(vehicle::DriveMode::kAdult)] = {34.0_rad_per_s,
+                                                                      30.0_Nm,
+                                                                      60.0_Nm / 1.0_s};
+  parameters.brake_torque = 30.0_Nm;
+  return parameters;
+}
 
 /**
  * @brief Parameters of the VDC, the registers `unimoc.vdc.*`.
@@ -59,6 +80,12 @@ struct VdcParameters {
   unit::Frequency readiness_rate{10.0_Hz};
   /// Age after which the drive status of a wheel counts as lost (the drives publish at 50 Hz).
   unit::Time status_timeout{0.1_s};
+  /// The torque request comes from the pedal state instead of torque_request.
+  bool pedal_control{false};
+  /// Age after which the pedal state counts as lost.
+  unit::Time pedal_timeout{0.1_s};
+  /// Pedal map: drive modes, brake torque, speed limits.
+  vehicle::PedalMapParameters pedal_map{FactoryPedalMap()};
 };
 
 /**
@@ -69,10 +96,14 @@ struct VdcParameters {
  * - Collects the unimoc.cart.DriveStatus of the four wheels (vehicle::DriveMonitor).
  * - Publishes the unimoc.cart.WheelCommand at the cycle rate: the torque
  *   request split onto the available wheels (vehicle::SplitTorque()), zero
- *   for every wheel while the VDC does not engage its drives.
+ *   for every wheel while the VDC does not engage its drives. The request
+ *   is `unimoc.vdc.torque_request`, or with `unimoc.vdc.pedal_control` the
+ *   pedal map of the unimoc.cart.PedalState (vehicle::PedalMap: brake first,
+ *   drive mode, speed limit, soft start; a lost pedal state brakes gently).
  * - Reports the collected state in read-only registers and the node health:
  *   ADVISORY while a configured drive is not available (not fresh, or not
- *   engaged while the VDC engages).
+ *   engaged while the VDC engages) or the pedal state is lost under pedal
+ *   control.
  *
  * Runs in the Cyphal thread of the VDC; free of Zephyr headers.
  */
@@ -101,6 +132,9 @@ class VdcNode final : public cyphal::MessageListener, public cyphal::RegisterPro
   /// The collected drive status.
   [[nodiscard]] const vehicle::DriveMonitor& Drives() const noexcept { return drives_; }
 
+  /// The pedal map (drive mode, last request).
+  [[nodiscard]] const vehicle::PedalMap& PedalControl() const noexcept { return pedal_map_; }
+
   /// Wheel torques of the last wheel command.
   [[nodiscard]] const vehicle::PerWheel<unit::Torque>& WheelTorques() const noexcept {
     return wheel_torques_;
@@ -123,9 +157,18 @@ class VdcNode final : public cyphal::MessageListener, public cyphal::RegisterPro
 
  private:
   void OnDriveStatus(const cyphal::Transfer& transfer, uint64_t now_us) noexcept;
+  void OnPedalState(const cyphal::Transfer& transfer, uint64_t now_us) noexcept;
+  /// The total torque request of this cycle.
+  [[nodiscard]] unit::Torque TorqueRequest(uint64_t now_us) noexcept;
+  /// A pedal state arrived and is not older than the pedal timeout.
+  [[nodiscard]] bool PedalsFresh(uint64_t now_us) const noexcept;
   void PublishWheelCommand(uint64_t now_us) noexcept;
   void PublishReadiness() noexcept;
   void UpdateHealth(uint64_t now_us) noexcept;
+  /// The drive mode limits a child.* or adult.* register addresses.
+  [[nodiscard]] const vehicle::DriveModeLimits& ModeLimits(std::size_t index) const noexcept;
+  /// Writes a pedal map register and hands the map to the pedal control.
+  void WritePedalMap(std::size_t index, float number) noexcept;
   /// Applies a changed rate or timeout to the schedule.
   void ApplyTiming() noexcept;
 
@@ -133,6 +176,12 @@ class VdcNode final : public cyphal::MessageListener, public cyphal::RegisterPro
   VdcParameters parameters_;
   vehicle::DriveMonitor drives_;
   vehicle::PerWheel<unit::Torque> wheel_torques_{};
+  vehicle::PedalMap pedal_map_;
+  vehicle::Pedals pedals_;
+  bool has_pedals_{false};
+  uint64_t pedals_us_{0U};
+  bool has_request_cycle_{false};
+  uint64_t request_cycle_us_{0U};
   cyphal::Publisher wheel_command_;
   vehicle::PerWheel<uint8_t> readiness_transfer_ids_{};
   uint64_t now_us_{0U};
