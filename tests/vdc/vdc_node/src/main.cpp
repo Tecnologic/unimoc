@@ -431,8 +431,8 @@ ZTEST(vdc_node, test_pedal_map_registers) {
                 cyphal::RegisterWriteResult::kAccepted);
   zexpect_equal(rig.WriteReal(cyphal::reg::kVdcChildDriveRamp, 4.0F), cyphal::RegisterWriteResult::kAccepted);
   zexpect_equal(rig.WriteReal(cyphal::reg::kVdcBrakeTorque, -1.0F), cyphal::RegisterWriteResult::kOutOfRange);
-  const vehicle::PedalMapParameters& kMap = rig.vdc.PedalControl().Parameters();
-  UNIMOC_EXPECT_NEAR(kMap.modes[vehicle::ModeIndex(vehicle::DriveMode::kAdult)].speed_limit,
+  const vehicle::PedalMapParameters& map = rig.vdc.PedalControl().Parameters();
+  UNIMOC_EXPECT_NEAR(map.modes[vehicle::ModeIndex(vehicle::DriveMode::kAdult)].speed_limit,
                      20.0_rad_per_s,
                      1e-6_rad_per_s);
   UNIMOC_EXPECT_NEAR(cyphal::GetNumber(rig.Read(cyphal::reg::kVdcChildDriveRamp)).value_or(0.0F),

@@ -169,8 +169,10 @@ constexpr std::string_view kReadinessType = "reg.udral.service.common.Readiness.
 }
 
 /// A pedal of unimoc.cart.PedalState.
-[[nodiscard]] vehicle::PedalChannels PedalOf(const float (&channels)[2], const bool plausible) noexcept {
-  return vehicle::PedalChannels{{unit::Ratio{channels[0]}, unit::Ratio{channels[1]}}, plausible};
+[[nodiscard]] vehicle::PedalChannels PedalOf(const float first,
+                                             const float second,
+                                             const bool plausible) noexcept {
+  return vehicle::PedalChannels{{unit::Ratio{first}, unit::Ratio{second}}, plausible};
 }
 
 [[nodiscard]] const uint8_t* InputBytes(const std::span<const std::byte> payload) noexcept {
@@ -332,8 +334,8 @@ void VdcNode::OnPedalState(const cyphal::Transfer& transfer, const uint64_t now_
   if (unimoc_cart_PedalState_0_1_deserialize_(&state, InputBytes(transfer.payload), &size) < 0) {
     return;
   }
-  pedals_.drive = PedalOf(state.drive_pedal, state.drive_pedal_plausible);
-  pedals_.brake = PedalOf(state.brake_pedal, state.brake_pedal_plausible);
+  pedals_.drive = PedalOf(state.drive_pedal[0], state.drive_pedal[1], state.drive_pedal_plausible);
+  pedals_.brake = PedalOf(state.brake_pedal[0], state.brake_pedal[1], state.brake_pedal_plausible);
   has_pedals_ = true;
   pedals_us_ = now_us;
 }
