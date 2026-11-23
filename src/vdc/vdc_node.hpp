@@ -19,6 +19,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string_view>
 #include "cyphal/node.hpp"
 #include "cyphal/register_value.hpp"
@@ -176,6 +177,9 @@ class VdcNode final : public cyphal::MessageListener, public cyphal::RegisterPro
   [[nodiscard]] const vehicle::GearLimits& LimitsOf(std::size_t index) const noexcept;
   /// Writes a pedal map register and hands the map to the pedal control.
   void WritePedalMap(std::size_t index, float number) noexcept;
+  /// Writes the gear or the gear release.
+  [[nodiscard]] cyphal::RegisterWriteResult WriteGear(std::size_t index,
+                                                      std::optional<float> number) noexcept;
   /// Applies a changed rate or timeout to the schedule.
   void ApplyTiming() noexcept;
 

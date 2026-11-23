@@ -481,6 +481,27 @@ const vehicle::GearLimits& VdcNode::LimitsOf(const std::size_t index) const noex
   return parameters_.pedal_map.gears[vehicle::GearIndex(GearOf(static_cast<Register>(index)))];
 }
 
+cyphal::RegisterWriteResult VdcNode::WriteGear(const std::size_t index,
+                                               const std::optional<float> number) noexcept {
+  const std::optional<vehicle::Gear> kGearNumber = GearNumber(number);
+  if (!kGearNumber.has_value()) {
+    return cyphal::RegisterWriteResult::kOutOfRange;
+  }
+  if (static_cast<Register>(index) == Register::kGearRelease) {
+    if (*kGearNumber < vehicle::kFirstGear) {
+      return cyphal::RegisterWriteResult::kOutOfRange;
+    }
+    pedal_map_.SetRelease(*kGearNumber);
+    return cyphal::RegisterWriteResult::kAccepted;
+  }
+  // Only a released gear; neutral and reverse are always allowed.
+  if (*kGearNumber > pedal_map_.Release()) {
+    return cyphal::RegisterWriteResult::kOutOfRange;
+  }
+  pedal_map_.RequestGear(*kGearNumber);
+  return cyphal::RegisterWriteResult::kAccepted;
+}
+
 void VdcNode::WritePedalMap(const std::size_t index, const float number) noexcept {
   vehicle::PedalMapParameters& map = parameters_.pedal_map;
   const auto kReg = static_cast<Register>(index);
@@ -699,23 +720,9 @@ cyphal::RegisterWriteResult VdcNode::Write(const std::size_t index,
       }
       parameters_.pedal_timeout = unit::Time{*kNumber};
       return cyphal::RegisterWriteResult::kAccepted;
-    case Register::kGear: {
-      // Only a released gear; neutral and reverse are always allowed.
-      const std::optional<vehicle::Gear> kGearNumber = GearNumber(kNumber);
-      if (!kGearNumber.has_value() || *kGearNumber > pedal_map_.Release()) {
-        return cyphal::RegisterWriteResult::kOutOfRange;
-      }
-      pedal_map_.RequestGear(*kGearNumber);
-      return cyphal::RegisterWriteResult::kAccepted;
-    }
-    case Register::kGearRelease: {
-      const std::optional<vehicle::Gear> kGearNumber = GearNumber(kNumber);
-      if (!kGearNumber.has_value() || *kGearNumber < vehicle::kFirstGear) {
-        return cyphal::RegisterWriteResult::kOutOfRange;
-      }
-      pedal_map_.SetRelease(*kGearNumber);
-      return cyphal::RegisterWriteResult::kAccepted;
-    }
+    case Register::kGear:
+    case Register::kGearRelease:
+      return WriteGear(index, kNumber);
     case Register::kDriveTorque:
     case Register::kBrakeTorque:
     case Register::kReverseSpeedLimit:

@@ -64,7 +64,10 @@ inline constexpr std::size_t kGearCount = 1U + static_cast<std::size_t>(kTopGear
 
 /// Direction of @p gear: +1 forward, -1 reverse, 0 neutral.
 [[nodiscard]] constexpr int Direction(const Gear gear) noexcept {
-  return (gear > kNeutral) ? 1 : ((gear < kNeutral) ? -1 : 0);
+  if (gear > kNeutral) {
+    return 1;
+  }
+  return (gear < kNeutral) ? -1 : 0;
 }
 
 /// Limits of one gear.
@@ -228,7 +231,7 @@ class PedalMap {
     const bool kStanding = unit::Abs(kSpeed) <= kStandstill;
     SelectGear(kStanding);
 
-    const float kGearDirection = static_cast<float>(Direction(active_gear_));
+    const auto kGearDirection = static_cast<float>(Direction(active_gear_));
     const unit::Torque kDriveTorque = unit::Max(parameters_.drive_torque, unit::Torque{});
 
     unit::Torque target{};
@@ -247,10 +250,10 @@ class PedalMap {
 
     // Speed limit along the motion, at standstill along the gear (braking only against the gear and in
     // neutral).
-    const float kMotion = kStanding ? kGearDirection : ((kSpeed > unit::Velocity{}) ? 1.0F : -1.0F);
+    const float kMotion = kStanding ? kGearDirection : Sign(kSpeed);
     if (kMotion != 0.0F) {
       const bool kWithGear = kGearDirection == kMotion;
-      const Gear kLimitGear = kWithGear ? active_gear_ : ((kMotion > 0.0F) ? release_ : kReverse);
+      const Gear kLimitGear = kWithGear ? active_gear_ : HighestGear(kMotion);
       const unit::Velocity kGearLimit =
           unit::Max(parameters_.gears[GearIndex(kLimitGear)].speed_limit, unit::Velocity{});
       const unit::Velocity kLimit = kWithGear ? ramped_limit_ : kGearLimit;
@@ -260,6 +263,16 @@ class PedalMap {
 
     torque_ = unit::IsFinite(target) ? target : unit::Torque{};
     return torque_;
+  }
+
+  /// +1 forward, -1 backward (zero counts as forward; the callers only ask while moving).
+  [[nodiscard]] static float Sign(const unit::Velocity speed) noexcept {
+    return (speed < unit::Velocity{}) ? -1.0F : 1.0F;
+  }
+
+  /// The gear whose limit holds a cart moving in @p direction against the gear: reverse, or the released one.
+  [[nodiscard]] Gear HighestGear(const float direction) const noexcept {
+    return (direction > 0.0F) ? release_ : kReverse;
   }
 
   /// Applies the requested gear: lowered to the release; the other direction waits in neutral for the
