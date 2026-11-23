@@ -36,6 +36,7 @@ void SetString(RegisterValue& value, std::string_view text) noexcept;
 void SetUnstructured(RegisterValue& value, std::span<const uint8_t> bytes) noexcept;
 void SetBit(RegisterValue& value, bool bit) noexcept;
 void SetNatural8(RegisterValue& value, uint8_t number) noexcept;
+void SetInteger8(RegisterValue& value, int8_t number) noexcept;
 void SetNatural16(RegisterValue& value, uint16_t number) noexcept;
 void SetNatural32(RegisterValue& value, uint32_t number) noexcept;
 void SetReal32(RegisterValue& value, float number) noexcept;

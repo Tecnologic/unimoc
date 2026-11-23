@@ -988,11 +988,11 @@ inline constexpr const char* kVdcWheelTorque = "unimoc.vdc.wheel_torque";
 
 // The pedal map of the VDC (lib/vehicle/src/pedal_map.hpp). The VDC
 // subscribes the pedal state on kSubPedalState (registers kSubPedalStateId
-// and kSubPedalStateType, read-only on the VDC). Speeds are wheel speeds in
-// the cart frame, as in unimoc.cart.DriveStatus: speed = v / r_wheel
-// (6 km/h on a 0.165 m tyre is about 10 rad/s).
+// and kSubPedalStateType, read-only on the VDC). Speeds are speeds of the
+// cart [m/s]: the wheel speed of unimoc.cart.DriveStatus times the rolling
+// radius kVdcRollingRadius.
 
-/// 1: the torque request comes from the pedal state (pedal map, drive mode,
+/// 1: the torque request comes from the pedal state (pedal map, gear,
 /// speed limit); 0: from unimoc.vdc.torque_request.
 /// Type: bit[1] (read/write)
 inline constexpr const char* kVdcPedalControl = "unimoc.vdc.pedal_control";
@@ -1001,45 +1001,67 @@ inline constexpr const char* kVdcPedalControl = "unimoc.vdc.pedal_control";
 /// Type: real32[1] (read/write)
 inline constexpr const char* kVdcPedalTimeout = "unimoc.vdc.pedal_timeout";
 
-/// Requested drive mode, 0: child, 1: adult. It applies at the next standstill.
+/// Requested gear: -1 reverse, 0 neutral, 1 to 3 forward. A forward gear above
+/// kVdcGearRelease is refused; a gear of the other direction applies at standstill.
+/// Type: integer8[1] (read/write)
+inline constexpr const char* kVdcGear = "unimoc.vdc.gear";
+
+/// Gear in effect (neutral while a change of direction waits for the standstill).
+/// Type: integer8[1] (read-only)
+inline constexpr const char* kVdcActiveGear = "unimoc.vdc.active_gear";
+
+/// Highest released forward gear, 1 to 3. Volatile: back to 1 at every start;
+/// set from the display or a phone. Lowering it lowers the gear at once.
 /// Type: natural8[1] (read/write)
-inline constexpr const char* kVdcDriveMode = "unimoc.vdc.drive_mode";
+inline constexpr const char* kVdcGearRelease = "unimoc.vdc.gear_release";
 
-/// Drive mode in effect, 0: child, 1: adult.
-/// Type: natural8[1] (read-only)
-inline constexpr const char* kVdcActiveDriveMode = "unimoc.vdc.active_drive_mode";
+/// Total wheel torque at the fully pressed drive pedal, every gear [N m].
+/// Type: real32[1] (read/write)
+inline constexpr const char* kVdcDriveTorque = "unimoc.vdc.drive_torque";
 
-/// Total wheel torque at the fully pressed brake pedal, every mode [N m].
+/// Total wheel torque at the fully pressed brake pedal, every gear [N m].
 /// Type: real32[1] (read/write)
 inline constexpr const char* kVdcBrakeTorque = "unimoc.vdc.brake_torque";
 
-/// Speed limit of the child mode, wheel speed [rad/s].
+/// Speed limit of the reverse gear [m/s].
 /// Type: real32[1] (read/write)
-inline constexpr const char* kVdcChildSpeedLimit = "unimoc.vdc.child.speed_limit";
+inline constexpr const char* kVdcReverseSpeedLimit = "unimoc.vdc.reverse.speed_limit";
 
-/// Total wheel torque at the fully pressed drive pedal in the child mode [N m].
+/// Speed ramp of the reverse gear, 0: none [m/s^2].
 /// Type: real32[1] (read/write)
-inline constexpr const char* kVdcChildDriveTorque = "unimoc.vdc.child.drive_torque";
+inline constexpr const char* kVdcReverseAcceleration = "unimoc.vdc.reverse.acceleration";
 
-/// Rise of the drive torque in the child mode [N m/s].
+/// Speed limit of the first gear [m/s].
 /// Type: real32[1] (read/write)
-inline constexpr const char* kVdcChildDriveRamp = "unimoc.vdc.child.drive_ramp";
+inline constexpr const char* kVdcGear1SpeedLimit = "unimoc.vdc.gear1.speed_limit";
 
-/// Speed limit of the adult mode, wheel speed [rad/s].
+/// Speed ramp of the first gear, 0: none [m/s^2].
 /// Type: real32[1] (read/write)
-inline constexpr const char* kVdcAdultSpeedLimit = "unimoc.vdc.adult.speed_limit";
+inline constexpr const char* kVdcGear1Acceleration = "unimoc.vdc.gear1.acceleration";
 
-/// Total wheel torque at the fully pressed drive pedal in the adult mode [N m].
+/// Speed limit of the second gear [m/s].
 /// Type: real32[1] (read/write)
-inline constexpr const char* kVdcAdultDriveTorque = "unimoc.vdc.adult.drive_torque";
+inline constexpr const char* kVdcGear2SpeedLimit = "unimoc.vdc.gear2.speed_limit";
 
-/// Rise of the drive torque in the adult mode [N m/s].
+/// Speed ramp of the second gear, 0: none [m/s^2].
 /// Type: real32[1] (read/write)
-inline constexpr const char* kVdcAdultDriveRamp = "unimoc.vdc.adult.drive_ramp";
+inline constexpr const char* kVdcGear2Acceleration = "unimoc.vdc.gear2.acceleration";
 
-/// Wheel speed of the cart: the mean of the fresh drive reports, cart frame [rad/s].
-/// Type: real32[1] (read-only)
+/// Speed limit of the third gear [m/s].
+/// Type: real32[1] (read/write)
+inline constexpr const char* kVdcGear3SpeedLimit = "unimoc.vdc.gear3.speed_limit";
+
+/// Speed ramp of the third gear, 0: none [m/s^2].
+/// Type: real32[1] (read/write)
+inline constexpr const char* kVdcGear3Acceleration = "unimoc.vdc.gear3.acceleration";
+
+/// Speed of the cart: the mean wheel speed of the fresh drive reports times the rolling radius, cart frame
+/// [m/s]. Type: real32[1] (read-only)
 inline constexpr const char* kVdcCartSpeed = "unimoc.vdc.cart_speed";
+
+/// Rolling radius of the wheels: ground travel per wheel radian [m/rad] (0.165 for the 4.00-6 tyre).
+/// Type: real32[1] (read/write)
+inline constexpr const char* kVdcRollingRadius = "unimoc.vdc.rolling_radius";
 
 }  // namespace reg
 

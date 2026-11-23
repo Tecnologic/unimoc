@@ -31,7 +31,7 @@
 1 src/identification/motor_identification.cpp
 8 src/startup/hw_startup.cpp
 16 src/trace/trace_signals.cpp
-33 src/vdc/vdc_node.cpp
+35 src/vdc/vdc_node.cpp
 5 tests/common/unimoc_test.hpp
 4 tests/drive/cart_control/src/main.cpp
 2 tests/ebike/ebike_control/src/main.cpp

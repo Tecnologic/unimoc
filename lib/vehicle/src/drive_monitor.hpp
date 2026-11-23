@@ -103,12 +103,12 @@ class DriveMonitor {
   }
 
   /**
-   * @brief Wheel speed of the cart: the mean of the fresh, finite wheel speeds (cart frame).
+   * @brief Mean wheel speed of the cart: the mean of the fresh, finite wheel speeds (cart frame).
    *
    * Zero without a fresh report: the cart counts as standing, so a brake
    * fades out and no drive torque is commanded anyway (no window).
    */
-  [[nodiscard]] unit::AngularVelocity CartSpeed(const uint64_t now_us) const noexcept {
+  [[nodiscard]] unit::AngularVelocity MeanWheelSpeed(const uint64_t now_us) const noexcept {
     unit::AngularVelocity sum{};
     float count = 0.0F;
     for (const Wheel kWheel : kWheels) {

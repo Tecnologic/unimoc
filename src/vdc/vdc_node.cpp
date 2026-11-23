@@ -64,16 +64,21 @@ enum class Register : uint8_t {
   kPedalStateType,
   kPedalControl,
   kPedalTimeout,
-  kDriveMode,
-  kActiveDriveMode,
+  kGear,
+  kActiveGear,
+  kGearRelease,
+  kDriveTorque,
   kBrakeTorque,
-  kChildSpeedLimit,
-  kChildDriveTorque,
-  kChildDriveRamp,
-  kAdultSpeedLimit,
-  kAdultDriveTorque,
-  kAdultDriveRamp,
+  kReverseSpeedLimit,
+  kReverseAcceleration,
+  kGear1SpeedLimit,
+  kGear1Acceleration,
+  kGear2SpeedLimit,
+  kGear2Acceleration,
+  kGear3SpeedLimit,
+  kGear3Acceleration,
   kCartSpeed,
+  kRollingRadius,
   kCount,
 };
 
@@ -106,16 +111,21 @@ constexpr std::array<std::string_view, static_cast<std::size_t>(Register::kCount
     cyphal::reg::kSubPedalStateType,
     cyphal::reg::kVdcPedalControl,
     cyphal::reg::kVdcPedalTimeout,
-    cyphal::reg::kVdcDriveMode,
-    cyphal::reg::kVdcActiveDriveMode,
+    cyphal::reg::kVdcGear,
+    cyphal::reg::kVdcActiveGear,
+    cyphal::reg::kVdcGearRelease,
+    cyphal::reg::kVdcDriveTorque,
     cyphal::reg::kVdcBrakeTorque,
-    cyphal::reg::kVdcChildSpeedLimit,
-    cyphal::reg::kVdcChildDriveTorque,
-    cyphal::reg::kVdcChildDriveRamp,
-    cyphal::reg::kVdcAdultSpeedLimit,
-    cyphal::reg::kVdcAdultDriveTorque,
-    cyphal::reg::kVdcAdultDriveRamp,
+    cyphal::reg::kVdcReverseSpeedLimit,
+    cyphal::reg::kVdcReverseAcceleration,
+    cyphal::reg::kVdcGear1SpeedLimit,
+    cyphal::reg::kVdcGear1Acceleration,
+    cyphal::reg::kVdcGear2SpeedLimit,
+    cyphal::reg::kVdcGear2Acceleration,
+    cyphal::reg::kVdcGear3SpeedLimit,
+    cyphal::reg::kVdcGear3Acceleration,
     cyphal::reg::kVdcCartSpeed,
+    cyphal::reg::kVdcRollingRadius,
 };
 
 using cyphal::RegisterEffect;
@@ -149,16 +159,29 @@ constexpr std::array<cyphal::RegisterDescription, kNames.size()> kDescriptions{{
     {{}, -kInf, kInf, RegisterEffect::kImmediate, "Type of the pedal state"},
     {{}, 0.0F, 1.0F, RegisterEffect::kImmediate, "1: torque from the pedals, 0: from the torque request"},
     {"s", 0.001F, 10.0F, RegisterEffect::kImmediate, "Age after which the pedal state counts as lost"},
-    {{}, 0.0F, 1.0F, RegisterEffect::kImmediate, "Requested drive mode, 0 child, 1 adult; at standstill"},
-    {{}, 0.0F, 1.0F, RegisterEffect::kImmediate, "Drive mode in effect, 0 child, 1 adult"},
+    {{}, -1.0F, 3.0F, RegisterEffect::kImmediate, "Requested gear: -1 reverse, 0 neutral, 1 to 3"},
+    {{}, -1.0F, 3.0F, RegisterEffect::kImmediate, "Gear in effect"},
+    {{}, 1.0F, 3.0F, RegisterEffect::kImmediate, "Highest released forward gear, volatile"},
+    {"N m", 0.0F, kInf, RegisterEffect::kImmediate, "Total wheel torque of the full drive pedal"},
     {"N m", 0.0F, kInf, RegisterEffect::kImmediate, "Total wheel torque of the fully pressed brake pedal"},
-    {"rad/s", 0.0F, kInf, RegisterEffect::kImmediate, "Speed limit of the child mode, wheel speed"},
-    {"N m", 0.0F, kInf, RegisterEffect::kImmediate, "Total wheel torque of the full drive pedal, child"},
-    {"N m/s", 0.0F, kInf, RegisterEffect::kImmediate, "Rise of the drive torque, child"},
-    {"rad/s", 0.0F, kInf, RegisterEffect::kImmediate, "Speed limit of the adult mode, wheel speed"},
-    {"N m", 0.0F, kInf, RegisterEffect::kImmediate, "Total wheel torque of the full drive pedal, adult"},
-    {"N m/s", 0.0F, kInf, RegisterEffect::kImmediate, "Rise of the drive torque, adult"},
-    {"rad/s", -kInf, kInf, RegisterEffect::kImmediate, "Wheel speed of the cart, mean of the fresh drives"},
+    {"m/s", 0.0F, kInf, RegisterEffect::kImmediate, "Speed limit of the reverse gear"},
+    {"m/s^2", 0.0F, kInf, RegisterEffect::kImmediate, "Speed ramp of the reverse gear, 0: none"},
+    {"m/s", 0.0F, kInf, RegisterEffect::kImmediate, "Speed limit of the first gear"},
+    {"m/s^2", 0.0F, kInf, RegisterEffect::kImmediate, "Speed ramp of the first gear, 0: none"},
+    {"m/s", 0.0F, kInf, RegisterEffect::kImmediate, "Speed limit of the second gear"},
+    {"m/s^2", 0.0F, kInf, RegisterEffect::kImmediate, "Speed ramp of the second gear, 0: none"},
+    {"m/s", 0.0F, kInf, RegisterEffect::kImmediate, "Speed limit of the third gear"},
+    {"m/s^2", 0.0F, kInf, RegisterEffect::kImmediate, "Speed ramp of the third gear, 0: none"},
+    {"m/s",
+     -kInf,
+     kInf,
+     RegisterEffect::kImmediate,
+     "Speed of the cart: mean wheel speed times rolling radius"},
+    {"m/rad",
+     0.01F,
+     2.0F,
+     RegisterEffect::kImmediate,
+     "Rolling radius of the wheels, ground travel per radian"},
 }};
 
 constexpr std::string_view kReadinessType = "reg.udral.service.common.Readiness.0.1";
@@ -340,6 +363,10 @@ void VdcNode::OnPedalState(const cyphal::Transfer& transfer, const uint64_t now_
   pedals_us_ = now_us;
 }
 
+unit::Velocity VdcNode::CartSpeed(const uint64_t now_us) const noexcept {
+  return drives_.MeanWheelSpeed(now_us) * parameters_.rolling_radius;
+}
+
 bool VdcNode::PedalsFresh(const uint64_t now_us) const noexcept {
   return has_pedals_ && now_us >= pedals_us_ &&
          Microseconds(now_us - pedals_us_) <= parameters_.pedal_timeout;
@@ -357,7 +384,7 @@ unit::Torque VdcNode::TorqueRequest(const uint64_t now_us) noexcept {
   if (!parameters_.pedal_control) {
     return parameters_.torque_request;
   }
-  const unit::AngularVelocity kSpeed = drives_.CartSpeed(now_us);
+  const unit::Velocity kSpeed = CartSpeed(now_us);
   return PedalsFresh(now_us) ? pedal_map_.Update(pedals_, kSpeed, kDt) : pedal_map_.UpdateLost(kSpeed, kDt);
 }
 
@@ -416,45 +443,58 @@ void VdcNode::UpdateHealth(const uint64_t now_us) noexcept {
 
 namespace {
 
-/// The drive mode of a child.* or adult.* register.
-[[nodiscard]] vehicle::DriveMode ModeOf(const Register reg) noexcept {
+/// The gear of a reverse.* or gear<n>.* register.
+[[nodiscard]] vehicle::Gear GearOf(const Register reg) noexcept {
   switch (reg) {
-    case Register::kAdultSpeedLimit:
-    case Register::kAdultDriveTorque:
-    case Register::kAdultDriveRamp:
-      return vehicle::DriveMode::kAdult;
+    case Register::kGear1SpeedLimit:
+    case Register::kGear1Acceleration:
+      return 1;
+    case Register::kGear2SpeedLimit:
+    case Register::kGear2Acceleration:
+      return 2;
+    case Register::kGear3SpeedLimit:
+    case Register::kGear3Acceleration:
+      return 3;
     default:
-      return vehicle::DriveMode::kChild;
+      return vehicle::kReverse;
   }
+}
+
+/// A speed limit register (not an acceleration).
+[[nodiscard]] bool IsSpeedLimit(const Register reg) noexcept {
+  return reg == Register::kReverseSpeedLimit || reg == Register::kGear1SpeedLimit ||
+         reg == Register::kGear2SpeedLimit || reg == Register::kGear3SpeedLimit;
+}
+
+/// A whole number in the range of a gear.
+[[nodiscard]] std::optional<vehicle::Gear> GearNumber(const std::optional<float> number) noexcept {
+  if (!number.has_value() || std::nearbyint(*number) != *number ||
+      !vehicle::IsGear(static_cast<int>(*number))) {
+    return std::nullopt;
+  }
+  return static_cast<vehicle::Gear>(*number);
 }
 
 }  // namespace
 
-const vehicle::DriveModeLimits& VdcNode::ModeLimits(const std::size_t index) const noexcept {
-  return parameters_.pedal_map.modes[vehicle::ModeIndex(ModeOf(static_cast<Register>(index)))];
+const vehicle::GearLimits& VdcNode::LimitsOf(const std::size_t index) const noexcept {
+  return parameters_.pedal_map.gears[vehicle::GearIndex(GearOf(static_cast<Register>(index)))];
 }
 
 void VdcNode::WritePedalMap(const std::size_t index, const float number) noexcept {
   vehicle::PedalMapParameters& map = parameters_.pedal_map;
-  vehicle::DriveModeLimits& limits = map.modes[vehicle::ModeIndex(ModeOf(static_cast<Register>(index)))];
-  switch (static_cast<Register>(index)) {
-    case Register::kBrakeTorque:
-      map.brake_torque = unit::Torque{number};
-      break;
-    case Register::kChildSpeedLimit:
-    case Register::kAdultSpeedLimit:
-      limits.speed_limit = unit::AngularVelocity{number};
-      break;
-    case Register::kChildDriveTorque:
-    case Register::kAdultDriveTorque:
-      limits.drive_torque = unit::Torque{number};
-      break;
-    case Register::kChildDriveRamp:
-    case Register::kAdultDriveRamp:
-      limits.drive_ramp = unit::Torque{number} / 1.0_s;
-      break;
-    default:
-      return;
+  const auto kReg = static_cast<Register>(index);
+  if (kReg == Register::kDriveTorque) {
+    map.drive_torque = unit::Torque{number};
+  } else if (kReg == Register::kBrakeTorque) {
+    map.brake_torque = unit::Torque{number};
+  } else {
+    vehicle::GearLimits& limits = map.gears[vehicle::GearIndex(GearOf(kReg))];
+    if (IsSpeedLimit(kReg)) {
+      limits.speed_limit = unit::Velocity{number};
+    } else {
+      limits.acceleration = unit::Acceleration{number};
+    }
   }
   pedal_map_.Configure(map);
 }
@@ -558,30 +598,39 @@ cyphal::RegisterFlags VdcNode::Read(const std::size_t index, cyphal::RegisterVal
     case Register::kPedalTimeout:
       cyphal::SetReal32(value, parameters_.pedal_timeout.Value());
       return kWritable;
-    case Register::kDriveMode:
-      cyphal::SetNatural8(value, static_cast<uint8_t>(vehicle::ModeIndex(pedal_map_.RequestedMode())));
+    case Register::kGear:
+      cyphal::SetInteger8(value, pedal_map_.RequestedGear());
       return kWritable;
-    case Register::kActiveDriveMode:
-      cyphal::SetNatural8(value, static_cast<uint8_t>(vehicle::ModeIndex(pedal_map_.ActiveMode())));
+    case Register::kActiveGear:
+      cyphal::SetInteger8(value, pedal_map_.ActiveGear());
       return kReadOnly;
+    case Register::kGearRelease:
+      cyphal::SetNatural8(value, static_cast<uint8_t>(pedal_map_.Release()));
+      return kWritable;
+    case Register::kDriveTorque:
+      cyphal::SetReal32(value, parameters_.pedal_map.drive_torque.Value());
+      return kWritable;
     case Register::kBrakeTorque:
       cyphal::SetReal32(value, parameters_.pedal_map.brake_torque.Value());
       return kWritable;
-    case Register::kChildSpeedLimit:
-    case Register::kAdultSpeedLimit:
-      cyphal::SetReal32(value, ModeLimits(index).speed_limit.Value());
+    case Register::kReverseSpeedLimit:
+    case Register::kGear1SpeedLimit:
+    case Register::kGear2SpeedLimit:
+    case Register::kGear3SpeedLimit:
+      cyphal::SetReal32(value, LimitsOf(index).speed_limit.Value());
       return kWritable;
-    case Register::kChildDriveTorque:
-    case Register::kAdultDriveTorque:
-      cyphal::SetReal32(value, ModeLimits(index).drive_torque.Value());
-      return kWritable;
-    case Register::kChildDriveRamp:
-    case Register::kAdultDriveRamp:
-      cyphal::SetReal32(value, (ModeLimits(index).drive_ramp * 1.0_s).Value());
+    case Register::kReverseAcceleration:
+    case Register::kGear1Acceleration:
+    case Register::kGear2Acceleration:
+    case Register::kGear3Acceleration:
+      cyphal::SetReal32(value, LimitsOf(index).acceleration.Value());
       return kWritable;
     case Register::kCartSpeed:
-      cyphal::SetReal32(value, drives_.CartSpeed(now_us_).Value());
+      cyphal::SetReal32(value, CartSpeed(now_us_).Value());
       return kReadOnly;
+    case Register::kRollingRadius:
+      cyphal::SetReal32(value, parameters_.rolling_radius.Value());
+      return kWritable;
     case Register::kCount:
       break;
   }
@@ -650,23 +699,43 @@ cyphal::RegisterWriteResult VdcNode::Write(const std::size_t index,
       }
       parameters_.pedal_timeout = unit::Time{*kNumber};
       return cyphal::RegisterWriteResult::kAccepted;
-    case Register::kDriveMode:
-      if (!kNumber.has_value() || (*kNumber != 0.0F && *kNumber != 1.0F)) {
+    case Register::kGear: {
+      // Only a released gear; neutral and reverse are always allowed.
+      const std::optional<vehicle::Gear> kGearNumber = GearNumber(kNumber);
+      if (!kGearNumber.has_value() || *kGearNumber > pedal_map_.Release()) {
         return cyphal::RegisterWriteResult::kOutOfRange;
       }
-      pedal_map_.RequestMode(vehicle::ModeAt(static_cast<std::size_t>(*kNumber)));
+      pedal_map_.RequestGear(*kGearNumber);
       return cyphal::RegisterWriteResult::kAccepted;
+    }
+    case Register::kGearRelease: {
+      const std::optional<vehicle::Gear> kGearNumber = GearNumber(kNumber);
+      if (!kGearNumber.has_value() || *kGearNumber < vehicle::kFirstGear) {
+        return cyphal::RegisterWriteResult::kOutOfRange;
+      }
+      pedal_map_.SetRelease(*kGearNumber);
+      return cyphal::RegisterWriteResult::kAccepted;
+    }
+    case Register::kDriveTorque:
     case Register::kBrakeTorque:
-    case Register::kChildSpeedLimit:
-    case Register::kChildDriveTorque:
-    case Register::kChildDriveRamp:
-    case Register::kAdultSpeedLimit:
-    case Register::kAdultDriveTorque:
-    case Register::kAdultDriveRamp:
+    case Register::kReverseSpeedLimit:
+    case Register::kReverseAcceleration:
+    case Register::kGear1SpeedLimit:
+    case Register::kGear1Acceleration:
+    case Register::kGear2SpeedLimit:
+    case Register::kGear2Acceleration:
+    case Register::kGear3SpeedLimit:
+    case Register::kGear3Acceleration:
       if (!kNumber.has_value()) {
         return cyphal::RegisterWriteResult::kOutOfRange;
       }
       WritePedalMap(index, *kNumber);
+      return cyphal::RegisterWriteResult::kAccepted;
+    case Register::kRollingRadius:
+      if (!kNumber.has_value()) {
+        return cyphal::RegisterWriteResult::kOutOfRange;
+      }
+      parameters_.rolling_radius = unit::LengthPerAngle{*kNumber};
       return cyphal::RegisterWriteResult::kAccepted;
     default:
       return cyphal::RegisterWriteResult::kReadOnly;

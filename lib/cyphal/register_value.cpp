@@ -67,6 +67,12 @@ void SetNatural8(RegisterValue& value, const uint8_t number) noexcept {
   value.natural8.value.count = 1U;
 }
 
+void SetInteger8(RegisterValue& value, const int8_t number) noexcept {
+  uavcan_register_Value_1_0_select_integer8_(&value);
+  value.integer8.value.elements[0] = number;
+  value.integer8.value.count = 1U;
+}
+
 void SetNatural16(RegisterValue& value, const uint16_t number) noexcept {
   uavcan_register_Value_1_0_select_natural16_(&value);
   value.natural16.value.elements[0] = number;
