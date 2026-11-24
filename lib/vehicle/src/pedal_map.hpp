@@ -174,9 +174,11 @@ class PedalMap {
   /// The gear in effect.
   [[nodiscard]] Gear ActiveGear() const noexcept { return active_gear_; }
 
-  /// Releases the forward gears up to @p gear (at least the first); a lower release lowers the gear at once.
+  /// Releases the forward gears up to @p gear (at least the first); a lower release lowers the requested and
+  /// the active gear at once.
   void SetRelease(const Gear gear) noexcept {
     release_ = std::clamp(gear, kFirstGear, kTopGear);
+    requested_gear_ = std::min(requested_gear_, release_);
     active_gear_ = std::min(active_gear_, release_);
   }
 

@@ -260,6 +260,9 @@ pick the part.
   board is a NUCLEO-H743ZI for now (`apps/vdc/boards/`).
 - `lib/sim` needs the vehicle model (four wheels, tyres, steering angle,
   shared battery); P4 item in `TODO.md`.
+- The own VDC board (Zuse): what the schematic needs (supply, CAN FD, gear
+  buttons and lamps, sensors, display, phone bridge, pin proposal) is in
+  `docs/vdc_hardware_plan.md`.
 - `AGENTS.md`, `README.md` and `docs/zephyr_workflow.md` describe both
   applications (2026-11-08).
 - More twister scenarios and CI time: `unimoc.app.vdc.*`, `unimoc.vdc.*`,
@@ -296,7 +299,8 @@ controller"; not run on the board):
   only with the volatile release from the display or a phone, regenerative
   braking above the speed limit, gentle braking on a lost pedal state
   (section 7). README, "Vehicle dynamics controller".
-- Open: a gear switch on the bus (the gear is a register for now), the
+- Gear buttons R, N, 1, 2, 3 with lamps on the VDC (2026-11-23).
+- Open: the radio bridge for the phone (gear release), the
   fault display of a lost drive, the battery status, the
   control loop in a thread of its own (the skeleton publishes from the Cyphal
   thread, woken at least every millisecond), the vehicle model and the

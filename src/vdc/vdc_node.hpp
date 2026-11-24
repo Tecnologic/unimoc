@@ -24,6 +24,7 @@
 #include "cyphal/node.hpp"
 #include "cyphal/register_value.hpp"
 #include "drive_monitor.hpp"
+#include "gear_buttons.hpp"
 #include "pedal_map.hpp"
 #include "units.hpp"
 #include "wheel.hpp"
@@ -132,6 +133,22 @@ class VdcNode final : public cyphal::MessageListener, public cyphal::RegisterPro
    */
   void Spin(uint64_t now_us) noexcept;
 
+  /**
+   * @brief Feeds the gear buttons R, N, 1, 2, 3 of one cycle (call before Spin()).
+   *
+   * A press requests its gear like a write of `unimoc.vdc.gear`; a forward
+   * gear above the release is refused and its lamp blinks fast for a second.
+   * @param raw Raw button states, true while pressed.
+   * @param now_us Monotonic time [us].
+   */
+  void OnGearButtons(const vehicle::GearButtonStates& raw, uint64_t now_us) noexcept;
+
+  /**
+   * @brief The lamps of the gear buttons: lit or not, blinking included.
+   * @param now_us Monotonic time [us].
+   */
+  [[nodiscard]] vehicle::PerGearButton<bool> GearLamps(uint64_t now_us) const noexcept;
+
   /// The parameters in effect.
   [[nodiscard]] const VdcParameters& Parameters() const noexcept { return parameters_; }
 
@@ -188,6 +205,9 @@ class VdcNode final : public cyphal::MessageListener, public cyphal::RegisterPro
   vehicle::DriveMonitor drives_;
   vehicle::PerWheel<unit::Torque> wheel_torques_{};
   vehicle::PedalMap pedal_map_;
+  vehicle::GearButtons gear_buttons_;
+  vehicle::Gear refused_gear_{vehicle::kNoGear};
+  uint64_t refused_until_us_{0U};
   vehicle::Pedals pedals_;
   bool has_pedals_{false};
   uint64_t pedals_us_{0U};

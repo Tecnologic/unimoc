@@ -423,6 +423,14 @@ for now. It has no hot path; its Cyphal node runs in a Zephyr thread
   - without a pedal state for `unimoc.vdc.pedal_timeout` (0.1 s) the VDC
     brakes gently (0.2 of the brake torque) and reports ADVISORY.
 
+  **Gear buttons:** one illuminated button per gear (R, N, 1, 2, 3) on
+  GPIOs of the VDC (devicetree `zephyr,user`: `gear-button-gpios`,
+  `gear-lamp-gpios`). A press requests its gear like the register; two
+  buttons at once select nothing, a button held longer than 2 s counts as
+  stuck (ignored, ADVISORY). Lamps: lit = active gear, slow blinking =
+  waiting (reverse while rolling), fast blinking for a second = not
+  released. Hardware notes in `docs/vdc_hardware_plan.md`.
+
   The speed of the cart `unimoc.vdc.cart_speed` [m/s] is the mean wheel
   speed of the fresh drives (cart frame) times the rolling radius
   `unimoc.vdc.rolling_radius` [m/rad, 0.165 for the 4.00-6 tyre].

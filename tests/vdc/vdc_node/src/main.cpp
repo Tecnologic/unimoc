@@ -113,6 +113,36 @@ struct Rig {
     }
   }
 
+  /// Presses the gear button of @p gear for 50 ms and releases it for 50 ms, both nodes running and the
+  /// drives reporting at 2 rad/s.
+  void PressGear(const vehicle::Gear gear) {
+    vehicle::GearButtonStates states{};
+    states[vehicle::GearButton(gear)] = true;
+    for (unsigned i = 0U; i < 100U; ++i) {
+      if (i % 10U == 0U) {
+        for (const Wheel kWheel : kWheels) {
+          PublishStatus(kWheel);
+        }
+      }
+      now += kStepUs;
+      vdc.OnGearButtons((i < 50U) ? states : vehicle::GearButtonStates{}, now);
+      vdc.Spin(now);
+      drives.Spin(now);
+    }
+  }
+
+  /// Whether the lamp of @p gear is lit at some and dark at other samples over the next second.
+  [[nodiscard]] bool LampBlinks(const vehicle::Gear gear) const {
+    bool lit = false;
+    bool dark = false;
+    for (uint64_t time_us = now; time_us < now + 1000000U; time_us += 50000U) {
+      const bool kLit = vdc.GearLamps(time_us)[vehicle::GearButton(gear)];
+      lit = lit || kLit;
+      dark = dark || !kLit;
+    }
+    return lit && dark;
+  }
+
   /// Publishes a drive status of @p wheel from the test node.
   void PublishStatus(const Wheel wheel,
                      const bool engaged = true,
@@ -476,6 +506,34 @@ ZTEST(vdc_node, test_rolling_radius_scales_the_cart_speed_into_the_speed_limit) 
   rig.DriveWithPedals(1.0F, 0.0F, 5U);
   UNIMOC_EXPECT_NEAR(cyphal::GetNumber(rig.Read(cyphal::reg::kVdcCartSpeed)).value_or(0.0F), 2.0F, 1e-5F);
   UNIMOC_EXPECT_NEAR(rig.vdc.PedalControl().Request(), -30.0_Nm, kTolerance);
+}
+
+ZTEST(vdc_node, test_gear_buttons_request_gears_and_light_their_lamps) {
+  Rig& rig = MakeRig();
+  rig.Start();
+  (void)rig.WriteBit(cyphal::reg::kVdcEngage, true);
+  (void)rig.WriteBit(cyphal::reg::kVdcPedalControl, true);
+  zexpect_true(rig.vdc.GearLamps(rig.now)[vehicle::GearButton(vehicle::kNeutral)]);
+
+  // Second gear without the release: refused, its lamp blinks, the gear stays.
+  rig.PressGear(2);
+  zexpect_equal(cyphal::GetInteger(rig.Read(cyphal::reg::kVdcGear)).value_or(-9), 0);
+  zexpect_true(rig.LampBlinks(2));
+
+  // First gear: requested and, driving, in effect with its lamp lit.
+  rig.PressGear(1);
+  zexpect_equal(cyphal::GetInteger(rig.Read(cyphal::reg::kVdcGear)).value_or(-9), 1);
+  rig.DriveWithPedals(0.5F, 0.0F, 5U);
+  zexpect_equal(cyphal::GetInteger(rig.Read(cyphal::reg::kVdcActiveGear)).value_or(-9), 1);
+  zexpect_true(rig.vdc.GearLamps(rig.now)[vehicle::GearButton(1)]);
+  zexpect_false(rig.vdc.GearLamps(rig.now)[vehicle::GearButton(vehicle::kNeutral)]);
+
+  // Reverse while rolling forward: neutral lit, reverse blinks until the cart stands.
+  rig.PressGear(vehicle::kReverse);
+  rig.DriveWithPedals(0.0F, 0.0F, 2U);
+  zexpect_equal(cyphal::GetInteger(rig.Read(cyphal::reg::kVdcActiveGear)).value_or(-9), 0);
+  zexpect_true(rig.vdc.GearLamps(rig.now)[vehicle::GearButton(vehicle::kNeutral)]);
+  zexpect_true(rig.LampBlinks(vehicle::kReverse));
 }
 
 ZTEST_SUITE(vdc_node, nullptr, nullptr, nullptr, nullptr, nullptr);
