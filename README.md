@@ -394,6 +394,38 @@ for now. It has no hot path; its Cyphal node runs in a Zephyr thread
   wheels of an axle the same torque within the smaller torque window of the
   two, so a lost drive takes its axle out and the other axle takes the
   request (no yaw moment). Zero for every wheel while not engaged.
+- **Pedal control.** With `unimoc.vdc.pedal_control` 1 the request comes
+  from the `unimoc.cart.PedalState` of the pedal unit (subject 111) and the
+  gear instead of `unimoc.vdc.torque_request`
+  (`lib/vehicle/src/pedal_map.hpp`):
+  - brake first: the brake pedal brakes against the motion with up to
+    `unimoc.vdc.brake_torque` (30 N m), fading out below 0.15 m/s, so it
+    never drives the other way;
+  - gears: `unimoc.vdc.gear` (-1 reverse, 0 neutral, 1 to 3; neutral after
+    every start), `unimoc.vdc.active_gear` shows the one in effect. A
+    change of direction waits in neutral until the cart stands. Forward
+    gears above the first need the release `unimoc.vdc.gear_release`
+    (1 to 3, volatile: 1 after every start, set from the display or a
+    phone); a gear above it is refused, and lowering it lowers the gear at
+    once;
+  - the drive pedal asks for up to `unimoc.vdc.drive_torque` (30 N m) in
+    every gear, so the cart climbs a slope in the first gear too. The gears
+    differ in `.speed_limit` [m/s] and the speed ramp `.acceleration`
+    [m/s^2, 0: none] under `unimoc.vdc.reverse.*` and
+    `unimoc.vdc.gear1.*` to `gear3.*` (factory 4 km/h 0.5 m/s^2, 6 km/h
+    0.5 m/s^2, 12 km/h 1 m/s^2, 20 km/h without a ramp). With a ramp the
+    limit starts at the speed of the cart when the pedal is pressed and
+    rises at most 0.3 m/s ahead of it: gentle on the flat, the full torque
+    uphill where the cart lags;
+  - speed limit: the drive torque fades out over the top 10 % below the
+    limit and turns into regenerative braking above it; rolling against the
+    gear or in neutral is held to the limit of that direction by braking;
+  - without a pedal state for `unimoc.vdc.pedal_timeout` (0.1 s) the VDC
+    brakes gently (0.2 of the brake torque) and reports ADVISORY.
+
+  The speed of the cart `unimoc.vdc.cart_speed` [m/s] is the mean wheel
+  speed of the fresh drives (cart frame) times the rolling radius
+  `unimoc.vdc.rolling_radius` [m/rad, 0.165 for the 4.00-6 tyre].
 - **State.** `unimoc.vdc.drive_available`, `.wheel_speed`,
   `.estimated_torque` and `.wheel_torque` (per wheel, read-only); the
   heartbeat health is ADVISORY while a configured drive is not available.
@@ -401,7 +433,7 @@ for now. It has no hot path; its Cyphal node runs in a Zephyr thread
 The registers live in RAM: every start begins with the defaults; the
 node-ID is `CONFIG_UNIMOC_VDC_NODE_ID` (1; `--node-id=<n>` in the
 simulation). The port-IDs are the ones of the drives (wheel command 110,
-drive status 214) and read-only.
+drive status 214, pedal state 111) and read-only.
 
 ### Board inputs and the accelerator
 

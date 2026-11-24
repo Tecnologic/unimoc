@@ -293,8 +293,15 @@ controller"; not run on the board):
   (`unimoc.vdc.status_timeout`, 0.1 s), engaged with the power stage on,
   without a trip and not in limp-home; reported in read-only registers and
   as ADVISORY health while a configured drive is missing.
-- Open: the pedal state as the torque request (pedal map), the speed
-  limit and the fault display of a lost drive, the battery status, the
+- **Pedal control (2026-11-23):** with `unimoc.vdc.pedal_control` the
+  pedal state and the gear give the torque request (`vehicle::PedalMap`):
+  brake first, reverse, neutral and three forward gears with the full drive
+  torque each and a speed limit and speed ramp per gear, the higher gears
+  only with the volatile release from the display or a phone, regenerative
+  braking above the speed limit, gentle braking on a lost pedal state
+  (section 7). README, "Vehicle dynamics controller".
+- Open: a gear switch on the bus (the gear is a register for now), the
+  fault display of a lost drive, the battery status, the
   control loop in a thread of its own (the skeleton publishes from the Cyphal
   thread, woken at least every millisecond), the vehicle model and the
   multi-node simulation (tier 1 item 11).

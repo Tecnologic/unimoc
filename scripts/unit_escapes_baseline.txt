@@ -31,7 +31,7 @@
 1 src/identification/motor_identification.cpp
 8 src/startup/hw_startup.cpp
 16 src/trace/trace_signals.cpp
-20 src/vdc/vdc_node.cpp
+35 src/vdc/vdc_node.cpp
 5 tests/common/unimoc_test.hpp
 4 tests/drive/cart_control/src/main.cpp
 2 tests/ebike/ebike_control/src/main.cpp
@@ -49,7 +49,8 @@
 3 tests/lib/motor_control/src/three_phase_system_test.cpp
 1 tests/lib/settings/src/settings_registers_test.cpp
 4 tests/lib/units/src/units_test.cpp
-2 tests/lib/vehicle/src/drive_monitor_test.cpp
+3 tests/lib/vehicle/src/drive_monitor_test.cpp
+4 tests/lib/vehicle/src/pedal_map_test.cpp
 2 tests/lib/vehicle/src/torque_split_test.cpp
 11 tests/sim/closed_loop/src/main.cpp
 26 tests/sim/cyphal_drive/src/main.cpp

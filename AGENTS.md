@@ -143,21 +143,6 @@ Read `README.md` for the supported motor types and public features, and
 
 ## Build And Test
 
-### Active refactor validation scope
-
-The system library is currently under active review and is not yet a
-production baseline. Until the user explicitly expands this scope, treat only
-the following as validated:
-
-- `lib/units/units.hpp`
-- `lib/motor_control/src/three_phase_system.hpp`
-- `tests/lib/motor_control/src/three_phase_system_test.cpp` (suites
-	`three_phase` and `unit_literal` of the `unimoc.lib.motor_control` scenario)
-
-Failures outside this scope are expected refactor work rather than a
-regression in the validated baseline. Revisit this section whenever the user
-declares another path or test production-valid.
-
 ### Zephyr only: twister, ztest, clang-tidy as SCA
 
 Everything is built and tested with Zephyr tooling. There is no hosted CMake

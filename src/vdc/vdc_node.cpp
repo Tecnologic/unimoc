@@ -16,6 +16,7 @@
 #include "vdc_node.hpp"
 #include <reg/udral/service/common/Readiness_0_1.h>
 #include <unimoc/cart/DriveStatus_0_2.h>
+#include <unimoc/cart/PedalState_0_1.h>
 #include <unimoc/cart/WheelCommand_0_1.h>
 #include <algorithm>
 #include <cmath>
@@ -59,6 +60,25 @@ enum class Register : uint8_t {
   kWheelSpeed,
   kEstimatedTorque,
   kWheelTorque,
+  kPedalStateId,
+  kPedalStateType,
+  kPedalControl,
+  kPedalTimeout,
+  kGear,
+  kActiveGear,
+  kGearRelease,
+  kDriveTorque,
+  kBrakeTorque,
+  kReverseSpeedLimit,
+  kReverseAcceleration,
+  kGear1SpeedLimit,
+  kGear1Acceleration,
+  kGear2SpeedLimit,
+  kGear2Acceleration,
+  kGear3SpeedLimit,
+  kGear3Acceleration,
+  kCartSpeed,
+  kRollingRadius,
   kCount,
 };
 
@@ -87,6 +107,25 @@ constexpr std::array<std::string_view, static_cast<std::size_t>(Register::kCount
     cyphal::reg::kVdcWheelSpeed,
     cyphal::reg::kVdcEstimatedTorque,
     cyphal::reg::kVdcWheelTorque,
+    cyphal::reg::kSubPedalStateId,
+    cyphal::reg::kSubPedalStateType,
+    cyphal::reg::kVdcPedalControl,
+    cyphal::reg::kVdcPedalTimeout,
+    cyphal::reg::kVdcGear,
+    cyphal::reg::kVdcActiveGear,
+    cyphal::reg::kVdcGearRelease,
+    cyphal::reg::kVdcDriveTorque,
+    cyphal::reg::kVdcBrakeTorque,
+    cyphal::reg::kVdcReverseSpeedLimit,
+    cyphal::reg::kVdcReverseAcceleration,
+    cyphal::reg::kVdcGear1SpeedLimit,
+    cyphal::reg::kVdcGear1Acceleration,
+    cyphal::reg::kVdcGear2SpeedLimit,
+    cyphal::reg::kVdcGear2Acceleration,
+    cyphal::reg::kVdcGear3SpeedLimit,
+    cyphal::reg::kVdcGear3Acceleration,
+    cyphal::reg::kVdcCartSpeed,
+    cyphal::reg::kVdcRollingRadius,
 };
 
 using cyphal::RegisterEffect;
@@ -116,9 +155,48 @@ constexpr std::array<cyphal::RegisterDescription, kNames.size()> kDescriptions{{
     {"rad/s", -kInf, kInf, RegisterEffect::kImmediate, "Wheel speed of each drive status"},
     {"N m", -kInf, kInf, RegisterEffect::kImmediate, "Torque estimate of each drive status"},
     {"N m", -kInf, kInf, RegisterEffect::kImmediate, "Torque of each wheel in the last wheel command"},
+    {{}, 0.0F, 8191.0F, RegisterEffect::kRestart, "Pedal state subject"},
+    {{}, -kInf, kInf, RegisterEffect::kImmediate, "Type of the pedal state"},
+    {{}, 0.0F, 1.0F, RegisterEffect::kImmediate, "1: torque from the pedals, 0: from the torque request"},
+    {"s", 0.001F, 10.0F, RegisterEffect::kImmediate, "Age after which the pedal state counts as lost"},
+    {{}, -1.0F, 3.0F, RegisterEffect::kImmediate, "Requested gear: -1 reverse, 0 neutral, 1 to 3"},
+    {{}, -1.0F, 3.0F, RegisterEffect::kImmediate, "Gear in effect"},
+    {{}, 1.0F, 3.0F, RegisterEffect::kImmediate, "Highest released forward gear, volatile"},
+    {"N m", 0.0F, kInf, RegisterEffect::kImmediate, "Total wheel torque of the full drive pedal"},
+    {"N m", 0.0F, kInf, RegisterEffect::kImmediate, "Total wheel torque of the fully pressed brake pedal"},
+    {"m/s", 0.0F, kInf, RegisterEffect::kImmediate, "Speed limit of the reverse gear"},
+    {"m/s^2", 0.0F, kInf, RegisterEffect::kImmediate, "Speed ramp of the reverse gear, 0: none"},
+    {"m/s", 0.0F, kInf, RegisterEffect::kImmediate, "Speed limit of the first gear"},
+    {"m/s^2", 0.0F, kInf, RegisterEffect::kImmediate, "Speed ramp of the first gear, 0: none"},
+    {"m/s", 0.0F, kInf, RegisterEffect::kImmediate, "Speed limit of the second gear"},
+    {"m/s^2", 0.0F, kInf, RegisterEffect::kImmediate, "Speed ramp of the second gear, 0: none"},
+    {"m/s", 0.0F, kInf, RegisterEffect::kImmediate, "Speed limit of the third gear"},
+    {"m/s^2", 0.0F, kInf, RegisterEffect::kImmediate, "Speed ramp of the third gear, 0: none"},
+    {"m/s",
+     -kInf,
+     kInf,
+     RegisterEffect::kImmediate,
+     "Speed of the cart: mean wheel speed times rolling radius"},
+    {"m/rad",
+     0.01F,
+     2.0F,
+     RegisterEffect::kImmediate,
+     "Rolling radius of the wheels, ground travel per radian"},
 }};
 
 constexpr std::string_view kReadinessType = "reg.udral.service.common.Readiness.0.1";
+
+/// A duration in microseconds as a time.
+[[nodiscard]] unit::Time Microseconds(const uint64_t duration_us) noexcept {
+  return 1.0e-6_s * static_cast<float>(duration_us);
+}
+
+/// A pedal of unimoc.cart.PedalState.
+[[nodiscard]] vehicle::PedalChannels PedalOf(const float first,
+                                             const float second,
+                                             const bool plausible) noexcept {
+  return vehicle::PedalChannels{{unit::Ratio{first}, unit::Ratio{second}}, plausible};
+}
 
 [[nodiscard]] const uint8_t* InputBytes(const std::span<const std::byte> payload) noexcept {
   return reinterpret_cast<const uint8_t*>(payload.data());
@@ -206,6 +284,9 @@ bool VdcNode::Start(const uint8_t node_id, const uint64_t now_us) noexcept {
   bool started = node_->AddRegisterProvider(*this);
   started =
       node_->Subscribe(cyphal::kPubDriveStatus, unimoc_cart_DriveStatus_0_2_EXTENT_BYTES_, *this) && started;
+  started =
+      node_->Subscribe(cyphal::kSubPedalState, unimoc_cart_PedalState_0_1_EXTENT_BYTES_, *this) && started;
+  pedal_map_.Configure(parameters_.pedal_map);
   started = node_->AddPublisher(wheel_command_) && started;
   for (const Wheel kWheel : kWheels) {
     started =
@@ -241,6 +322,8 @@ void VdcNode::ApplyTiming() noexcept {
 void VdcNode::OnMessage(const cyphal::Transfer& transfer, const uint64_t now_us) noexcept {
   if (transfer.port_id == cyphal::kPubDriveStatus) {
     OnDriveStatus(transfer, now_us);
+  } else if (transfer.port_id == cyphal::kSubPedalState) {
+    OnPedalState(transfer, now_us);
   }
 }
 
@@ -268,9 +351,45 @@ void VdcNode::OnDriveStatus(const cyphal::Transfer& transfer, const uint64_t now
   drives_.OnReport(kWheel, report, now_us);
 }
 
-void VdcNode::PublishWheelCommand(const uint64_t now_us) noexcept {
+void VdcNode::OnPedalState(const cyphal::Transfer& transfer, const uint64_t now_us) noexcept {
+  unimoc_cart_PedalState_0_1 state{};
+  std::size_t size = transfer.payload.size();
+  if (unimoc_cart_PedalState_0_1_deserialize_(&state, InputBytes(transfer.payload), &size) < 0) {
+    return;
+  }
+  pedals_.drive = PedalOf(state.drive_pedal[0], state.drive_pedal[1], state.drive_pedal_plausible);
+  pedals_.brake = PedalOf(state.brake_pedal[0], state.brake_pedal[1], state.brake_pedal_plausible);
+  has_pedals_ = true;
+  pedals_us_ = now_us;
+}
+
+unit::Velocity VdcNode::CartSpeed(const uint64_t now_us) const noexcept {
+  return drives_.MeanWheelSpeed(now_us) * parameters_.rolling_radius;
+}
+
+bool VdcNode::PedalsFresh(const uint64_t now_us) const noexcept {
+  return has_pedals_ && now_us >= pedals_us_ &&
+         Microseconds(now_us - pedals_us_) <= parameters_.pedal_timeout;
+}
+
+unit::Torque VdcNode::TorqueRequest(const uint64_t now_us) noexcept {
+  const unit::Time kDt = has_request_cycle_ ? Microseconds(now_us - request_cycle_us_) : unit::Time{};
+  has_request_cycle_ = true;
+  request_cycle_us_ = now_us;
   // Torque only to drives the VDC engages; a drive engaged by someone else gets zero.
-  const unit::Torque kRequest = parameters_.engage ? parameters_.torque_request : unit::Torque{};
+  if (!parameters_.engage) {
+    pedal_map_.Reset();
+    return unit::Torque{};
+  }
+  if (!parameters_.pedal_control) {
+    return parameters_.torque_request;
+  }
+  const unit::Velocity kSpeed = CartSpeed(now_us);
+  return PedalsFresh(now_us) ? pedal_map_.Update(pedals_, kSpeed, kDt) : pedal_map_.UpdateLost(kSpeed, kDt);
+}
+
+void VdcNode::PublishWheelCommand(const uint64_t now_us) noexcept {
+  const unit::Torque kRequest = TorqueRequest(now_us);
   wheel_torques_ = vehicle::SplitTorque(kRequest, parameters_.front_share, drives_.Windows(now_us));
   unimoc_cart_WheelCommand_0_1 command{};
   for (const Wheel kWheel : kWheels) {
@@ -316,7 +435,89 @@ void VdcNode::UpdateHealth(const uint64_t now_us) noexcept {
     nominal =
         nominal && (parameters_.engage ? drives_.Available(kWheel, now_us) : drives_.Fresh(kWheel, now_us));
   }
+  if (parameters_.engage && parameters_.pedal_control && !PedalsFresh(now_us)) {
+    nominal = false;
+  }
   node_->SetHealth(nominal ? cyphal::Health::kNominal : cyphal::Health::kAdvisory);
+}
+
+namespace {
+
+/// The gear of a reverse.* or gear<n>.* register.
+[[nodiscard]] vehicle::Gear GearOf(const Register reg) noexcept {
+  switch (reg) {
+    case Register::kGear1SpeedLimit:
+    case Register::kGear1Acceleration:
+      return 1;
+    case Register::kGear2SpeedLimit:
+    case Register::kGear2Acceleration:
+      return 2;
+    case Register::kGear3SpeedLimit:
+    case Register::kGear3Acceleration:
+      return 3;
+    default:
+      return vehicle::kReverse;
+  }
+}
+
+/// A speed limit register (not an acceleration).
+[[nodiscard]] bool IsSpeedLimit(const Register reg) noexcept {
+  return reg == Register::kReverseSpeedLimit || reg == Register::kGear1SpeedLimit ||
+         reg == Register::kGear2SpeedLimit || reg == Register::kGear3SpeedLimit;
+}
+
+/// A whole number in the range of a gear.
+[[nodiscard]] std::optional<vehicle::Gear> GearNumber(const std::optional<float> number) noexcept {
+  if (!number.has_value() || std::nearbyint(*number) != *number ||
+      !vehicle::IsGear(static_cast<int>(*number))) {
+    return std::nullopt;
+  }
+  return static_cast<vehicle::Gear>(*number);
+}
+
+}  // namespace
+
+const vehicle::GearLimits& VdcNode::LimitsOf(const std::size_t index) const noexcept {
+  return parameters_.pedal_map.gears[vehicle::GearIndex(GearOf(static_cast<Register>(index)))];
+}
+
+cyphal::RegisterWriteResult VdcNode::WriteGear(const std::size_t index,
+                                               const std::optional<float> number) noexcept {
+  const std::optional<vehicle::Gear> kGearNumber = GearNumber(number);
+  if (!kGearNumber.has_value()) {
+    return cyphal::RegisterWriteResult::kOutOfRange;
+  }
+  if (static_cast<Register>(index) == Register::kGearRelease) {
+    if (*kGearNumber < vehicle::kFirstGear) {
+      return cyphal::RegisterWriteResult::kOutOfRange;
+    }
+    pedal_map_.SetRelease(*kGearNumber);
+    return cyphal::RegisterWriteResult::kAccepted;
+  }
+  // Only a released gear; neutral and reverse are always allowed.
+  if (*kGearNumber > pedal_map_.Release()) {
+    return cyphal::RegisterWriteResult::kOutOfRange;
+  }
+  pedal_map_.RequestGear(*kGearNumber);
+  return cyphal::RegisterWriteResult::kAccepted;
+}
+
+void VdcNode::WritePedalMap(const std::size_t index, const float number) noexcept {
+  vehicle::PedalMapParameters& map = parameters_.pedal_map;
+  const auto kReg = static_cast<Register>(index);
+  if (kReg == Register::kDriveTorque) {
+    map.drive_torque = unit::Torque{number};
+  } else if (kReg == Register::kBrakeTorque) {
+    map.brake_torque = unit::Torque{number};
+  } else {
+    vehicle::GearLimits& limits = map.gears[vehicle::GearIndex(GearOf(kReg))];
+    if (IsSpeedLimit(kReg)) {
+      limits.speed_limit = unit::Velocity{number};
+    } else {
+      limits.acceleration = unit::Acceleration{number};
+    }
+  }
+  pedal_map_.Configure(map);
 }
 
 std::size_t VdcNode::Count() const noexcept { return kNames.size(); }
@@ -406,6 +607,51 @@ cyphal::RegisterFlags VdcNode::Read(const std::size_t index, cyphal::RegisterVal
                        return wheel_torques_[Index(wheel)].Value();
                      }));
       return kReadOnly;
+    case Register::kPedalStateId:
+      cyphal::SetNatural16(value, cyphal::kSubPedalState);
+      return kReadOnly;
+    case Register::kPedalStateType:
+      cyphal::SetString(value, "unimoc.cart.PedalState.0.1");
+      return kReadOnly;
+    case Register::kPedalControl:
+      cyphal::SetBit(value, parameters_.pedal_control);
+      return kWritable;
+    case Register::kPedalTimeout:
+      cyphal::SetReal32(value, parameters_.pedal_timeout.Value());
+      return kWritable;
+    case Register::kGear:
+      cyphal::SetInteger8(value, pedal_map_.RequestedGear());
+      return kWritable;
+    case Register::kActiveGear:
+      cyphal::SetInteger8(value, pedal_map_.ActiveGear());
+      return kReadOnly;
+    case Register::kGearRelease:
+      cyphal::SetNatural8(value, static_cast<uint8_t>(pedal_map_.Release()));
+      return kWritable;
+    case Register::kDriveTorque:
+      cyphal::SetReal32(value, parameters_.pedal_map.drive_torque.Value());
+      return kWritable;
+    case Register::kBrakeTorque:
+      cyphal::SetReal32(value, parameters_.pedal_map.brake_torque.Value());
+      return kWritable;
+    case Register::kReverseSpeedLimit:
+    case Register::kGear1SpeedLimit:
+    case Register::kGear2SpeedLimit:
+    case Register::kGear3SpeedLimit:
+      cyphal::SetReal32(value, LimitsOf(index).speed_limit.Value());
+      return kWritable;
+    case Register::kReverseAcceleration:
+    case Register::kGear1Acceleration:
+    case Register::kGear2Acceleration:
+    case Register::kGear3Acceleration:
+      cyphal::SetReal32(value, LimitsOf(index).acceleration.Value());
+      return kWritable;
+    case Register::kCartSpeed:
+      cyphal::SetReal32(value, CartSpeed(now_us_).Value());
+      return kReadOnly;
+    case Register::kRollingRadius:
+      cyphal::SetReal32(value, parameters_.rolling_radius.Value());
+      return kWritable;
     case Register::kCount:
       break;
   }
@@ -460,6 +706,43 @@ cyphal::RegisterWriteResult VdcNode::Write(const std::size_t index,
         parameters_.status_timeout = unit::Time{*kNumber};
       }
       ApplyTiming();
+      return cyphal::RegisterWriteResult::kAccepted;
+    case Register::kPedalControl:
+      if (!kNumber.has_value()) {
+        return cyphal::RegisterWriteResult::kOutOfRange;
+      }
+      parameters_.pedal_control = *kNumber != 0.0F;
+      pedal_map_.Reset();  // a change of the source starts the ramp from zero
+      return cyphal::RegisterWriteResult::kAccepted;
+    case Register::kPedalTimeout:
+      if (!kNumber.has_value()) {
+        return cyphal::RegisterWriteResult::kOutOfRange;
+      }
+      parameters_.pedal_timeout = unit::Time{*kNumber};
+      return cyphal::RegisterWriteResult::kAccepted;
+    case Register::kGear:
+    case Register::kGearRelease:
+      return WriteGear(index, kNumber);
+    case Register::kDriveTorque:
+    case Register::kBrakeTorque:
+    case Register::kReverseSpeedLimit:
+    case Register::kReverseAcceleration:
+    case Register::kGear1SpeedLimit:
+    case Register::kGear1Acceleration:
+    case Register::kGear2SpeedLimit:
+    case Register::kGear2Acceleration:
+    case Register::kGear3SpeedLimit:
+    case Register::kGear3Acceleration:
+      if (!kNumber.has_value()) {
+        return cyphal::RegisterWriteResult::kOutOfRange;
+      }
+      WritePedalMap(index, *kNumber);
+      return cyphal::RegisterWriteResult::kAccepted;
+    case Register::kRollingRadius:
+      if (!kNumber.has_value()) {
+        return cyphal::RegisterWriteResult::kOutOfRange;
+      }
+      parameters_.rolling_radius = unit::LengthPerAngle{*kNumber};
       return cyphal::RegisterWriteResult::kAccepted;
     default:
       return cyphal::RegisterWriteResult::kReadOnly;

@@ -120,6 +120,21 @@ ZTEST(drive_monitor, test_unknown_or_negative_limits_count_as_zero) {
   UNIMOC_EXPECT_FLOAT_EQ(kWindow.backward, 0.0_Nm);
 }
 
+ZTEST(drive_monitor, test_mean_wheel_speed_of_the_fresh_wheels) {
+  DriveMonitor monitor;
+  monitor.SetTimeout(100U);
+  UNIMOC_EXPECT_FLOAT_EQ(monitor.MeanWheelSpeed(0U), 0.0_rad_per_s);
+  monitor.OnReport(Wheel::kRearLeft, Engaged(4.0_rad_per_s), 0U);
+  monitor.OnReport(Wheel::kRearRight, Engaged(6.0_rad_per_s), 0U);
+  monitor.OnReport(Wheel::kFrontLeft, Engaged(20.0_rad_per_s), 0U);
+  DriveReport unknown = Engaged();
+  unknown.wheel_speed = AngularVelocity{std::numeric_limits<float>::quiet_NaN()};
+  monitor.OnReport(Wheel::kFrontRight, unknown, 50U);
+  UNIMOC_EXPECT_FLOAT_EQ(monitor.MeanWheelSpeed(50U), 10.0_rad_per_s);
+  // The first three reports are stale at 150 us; the remaining one is not finite.
+  UNIMOC_EXPECT_FLOAT_EQ(monitor.MeanWheelSpeed(150U), 0.0_rad_per_s);
+}
+
 ZTEST_SUITE(drive_monitor, nullptr, nullptr, nullptr, nullptr, nullptr);
 
 }  // namespace unimoc::vehicle::test

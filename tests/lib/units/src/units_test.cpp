@@ -144,6 +144,28 @@ ZTEST(units, test_torque_and_inertia_give_angular_acceleration) {
   UNIMOC_EXPECT_FLOAT_EQ((100.0_rad_per_s2 * 1.0e-3_kg_m2), 0.1_Nm);
 }
 
+ZTEST(units, test_wheel_speed_times_rolling_radius_is_ground_speed) {
+  UNIMOC_EXPECT_FLOAT_EQ((10.0_rad_per_s * 0.2_m_per_rad), 2.0_m_per_s);
+  UNIMOC_EXPECT_FLOAT_EQ((0.2_m_per_rad * 10.0_rad_per_s), 2.0_m_per_s);
+  UNIMOC_EXPECT_FLOAT_EQ((2.0_m_per_s / 0.2_m_per_rad), 10.0_rad_per_s);
+  UNIMOC_EXPECT_FLOAT_EQ((1.0_m / 1.0_rad), 1.0_m_per_rad);
+}
+
+ZTEST(units, test_length_velocity_and_acceleration) {
+  UNIMOC_EXPECT_FLOAT_EQ((3.0_m / 2.0_s), 1.5_m_per_s);
+  UNIMOC_EXPECT_FLOAT_EQ((1.5_m_per_s * 2.0_s), 3.0_m);
+  UNIMOC_EXPECT_FLOAT_EQ((4.0_m_per_s / 2.0_s), 2.0_m_per_s2);
+  UNIMOC_EXPECT_FLOAT_EQ((2.0_m_per_s2 * 2.0_s), 4.0_m_per_s);
+  UNIMOC_EXPECT_FLOAT_EQ((1.0_m_per_s / 2.0_m_per_s), 0.5_ratio);
+}
+
+ZTEST(units, test_millimetres_and_kilometres_per_hour_convert_to_si) {
+  const Length kLength = 165.0_mm;
+  UNIMOC_EXPECT_NEAR(kLength, 0.165_m, 1.0e-6_m);
+  const Velocity kSpeed = 36.0_km_per_h;
+  UNIMOC_EXPECT_NEAR(kSpeed, 10.0_m_per_s, 1.0e-5_m_per_s);
+}
+
 ZTEST(units, test_viscous_damping_times_speed_is_torque) {
   UNIMOC_EXPECT_FLOAT_EQ((1.0e-3_Nm_s_per_rad * 50.0_rad_per_s), 0.05_Nm);
   UNIMOC_EXPECT_FLOAT_EQ((50.0_rad_per_s * 2_Nm_s_per_rad), 100.0_Nm);

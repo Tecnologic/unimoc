@@ -170,7 +170,7 @@ Add focused tests for:
 - Current, speed, or torque step response through the actual runtime.
 - Reset and deterministic replay.
 
-Keep SIL tests separate from the currently validated `three_phase_system_test` baseline until the project explicitly expands its validation scope.
+Keep SIL tests in their own scenarios, separate from the unit tests of the libraries.
 
 ### Phase 3: Multi-motor coordinator
 
