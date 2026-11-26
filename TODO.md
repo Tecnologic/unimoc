@@ -11,9 +11,11 @@ in [docs/zephyr_port_plan.md](docs/zephyr_port_plan.md) and
 [docs/settings_plan.md](docs/settings_plan.md), the traces in
 [docs/cymon_integration_plan.md](docs/cymon_integration_plan.md).
 
-There is no board access at the moment. Each section lists first what can be
-verified with twister on `native_sim` and the Jacobi build, then what waits for
-hardware. Finished items are collected under "Done" at the end.
+Hardware on the bench: a NUCLEO-H743ZI (since 2026-11-03: M0 timing,
+Cyphal, the firmware update; the 4850 power board through an adapter in
+preparation). Jacobi is laid out (rev 0.3) but not built. Each section lists
+first what can be verified with twister on `native_sim` and the Jacobi
+build, then what waits for hardware. Finished items are collected under "Done" at the end.
 
 ## Priorities (2026-10-31)
 
@@ -78,8 +80,9 @@ go first.
    pycyphal file server. Open then: flash bank 2 on the STM32H7, the bank swap and the bootloader (done 2026-11-09, see the
    Hardware section).
 10. Done (2026-11-08): **Structure for the cart**: `app/` split into
-    `apps/drive/` and `apps/vdc/` with `lib/vehicle/` (the VDC, pedal unit
-    and BMS boards are STM32H7 based and share `hardware/zephyr_stm32h7`;
+    `apps/drive/` and `apps/vdc/` with `lib/vehicle/` (the VDC and BMS
+    boards are STM32H7 based and share `hardware/zephyr_stm32h7`; the pedal
+    unit moved to an STM32G473CBT6 on 2026-11-26, decision 14;
     scenarios `unimoc.app.drive.*` and `unimoc.app.vdc.*`, one release
     version in `apps/*/VERSION`). The skeleton VDC on `native_sim` and the
     NUCLEO-H743ZI (build only): node and heartbeat (`org.unimoc.vdc`,
@@ -127,7 +130,7 @@ go first.
  - The data bit rate of the bus (Jacobi's TCAN334 handles CAN FD rates; all
    boards run 1/1 Mbit/s today).
  - License of `dsdl/unimoc/` (`docs/gui_plan.md` section 2).
- - VDC part (STM32H7; `docs/system_plan.md` section 12); the EESM excitation module (section 5.2.1).
+ - Zuse (`docs/zuse_plan.md`, section 9): the part (proposed STM32H743VIT6), the 12 V module, the high-side switches of the lights. The EESM excitation module (`docs/system_plan.md` section 5.2.1).
  - Limp-home reverse (direction selector) and the VDC reaction to a lost
    drive.
  - Empty and no battery (`docs/system_plan.md` section 7.2, open question
@@ -135,7 +138,8 @@ go first.
    clamp, the generator status message.
  - Hardware outside Jacobi for the no-battery case (section 7.2.6): the
    clamp or chopper without the BMS (on the excitation and chopper module?),
-   the supply of the VDC, pedal unit and display from about 10 V, the
+   the supply of the VDC, pedal unit and display from about 10 V (the 12 V
+   aux net of `docs/zuse_plan.md`, section 3), the
    generator gearbox (at most 45 V at the highest cadence), `PWM_EN` wiring
    from the DC link side.
 
@@ -148,8 +152,7 @@ go first.
 ### Tier 4: blocked on the board
 
 M0 timing with the flux observer and Hall fusion running (then the DTCM
-decision), M8 first step and remainder, ZMS and the dual-bank option, Cyphal
-on the NUCLEO-H743ZI and Jacobi and the CAN
+decision), M8 first step and remainder, Cyphal on Jacobi and the CAN
 FD bus test C2 (then the bit rate and the Jacobi bit timing), identification
 I7, regenerative braking on a dyno. For the no-battery operation (section
 7.2.6, no Jacobi change expected): the logic start-up of Jacobi on a slowly
@@ -222,6 +225,19 @@ derating on the real pack, then the cart started from the pedals alone.
     all boards are STM32H7 based; the firmware builds only the H7 boards and
     `native_sim`.
 
+### 2026-11-26
+
+14. The cart periphery (`docs/zuse_plan.md`, section 0): the VDC board is
+    **Zuse**; the display is a WT32-SC01 Plus on RS-485 with a lean own
+    Cyphal/serial transport and a Zephyr firmware; the pedal unit (Drais) is
+    an STM32G473CBT6 node with a single-slot Cyphal bootloader (an exception
+    to "all boards STM32H7" for nodes without a hot path); a 12 V aux supply
+    without MCU; the steering angle sensor (AS5048A, PWM) on a passive board
+    at the column; Zuse senses the E-stop loop but has no contact in it; Zuse
+    switches the lights; IMU ICM-42688-P; JST PH and Micro-Fit 3.0; a 24 V
+    pack now, 48 V later (a Jacobi variant with 80 to 100 V FETs). The
+    applications keep their names (`apps/drive/`, `apps/vdc/`).
+
 ## Next: Cyphal/CAN-FD (focus)
 
 In this order; all without hardware unless marked.
@@ -272,7 +288,12 @@ Plan: [docs/motor_identification_plan.md](docs/motor_identification_plan.md) (al
  - [x] H7 hot path in ITCM and the control cycle on every sample (2026-11-03, `hardware/zephyr_stm32h7/hot_path_itcm.ld`, `docs/hotpath_plan.md` section 4); the Jacobi board exists (`boards/unimoc/jacobi/`).
  - [ ] Regenerative braking, open parts (the drive side, the BMS limits and the reporting to the VDC are done): the estimated speed in the limit on a dyno (the observer's torque model expects the shaft to slow; settles within some 300 ms in the sim), the Jacobi voltage ratings from the schematic. Done 2026-10-31: the per-sample overvoltage check in the sample interrupt (raw DC-link counts, `SetOvervoltageCounts()`; not run on the board).
  - [x] (2026-11-08, tier 1 item 10) Split `app/` into `apps/drive/` and `apps/vdc/` (later `apps/pedal/` and `apps/bms/`) and add `lib/vehicle/`; `AGENTS.md`, `README.md` and `docs/zephyr_workflow.md` updated. The VDC firmware lives in this repository (decided); the VDC MCU is an STM32H7. The skeleton VDC: system plan section 5.3.
- - [ ] VDC beyond the skeleton (system plan sections 5.3 and 7): the pedal state as the torque request (pedal map), the speed limit and the fault display of a lost drive, the battery status, stored registers (settings storage, ExecuteCommand, plug-and-play), the firmware update, a release artifact (`build-firmware.yml`), the control loop in its own thread, yaw-rate control and state estimation in `lib/vehicle/`, a VDC board (Zuse).
+ - [ ] Zuse bring-up on the NUCLEO-H743ZI with breakouts (`docs/zuse_plan.md` section 7): IMU (MPU-9250, then ICM-42688-P), AS5048A PWM on a timer capture, GNSS, RS-485 to the SC01 Plus.
+ - [ ] Lean Cyphal/serial transport in `lib/cyphal` (`docs/zuse_plan.md` section 4.2): single-frame transfers, COBS, header CRC and CRC-32C, Zuse as the master of the half-duplex link; ztests of the codec, a `native_sim` test over a pseudo terminal.
+ - [ ] Display application (Gutenberg) on Zephyr for the WT32-SC01 Plus (`docs/zuse_plan.md` section 4.3): board definition, ST7796 on 8080, FT6336 touch, PSRAM, LVGL, ESP32-S3 toolchain in CI.
+ - [ ] Pedal unit (Drais) on the STM32G473CBT6 (`docs/zuse_plan.md` section 6): size of a minimal application on a G4 board, the single-slot Cyphal bootloader (Kocherga or own), the pedal state with two channels per pedal.
+ - [ ] Zuse schematic and layout (`docs/zuse_plan.md` sections 2 and 3), then `boards/unimoc/zuse/`.
+ - [ ] VDC beyond the skeleton (system plan sections 5.3 and 7): the pedal state as the torque request (pedal map), the speed limit and the fault display of a lost drive, the battery status, stored registers (settings storage, ExecuteCommand, plug-and-play), the firmware update, a release artifact (`build-firmware.yml`), the control loop in its own thread, the lights, the E-stop sense, the display link, yaw-rate control and state estimation in `lib/vehicle/`, the board Zuse (`docs/zuse_plan.md`).
  - [x] (2026-11-17, `docs/motor_thermal_plan.md` T1 to T6) Motor temperature estimate and loss-aware battery limit: two-mass thermal model (`control::MotorThermalModel`) driven by the copper losses with R_s(T), stator resistance estimate at low speed (`control::StatorResistanceEstimator`) as a slow correction with plausibility gates, motor sensor correction (Jacobi NTC with open/short detection), R_s(T) in the observers, current derating, `unimoc.motor.thermal.*`, `unimoc.motor.stator.R_temperature`, read-only `unimoc.motor.temperature.*`, traces 12..15, `unimoc.cart.DriveStatus.0.2` (`thermally_derated`), the estimate as the motor temperature without a sensor; `DcLinkLimit` with the copper losses in the drive limit (bounded at standstill; checked against the DC-link model); heated plant (`unimoc.sim.motor_heating`, `motor_temperature`, `motor_sensor`); heat run tools `scripts/thermal_log.py`, `scripts/thermal_fit.py`. Dropped: a standstill R_s measurement when armed (nothing may stop a drive armed while turning).
  - [x] (2026-11-18, F4 of `docs/gui_plan.md`) For cypilot's thermal card: `unimoc.sim.dead_time`, `unimoc.sim.motor_thermal.*`, `unimoc.motor.temperature.rs_rejected`; the R_s check (one current on the slowly turning rotor, iterate the dead time) in the simulation and the pytest.
  - [ ] Bench with two coupled hoverboard motors (`docs/motor_thermal_plan.md` section 6): setpoint subjects split between the DUT and the load drive, the R_s check after M1, the heat run of both motors and the fit, the motor NTC of Jacobi on a real motor.

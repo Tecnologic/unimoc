@@ -2,8 +2,11 @@
 
 Status: 2026-11-01, proposal; 2026-11-03 named **Jacobi** (board
 `unimoc_jacobi`, `boards/unimoc/jacobi/`), without the fourth half bridge
-and with phase voltage taps. The board definition builds; nothing here is
-drawn or verified on hardware. The pin functions are taken from the STM32 HAL pin data that Zephyr
+and with phase voltage taps. The board definition builds. 2026-11-26: the
+schematic is drawn and the layout routed (rev 0.3, 2026-11-15, Tecnologic/unimoc_jacobi);
+the devicetree follows its netlist (section 4 note), the board is not built.
+The NUCLEO-H743ZI runs the platform (section 7). The pin tables below are the
+earlier proposal. The pin functions are taken from the STM32 HAL pin data that Zephyr
 4.4 uses (`modules/hal/stm32/dts/st/h7/stm32h743vitx-pinctrl.dtsi`) and from
 the Zephyr devicetree of the STM32H743; every entry marked "check" has to be
 confirmed in the data sheet (DS12110) and the reference manual (RM0433)
@@ -199,7 +202,7 @@ module. The notes below stay for that module if it uses an H743.
 - New platform `hardware/zephyr_stm32h7/` (`CONFIG_UNIMOC_PLATFORM_*`); the
   former G4 platform is removed (2026-11-03). Above `hardware/hot_path_interface.hpp` and
   `hardware/power_stage_interface.hpp` nothing changes.
-- Reused nearly as is: the TIM programming, `dead_time.hpp` (same BDTR
+- Reused nearly as is: the TIM programming, `hardware/stm32_dead_time.hpp` (same BDTR
   coding, other timer clock), the break logic (the DMAMUX duty DMA was
   dropped with the per-sample control, 2026-11-03).
 - New: the H7 ADC (clock and boost, linear and offset calibration, 16 bit
@@ -262,6 +265,8 @@ module; (5) the 4850 power board through an adapter.
 ## 8. Open points
 
 1. Logic board size in the RND 455-00370 enclosure with an LQFP100.
+   A 48 V variant (80 to 100 V FETs on the power board) is planned for later
+   (`docs/system_plan.md`, open question 11).
 2. Silicon revision of the bought parts (rev. V for 480 MHz).
 3. ~~Placement of the fourth half bridge~~: dropped (2026-11-03).
 4. ~~Whether the AC current paths stay~~: their pins take the phase voltage

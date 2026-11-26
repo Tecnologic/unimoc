@@ -61,7 +61,7 @@ simulation.
 | **Modulation** | Space Vector PWM (SVPWM), dead-time compensation; current PI every half PWM period, every period (valley sample, symmetric pulses) or every second or fourth period (control divider, the fastest the processor runs by default); PWM frequency selectable from the motor inductance; inline current sensors or low-side shunts (foc0 `current-sense`: valley sample in PWM mode 2, no step every half period, duty capped for the sample) |
 | **Network** | Cyphal (UAVCAN v1) over CAN FD — every setting a register, arming, setpoints, telemetry, traces (cymon) and the log on the bus, also for the simulation (see [Cyphal](#cyphal-uavcan-v1-interface)) |
 | **Persistence** | Live RAM settings for tuning; one flash entry per changed register (Zephyr settings on ZMS); saving only while the power stage is disabled |
-| **Platform** | HAL-free algorithms; tested on Linux x86-64 with GTest; Zephyr firmware for the Jacobi drive (STM32H743), the NUCLEO-H743ZI and `native_sim` |
+| **Platform** | HAL-free algorithms; tested with Zephyr's ztest and twister on `native_sim`; Zephyr firmware for the Jacobi drive (STM32H743), the NUCLEO-H743ZI and `native_sim` |
 | **Runtime** | Zephyr threads for logging, Cyphal, and settings; zero-latency IRQs only for the FOC hot path |
 
 ---
@@ -108,49 +108,40 @@ excitation module on the bus (docs/system_plan.md, section 5.2.1), which runs th
 
 ```
 lib/
-├── motor_control/
-│   ├── src/
-│   │   ├── asm_flux_controller.hpp  # ASM rotor-flux PI controller
-│   │   ├── dead_time_compensation.hpp  # Inverter dead-time compensation
-│   │   ├── excitation_controller.hpp  # EESM rotor excitation PI (current / flux mode)
-│   │   ├── field_weakening.hpp      # Voltage-headroom field-weakening integrator
-│   │   ├── mtpa.hpp                 # Maximum-Torque-Per-Ampere (IPMSM)
-│   │   ├── position_controller.hpp  # Cascaded P+PI position/speed controller + homing FSM
-│   │   ├── svm.hpp                   # Space Vector PWM modulator
-│   │   ├── asm_flux_observer.hpp    # ASM full-order Luenberger rotor-flux observer
-│   │   ├── excitation_observer.hpp  # EESM excitation current LPF -> flux estimate
-│   │   ├── mechanical_observer.hpp  # Back-EMF observer + PLL (PMSM / shared with ASM)
-│   │   ├── position_tracker.hpp     # Absolute multi-turn position + homing
-│   │   └── *_system.hpp              # Rotor, stator, and three-phase coordinate systems
-├── cyphal/
+├── motor_control/src/            # Portable control, observers and coordinate systems
+│   ├── current_controller.hpp    # d/q current PI
+│   ├── speed_controller.hpp      # Speed PI of the outer loop
+│   ├── position_controller.hpp   # Cascaded P+PI position/speed controller + homing FSM
+│   ├── position_tracker.hpp      # Absolute multi-turn position + homing
+│   ├── mtpa.hpp                  # Maximum-Torque-Per-Ampere (IPMSM)
+│   ├── field_weakening.hpp       # Voltage-headroom field-weakening integrator
+│   ├── dc_link_limit.hpp         # Battery current and regenerative DC-link limits
+│   ├── svm.hpp                   # Space Vector PWM modulator
+│   ├── dead_time_compensation.hpp  # Inverter dead-time compensation
+│   ├── mechanical_observer.hpp   # Back-EMF observer + PLL (PMSM / shared with ASM)
+│   ├── pmsm_flux_observer.hpp    # PMSM flux observer
+│   ├── hall_decoder.hpp, hall_capture.hpp, hall_fusion.hpp  # Hall sensors fused with the observer
+│   ├── asm_flux_observer.hpp, asm_flux_controller.hpp       # ASM rotor flux
+│   ├── excitation_observer.hpp, excitation_controller.hpp   # EESM excitation
+│   ├── motor_thermal_model.hpp, stator_resistance_estimator.hpp  # Winding temperature
+│   ├── resistance_regression.hpp, impedance_estimator.hpp, coast_down_meter.hpp  # Motor identification
+│   └── rotor_angle.hpp, rotor_system.hpp, stator_system.hpp, three_phase_system.hpp  # Coordinate systems
+├── cyphal/                       # Portable Cyphal stack (libcanard + O1Heap, Nunavut DSDL)
 │   ├── can_media.hpp             # CAN interface boundary (frames in and out)
 │   ├── canard_transport.hpp      # Cyphal/CAN transport on libcanard + O1Heap
-│   ├── control_mode.hpp          # Cyphal setpoint-to-control-mode mapping
+│   ├── transport.hpp             # Transfer-level transport contract (CAN, later serial, tests)
+│   ├── node.hpp                  # Node services: heartbeat, GetInfo, registers, commands, PnP, log, clients
 │   ├── cyphal_interface.hpp      # Register names + subject port IDs + command codes
-│   ├── node.hpp                  # Node services: heartbeat, GetInfo, registers, commands, PnP, log
-│   ├── node_identity.hpp         # Node name + hw/sw version
+│   ├── file_service.hpp          # uavcan.file.Read server and the download client
+│   ├── firmware_update.hpp, firmware_image.hpp  # Firmware update and the UNIMOC image header
 │   ├── register_description.hpp  # Unit, limits, effect and help of a register (registers.json)
-│   ├── register_value.hpp        # uavcan.register.Value helpers, register provider boundary
-│   └── transport.hpp             # Transfer-level transport contract (CAN, later UDP, tests)
-├── settings/
-│   ├── nvm_settings.hpp          # Typed aggregate of NVM-backed parameters
-│   ├── settings_registers.hpp    # Register table with descriptions + byte encoding of one value
-│   ├── settings_profile.hpp      # Immutable target capabilities and defaults
-│   ├── settings_storage.hpp      # Platform key/value storage contract
-│   ├── settings_store.hpp        # Live settings, snapshot, save gate, authorized mutation API
-│   └── unit_symbol.hpp           # SI symbol of a unit type (registers.json)
-├── system/
-│   ├── rotor_angle.hpp           # Q1.31 electrical angle + revolution counter, sin/cos LUT
-│   ├── rotor_system.hpp          # d/q rotating reference frame
-│   ├── stator_system.hpp         # α/β stationary reference frame
-│   └── three_phase_system.hpp    # Three-phase (a/b/c) vector
-├── units/
-│   └── units.hpp                 # SI units with dimension exponents
-└── vehicle/                      # VDC: vehicle dynamics of the cart (apps/vdc)
-    └── src/
-        ├── wheel.hpp             # Wheels, axles and sides of the cart
-        ├── drive_monitor.hpp     # Drive status of the four wheels: fresh, available, torque window
-        └── torque_split.hpp      # Torque request onto the wheels, without a yaw moment
+│   └── register_value.hpp, control_mode.hpp, node_identity.hpp, sw_version.hpp
+├── settings/                     # Settings store, profile, registers, control timing
+├── units/units.hpp               # SI units with dimension exponents
+├── ebike/src/                    # E-bike: pedal observer, assist law, Kunteng display codec
+├── sim/src/                      # Motor plant for native_sim: inverter, PMSM/ASM/EESM, shaft, Hall, DC link
+├── vehicle/src/                  # VDC: wheels, the drive monitor, the torque split (apps/vdc)
+└── cymon/                        # Submodule: traces over Cyphal
 ```
 
 ---
@@ -158,8 +149,10 @@ lib/
 ## Firmware Architecture
 
 The firmware of the bus nodes is one Zephyr application each in `apps/`:
-`apps/drive/` (the motor drive, described here) and `apps/vdc/` (the vehicle
-dynamics controller, below). At 32 kHz PWM the execution contexts of the drive
+`apps/drive/` (the motor drive on Jacobi, described here) and `apps/vdc/`
+(the vehicle dynamics controller for the board Zuse, below); each has a
+`README.md`. The pedal unit (Drais), the display (Gutenberg) and the BMS
+(Volta) are planned (`docs/zuse_plan.md`, section 8). At 32 kHz PWM the execution contexts of the drive
 are (details in [`docs/hotpath_plan.md`](docs/hotpath_plan.md)):
 
 | Context | Runs | Latency |
@@ -376,7 +369,8 @@ releasing the outputs; the settings can only be stored without one.
 
 `apps/vdc/` is the second application: the central node of the cart
 (`docs/system_plan.md`, section 5.3), on `native_sim` and the NUCLEO-H743ZI
-for now. It has no hot path; its Cyphal node runs in a Zephyr thread
+for now; its board Zuse and the periphery around it (display, pedal unit,
+steering angle sensor, 12 V supply) are planned in `docs/zuse_plan.md`. It has no hot path; its Cyphal node runs in a Zephyr thread
 (`hardware/zephyr_common/vdc_runtime.cpp`, application core
 `src/vdc/vdc_node.cpp`, portable logic in `lib/vehicle/`). The skeleton:
 
@@ -1300,12 +1294,14 @@ west build -b nucleo_h743zi unimoc/apps/vdc -d unimoc/apps/vdc/build/h743
 ```
 
 Jacobi (`boards/unimoc/jacobi/`) is the H7 redesign of the hardware_4850 logic
-board without the fourth half bridge; the board is not drawn yet, its pins
-follow the proposal of `docs/drive4850_h7_plan.md`. The image is 197 KB
-flash, 84 KB RAM.
+board without the fourth half bridge, with its own power board. The layout is
+routed (rev 0.3, Tecnologic/unimoc_jacobi) and the devicetree matches its
+netlist; the board is not built yet.
 
 The NUCLEO-H743ZI build (`hardware/zephyr_stm32h7`, pins in
-`apps/drive/boards/nucleo_h743zi.overlay`) has not run on the board yet either. It
+`apps/drive/boards/nucleo_h743zi.overlay`) runs on the bench: the M0 timing
+(2026-11-03), the Cyphal node, the settings and the firmware update
+(2026-11-09); the motor through the 4850 power board is next. It
 runs the core at 400 MHz, the limit of silicon rev. Y of the first Nucleo
 revision; PE15 (TIM1_BKIN) is the external enable and has to be tied to 3V3
 to release the outputs. The log is on the ST-LINK virtual COM port.

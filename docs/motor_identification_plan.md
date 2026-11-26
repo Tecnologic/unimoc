@@ -303,7 +303,8 @@ steps, results, one sample per FSM run in the Cyphal thread, the outputs
 released by the FSM and never while engaged, the overcurrent limit of the run,
 abort on the abort command, on the E-stop and on a trip. The estimators
 (regression, Goertzel, zero crossings, the least squares of M6) are portable
-code in `lib/motor_control/src/identification/` with ztests.
+code in `lib/motor_control/src/` (`resistance_regression.hpp`,
+`impedance_estimator.hpp`, `coast_down_meter.hpp`) with ztests.
 
 ### 5.4 Bus interface: commands, a status message and registers
 

@@ -9,6 +9,10 @@ the `native_sim` platform and the STM32H7 platform code exist (see
 `native_sim` and is built for the STM32H7; the flash settings backend and
 FDCAN1 are built but not run on the board. USB and the shell were dropped: the bench
 log is on RTT and on the bus. The phase order below is the plan.
+Update 2026-11-26: the application is `apps/drive/` (with `apps/vdc/`) since
+2026-11-08; on the NUCLEO-H743ZI the node, the settings on ZMS and the
+firmware update with MCUboot ran on 2026-11-09 (`docs/zephyr_workflow.md`).
+Jacobi builds but has not run.
 
 ## Goals
 
@@ -36,7 +40,7 @@ log is on RTT and on the bus. The phase order below is the plan.
 | Language standard | C++20 (`CONFIG_STD_CPP20`). `AGENTS.md`, `README.md` and the root `CMakeLists.txt` say C++20. |
 | Runtime scope | Zephyr is the primary OS. Only the FOC hot path runs at zero latency. Logging, Cyphal, settings and startup run in threads. |
 | Operating interface | Cyphal/CAN-FD only (decided 2026-10-21). No shell, no USB console: registers, commands and telemetry over Cyphal, the bench log on RTT. USB comes back for DFU recovery. |
-| Hot-path layout | Decided: 32 kHz PWM, 16 kHz control cycle inside every fourth sample ISR, duty entry 0 into the CCR preload and entries 1 to 3 by DMA, observer in a software-pended normal-priority interrupt (`docs/hotpath_plan.md`). |
+| Hot-path layout | Decided: 32 kHz PWM, the control step in the sample ISR every `control_divider` half periods (since 2026-11-03; the earlier duty DMA of four entries is gone), observer in a software-pended normal-priority interrupt after each control cycle (`docs/hotpath_plan.md`). |
 
 ## Review Findings Driving the Plan
 

@@ -8,7 +8,10 @@ after pioneers of electric drives; the first is Jacobi, a 36 V / 45 A drive
 (100 A peak phase current) on the STM32H743 (`docs/system_plan.md`, hardware names).
 
 Read `README.md` for the supported motor types and public features, and
-`CONTEXT.md` for the project's domain vocabulary. The port decisions are in
+`CONTEXT.md` for the project's domain vocabulary. The cart and its nodes are
+in `docs/system_plan.md`; the VDC board Zuse, the display, the pedal unit
+and the 12 V supply in `docs/zuse_plan.md`. Each application in `apps/` has
+a `README.md` with its boards. The port decisions are in
 `docs/zephyr_port_plan.md`, the build and interrupt layout in
 `docs/zephyr_workflow.md`, and the hot-path design in `docs/hotpath_plan.md`.
 
@@ -75,7 +78,9 @@ Read `README.md` for the supported motor types and public features, and
   (`docs/system_plan.md`, section 5.3): `apps/drive/` is the motor drive
   (`CMakeLists.txt`, `prj.conf`, `VERSION`, the board configurations in
   `boards/`), `apps/vdc/` the vehicle dynamics controller (on `native_sim`
-  and the NUCLEO-H743ZI; registers in RAM, no hot path). Platform sources are
+  and the NUCLEO-H743ZI, later its board Zuse; registers in RAM, no hot
+  path). The pedal unit (Drais, STM32G473CBT6), the display (Gutenberg,
+  ESP32-S3) and the BMS (Volta) are planned, not built. Platform sources are
   selected from the board's Kconfig symbol (`CONFIG_UNIMOC_PLATFORM_*`), not
   with `#ifdef`. `main()` sets the node up and returns; the drive's control
   runs in interrupts, everything else in threads. One release version for

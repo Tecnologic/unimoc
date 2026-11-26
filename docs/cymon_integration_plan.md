@@ -3,8 +3,9 @@
 > The firmware targets the STM32H7 only (`hardware/zephyr_stm32h7`: Jacobi
 > and the NUCLEO-H743ZI) and `native_sim`.
 
-Status: **implemented** (steps 1 to 10 below), not yet run on the board
-(M0 cost of `Tick()`). `lib/cymon` points at cymon-lib 0.2 on `main`.
+Status: **implemented** (steps 1 to 10 below); the traces ran on the
+NUCLEO-H743ZI over CAN FD (2026-11-09, `TODO.md`); the M0 cost of `Tick()`
+with an armed capture is not measured yet. `lib/cymon` points at cymon-lib 0.2 on `main`.
 That version is ready for this integration: C++20, interrupt-safe `Tick()`,
 UNIMOC naming and clang-tidy rules, and DSDL `cymon.*.0.1` that compiles
 with Nunavut. The host side is the cymon admin tool
