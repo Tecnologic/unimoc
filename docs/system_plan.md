@@ -306,7 +306,8 @@ controller"; not run on the board):
   placed at the pedals.
 - **2026-11-26 (`docs/zuse_plan.md` section 6):** the pedal unit (Drais) is
   an STM32G473CBT6 node, the small G4 of the former BCC; an exception to
-  section 5.1 for nodes without a hot path. Risk: 128 KB flash with MCUboot.
+  section 5.1 for nodes without a hot path. One firmware image, flashed over
+  USB with the ROM bootloader (DFU); no MCUboot, no update over the bus.
 
 ### 5.5 BMS controller with brake chopper
 

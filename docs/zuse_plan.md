@@ -24,6 +24,7 @@
 >   only, never by Zuse (section 2.1).
 > - Connectors: **JST PH** (2.0 mm) as on Jacobi (section 2.3).
 > - Enclosure: **printed in ABS / ASA**.
+> - The pedal unit has one firmware image, flashed over USB (section 6).
 > - The display firmware is **Zephyr** (`apps/display/`, section 4.3).
 > - A 48 V variant of Jacobi is for later (section 3).
 >
@@ -251,11 +252,18 @@ no hot-path platform (the removed `hardware/zephyr_bcc` was one), only a
 board definition, Zephyr's own drivers (FDCAN, ADC) and a
 `cyphal_platform.cpp`.
 
-**Risk: 128 KB flash.** The firmware update uses MCUboot with two slots
-(`docs/system_plan.md`, section 4). Bootloader plus two slots of a Zephyr
-Cyphal node with registers is tight in 128 KB. First step: build a minimal
-pedal application for a G4 board (NUCLEO-G474RE) and read the size. If it
-does not fit: the STM32G473CCT6 (256 KB) or an update without a second slot.
+**Firmware update (decided 2026-11-26): one image, no MCUboot, no update
+over the bus.** The pedal unit is flashed over USB with the DFU of the STM32
+system bootloader in ROM, so the whole 128 KB flash holds the application.
+The system bootloader is entered with BOOT0 (a button on the board) or from
+the firmware: an ExecuteCommand jumps to the ROM bootloader, so the
+enclosure needs no opening when its USB-C socket is reachable from outside.
+Still check the size of a minimal pedal application for a G4 board
+(NUCLEO-G474RE) before the layout.
+
+Jacobi and Zuse keep the update over the bus (MCUboot in the 2 MB of the
+H743, already running on the NUCLEO-H743ZI): it updates the assembled cart
+without reaching every board. USB DFU stays their recovery path.
 
 ## 7. Bring-up order
 
@@ -273,5 +281,5 @@ does not fit: the STM32G473CCT6 (256 KB) or an update without a second slot.
 1. IMU part (section 2.4).
 2. 12 V supply: the controller IC or the module, and where it sits.
 3. Zephyr support for the SC01 Plus (section 4.3).
-4. Flash size of the pedal unit (section 6).
+4. Size check of the pedal application on the G4 (section 6).
 5. Later: a Jacobi power board variant for 48 V (80 to 100 V FETs).
