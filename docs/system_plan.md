@@ -257,7 +257,8 @@ pick the part.
 - New board definition for the VDC (or a devicetree variant of the 4850
   logic board) and a VDC platform layer: the platform layer is
   `hardware/vdc_platform.hpp` with a `vdc_platform.cpp` per platform; the
-  board is a NUCLEO-H743ZI for now (`apps/vdc/boards/`).
+  board is a NUCLEO-H743ZI for now (`apps/vdc/boards/`). The board Zuse is
+  planned in `docs/zuse_plan.md` (draft 2026-11-26).
 - `lib/sim` needs the vehicle model (four wheels, tyres, steering angle,
   shared battery); P4 item in `TODO.md`.
 - `AGENTS.md`, `README.md` and `docs/zephyr_workflow.md` describe both
@@ -301,6 +302,9 @@ controller"; not run on the board):
   channels per pedal (plausibility check as in automotive pedal modules).
 - Firmware in this repository (`apps/pedal/`), or a role of the VDC board
   placed at the pedals.
+- **2026-11-26 (draft, `docs/zuse_plan.md` section 6):** the pedals connect
+  to the VDC board Zuse, which publishes the pedal state itself; no separate
+  pedal unit. After a VDC failure only the mechanical brake stops the cart.
 
 ### 5.5 BMS controller with brake chopper
 
@@ -813,7 +817,9 @@ Not a safety concept; a list of what one must cover.
    simulation.
 5. **BMS board (Volta):** a new STM32H7 board; cell monitoring
    front end; cell count and chemistry.
-6. **Display:** connection to the VDC and content.
+6. **Display:** the WT32-SC01 Plus on RS-485 to Zuse (2026-11-26,
+   `docs/zuse_plan.md` section 4); open: the link protocol (Cyphal/serial
+   against the decision "not used") and the content.
 7. **Brake resistor:** power and energy rating from the cart mass, top speed
    and longest braking; chopper switch and its cooling.
 8. **Steering assist:** concept, torque sensor, interface (later).
