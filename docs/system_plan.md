@@ -101,7 +101,7 @@ record.
 | Steering angle sensor | AS5048A on a small passive board at the steering column, PWM cable to the VDC | Steering angle for the vehicle dynamics; no bus node |
 | IMU, GNSS | ICM-42688-P on the VDC board, a GNSS module on a VDC connector | No bus node |
 | Display | Gutenberg: WT32-SC01 Plus (ESP32-S3), Zephyr | Cyphal node on RS-485 to the VDC (Cyphal/serial), not on the CAN bus |
-| 12 V supply | Buck controller IC or a bought module | Supply of the VDC, display, sensors and lights; no MCU, no bus node |
+| 12 V supply | A bought XL7015 buck module, separate (a stronger converter for the lights if needed) | Supply of the VDC, display, sensors and lights; no MCU, no bus node |
 | Steering assist | Later: UNIMOC | Out of scope until a steering concept exists |
 | EESM excitation | Later: own module (section 5.2.1) | Field current of an EESM drive, commanded by its drive over the bus |
 | NUCLEO-H743ZI (`apps/drive/boards/nucleo_h743zi.*`) | ST evaluation board | Bring-up of the STM32H7 platform before Jacobi exists; not part of the cart |
@@ -255,8 +255,8 @@ this repository.
 
 **Decision 2026-11-08:** the VDC is an STM32H7 board, like every board of
 the system (section 5.1). It shares the platform `hardware/zephyr_stm32h7`.
-**2026-11-26:** its own board is Zuse (`docs/zuse_plan.md`; proposed: the
-STM32H743VIT6 of Jacobi). The display is an external Cyphal node on
+**2026-11-26:** its own board is Zuse (`docs/zuse_plan.md`) with the
+STM32H743VIT6 of Jacobi. The display is an external Cyphal node on
 RS-485, so no part with a display controller (LTDC) is needed; logging
 goes to a microSD card (SDMMC).
 
@@ -831,8 +831,8 @@ Not a safety concept; a list of what one must cover.
 
 ## 12. Open Questions
 
-1. **VDC MCU:** STM32H7 (decided 2026-11-08); board Zuse, proposed part the
-   STM32H743VIT6 of Jacobi (`docs/zuse_plan.md`).
+1. ~~**VDC MCU**~~: decided 2026-11-26, the STM32H743VIT6 of Jacobi on the
+   board Zuse (`docs/zuse_plan.md`).
 2. **4850 logic MCU:** decided 2026-11-01, STM32H743VIT6. Open: board size
    with the LQFP100 in the enclosure, the silicon revision of the bought
    parts, the points of `docs/drive4850_h7_plan.md` section 8.
@@ -844,8 +844,9 @@ Not a safety concept; a list of what one must cover.
    front end; cell count and chemistry.
 6. **Display:** the WT32-SC01 Plus on RS-485 to Zuse with a lean own
    Cyphal/serial transport and a Zephyr firmware (2026-11-26,
-   `docs/zuse_plan.md` section 4); open: the Zephyr support of the board
-   (display, touch, PSRAM) and the screens.
+   `docs/zuse_plan.md` section 4); Zephyr 4.5 has the drivers (checked by a
+   build, section 4.4 there); open: the bench test of the 8080 bus and the
+   screens.
 7. **Brake resistor:** power and energy rating from the cart mass, top speed
    and longest braking; chopper switch and its cooling.
 8. **Steering assist:** concept, torque sensor, interface (later).

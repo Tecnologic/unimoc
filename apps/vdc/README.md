@@ -13,7 +13,7 @@ controller").
 
 | Board | Build target | Status |
 |---|---|---|
-| **Zuse**: the VDC board, STM32H7 (`docs/zuse_plan.md`) | planned (`unimoc_zuse`) | Draft: interfaces, supply, display link |
+| **Zuse**: the VDC board, STM32H743VIT6 (`docs/zuse_plan.md`) | planned (`unimoc_zuse`) | Draft: interfaces, supply, display link |
 | NUCLEO-H743ZI (`boards/nucleo_h743zi.*`) | `nucleo_h743zi` | Builds; only FDCAN1 is used |
 | Simulation (`boards/native_sim_native_64.*`) | `native_sim/native/64` | ztests and the pycyphal integration test |
 

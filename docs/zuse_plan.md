@@ -12,19 +12,21 @@
 | Topic | Decision | Section |
 |---|---|---|
 | Battery | **24 V** pack for now; Zuse and the 12 V supply are laid out for **48 V** nominal. A 48 V Jacobi (80 to 100 V FETs) comes later. | 3 |
-| 12 V supply | A **12 V auxiliary net** from a buck controller IC or a bought DC/DC module: **no MCU, no bus node**. Jacobi keeps its own supply from the DC link. | 3 |
+| 12 V supply | A **12 V auxiliary net** from a bought **XL7015 buck module**, separate (not on Volta): **no MCU, no bus node**; replaced by a stronger module if needed. Jacobi keeps its own supply from the DC link. | 3 |
 | Display | Panlee **WT32-SC01 Plus** (3.5", ESP32-S3) on **RS-485** to Zuse, a **lean own Cyphal/serial transport**, firmware on **Zephyr**. | 4 |
 | Pedal unit | Drais, an own Cyphal/CAN-FD node on an **STM32G473CBT6** (the small G4 of the former BCC), **firmware update over Cyphal**. Limp-home on the pedals stays. | 6 |
 | Steering angle sensor | AS5048A on a small passive board at the steering column, cable to Zuse; **not** a bus node, not on the Zuse board. | 5 |
 | E-stop loop | Zuse **senses** it with the optocoupler input of Jacobi; only the E-stop buttons open it, **Zuse has no contact in the loop**. | 2.1 |
-| Lights | **Switched by Zuse** (high-side outputs with current sense). | 2.2 |
+| Lights | **Switched by Zuse**: Infineon BTS high-side switches (PROFET) with current sense; the part is chosen with the schematic. | 2.2 |
 | IMU | **TDK ICM-42688-P**. | 2.4 |
 | Connectors | **JST PH** (2.0 mm) for signals as on Jacobi, **Molex Micro-Fit 3.0** for the supply and the lights. | 2.3 |
 | Enclosure | 3D printed in **ABS / ASA**. | 2.5 |
 | Names | The applications keep their names (`apps/drive/`, `apps/vdc/`); the board code names are in the documentation (`apps/*/README.md`). | 8 |
+| MCU | Zuse gets the **STM32H743VIT6** of Jacobi (one part, one platform). | 2 |
 
-Proposed, to confirm: Zuse on the **STM32H743VIT6** of Jacobi (one part,
-one platform), the high-side switch parts, the 12 V module.
+Checked on 2026-11-26 (builds, nothing run on hardware): the pedal
+application fits the G4 (section 6.1), and Zephyr 4.5 has every driver the
+SC01 Plus needs (section 4.4). No blocker.
 
 ## 1. Function
 
@@ -82,10 +84,11 @@ drive.
 ### 2.2 Lights and horn
 
 Six protected high-side outputs at 12 V (aux net): headlight, tail light,
-brake light, indicator left, indicator right, horn. High side with current
-sense, so Zuse detects a broken lamp (the brake light above all) and a
-short; candidates are dual or quad smart switches of the automotive range
-(Infineon PROFET, ST VIPower; part to choose). The brake light follows the
+brake light, indicator left, indicator right, horn. Infineon BTS high-side
+switches (PROFET family, single or dual channel) with the current sense
+(IS) pin on an ADC input, so Zuse detects a broken lamp (the brake light
+above all) and a short. The part follows from the lamp currents when the
+schematic is drawn. The brake light follows the
 brake pedal and the regenerative brake torque, not only a pedal switch.
 
 ### 2.3 Connectors
@@ -124,17 +127,23 @@ JST PH plugs held by a rib (section 2.3).
 - **12 V aux net** for Zuse, the display, the sensors, the lights and the
   horn. Budget (estimate): Zuse 2 W, display 1 W, GNSS 0.5 W, lights
   20 to 30 W, horn 10 W; about 50 W, so 12 V / 5 A.
-- **A buck controller IC or a bought module, no MCU, no bus node.**
-  Candidates: 100 V synchronous buck controllers such as the TI LM5146, or
-  a DC/DC module for 24 / 48 V vehicles. Zuse and the display hang on this
-  net; a converter regulated by firmware would take them down on every
-  crash, update or reset of its MCU. Zuse measures the 12 V itself (VIN
-  sense) and knows the load of every light output.
+- **A bought XL7015 buck module, separate, not on Volta; no MCU, no bus
+  node.** Zuse and the display hang on this net; a converter regulated by
+  firmware would take them down on every crash, update or reset of its MCU.
+  Zuse measures the 12 V itself (VIN sense) and knows the load of every
+  light output.
+- **XL7015 and the budget:** the XL7015 takes up to 80 V, which covers a
+  48 V pack, but it is rated about 0.8 A output (XLSEMI datasheet; check the
+  module's own rating): about 10 W at 12 V. That carries the electronics
+  (Zuse, display, GNSS, sensors: about 4 to 5 W) but not the lights and the
+  horn (30 to 40 W). Either the lights get their own, stronger converter
+  (a 24 / 48 V to 12 V vehicle DC/DC of 5 to 10 A), or the XL7015 is
+  replaced by one such converter for everything.
 - Its input is a diode OR of the pack (after the key switch, fused) and the
   DC link, so it runs before the contactor closes and without a battery
   when the pedal generator holds the link (`docs/system_plan.md`, section
   7.2.3). Input range 16 to 60 V (a 100 V controller for the regenerative
-  rise). Where it sits (on the BMS board or alone) is open.
+  rise). It sits alone, not on the BMS board (Volta).
 - **Zuse takes 9 to 60 V**, so it runs from the 12 V net or straight from
   the pack on the bench. On board: a wide-input buck to 5 V (display,
   steering sensor, GNSS), then 3.3 V.
@@ -198,6 +207,11 @@ lean transport in `lib/cyphal`.
 
 The display shows and asks; no safety function depends on it.
 
+On the ESP32-S3 the RS-485 driver enable is the UART's own half-duplex
+mode: the Zephyr UART driver switches RTS (GPIO 2) by itself
+(`hw-rs485-hd-mode` of the ESP32 UART binding). On Zuse the STM32 USART
+drives DE in hardware the same way.
+
 ### 4.3 Display firmware on Zephyr
 
 A third Zephyr application (Gutenberg) with LVGL for the screens; it shares
@@ -214,6 +228,29 @@ version with the other applications. To do:
 - The screens show what a driver needs at a glance (speed, battery, mode,
   faults of the drives, the BMS and the E-stop loop), and the settings of
   the cart behind a menu.
+
+### 4.4 Zephyr check (2026-11-26)
+
+Zephyr 4.5 (the revision of `west.yml`) with `hal_espressif` and `lvgl`:
+the LVGL sample built for `esp32s3_devkitc/esp32s3/procpu` with a
+devicetree overlay of the SC01 Plus pins (datasheet V1.3), 601 KB flash.
+Built only, not run.
+
+| Part | Zephyr | Result |
+|---|---|---|
+| ST7796UI panel | `sitronix,st7796s` (`CONFIG_ST7796S`) | Builds |
+| 8 bit 8080 bus | `espressif,esp32-lcd-cam-mipi-dbi` on the LCD-CAM block, `MIPI_DBI_MODE_8080_BUS_8_BIT`, DMA; the pins through the GPIO matrix (`LCD_CAM_DATA_OUT*`, `LCD_CAM_LCD_CLK_GPIO47`, `LCD_CAM_DC_GPIO0`) | Builds; **no board in the Zephyr tree uses this driver yet**, so it is the bring-up risk |
+| FT6336U touch | `focaltech,ft5336` (`CONFIG_INPUT_FT5336`), as the M5Stack Core2 and CoreS3 do for their FT6336U | Builds |
+| 2 MB PSRAM | `psram0`, `CONFIG_ESP_SPIRAM` | Builds |
+| RS-485 | ESP32 UART with `hw-rs485-hd-mode` (RTS as driver enable) | In the driver |
+| LVGL | `lvgl` module | Builds |
+
+Open: the panel's init sequence (gamma, inversion, orientation) from the
+vendor's example code, GPIO 0 and 46 are boot strapping pins used by the
+bus (the vendor board works with that), the workspace needs `hal_espressif`
+and `lvgl` in the `west.yml` allowlist and `esptool` for the build. If the
+8080 driver fails on the board, a bitbang MIPI DBI driver
+(`zephyr,mipi-dbi-bitbang`) is the slow fallback.
 
 ## 5. Steering angle sensor
 
@@ -266,10 +303,32 @@ MCUboot slots. Instead:
 - USB DFU of the STM32 ROM bootloader (BOOT0 button) stays the recovery and
   the first flash.
 
-First step: build a minimal pedal application for a G4 board
-(NUCLEO-G474RE) and read the size (about 45 KB of the drive image is
-Zephyr itself, `docs/drive4850_h7_plan.md` section 1). If the application
-does not fit into 96 KB: the STM32G473CCT6 (256 KB).
+### 6.1 Size check (2026-11-26)
+
+The VDC application stands in for the pedal application: both are a Cyphal
+node without a hot path (heartbeat, registers, subjects, the log on the
+bus); the pedal unit adds the ADC and the plausibility check and takes out
+the torque split. Built for `nucleo_g474re` (STM32G474RE, same core and
+FDCAN as the G473), with the STM32H7 platform choice opened to the G4 for
+the measurement only (not committed):
+
+| Build | Flash | RAM |
+|---|---|---|
+| VDC on the NUCLEO-H743ZI (reference, debug log) | 70.5 KB | 59.9 KB |
+| VDC on the G474, debug log | 64.7 KB | 59.0 KB |
+| VDC on the G474, warning log, no asserts, LTO | 58.8 KB | 58.8 KB |
+| as before, with the settings on ZMS | 66.4 KB | 59.1 KB |
+
+So the pedal application needs about 65 to 75 KB flash. The 128 KB split:
+bootloader 32 KB, settings 8 KB (ZMS, 2 KB pages), application 88 KB:
+about 15 to 20 KB margin. RAM: 59 KB of 128 KB, most of it the libcanard
+heap (24 KB) and the thread stacks.
+
+The bootloader is the tighter part: Zephyr's kernel, drivers and libcanard
+alone take some 25 KB of the image above, so a Zephyr-based bootloader
+would be close to 32 KB. Kocherga on the bare FDCAN (ST LL drivers) stays
+well below; to measure when it is chosen. If the margin melts: the
+STM32G473CCT6 (256 KB, same package).
 
 ## 7. Bring-up order
 
@@ -291,16 +350,18 @@ The applications keep their names; the board code names
 | Application | Node | Boards |
 |---|---|---|
 | `apps/drive/` | Wheel drive (and the pedal generator) | Jacobi (`unimoc_jacobi`), NUCLEO-H743ZI, `native_sim`; later Barlow, Dolivo |
-| `apps/vdc/` | VDC | Zuse (planned), NUCLEO-H743ZI, `native_sim` |
+| `apps/vdc/` | VDC | Zuse (planned, STM32H743VIT6), NUCLEO-H743ZI, `native_sim` |
 | planned | Pedal unit | Drais (STM32G473CBT6) |
 | planned | Display | Gutenberg (WT32-SC01 Plus) |
 | planned | BMS controller | Volta |
 
 ## 9. Open Points
 
-1. Zuse on the STM32H743VIT6 (proposal).
-2. 12 V supply: the controller IC or the module, and where it sits.
-3. High-side switch parts for the lights.
-4. Zephyr support for the SC01 Plus (section 4.3).
-5. Size of the pedal application and the bootloader (section 6).
-6. Later: a Jacobi power board variant for 48 V (80 to 100 V FETs).
+1. The supply of the lights: a second, stronger converter next to the
+   XL7015, or one vehicle DC/DC for everything (section 3).
+2. The BTS part for the lights (section 2.2).
+3. The SC01 Plus on the bench: the 8080 driver and the panel init
+   sequence (section 4.4).
+4. The bootloader of the pedal unit: Kocherga or own, its size
+   (section 6.1).
+5. Later: a Jacobi power board variant for 48 V (80 to 100 V FETs).
