@@ -14,7 +14,7 @@
 | Battery | **24 V** pack for now; Zuse and the 12 V supply are laid out for **48 V** nominal. A 48 V Jacobi (80 to 100 V FETs) comes later. | 3 |
 | 12 V supply | A **12 V auxiliary net** from a bought **XL7015 buck module**, separate (not on Volta): **no MCU, no bus node**; replaced by a stronger module if needed. Jacobi keeps its own supply from the DC link. | 3 |
 | Display | Panlee **WT32-SC01 Plus** (3.5", ESP32-S3) on **RS-485** to Zuse, a **lean own Cyphal/serial transport**, firmware on **Zephyr**. | 4 |
-| Pedal unit | Drais, an own Cyphal/CAN-FD node on an **STM32G473CBT6** (the small G4 of the former BCC), **firmware update over Cyphal**. Limp-home on the pedals stays. | 6 |
+| Pedal unit | Drais, an own Cyphal/CAN-FD node on the **STM32G4 of the former BCC** (part to read off the chip, section 6.2), **firmware update over USB only**. Two three-wire Hall pedals (1 to 4.6 V), one channel each, range-checked. Limp-home on the pedals stays. | 6 |
 | Steering angle sensor | AS5048A on a small passive board at the steering column, cable to Zuse; **not** a bus node, not on the Zuse board. | 5 |
 | E-stop loop | Zuse **senses** it with the optocoupler input of Jacobi; only the E-stop buttons open it, **Zuse has no contact in the loop**. | 2.1 |
 | Lights | **Switched by Zuse**: Infineon BTS high-side switches (PROFET) with current sense; the part is chosen with the schematic. | 2.2 |
@@ -25,8 +25,8 @@
 | MCU | Zuse gets the **STM32H743VIT6** of Jacobi (one part, one platform). | 2 |
 
 Checked on 2026-11-26 (builds, nothing run on hardware): the pedal
-application fits the G4 (section 6.1), and Zephyr 4.5 has every driver the
-SC01 Plus needs (section 4.4). No blocker.
+application fits a G4 with 128 KB, not one with 64 KB (section 6.3), and Zephyr 4.5 has every driver the
+SC01 Plus needs (section 4.4). No blocker, if the pedal G4 has 128 KB.
 
 ## 1. Function
 
@@ -270,65 +270,88 @@ magnet on the column. No MCU, not a bus node.
   (`docs/system_plan.md`, section 7). Zero and end stops are calibrated in
   registers.
 
-## 6. Pedal unit (Drais) on the STM32G473CBT6
+## 6. Pedal unit (Drais) on the STM32G4 of the former BCC
 
-Two channels per pedal (opposite slopes or separate supplies), plausibility
-check, `unimoc.cart.PedalState` on the bus (`docs/system_plan.md`,
-section 5.4). Limp-home on the pedals after a VDC failure stays as in
-section 7 of the system plan.
+### 6.1 Pedals
 
-The G4 is an exception to "every board is STM32H7" (`docs/system_plan.md`,
-section 5.1) for small nodes **without a hot path**: no hot-path platform
-(the removed `hardware/zephyr_bcc` was one), only a board definition,
-Zephyr's own drivers (FDCAN, ADC) and a `cyphal_platform.cpp`.
+Two bought pedals (drive and brake), each a three-wire Hall sensor: +5 V,
+GND and the signal, about 1 V released to 4.6 V fully pressed (user's
+measurement, 2026-11-26). One channel per pedal, so the plausibility check
+of two channels per pedal is not possible with them. Instead:
 
-**Firmware update over Cyphal, one slot.** The 128 KB flash holds no two
-MCUboot slots. Instead:
+- **Range check:** with a pull-down at the input an open wire reads 0 V and
+  a short to the supply 5 V; below about 0.5 V or above about 4.8 V the
+  pedal is faulty and its travel counts as 0 (drive) or as a fault the VDC
+  shows (brake). The thresholds and the released and pressed voltages are
+  registers, calibrated on the real pedals.
+- **Supply check:** the 5 V sensor supply (switched, current limited, one
+  per pedal) is measured too; a sensor reading is only valid while its
+  supply is.
+- **Both pedals:** drive pedal and brake pedal pressed together counts as
+  brake (the drive request goes to 0), as in the drive's limp-home.
+- **ADC:** a divider from the 0 to 5 V signal to the 3.3 V ADC (for example
+  10 kΩ / 20 kΩ: 4.6 V gives 3.07 V), a small RC filter, ESD.
+- `unimoc.cart.PedalState` carries both channels; the second channel is NaN
+  and the flags report the range check.
 
-- A small **Cyphal bootloader** stays in the first sectors and is never
-  updated over the bus. The application answers `BEGIN_SOFTWARE_UPDATE`
-  with a restart into the bootloader; the bootloader reads the image with
-  `uavcan.file.Read` from the commanding node (the same file service and
-  UNIMOC image header as the drives) straight into the one application
-  slot, checks it and starts it.
-- A failed or interrupted download leaves the bootloader running, with its
-  heartbeat in mode SOFTWARE_UPDATE, until a good image arrives: the node
-  cannot brick itself over the bus. There is no rollback to the old image,
-  and while the bootloader runs there is no pedal state, so the update runs
-  with the cart parked.
-- Candidates: [Kocherga](https://github.com/Zubax/kocherga) (a header-only
-  Cyphal bootloader library, single slot, CAN and serial transports), or an
-  own one on `lib/cyphal`. Budget: bootloader at most 32 KB, application
-  96 KB.
-- USB DFU of the STM32 ROM bootloader (BOOT0 button) stays the recovery and
-  the first flash.
+Limp-home on the pedals after a VDC failure stays as in section 7 of the
+system plan. A second sensor per pedal (a second Hall throttle on the same
+pedal, opposite slope) is the later upgrade if the single channel proves
+too weak for the safety of the brake.
 
-### 6.1 Size check (2026-11-26)
+### 6.2 MCU and firmware update
+
+The G4 of the former BCC is an exception to "every board is STM32H7"
+(`docs/system_plan.md`, section 5.1) for small nodes **without a hot
+path**: no hot-path platform (the removed `hardware/zephyr_bcc` was one),
+only a board definition, Zephyr's own drivers (FDCAN, ADC) and a
+`cyphal_platform.cpp`.
+
+**The part is to read off the chip.** The user remembers 64 KB flash; the
+repository history names an STM32G473 (128 KB at least, the CET6 with
+512 KB on the BCC board of 2026-10-21). The G473 has no 64 KB variant; a
+64 KB G4 with FDCAN is for example the STM32G431C8 (32 KB SRAM).
+
+**Firmware update over USB only (decided 2026-11-26):** one image, no
+bootloader of our own, no update over the bus. The pedal unit changes
+rarely; it is flashed with the DFU of the STM32 ROM bootloader over USB
+(BOOT0 button, or an ExecuteCommand that jumps to the ROM bootloader), and
+over SWD on the bench.
+
+### 6.3 Size check (2026-11-26)
 
 The VDC application stands in for the pedal application: both are a Cyphal
 node without a hot path (heartbeat, registers, subjects, the log on the
-bus); the pedal unit adds the ADC and the plausibility check and takes out
-the torque split. Built for `nucleo_g474re` (STM32G474RE, same core and
-FDCAN as the G473), with the STM32H7 platform choice opened to the G4 for
-the measurement only (not committed):
+bus); the pedal unit adds the ADC and the range check and takes out the
+torque split. Built for `nucleo_g474re` (same core and FDCAN as every G4),
+with the STM32H7 platform choice opened to the G4 for the measurement only
+(not committed):
 
 | Build | Flash | RAM |
 |---|---|---|
 | VDC on the NUCLEO-H743ZI (reference, debug log) | 70.5 KB | 59.9 KB |
-| VDC on the G474, debug log | 64.7 KB | 59.0 KB |
-| VDC on the G474, warning log, no asserts, LTO | 58.8 KB | 58.8 KB |
-| as before, with the settings on ZMS | 66.4 KB | 59.1 KB |
+| G474, debug log | 64.7 KB | 59.0 KB |
+| G474, warning log, no asserts, LTO | 58.8 KB | 58.8 KB |
+| G474, as before, with the settings on ZMS | 66.4 KB | 59.1 KB |
+| G474, minimal: error log on the bus only, no console, no printk, nano printf, LTO, settings on ZMS | 55.9 KB | 58.8 KB |
+| as minimal, libcanard heap 8 KB, Cyphal stack 4 KB, smaller log buffer | 55.9 KB | 37.8 KB |
 
-So the pedal application needs about 65 to 75 KB flash. The 128 KB split:
-bootloader 32 KB, settings 8 KB (ZMS, 2 KB pages), application 88 KB:
-about 15 to 20 KB margin. RAM: 59 KB of 128 KB, most of it the libcanard
-heap (24 KB) and the thread stacks.
+What this means for the part:
 
-The bootloader is the tighter part: Zephyr's kernel, drivers and libcanard
-alone take some 25 KB of the image above, so a Zephyr-based bootloader
-would be close to 32 KB. Kocherga on the bare FDCAN (ST LL drivers) stays
-well below; to measure when it is chosen. If the margin melts: the
-STM32G473CCT6 (256 KB, same package).
+- **128 KB or more (G473CB and up):** fits with a wide margin, also with
+  the debug log.
+- **64 KB:** the minimal build plus the ADC and the pedal logic comes to
+  about 58 to 60 KB, and ZMS needs at least two 2 KB pages for the
+  settings: about 0 to 2 KB left. **Too tight**; it would only fit without
+  the settings subsystem (the pedal calibration in one own flash page) and
+  with the log off, and every later feature hurts.
+- **32 KB SRAM (G431):** the RAM above (38 KB even trimmed) does not fit
+  without shrinking the Cyphal node further.
+
+Recommendation: a G4 with at least 128 KB flash and 64 KB SRAM for the
+new pedal board (STM32G473CBT6, or the G431CB with 128 KB and 32 KB SRAM
+only if the RAM is cut further). The old BCC part serves the bench if it
+has 128 KB.
 
 ## 7. Bring-up order
 
@@ -337,8 +360,8 @@ STM32G473CCT6 (256 KB, same package).
    transceiver (`apps/vdc/boards/nucleo_h743zi.overlay`).
 2. The Cyphal/serial transport (section 4.2), then the display application
    on the SC01 Plus (section 4.3).
-3. Size check of the pedal application on the G4 and the bootloader choice
-   (section 6).
+3. The pedal unit on the G4: read the part off the BCC chip, then the
+   board definition (section 6.2).
 4. Schematic and layout of Zuse, then `boards/unimoc/zuse/` (board
    `unimoc_zuse`).
 
@@ -351,7 +374,7 @@ The applications keep their names; the board code names
 |---|---|---|
 | `apps/drive/` | Wheel drive (and the pedal generator) | Jacobi (`unimoc_jacobi`), NUCLEO-H743ZI, `native_sim`; later Barlow, Dolivo |
 | `apps/vdc/` | VDC | Zuse (planned, STM32H743VIT6), NUCLEO-H743ZI, `native_sim` |
-| planned | Pedal unit | Drais (STM32G473CBT6) |
+| planned | Pedal unit | Drais (STM32G4) |
 | planned | Display | Gutenberg (WT32-SC01 Plus) |
 | planned | BMS controller | Volta |
 
@@ -362,6 +385,5 @@ The applications keep their names; the board code names
 2. The BTS part for the lights (section 2.2).
 3. The SC01 Plus on the bench: the 8080 driver and the panel init
    sequence (section 4.4).
-4. The bootloader of the pedal unit: Kocherga or own, its size
-   (section 6.1).
+4. The G4 part of the pedal unit: 64 KB is too tight (section 6.3).
 5. Later: a Jacobi power board variant for 48 V (80 to 100 V FETs).
