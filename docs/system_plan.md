@@ -109,7 +109,7 @@ record.
 | Simulation and PC transport | Cyphal/CAN-FD as well: `native_sim` on SocketCAN `vcan`, PC tools on a USB CAN FD adapter. Fallback if WSL2 has no `vcan`: Cyphal/UDP over the `native_sim` TAP driver (section 6.4). | One transport everywhere; the simulation tests the transport of the cart. |
 | Logic board MCU | **STM32H743VIT6** for the 4850 logic board (2026-11-01, section 5.2, `docs/drive4850_h7_plan.md`); | The 512 KB G4 parts are not available or far too expensive, and 128 KB does not hold the firmware (194 KB on the former BCC). Three ADCs for simultaneous phase currents, FDCAN, TIM1/TIM8 and DMAMUX as on the G4, 2 MB dual-bank flash, headroom for the control cycle on every sample. Costs a second hot-path platform (`hardware/zephyr_stm32h7`). |
 | VDC firmware | **In this repository**, as a second Zephyr application (`apps/vdc/`) with a portable `lib/vehicle/`. The MCU is an STM32H7 (section 5.3); a Raspberry Pi or an ESP32-P4 are out, they do not run this repository's Zephyr build. | One toolchain, one CI, shared libraries and DSDL, the whole cart in the simulation. |
-| Cyphal/serial | Not used. | No maintained C implementation (libserard). |
+| Cyphal/serial | ~~Not used.~~ **Changed 2026-11-26:** a lean own transport in `lib/cyphal` (single-frame transfers, COBS, CRC-32C) for the display on RS-485 (`docs/zuse_plan.md` section 4.2). | No maintained C implementation (libserard); the display (ESP32-S3) has no CAN FD. |
 | USB | Firmware update (DFU) only, later. The CDC-ACM console and the shell were dropped (2026-10-21): the bench log is on RTT, the log also goes out as `uavcan.diagnostic.Record`. | One operating interface; USB stays the recovery path. |
 | Settings | Cyphal registers on the existing `SettingsStore` (`docs/settings_plan.md`). | Already designed that way. |
 | Fourth half bridge on the 4850 | ~~One auxiliary half bridge per drive~~ (2026-10-23). **Changed 2026-11-03: Jacobi has three phases only**; the EESM excitation is a second module on the bus, the brake chopper stays in the BMS (section 5.2.1). | Keeps the logic board and the power board connector simple. Costs the local chopper: above the back-EMF peak a PMSM keeps charging the DC link through the body diodes after a trip (section 7.1), so the BMS chopper must hold the DC link. |
@@ -142,6 +142,8 @@ documentation, not in the name. Only Jacobi exists; the others are proposals.
 Decision 2026-11-03: every board of the system is STM32H7 based (one
 platform, `hardware/zephyr_stm32h7`, one timing baseline). The earlier G4
 target is removed; its code is in the git history before 2026-11-03.
+Exception 2026-11-26: small nodes without a hot path (the pedal unit) may
+use the STM32G473CBT6 (`docs/zuse_plan.md` section 6).
 
 ### 5.2 Jacobi: new 4850 logic board (STM32H743VIT6)
 
@@ -302,9 +304,9 @@ controller"; not run on the board):
   channels per pedal (plausibility check as in automotive pedal modules).
 - Firmware in this repository (`apps/pedal/`), or a role of the VDC board
   placed at the pedals.
-- **2026-11-26 (draft, `docs/zuse_plan.md` section 6):** the pedals connect
-  to the VDC board Zuse, which publishes the pedal state itself; no separate
-  pedal unit. After a VDC failure only the mechanical brake stops the cart.
+- **2026-11-26 (`docs/zuse_plan.md` section 6):** the pedal unit (Drais) is
+  an STM32G473CBT6 node, the small G4 of the former BCC; an exception to
+  section 5.1 for nodes without a hot path. Risk: 128 KB flash with MCUboot.
 
 ### 5.5 BMS controller with brake chopper
 
@@ -817,9 +819,9 @@ Not a safety concept; a list of what one must cover.
    simulation.
 5. **BMS board (Volta):** a new STM32H7 board; cell monitoring
    front end; cell count and chemistry.
-6. **Display:** the WT32-SC01 Plus on RS-485 to Zuse (2026-11-26,
-   `docs/zuse_plan.md` section 4); open: the link protocol (Cyphal/serial
-   against the decision "not used") and the content.
+6. **Display:** the WT32-SC01 Plus on RS-485 to Zuse with a lean own
+   Cyphal/serial transport (2026-11-26, `docs/zuse_plan.md` section 4);
+   open: the display firmware and the content.
 7. **Brake resistor:** power and energy rating from the cart mass, top speed
    and longest braking; chopper switch and its cooling.
 8. **Steering assist:** concept, torque sensor, interface (later).
