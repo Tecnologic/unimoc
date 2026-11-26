@@ -14,20 +14,20 @@
 > - The **pedals go to a pedal unit (Drais) on an STM32G473CBT6** (the small
 >   G4 of the former BCC), a Cyphal node of its own. Limp-home on the pedals
 >   stays as planned (section 6).
-> - A **12 V auxiliary supply** for the low-power consumers; the STM32G473CBT6
->   is a candidate for it too (section 3).
+> - A **12 V auxiliary supply** for the low-power consumers: a buck
+>   controller IC or a bought module, **no MCU and no bus node** (section 3).
 > - **Zuse switches the lights** (section 2.2).
 > - The steering angle sensor is mechanically independent of the board, and
 >   it is **not** a CAN node of its own (section 5). AS5048A breakout at hand.
-> - The E-stop loop: Zuse **senses** whether the loop is open and has a
->   contact to **open** it, both with the optocoupler circuit of Jacobi
->   (section 2.1).
-> - Connectors: **JST** as on Jacobi (pitch to confirm, section 2.3).
+> - The E-stop loop: Zuse **only senses** whether the loop is open, with the
+>   optocoupler circuit of Jacobi. The loop is opened by the E-stop buttons
+>   only, never by Zuse (section 2.1).
+> - Connectors: **JST PH** (2.0 mm) as on Jacobi (section 2.3).
 > - Enclosure: **printed in ABS / ASA**.
+> - The display firmware is **Zephyr** (`apps/display/`, section 4.3).
+> - A 48 V variant of Jacobi is for later (section 3).
 >
-> Proposed here, to confirm: the 12 V supply without an MCU (section 3),
-> the IMU part (section 2.4), the default state of the E-stop open contact
-> (section 2.1).
+> Proposed here, to confirm: the IMU part (section 2.4).
 
 ## 1. Function
 
@@ -41,7 +41,7 @@
   (`lib/vehicle/`).
 - Lights and horn.
 - Display (Gutenberg = the SC01 Plus) and logging to a microSD card.
-- Senses the E-stop loop and can open it; never closes or bridges it.
+- Senses the E-stop loop; never opens, closes or bridges it.
 
 ## 2. Interfaces
 
@@ -51,7 +51,6 @@
 | CAN FD ×2 (same bus, daisy chain) | CANH, CANL, GND | Transceiver with standby pin (as Jacobi), switchable split termination 2 × 60 Ω, ESD | FDCAN1 |
 | CAN 2 (optional) | CANH, CANL, GND | Footprint only | FDCAN2 |
 | E-stop sense | Loop in, loop return | Optocoupler circuit of Jacobi (section 2.1) | GPIO (EXTI) |
-| E-stop open | Contact in series with the loop | Solid-state relay (section 2.1) | GPIO |
 | Display (SC01 Plus) | RS-485 A, B, GND, +5 V | Half-duplex transceiver, switchable 120 Ω, ESD; +5 V switched and current limited (≥ 0.5 A) | USART1 with hardware DE, GPIO for the 5 V switch |
 | GNSS | TX, RX, PPS, +5 V / 3.3 V, GND | Series resistors, ESD; switched supply | USART2, TIM input capture (PPS) |
 | Steering angle sensor | +5 V, GND, PWM (baseline); SPI lines reserved | Shielded cable, RC filter, ESD; switched supply | TIM input capture; SPI2 option |
@@ -72,20 +71,16 @@ pins.
 ### 2.1 E-stop loop
 
 The loop stays hard-wired to the break input of every power stage
-(`docs/system_plan.md`, sections 3 and 7). Zuse gets two parts of the
-Jacobi circuit (the `PWM_EN` optocoupler on PE15, schematic in
-Tecnologic/unimoc_jacobi):
+(`docs/system_plan.md`, sections 3 and 7) and is opened by the E-stop
+buttons only. Zuse has no contact in the loop (decided 2026-11-26): a fault
+of Zuse can never stop the drives through the loop, and the drives keep
+their limp-home on the pedal unit (section 6).
 
-- **Sense:** the same optocoupler input at the end of the loop, so Zuse
-  sees "loop open" no matter which switch opened it, shows it and logs it.
-- **Open:** a solid-state relay (an optically isolated MOSFET switch) in
-  series with the loop. Its rating follows the loop current: the optocoupler
-  inputs of four drives, a few mA each, so a small signal relay part does.
-  **Proposal: normally closed (form B).** A dead or resetting Zuse then
-  leaves the loop closed, and the drives keep their limp-home on the pedal
-  unit (section 6). Zuse opens the loop only on a fault it detects itself
-  (for example an implausible yaw rate, a stuck torque). A normally open
-  part would stop the cart on every VDC reset.
+Zuse senses the loop with the optocoupler input of Jacobi (the `PWM_EN`
+optocoupler on PE15, schematic in Tecnologic/unimoc_jacobi) at the end of
+the loop, so it sees "loop open" no matter which button opened it, shows it
+on the display and logs it. The sense input loads the loop like one more
+drive.
 
 ### 2.2 Lights and horn
 
@@ -98,11 +93,11 @@ brake pedal and the regenerative brake torque, not only the pedal switch.
 
 ### 2.3 Connectors
 
-JST as on Jacobi. **To confirm: JST XH has a 2.5 mm pitch; 2.0 mm is
-JST PH.** Both only lock by friction; in the vehicle the enclosure holds
-the plugs (a rib above them) or a drop of hot glue does. The light outputs
-and the supply input carry more than the 2 to 3 A of PH / XH: use a larger
-crimp connector there (JST VH, 3.96 mm, up to 10 A).
+JST PH (2.0 mm) as on Jacobi (decided 2026-11-26). PH only locks by
+friction; in the vehicle the enclosure holds the plugs (a rib above them)
+or a drop of hot glue does. The light outputs and the supply input carry
+more than the 2 A of PH: use a larger crimp connector there (proposal
+JST VH, 3.96 mm, up to 10 A).
 
 ### 2.4 IMU
 
@@ -134,16 +129,15 @@ Driver names to check against the Zephyr version in `west.yml`.
   the pedal generator holds the link (`docs/system_plan.md`, section 7.2.3).
   Input range 16 to 60 V for a 24 V or 48 V pack (a 100 V controller for the
   regenerative rise).
-- **Proposal: a buck controller IC, no MCU, no CAN** (100 V synchronous
-  buck controllers such as the TI LM5146, or a bought module). Reasons:
+- **A buck controller IC or a bought module, no MCU, no bus node**
+  (decided 2026-11-26; candidates: 100 V synchronous buck controllers such
+  as the TI LM5146, or a DC/DC module for 24 / 48 V vehicles). Reasons:
   - Zuse and the display hang on this net. A converter regulated by
-    firmware takes them down on every crash, update or reset of its MCU.
+    firmware would take them down on every crash, update or reset of its
+    MCU.
   - Zuse measures the 12 V itself (VIN sense) and knows the load of every
     light output; a converter node adds little to that.
   - One board fewer on the bus, no firmware to maintain for it.
-  A G473 on the converter makes sense only for something an IC cannot do
-  (several switched outputs with a power budget, a charger). Then it would
-  supervise and switch, while an IC still regulates.
 - **Zuse takes 9 to 60 V** anyway, so it runs from the 12 V net or straight
   from the pack on the bench. On board: a wide-input buck to 5 V (display,
   steering sensor, GNSS), then 3.3 V.
@@ -156,12 +150,14 @@ Driver names to check against the Zephyr version in `west.yml`.
   - a failed aux converter would otherwise stop all four drives at once.
   A 12 V aux input on a later Jacobi revision (diode OR into the logic
   supply, for configuration and updates without the DC link) is an option.
-- **48 V and Jacobi:** Jacobi has 60 V FETs (NCEP6080AG) and is rated 36 V.
+- **48 V and Jacobi (later):** Jacobi has 60 V FETs (NCEP6080AG) and is rated 36 V.
   A 13S pack reaches 54.6 V when full, plus the rise during regenerative
   braking, so 48 V needs a power board variant with 80 to 100 V FETs and
   capacitors. A 24 V pack (7S, 29.4 V full) is within the rating. The
   voltage thresholds of section 7.2 (33 / 30 / 38 / 42 V) are for the 36 V
-  system and have to be scaled for the pack.
+  system and have to be scaled for the pack. The 48 V variant of Jacobi is
+  planned for later (`docs/system_plan.md`, section 12); Zuse and the 12 V
+  supply are laid out for 48 V from the start.
 
 Display budget: 4.7 to 5.5 V, 170 to 190 mA at full backlight from the
 datasheet (WT32-SC01 Plus V1.3, table 9); WLAN peaks come on top, so the
@@ -204,10 +200,25 @@ lean transport in `lib/cyphal`.
 - Tested with ztest on the frame codec and on `native_sim` over a pseudo
   terminal, as the slcan ports.
 
-The display shows and asks; no safety function depends on it. Its
-firmware (Zephyr with LVGL as `apps/display/`, or ESP-IDF) is open: Zephyr
-supports the ESP32-S3; the ST7796 over 8080 and the FT6336 drivers are to
-check.
+The display shows and asks; no safety function depends on it.
+
+### 4.3 Display firmware (Zephyr, decided 2026-11-26)
+
+A third Zephyr application, `apps/display/` (Gutenberg), with LVGL for the
+screens; it shares `lib/cyphal`, `lib/units`, `lib/settings`, the DSDL and
+the release version with the other applications. To do:
+
+- A board definition for the SC01 Plus (`boards/unimoc/gutenberg/` or an
+  overlay on an ESP32-S3 board): the pins of section 4 (8080 bus, touch
+  I2C, RS-485 UART with RTS as driver enable, microSD over SPI, I2S).
+- Check against the Zephyr version in `west.yml`: the ST7796 driver on the
+  8080 (MIPI DBI) bus of the ESP32-S3, the FT6336 touch (FocalTech FT5336
+  driver family), the PSRAM for the LVGL frame buffers.
+- The ESP32 toolchain (`xtensa-espressif_esp32s3_zephyr-elf` of the Zephyr
+  SDK) and the Espressif HAL as west projects; CI builds the display too.
+- The screens show what a driver needs at a glance (speed, battery, mode,
+  faults of the drives, the BMS and the E-stop loop), and the settings of
+  the cart behind a menu.
 
 ## 5. Steering angle sensor
 
@@ -251,17 +262,16 @@ does not fit: the STM32G473CCT6 (256 KB) or an update without a second slot.
 1. NUCLEO-H743ZI with breakout boards: IMU (MPU-9250 first, ICM-42688-P
    later), AS5048A (PWM), GNSS, RS-485 transceiver to the SC01 Plus, CAN FD
    transceiver (`apps/vdc/boards/nucleo_h743zi.overlay`).
-2. The Cyphal/serial transport (section 4.2) and the display link.
+2. The Cyphal/serial transport (section 4.2) and the display link; the
+   display application on the SC01 Plus (section 4.3).
 3. Size check of the pedal unit on the G4 (section 6).
 4. Schematic and layout of Zuse, then `boards/unimoc/zuse/` (board
    `unimoc_zuse`).
 
 ## 8. Open Points
 
-1. 12 V supply: controller IC (proposal) or a G473 node (section 3).
-2. IMU part (section 2.4).
-3. E-stop open contact: normally closed (proposal) or normally open.
-4. JST pitch: XH 2.5 mm or PH 2.0 mm (section 2.3).
-5. The display firmware (Zephyr or ESP-IDF).
-6. A Jacobi power board variant for 48 V (80 to 100 V FETs).
-7. Flash size of the pedal unit (section 6).
+1. IMU part (section 2.4).
+2. 12 V supply: the controller IC or the module, and where it sits.
+3. Zephyr support for the SC01 Plus (section 4.3).
+4. Flash size of the pedal unit (section 6).
+5. Later: a Jacobi power board variant for 48 V (80 to 100 V FETs).

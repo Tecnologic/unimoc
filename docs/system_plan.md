@@ -834,6 +834,11 @@ Not a safety concept; a list of what one must cover.
     (38 / 42 V), the gear ratio of the pedal generator, the generator status
     message, the bulk capacitance and the clamp without the BMS, and how the
     BMS of a lead-acid pack detects "empty".
+11. **48 V (later):** the cart starts on a 24 V pack (2026-11-26). A 48 V
+    pack (13S, 54.6 V full plus the regenerative rise) needs a Jacobi power
+    board variant with 80 to 100 V FETs and capacitors, and the thresholds
+    of section 7.2 scaled to the pack. Zuse and the 12 V supply are laid out
+    for 48 V from the start (`docs/zuse_plan.md`, section 3).
 
 ## 13. Risks
 
