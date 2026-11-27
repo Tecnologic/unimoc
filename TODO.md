@@ -82,7 +82,7 @@ go first.
 10. Done (2026-11-08): **Structure for the cart**: `app/` split into
     `apps/drive/` and `apps/vdc/` with `lib/vehicle/` (the VDC and BMS
     boards are STM32H7 based and share `hardware/zephyr_stm32h7`; the pedal
-    unit moved to an STM32G4 on 2026-11-26, decision 14;
+    unit moved to an STM32G473CBT6 on 2026-11-26, decision 14;
     scenarios `unimoc.app.drive.*` and `unimoc.app.vdc.*`, one release
     version in `apps/*/VERSION`). The skeleton VDC on `native_sim` and the
     NUCLEO-H743ZI (build only): node and heartbeat (`org.unimoc.vdc`,
@@ -230,8 +230,8 @@ derating on the real pack, then the cart started from the pedals alone.
 14. The cart periphery (`docs/zuse_plan.md`, section 0): the VDC board is
     **Zuse**; the display is a WT32-SC01 Plus on RS-485 with a lean own
     Cyphal/serial transport and a Zephyr firmware; the pedal unit (Drais) is
-    an STM32G4 node (the part of the former BCC, at least 128 KB flash),
-    updated over USB only, with one three-wire Hall sensor per pedal (an
+    an STM32G473CBT6 node, updated over Cyphal with the image staged in
+    RAM, with one three-wire Hall sensor per pedal (an
     exception to "all boards STM32H7" for nodes without a hot path); a 12 V aux supply
     without MCU; the steering angle sensor (AS5048A, PWM) on a passive board
     at the column; Zuse senses the E-stop loop but has no contact in it; Zuse
@@ -292,7 +292,7 @@ Plan: [docs/motor_identification_plan.md](docs/motor_identification_plan.md) (al
  - [ ] Zuse bring-up on the NUCLEO-H743ZI with breakouts (`docs/zuse_plan.md` section 7): IMU (MPU-9250, then ICM-42688-P), AS5048A PWM on a timer capture, GNSS, RS-485 to the SC01 Plus.
  - [ ] Lean Cyphal/serial transport in `lib/cyphal` (`docs/zuse_plan.md` section 4.2): single-frame transfers, COBS, header CRC and CRC-32C, Zuse as the master of the half-duplex link; ztests of the codec, a `native_sim` test over a pseudo terminal.
  - [ ] Display application (Gutenberg) on Zephyr for the WT32-SC01 Plus (`docs/zuse_plan.md` section 4.3): board definition, the panel init sequence, LVGL screens, `hal_espressif` and `lvgl` in the west allowlist, the ESP32-S3 toolchain and `esptool` in CI. Checked 2026-11-26 by a build (section 4.4): Zephyr 4.5 has the ST7796S, the 8 bit 8080 bus on the LCD-CAM block, the FT6336 (ft5336 driver), PSRAM and the RS-485 mode of the UART; the 8080 driver has no in-tree board yet.
- - [ ] Pedal unit (Drais) on an STM32G4 (`docs/zuse_plan.md` section 6): read the part off the BCC chip (64 KB is too tight: a Cyphal node without hot path is 56 to 66 KB on the G474, section 6.3), the G4 board definition, the pedal state from one three-wire Hall sensor per pedal (range and supply check, both pressed counts as brake), the jump to the ROM DFU bootloader for USB updates.
+ - [ ] Pedal unit (Drais) on the STM32G473CBT6 (`docs/zuse_plan.md` section 6): the G4 board definition, the pedal state from one three-wire Hall sensor per pedal (range and supply check, both pressed counts as brake), the Cyphal update staged in RAM (a RAM `FirmwareBank`, the copy routine in RAM; first on `native_sim`), the jump to the ROM DFU bootloader. Size checked 2026-11-26 (section 6.3): 56 to 66 KB flash, 38 to 59 KB RAM.
  - [ ] Zuse schematic and layout (`docs/zuse_plan.md` sections 2 and 3), then `boards/unimoc/zuse/`.
  - [ ] VDC beyond the skeleton (system plan sections 5.3 and 7): the pedal state as the torque request (pedal map), the speed limit and the fault display of a lost drive, the battery status, stored registers (settings storage, ExecuteCommand, plug-and-play), the firmware update, a release artifact (`build-firmware.yml`), the control loop in its own thread, the lights, the E-stop sense, the display link, yaw-rate control and state estimation in `lib/vehicle/`, the board Zuse (`docs/zuse_plan.md`).
  - [x] (2026-11-17, `docs/motor_thermal_plan.md` T1 to T6) Motor temperature estimate and loss-aware battery limit: two-mass thermal model (`control::MotorThermalModel`) driven by the copper losses with R_s(T), stator resistance estimate at low speed (`control::StatorResistanceEstimator`) as a slow correction with plausibility gates, motor sensor correction (Jacobi NTC with open/short detection), R_s(T) in the observers, current derating, `unimoc.motor.thermal.*`, `unimoc.motor.stator.R_temperature`, read-only `unimoc.motor.temperature.*`, traces 12..15, `unimoc.cart.DriveStatus.0.2` (`thermally_derated`), the estimate as the motor temperature without a sensor; `DcLinkLimit` with the copper losses in the drive limit (bounded at standstill; checked against the DC-link model); heated plant (`unimoc.sim.motor_heating`, `motor_temperature`, `motor_sensor`); heat run tools `scripts/thermal_log.py`, `scripts/thermal_fit.py`. Dropped: a standstill R_s measurement when armed (nothing may stop a drive armed while turning).

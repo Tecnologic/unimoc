@@ -79,7 +79,7 @@ a `README.md` with its boards. The port decisions are in
   (`CMakeLists.txt`, `prj.conf`, `VERSION`, the board configurations in
   `boards/`), `apps/vdc/` the vehicle dynamics controller (on `native_sim`
   and the NUCLEO-H743ZI, later its board Zuse; registers in RAM, no hot
-  path). The pedal unit (Drais, STM32G4), the display (Gutenberg,
+  path). The pedal unit (Drais, STM32G473CBT6), the display (Gutenberg,
   ESP32-S3) and the BMS (Volta) are planned, not built. Platform sources are
   selected from the board's Kconfig symbol (`CONFIG_UNIMOC_PLATFORM_*`), not
   with `#ifdef`. `main()` sets the node up and returns; the drive's control

@@ -25,7 +25,7 @@
 >   **Jacobi** (`boards/unimoc/jacobi/`, board `unimoc_jacobi`). All boards
 >   are STM32H7 based (one platform, `hardware/zephyr_stm32h7`); the
 >   NUCLEO-H743ZI is the bring-up board. Exception 2026-11-26: the pedal
->   unit (no hot path) runs on an STM32G4.
+>   unit (no hot path) runs on an STM32G473CBT6.
 > - (2026-11-26) The VDC board Zuse, the display, the pedal unit, the
 >   steering angle sensor, the 12 V supply and a 24 V pack:
 >   `docs/zuse_plan.md`, section 0.
@@ -96,7 +96,7 @@ record.
 |---|---|---|
 | VDC | Zuse: STM32H7, Zephyr (`docs/zuse_plan.md`) | Driver inputs, vehicle state estimation (IMU, GNSS, wheel speeds, steering angle), torque distribution, torque vectoring, drift assist, lights, display link, logging |
 | Wheel drives (2 or 4) | Jacobi: 4850 power stage + new H743 logic | Torque control per wheel (drive and regenerative braking), wheel speed, limp-home mode (section 7) |
-| Pedal unit | Drais: small STM32G4 board (`docs/zuse_plan.md`, section 6) | Publishes drive and brake pedal positions (one three-wire Hall sensor per pedal, range-checked); sends no commands |
+| Pedal unit | Drais: small STM32G473CBT6 board (`docs/zuse_plan.md`, section 6) | Publishes drive and brake pedal positions (one three-wire Hall sensor per pedal, range-checked); sends no commands |
 | BMS controller | STM32H7 board in the battery (section 5.5) | Cell monitoring, contactor and precharge, state of charge, charge and discharge current limits, brake chopper on the DC link |
 | Steering angle sensor | AS5048A on a small passive board at the steering column, PWM cable to the VDC | Steering angle for the vehicle dynamics; no bus node |
 | IMU, GNSS | ICM-42688-P on the VDC board, a GNSS module on a VDC connector | No bus node |
@@ -125,7 +125,7 @@ record.
 | USB | Firmware update (DFU) only, later. The CDC-ACM console and the shell were dropped (2026-10-21): the bench log is on RTT, the log also goes out as `uavcan.diagnostic.Record`. | One operating interface; USB stays the recovery path. |
 | Settings | Cyphal registers on the existing `SettingsStore` (`docs/settings_plan.md`). | Already designed that way. |
 | Fourth half bridge on the 4850 | ~~One auxiliary half bridge per drive~~ (2026-10-23). **Changed 2026-11-03: Jacobi has three phases only**; the EESM excitation is a second module on the bus, the brake chopper stays in the BMS (section 5.2.1). | Keeps the logic board and the power board connector simple. Costs the local chopper: above the back-EMF peak a PMSM keeps charging the DC link through the body diodes after a trip (section 7.1), so the BMS chopper must hold the DC link. |
-| Firmware update | Cyphal file service into flash bank 2 (dual-bank flash: 2 MB H743, `docs/settings_plan.md`); USB DFU as recovery. An image carries a UNIMOC header (magic, version, size, board name, CRC32 of the payload), checked after the download, before the bank swap (decided 2026-11-08; signatures come with the bootloader). Decided 2026-11-09: **MCUboot** (swap using move, ECDSA P-256, downgrade prevention, test swap with self-confirmation after 10 s on the bus); the payload behind the UNIMOC header is the signed MCUboot image; slot 0 in bank 1, slot 1 in bank 2 next to the settings (`dts/unimoc/stm32h743_flash_layout.dtsi`). Status 2026-11-09: runs on `native_sim` into a RAM bank and on the NUCLEO-H743ZI (download, swap, confirmation, swap back; `docs/zephyr_workflow.md`, "Bootloader and firmware update"); Jacobi builds, not run. Open: a release signing key, a watchdog for an image that hangs before it confirms, USB DFU recovery. 2026-11-26: the pedal unit is the exception, updated over USB only (`docs/zuse_plan.md`, section 6.2). | Update all nodes over the bus without opening the cart. |
+| Firmware update | Cyphal file service into flash bank 2 (dual-bank flash: 2 MB H743, `docs/settings_plan.md`); USB DFU as recovery. An image carries a UNIMOC header (magic, version, size, board name, CRC32 of the payload), checked after the download, before the bank swap (decided 2026-11-08; signatures come with the bootloader). Decided 2026-11-09: **MCUboot** (swap using move, ECDSA P-256, downgrade prevention, test swap with self-confirmation after 10 s on the bus); the payload behind the UNIMOC header is the signed MCUboot image; slot 0 in bank 1, slot 1 in bank 2 next to the settings (`dts/unimoc/stm32h743_flash_layout.dtsi`). Status 2026-11-09: runs on `native_sim` into a RAM bank and on the NUCLEO-H743ZI (download, swap, confirmation, swap back; `docs/zephyr_workflow.md`, "Bootloader and firmware update"); Jacobi builds, not run. Open: a release signing key, a watchdog for an image that hangs before it confirms, USB DFU recovery. 2026-11-27: the pedal unit (128 KB) stages the image in RAM instead of a second slot (`docs/zuse_plan.md`, section 6.2). | Update all nodes over the bus without opening the cart. |
 
 ## 5. Hardware Plan
 
@@ -155,7 +155,7 @@ Decision 2026-11-03: every board of the system is STM32H7 based (one
 platform, `hardware/zephyr_stm32h7`, one timing baseline). The earlier G4
 target is removed; its code is in the git history before 2026-11-03.
 Exception 2026-11-26: small nodes without a hot path (the pedal unit) may
-use an STM32G4 (`docs/zuse_plan.md` section 6).
+use the STM32G473CBT6 (`docs/zuse_plan.md` section 6).
 
 ### 5.2 Jacobi: new 4850 logic board (STM32H743VIT6)
 
@@ -315,18 +315,19 @@ controller"; not run on the board):
 
 Drais (2026-11-26, `docs/zuse_plan.md` section 6):
 
-- Small board with an **STM32G4** (the part of the former BCC, to read off
-  the chip; it needs at least 128 KB flash, `docs/zuse_plan.md` section
-  6.3) and a CAN FD transceiver. An exception to section 5.1 for a node
+- Small board with an **STM32G473CBT6** (128 KB flash, 128 KB SRAM;
+  `docs/zuse_plan.md` section 6.3) and a CAN FD transceiver. An exception to section 5.1 for a node
   without a hot path: a board definition and Zephyr's own drivers, no
   hot-path platform.
 - Pedals: two bought three-wire Hall pedals (5 V, about 1 V released to
   4.6 V pressed), **one channel per pedal**; instead of the two-channel
   plausibility a range check (open wire, short), a check of the sensor
   supply and "both pressed counts as brake".
-- Firmware in this repository (planned application). **Firmware update over
-  USB only** (DFU of the ROM bootloader), no bootloader of our own and no
-  update over the bus: the pedal unit changes rarely.
+- Firmware in this repository (planned application). Firmware update over
+  Cyphal without a bootloader of our own: the image is staged in SRAM,
+  checked, then copied into flash by a routine in RAM (proposal 2026-11-27,
+  `docs/zuse_plan.md` section 6.2); USB DFU of the ROM bootloader is the
+  first flash and the recovery.
 - Limp-home on the pedal state stays (section 7).
 
 ### 5.5 BMS controller with brake chopper
@@ -770,7 +771,7 @@ with the wheel drives needs the multi-node SIL coordinator (`TODO.md`, tier
 | FOC core | `lib/motor_control`, `src/current_control` | Unchanged, shared by all UNIMOC drives |
 | Drive application | `apps/drive/` (Jacobi) | Torque mode with regenerative braking, wheel speed, DC-link limits, limp-home mode, Cyphal node |
 | VDC application | `apps/vdc/` (Zuse) with `lib/vehicle/` | Torque distribution, vehicle state estimation, lights, display link, logging |
-| Pedal application | planned (Drais, STM32G4) | Pedal sensors, range check, publishing; updated over USB |
+| Pedal application | planned (Drais, STM32G473CBT6) | Pedal sensors, range check, publishing; Cyphal update staged in RAM |
 | Display application | planned (Gutenberg, WT32-SC01 Plus, ESP32-S3) | LVGL screens, Cyphal/serial node on RS-485 to the VDC |
 | BMS application | planned (Volta) with `lib/battery/` | Cell monitoring, contactor and precharge, state of charge, current limits, brake chopper |
 | Platforms | `hardware/zephyr_stm32h7` (Jacobi, NUCLEO-H743ZI), `hardware/zephyr_sim` | Hot path per MCU, the rest shared through `hardware/zephyr_common` |

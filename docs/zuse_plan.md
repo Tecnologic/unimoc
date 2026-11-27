@@ -14,7 +14,7 @@
 | Battery | **24 V** pack for now; Zuse and the 12 V supply are laid out for **48 V** nominal. A 48 V Jacobi (80 to 100 V FETs) comes later. | 3 |
 | 12 V supply | A **12 V auxiliary net** from a bought **XL7015 buck module**, separate (not on Volta): **no MCU, no bus node**; replaced by a stronger module if needed. Jacobi keeps its own supply from the DC link. | 3 |
 | Display | Panlee **WT32-SC01 Plus** (3.5", ESP32-S3) on **RS-485** to Zuse, a **lean own Cyphal/serial transport**, firmware on **Zephyr**. | 4 |
-| Pedal unit | Drais, an own Cyphal/CAN-FD node on the **STM32G4 of the former BCC** (part to read off the chip, section 6.2), **firmware update over USB only**. Two three-wire Hall pedals (1 to 4.6 V), one channel each, range-checked. Limp-home on the pedals stays. | 6 |
+| Pedal unit | Drais, an own Cyphal/CAN-FD node on an **STM32G473CBT6** (128 KB), firmware update over Cyphal (RAM staging proposed, section 6.2), USB DFU as recovery. Two three-wire Hall pedals (1 to 4.6 V), one channel each, range-checked. Limp-home on the pedals stays. | 6 |
 | Steering angle sensor | AS5048A on a small passive board at the steering column, cable to Zuse; **not** a bus node, not on the Zuse board. | 5 |
 | E-stop loop | Zuse **senses** it with the optocoupler input of Jacobi; only the E-stop buttons open it, **Zuse has no contact in the loop**. | 2.1 |
 | Lights | **Switched by Zuse**: Infineon BTS high-side switches (PROFET) with current sense; the part is chosen with the schematic. | 2.2 |
@@ -270,7 +270,7 @@ magnet on the column. No MCU, not a bus node.
   (`docs/system_plan.md`, section 7). Zero and end stops are calibrated in
   registers.
 
-## 6. Pedal unit (Drais) on the STM32G4 of the former BCC
+## 6. Pedal unit (Drais) on the STM32G473CBT6
 
 ### 6.1 Pedals
 
@@ -307,16 +307,35 @@ path**: no hot-path platform (the removed `hardware/zephyr_bcc` was one),
 only a board definition, Zephyr's own drivers (FDCAN, ADC) and a
 `cyphal_platform.cpp`.
 
-**The part is to read off the chip.** The user remembers 64 KB flash; the
-repository history names an STM32G473 (128 KB at least, the CET6 with
-512 KB on the BCC board of 2026-10-21). The G473 has no 64 KB variant; a
-64 KB G4 with FDCAN is for example the STM32G431C8 (32 KB SRAM).
+**The part: STM32G473CBT6** (2026-11-27): 128 KB flash, 128 KB SRAM,
+LQFP48, FDCAN, USB. (A 64 KB G4 would not hold the node, section 6.3.)
 
-**Firmware update over USB only (decided 2026-11-26):** one image, no
-bootloader of our own, no update over the bus. The pedal unit changes
-rarely; it is flashed with the DFU of the STM32 ROM bootloader over USB
-(BOOT0 button, or an ExecuteCommand that jumps to the ROM bootloader), and
-over SWD on the bench.
+**Firmware update over Cyphal (proposal 2026-11-27).** Two MCUboot slots
+do not fit into 128 KB, but the update does not need them:
+
+- **Proposal: stage the image in RAM.** The download client of
+  `lib/cyphal` (`FirmwareUpdate`) writes into a `FirmwareBank`; on the G4
+  that bank is a buffer in SRAM, as on `native_sim`. The header and the
+  CRC32 are checked there, before anything in flash changes. `activate()`
+  then runs a short routine from RAM (`__ramfunc`, interrupts off): erase
+  the application pages, copy the buffer, reset. No bootloader of our own,
+  the whole flash minus the settings pages for the application.
+  - RAM: the image (about 60 to 70 KB) plus the running node. The node
+    must shrink to about 50 KB RAM (measured 59 KB, 38 KB with a smaller
+    libcanard heap and Cyphal stack, section 6.3); the buffer gets the rest.
+  - Risk: a power loss during the copy (about a second) leaves no
+    application. The ROM bootloader is always there, so the node is
+    recovered over USB DFU; the cart is parked for an update anyway (no
+    pedal state while it runs).
+  - The settings pages stay outside the copied range.
+- **Alternative: a single-slot Cyphal bootloader** (for example
+  [Kocherga](https://github.com/Zubax/kocherga)) that survives a power loss
+  during the update, at the cost of 16 to 32 KB flash; the application then
+  has 88 to 104 KB, which still fits.
+
+**USB DFU** of the STM32 ROM bootloader (BOOT0 button, or an
+ExecuteCommand that jumps to it) is the first flash and the recovery in
+both cases; SWD on the bench.
 
 ### 6.3 Size check (2026-11-26)
 
@@ -348,22 +367,67 @@ What this means for the part:
 - **32 KB SRAM (G431):** the RAM above (38 KB even trimmed) does not fit
   without shrinking the Cyphal node further.
 
-Recommendation: a G4 with at least 128 KB flash and 64 KB SRAM for the
-new pedal board (STM32G473CBT6, or the G431CB with 128 KB and 32 KB SRAM
-only if the RAM is cut further). The old BCC part serves the bench if it
-has 128 KB.
+Decided 2026-11-27: the STM32G473CBT6 (128 KB flash, 128 KB SRAM).
 
-## 7. Bring-up order
+## 7. Order of work
 
-1. NUCLEO-H743ZI with breakout boards: IMU (MPU-9250 first, ICM-42688-P
-   later), AS5048A (PWM), GNSS, RS-485 transceiver to the SC01 Plus, CAN FD
-   transceiver (`apps/vdc/boards/nucleo_h743zi.overlay`).
-2. The Cyphal/serial transport (section 4.2), then the display application
-   on the SC01 Plus (section 4.3).
-3. The pedal unit on the G4: read the part off the BCC chip, then the
-   board definition (section 6.2).
-4. Schematic and layout of Zuse, then `boards/unimoc/zuse/` (board
-   `unimoc_zuse`).
+Code and schematic run side by side; the layout waits for the bench.
+
+1. **Now, without new hardware:** the Cyphal/serial transport (section
+   4.2), the display application on the SC01 Plus (a finished board,
+   section 4.3), the pedal logic (range check, pedal map) in a library with
+   ztests, the RAM-staged update (section 6.2) on `native_sim`.
+2. **Bench on the NUCLEO-H743ZI with breakouts:** IMU (MPU-9250 first,
+   ICM-42688-P later), AS5048A (PWM on a timer capture), GNSS, RS-485 to the
+   SC01 Plus, CAN FD transceiver (`apps/vdc/boards/nucleo_h743zi.overlay`).
+   This proves the Zephyr drivers and the pin functions before they are
+   frozen in copper.
+3. **Pin assignment as a devicetree:** the Zuse and Drais board
+   definitions (`boards/unimoc/zuse/`, `boards/unimoc/drais/`) written from
+   the CubeMX pinout before the schematic is final; twister builds them, so
+   a pin conflict shows up as a build error.
+4. **Schematics** of both boards (the pedal board first, it is small), in
+   parallel with 2 and 3.
+5. **Layout** after the bench has confirmed the interfaces and the
+   enclosure sizes are known.
+
+## 7.1 Information still needed
+
+For Zuse:
+
+- Board size, mounting place in the cart and the enclosure (where the
+  connectors leave it).
+- GNSS module (part, 3.3 or 5 V, baud rate, PPS).
+- Lamp and horn currents (for the BTS parts and the Micro-Fit pin counts),
+  whether the indicators blink in firmware.
+- The driver controls: which switches exist (key, engage, direction,
+  mode, light, indicator left / right, horn button, mechanical brake
+  switch) and whether they go to Zuse or to the pedal unit.
+- The E-stop loop: its voltage and current (Jacobi's `PWM_EN` input needs
+  12 V, `docs/system_plan.md` section 7.2.1) and who feeds it.
+- The CAN connector pinout: the same as on Jacobi, so one harness fits all
+  nodes.
+- microSD: yes or no.
+
+For the pedal board (Drais):
+
+- Board size and place (at the pedals), its enclosure.
+- Supply: from the 12 V aux net (proposal).
+- Further inputs at the pedals (horn button, direction switch), if any.
+
+For both:
+
+- KiCad version and the symbol and footprint library (the one of
+  Jacobi, proposal), the PCB maker and layer count (JLCPCB as Jacobi;
+  2 layers for Drais, 4 for Zuse).
+
+## 7.2 Hardware repositories
+
+Proposal: one repository per board, like Tecnologic/unimoc_jacobi:
+`unimoc_zuse` and `unimoc_drais`, each with the KiCad project, the BOM and
+the production files; the symbols and footprints shared with Jacobi
+(moved into a library repository used as a git submodule, or copied once).
+The firmware (board definitions, devicetrees) stays in this repository.
 
 ## 8. Applications and boards
 
@@ -374,7 +438,7 @@ The applications keep their names; the board code names
 |---|---|---|
 | `apps/drive/` | Wheel drive (and the pedal generator) | Jacobi (`unimoc_jacobi`), NUCLEO-H743ZI, `native_sim`; later Barlow, Dolivo |
 | `apps/vdc/` | VDC | Zuse (planned, STM32H743VIT6), NUCLEO-H743ZI, `native_sim` |
-| planned | Pedal unit | Drais (STM32G4) |
+| planned | Pedal unit | Drais (STM32G473CBT6) |
 | planned | Display | Gutenberg (WT32-SC01 Plus) |
 | planned | BMS controller | Volta |
 
@@ -385,5 +449,8 @@ The applications keep their names; the board code names
 2. The BTS part for the lights (section 2.2).
 3. The SC01 Plus on the bench: the 8080 driver and the panel init
    sequence (section 4.4).
-4. The G4 part of the pedal unit: 64 KB is too tight (section 6.3).
-5. Later: a Jacobi power board variant for 48 V (80 to 100 V FETs).
+4. The update of the pedal unit: RAM staging (proposal) or a single-slot
+   bootloader (section 6.2).
+5. The information of section 7.1 and the hardware repositories
+   (section 7.2).
+6. Later: a Jacobi power board variant for 48 V (80 to 100 V FETs).
