@@ -73,7 +73,7 @@ record.
         \              |                |                 /
          +-------------+----------------+----------------+
          |   Vehicle dynamics controller (VDC): Zuse      |   STM32H7, Zephyr
-         |   lights, indicators, E-stop loop sense       |
+         |   lights, indicators, E-stop loop sense        |
          +----------------------+-------------------------+
                                 |
      ======================= CAN FD (Cyphal/CAN) ========================
