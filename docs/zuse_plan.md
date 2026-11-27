@@ -1,6 +1,6 @@
 # Zuse: VDC Board and the Cart Periphery
 
-> **Status (2026-11-26):** draft. Nothing is drawn or built. Zuse is the
+> **Status (2026-11-26, updated 2026-11-27):** draft. Nothing is drawn or built. Zuse is the
 > vehicle dynamics controller (VDC) board of the cart (`docs/system_plan.md`,
 > sections 3, 5.0 and 5.3). Its firmware is `apps/vdc/`, today on the
 > NUCLEO-H743ZI and `native_sim`. This file also collects what was decided
@@ -23,6 +23,13 @@
 | Enclosure | 3D printed in **ABS / ASA**. | 2.5 |
 | Names | The applications keep their names (`apps/drive/`, `apps/vdc/`); the board code names are in the documentation (`apps/*/README.md`). | 8 |
 | MCU | Zuse gets the **STM32H743VIT6** of Jacobi (one part, one platform). | 2 |
+| Boards (2026-11-27) | Zuse is a **stack of two boards**: the logic board and a light board with the high-side switches. Made at **JLCPCB**, components on **one side, 0603** and larger; the boards are sized for that. | 2, 2.2 |
+| Mounting (2026-11-27) | **Zuse at the bottom, in the middle of the cart**; **Drais at the front between the pedals**. Both run from the **12 V aux net**. | 2.5, 6 |
+| CAN connector (2026-11-27) | **The same connector and pinout on every node** (that of Jacobi), so one harness fits all. | 2 |
+| GNSS (2026-11-27) | A **u-blox M10 drone module**, mounted on top of the cart with a cable to Zuse. | 2.6 |
+| microSD (2026-11-27) | **Yes**, for logging. | 2 |
+| Lamps (2026-11-27) | 12 V LED garden lamps as headlights; indicators and tail lights to buy (12 V LED); **no horn**; the indicators **blink in software**. | 2.2 |
+| Controls (2026-11-27) | Light, indicators, gear (forward, neutral, reverse) and mode **on Zuse**, and **optionally from the display**. | 2.7 |
 
 Checked on 2026-11-26 (builds, nothing run on hardware): the pedal
 application fits a G4 with 128 KB, not one with 64 KB (section 6.3), and Zephyr 4.5 has every driver the
@@ -31,14 +38,14 @@ SC01 Plus needs (section 4.4). No blocker, if the pedal G4 has 128 KB.
 ## 1. Function
 
 - Cyphal/CAN-FD node (node-ID 1), the VDC application `apps/vdc/`.
-- Driver inputs on Zuse: key switch, engage, direction, mode, the switch of
-  the mechanical brake. The pedals come over the bus
+- Driver inputs on Zuse: key switch, engage, gear, mode, light, indicators,
+  the switch of the mechanical brake (section 2.7). The pedals come over the bus
   (`unimoc.cart.PedalState` from Drais).
 - Vehicle state: IMU on the board, GNSS module, steering angle, wheel speeds
   from the drive status.
 - Torque distribution, later torque vectoring and drift assist
   (`lib/vehicle/`).
-- Lights and horn.
+- Lights and indicators (on the light board of the stack).
 - The display link (Gutenberg) and logging to a microSD card.
 - Senses the E-stop loop; never opens, closes or bridges it.
 
@@ -51,10 +58,10 @@ SC01 Plus needs (section 4.4). No blocker, if the pedal G4 has 128 KB.
 | CAN 2 (optional) | CANH, CANL, GND | Footprint only | FDCAN2 |
 | E-stop sense | Loop in, loop return | Optocoupler circuit of Jacobi (section 2.1) | GPIO (EXTI) |
 | Display (SC01 Plus) | RS-485 A, B, GND, +5 V | Half-duplex transceiver, switchable 120 Ω, ESD; +5 V switched and current limited (≥ 0.5 A) | USART1 with hardware DE, GPIO for the 5 V switch |
-| GNSS | TX, RX, PPS, +5 V / 3.3 V, GND | Series resistors, ESD; switched supply | USART2, TIM input capture (PPS) |
+| GNSS (M10 drone module) | TX, RX, +5 V, GND; PPS if the module has it; I2C for its compass (optional) | Series resistors, ESD; switched supply | USART2, TIM input capture (PPS) |
 | Steering angle sensor | +5 V, GND, PWM (baseline); SPI lines reserved | Shielded cable, RC filter, ESD; switched supply | TIM input capture; SPI2 option |
-| Driver inputs | Key switch (wake), engage, direction forward / reverse, mode, mechanical brake switch, 1 spare | 12 to 60 V tolerant, switched to GND | GPIO |
-| Lights and horn (Micro-Fit) | 6 switched outputs (section 2.2) | Protected high-side switches with current sense | GPIO, ADC (sense) |
+| Driver inputs | Key switch (wake), engage, gear (forward / reverse; neither: neutral), mode, light, indicator left, indicator right, mechanical brake switch, 2 spare: 11 (section 2.7) | 12 to 60 V tolerant, switched to GND | GPIO |
+| Stack connector to the light board | 12 V and GND for the lamps, the enable of each output, the current sense lines | Board-to-board header | GPIO, ADC (sense) |
 | microSD | SDMMC 4 bit | Card detect | SDMMC1 |
 | Debug | SWD, SWO, NRST | Tag-Connect TC2050 (as Jacobi) | SWD (RTT log) |
 | USB-C | USB FS | DFU recovery | OTG_FS |
@@ -81,15 +88,36 @@ the loop, so it sees "loop open" no matter which button opened it, shows it
 on the display and logs it. The sense input loads the loop like one more
 drive.
 
-### 2.2 Lights and horn
+### 2.2 Light board (second board of the stack)
 
-Six protected high-side outputs at 12 V (aux net): headlight, tail light,
-brake light, indicator left, indicator right, horn. Infineon BTS high-side
-switches (PROFET family, single or dual channel) with the current sense
-(IS) pin on an ADC input, so Zuse detects a broken lamp (the brake light
-above all) and a short. The part follows from the lamp currents when the
-schematic is drawn. The brake light follows the
-brake pedal and the regenerative brake torque, not only a pedal switch.
+The light outputs sit on their own board under or above the logic board,
+connected by a board-to-board header (12 V in, the enables and the current
+sense lines). The lamp currents then stay off the logic board, and a
+burnt output costs the small board only. The lamp connectors (Micro-Fit)
+are on the light board.
+
+Six protected high-side outputs at 12 V (aux net):
+
+| Output | Lamp |
+|---|---|
+| 1 | Headlights (12 V LED garden lamps, at hand) |
+| 2 | Tail lights (12 V LED, to buy) |
+| 3 | Brake lights (12 V LED, to buy; may share the tail lamp with two brightness levels by PWM) |
+| 4 | Indicators left (front and rear) |
+| 5 | Indicators right (front and rear) |
+| 6 | Spare |
+
+- **Switches:** Infineon BTS high-side switches (PROFET family, dual
+  channel) with the current sense (IS) pin on an ADC input of Zuse. The LED
+  loads draw little (a few hundred mA per output), so the smallest parts
+  of the family do; their current sense is coarse at such currents, enough
+  to tell a missing lamp from a working one, which the indicators need
+  (a fast blink shows a broken indicator, as in a car).
+- **Indicators blink in software** (about 1.5 Hz), with the hazard lights
+  (both sides) on a fault, for example the E-stop loop open.
+- **The brake light** follows the brake pedal and the regenerative brake
+  torque, not only a pedal switch.
+- No horn.
 
 ### 2.3 Connectors
 
@@ -98,6 +126,9 @@ brake pedal and the regenerative brake torque, not only a pedal switch.
   hot glue does. PH carries 2 A per contact.
 - **Supply and lights: Molex Micro-Fit 3.0** (3.0 mm, latching, up to about
   5 A per contact depending on the wire and the pin count; parts at hand).
+- **CAN: the same connector and pinout on every node**, those of Jacobi
+  (two per board, in and out, for the daisy chain).
+- **Assembly:** JLCPCB, all parts on one side, 0603 and larger.
 
 ### 2.4 IMU: TDK ICM-42688-P
 
@@ -115,18 +146,89 @@ from gravity, the heading axis from a straight acceleration), so the board
 does not need to sit level. Mount the board rigidly near the centre of
 gravity of the cart.
 
-### 2.5 Enclosure
+### 2.5 Enclosure, water and heat
 
-Printed in ABS or ASA (ASA for outdoor use: UV stable). The board sits on
-screws in brass heat-set inserts, not on foam, so the IMU sees the cart and
-not the enclosure. Openings for the connectors and the USB-C socket; the
-JST PH plugs held by a rib (section 2.3).
+Printed in ABS or ASA (ASA for outdoor use: UV stable). The board stack
+sits on screws in brass heat-set inserts, not on foam, so the IMU sees the
+cart and not the enclosure. Zuse is mounted at the bottom in the middle of
+the cart (close to the centre of gravity, good for the IMU; exposed to
+spray water and dirt from the road); Drais at the front between the
+pedals.
+
+**Water:** a printed part is not watertight by itself; the water creeps
+between the layers. Splash water (about IP54) is reachable, immersion is
+not. What helps:
+
+- Thick walls (four or more perimeters, 100 % infill near the sealing
+  faces), printed hot and slow for good layer bonding; ASA and ABS can be
+  smoothed with acetone vapour, which closes the surface, or coated (epoxy
+  coating).
+- A lid with a groove and a gasket (printed TPU or an O-ring cord), and
+  screws close together.
+- The cables leave through cable glands (PG7 / M12), the JST PH and
+  Micro-Fit plugs stay inside; or sealed connectors in the wall (Deutsch
+  DT, Superseal) for the harness. USB-C and the microSD inside, under the
+  lid.
+- A pressure-equalisation vent (a membrane vent), so that warming and
+  cooling do not pump humid air in through the seals; openings at the
+  bottom, not at the top.
+- Conformal coating of the boards as a second line, except the connectors
+  and the IMU.
+
+**Heat:** no cooling needed. Zuse dissipates about 2 to 3 W (the H743 at
+400 MHz well below 1 W, the 5 V buck and the transceivers about 1 W, the
+high-side switches with LED loads almost nothing; the 12 V converter
+outside). In a closed box under the cart that raises the inside by about
+10 to 20 K; ABS and ASA soften only near 100 °C. Keep the 12 V converter in
+its own (potted) housing outside the box.
+
+### 2.6 GNSS: u-blox M10 drone module
+
+A drone module (u-blox M10, often with a compass on I2C): 5 V, UART at 3.3 V
+(38400 or 115200 baud, UBX protocol), PPS only on some modules. Under the
+cart it would see little sky, so the module sits on top of the cart (the
+body or the seat back), with a cable to Zuse (JST PH, 4 to 6 wires). The
+compass of such modules is not used (motors and steel nearby).
+
+### 2.7 Driver controls
+
+The controls are switches to GND on the driver inputs of Zuse: key
+(wake), engage, gear (forward / reverse; neither is neutral), mode, light,
+indicator left, indicator right, mechanical brake switch. The display can
+do the same over its Cyphal link (light, indicators, mode, and the gear),
+so the switches can be fewer later. The display is a request, not a
+command: Zuse takes a gear change only at standstill with the brake
+pressed, as from the switch, and the switches win over the display.
+
+### 2.8 Option: a flight controller as the logic board
+
+Drone flight controllers with an STM32H743 have much of what Zuse needs:
+for example the Matek H743 family (H743-WING, H743-SLIM; to check per
+model): the same STM32H743VIT6, an ICM-42688-P, a microSD slot, many
+UARTs, ADC inputs and, on some models, a CAN FD transceiver. Zephyr has no
+board definition for them; one is written like Jacobi's (pins from the
+vendor's ArduPilot or Betaflight target).
+
+- **For:** a finished, tested board for the bench and the first rides,
+  with a vibration-damped IMU; no logic board to design first.
+- **Against:** no RS-485 to the display, no E-stop optocoupler, no
+  protected 12 V inputs for the switches, small connectors (JST GH 1.25 mm)
+  not made for a vehicle harness, CAN only on some models, and its supply
+  range (2S to 6S or 8S) to check against the pack.
+
+**Proposal:** a flight controller as an intermediate step instead of the
+NUCLEO, with the light board extended into an I/O board (RS-485, the
+E-stop sense, the input protection, the light switches) in the stack; the
+own logic board later, or never if the flight controller holds up. The
+firmware stays the same, only the board definition differs.
 
 ## 3. Power
 
-- **12 V aux net** for Zuse, the display, the sensors, the lights and the
-  horn. Budget (estimate): Zuse 2 W, display 1 W, GNSS 0.5 W, lights
-  20 to 30 W, horn 10 W; about 50 W, so 12 V / 5 A.
+- **12 V aux net** for Zuse, Drais, the display, the sensors and the
+  lights. Budget (estimate, 2026-11-27, LED lamps, no horn): Zuse 2 to 3 W,
+  Drais 0.5 W, display 1 W, GNSS 0.5 W, lights 10 to 20 W (headlights, tail
+  and brake lights, indicators); about 15 to 25 W, so 12 V / 2 A, with
+  margin 3 A. To check with the real lamps.
 - **A bought XL7015 buck module, separate, not on Volta; no MCU, no bus
   node.** Zuse and the display hang on this net; a converter regulated by
   firmware would take them down on every crash, update or reset of its MCU.
@@ -135,10 +237,10 @@ JST PH plugs held by a rib (section 2.3).
 - **XL7015 and the budget:** the XL7015 takes up to 80 V, which covers a
   48 V pack, but it is rated about 0.8 A output (XLSEMI datasheet; check the
   module's own rating): about 10 W at 12 V. That carries the electronics
-  (Zuse, display, GNSS, sensors: about 4 to 5 W) but not the lights and the
-  horn (30 to 40 W). Either the lights get their own, stronger converter
-  (a 24 / 48 V to 12 V vehicle DC/DC of 5 to 10 A), or the XL7015 is
-  replaced by one such converter for everything.
+  (Zuse, Drais, display, GNSS: about 5 W) but not the lights on top.
+  Proposal: replace it by one potted vehicle DC/DC (24 / 48 V to 12 V,
+  3 to 5 A, waterproof housing), which also solves its own cooling and
+  water protection.
 - Its input is a diode OR of the pack (after the key switch, fused) and the
   DC link, so it runs before the contactor closes and without a battery
   when the pedal generator holds the link (`docs/system_plan.md`, section
@@ -393,33 +495,21 @@ Code and schematic run side by side; the layout waits for the bench.
 
 ## 7.1 Information still needed
 
-For Zuse:
+Answered on 2026-11-27: JLCPCB, one side 0603, 12 V for both boards, the
+same CAN connector, the mounting places, microSD, GNSS, lamps, controls
+(section 0). Still open:
 
-- Board size, mounting place in the cart and the enclosure (where the
-  connectors leave it).
-- GNSS module (part, 3.3 or 5 V, baud rate, PPS).
-- Lamp and horn currents (for the BTS parts and the Micro-Fit pin counts),
-  whether the indicators blink in firmware.
-- The driver controls: which switches exist (key, engage, direction,
-  mode, light, indicator left / right, horn button, mechanical brake
-  switch) and whether they go to Zuse or to the pedal unit.
+- The enclosure designs and from them the board outlines (Zuse at the
+  bottom in the middle, Drais between the pedals).
 - The E-stop loop: its voltage and current (Jacobi's `PWM_EN` input needs
   12 V, `docs/system_plan.md` section 7.2.1) and who feeds it.
-- The CAN connector pinout: the same as on Jacobi, so one harness fits all
-  nodes.
-- microSD: yes or no.
-
-For the pedal board (Drais):
-
-- Board size and place (at the pedals), its enclosure.
-- Supply: from the 12 V aux net (proposal).
-- Further inputs at the pedals (horn button, direction switch), if any.
-
-For both:
-
-- KiCad version and the symbol and footprint library (the one of
-  Jacobi, proposal), the PCB maker and layer count (JLCPCB as Jacobi;
-  2 layers for Drais, 4 for Zuse).
+- The current of the real lamps (garden LEDs, the indicators and tail
+  lights to buy), for the BTS parts and the 12 V converter.
+- The exact M10 module (with or without PPS).
+- KiCad version and the symbol and footprint library (the one of Jacobi,
+  proposal); layer count (proposal: 2 layers for Drais and the light
+  board, 4 for the Zuse logic board).
+- Flight controller as the first Zuse logic (section 2.8): yes or no.
 
 ## 7.2 Hardware repositories
 
@@ -444,9 +534,9 @@ The applications keep their names; the board code names
 
 ## 9. Open Points
 
-1. The supply of the lights: a second, stronger converter next to the
-   XL7015, or one vehicle DC/DC for everything (section 3).
-2. The BTS part for the lights (section 2.2).
+1. The 12 V converter: a potted vehicle DC/DC of 3 to 5 A in place of the
+   XL7015 (section 3).
+2. The BTS part for the lights, after the lamp currents (section 2.2).
 3. The SC01 Plus on the bench: the 8080 driver and the panel init
    sequence (section 4.4).
 4. The update of the pedal unit: RAM staging (proposal) or a single-slot

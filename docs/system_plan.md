@@ -73,7 +73,7 @@ record.
         \              |                |                 /
          +-------------+----------------+----------------+
          |   Vehicle dynamics controller (VDC): Zuse      |   STM32H7, Zephyr
-         |   lights and horn, E-stop loop sense           |
+         |   lights, indicators, E-stop loop sense       |
          +----------------------+-------------------------+
                                 |
      ======================= CAN FD (Cyphal/CAN) ========================
@@ -101,7 +101,7 @@ record.
 | Steering angle sensor | AS5048A on a small passive board at the steering column, PWM cable to the VDC | Steering angle for the vehicle dynamics; no bus node |
 | IMU, GNSS | ICM-42688-P on the VDC board, a GNSS module on a VDC connector | No bus node |
 | Display | Gutenberg: WT32-SC01 Plus (ESP32-S3), Zephyr | Cyphal node on RS-485 to the VDC (Cyphal/serial), not on the CAN bus |
-| 12 V supply | A bought XL7015 buck module, separate (a stronger converter for the lights if needed) | Supply of the VDC, display, sensors and lights; no MCU, no bus node |
+| 12 V supply | A bought DC/DC module, separate (XL7015 at hand; a potted 3 to 5 A vehicle converter proposed for the lights) | Supply of the VDC, the pedal unit, display, sensors and lights; no MCU, no bus node |
 | Steering assist | Later: UNIMOC | Out of scope until a steering concept exists |
 | EESM excitation | Later: own module (section 5.2.1) | Field current of an EESM drive, commanded by its drive over the bus |
 | NUCLEO-H743ZI (`apps/drive/boards/nucleo_h743zi.*`) | ST evaluation board | Bring-up of the STM32H7 platform before Jacobi exists; not part of the cart |
