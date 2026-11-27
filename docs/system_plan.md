@@ -822,7 +822,9 @@ Not a safety concept; a list of what one must cover.
 
 - E-stop and power-stage cutoff hard-wired, never only over the bus. The
   loop is opened by the E-stop buttons only; the VDC senses it and has no
-  contact in it.
+  contact in it. It is fed from the DC link through a small fuse
+  (2026-11-27), so it works without the VDC and the 12 V net; every input
+  on it must take about 10 to 60 V (`docs/zuse_plan.md`, section 2.1).
 - Mechanical emergency brake able to stop the cart from top speed on its own
   (section 7.1).
 - The regenerative service brake keeps working without the VDC (limp-home

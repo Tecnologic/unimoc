@@ -29,6 +29,8 @@
 | GNSS (2026-11-27) | A **u-blox M10 drone module**, mounted on top of the cart with a cable to Zuse. | 2.6 |
 | microSD (2026-11-27) | **Yes**, for logging. | 2 |
 | Lamps (2026-11-27) | 12 V LED garden lamps as headlights; indicators and tail lights to buy (12 V LED); **no horn**; the indicators **blink in software**. | 2.2 |
+| E-stop loop supply (2026-11-27) | **The DC link through a small fuse**, so the loop works without the VDC and the 12 V net (limp-home). | 2.1 |
+| Logic board (2026-11-27) | **An own board**; no flight controller (none with CAN FD at a reasonable price). | 2.8 |
 | Controls (2026-11-27) | Light, indicators, gear (forward, neutral, reverse) and mode **on Zuse**, and **optionally from the display**. | 2.7 |
 
 Checked on 2026-11-26 (builds, nothing run on hardware): the pedal
@@ -87,6 +89,27 @@ optocoupler on PE15, schematic in Tecnologic/unimoc_jacobi) at the end of
 the loop, so it sees "loop open" no matter which button opened it, shows it
 on the display and logs it. The sense input loads the loop like one more
 drive.
+
+**Supply of the loop (decided 2026-11-27): the DC link**, through a small
+fuse, not the 12 V aux net. The loop then works whenever the drives have
+power, also without the VDC, the 12 V converter or a battery (the pedal
+generator), so limp-home keeps its enable (`docs/system_plan.md`, section
+7.2.6: `PWM_EN` from the DC link side through the key switch).
+
+Consequences for every optocoupler input on the loop (the drives and Zuse):
+
+- The loop voltage spans about 10 V (the generator boots the logic) to the
+  full pack plus the regenerative rise: about 30 V on the 24 V pack, up to
+  60 V with 48 V. Jacobi's `PWM_EN` input is to check over that range: a
+  plain series resistor sized for 12 V burns and overdrives the LED at
+  60 V. Proposal for Zuse (and a later Jacobi revision): a current-limited
+  input (a two-transistor or JFET current source, or a current-limiting
+  diode, about 2 to 5 mA) in front of the LED, with a Zener or TVS against
+  the transients of the DC link.
+- The loop is at DC-link potential and runs around the cart: the small
+  fuse sits right at the DC link tap, the wire is protected against
+  chafing, and the E-stop buttons are rated for the DC voltage (DC breaks
+  arc more than AC).
 
 ### 2.2 Light board (second board of the stack)
 
@@ -200,27 +223,12 @@ so the switches can be fewer later. The display is a request, not a
 command: Zuse takes a gear change only at standstill with the brake
 pressed, as from the switch, and the switches win over the display.
 
-### 2.8 Option: a flight controller as the logic board
+### 2.8 No flight controller (decided 2026-11-27)
 
-Drone flight controllers with an STM32H743 have much of what Zuse needs:
-for example the Matek H743 family (H743-WING, H743-SLIM; to check per
-model): the same STM32H743VIT6, an ICM-42688-P, a microSD slot, many
-UARTs, ADC inputs and, on some models, a CAN FD transceiver. Zephyr has no
-board definition for them; one is written like Jacobi's (pins from the
-vendor's ArduPilot or Betaflight target).
-
-- **For:** a finished, tested board for the bench and the first rides,
-  with a vibration-damped IMU; no logic board to design first.
-- **Against:** no RS-485 to the display, no E-stop optocoupler, no
-  protected 12 V inputs for the switches, small connectors (JST GH 1.25 mm)
-  not made for a vehicle harness, CAN only on some models, and its supply
-  range (2S to 6S or 8S) to check against the pack.
-
-**Proposal:** a flight controller as an intermediate step instead of the
-NUCLEO, with the light board extended into an I/O board (RS-485, the
-E-stop sense, the input protection, the light switches) in the stack; the
-own logic board later, or never if the flight controller holds up. The
-firmware stays the same, only the board definition differs.
+A flight controller with an STM32H743 (ICM-42688-P, microSD) was
+considered as the logic board; none with a CAN FD transceiver at a
+reasonable price was found, and they lack RS-485, the E-stop input and
+protected 12 V inputs anyway. Zuse is an own board.
 
 ## 3. Power
 
@@ -501,15 +509,14 @@ same CAN connector, the mounting places, microSD, GNSS, lamps, controls
 
 - The enclosure designs and from them the board outlines (Zuse at the
   bottom in the middle, Drais between the pedals).
-- The E-stop loop: its voltage and current (Jacobi's `PWM_EN` input needs
-  12 V, `docs/system_plan.md` section 7.2.1) and who feeds it.
+- Jacobi's `PWM_EN` input over the loop voltage range of 10 to 60 V
+  (section 2.1).
 - The current of the real lamps (garden LEDs, the indicators and tail
   lights to buy), for the BTS parts and the 12 V converter.
 - The exact M10 module (with or without PPS).
 - KiCad version and the symbol and footprint library (the one of Jacobi,
   proposal); layer count (proposal: 2 layers for Drais and the light
   board, 4 for the Zuse logic board).
-- Flight controller as the first Zuse logic (section 2.8): yes or no.
 
 ## 7.2 Hardware repositories
 
